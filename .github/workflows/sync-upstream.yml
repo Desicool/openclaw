@@ -83,10 +83,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch latest synced main
-        run: git fetch origin main:refs/heads/main
+        run: git fetch origin main
 
       - name: Force-push main to desicool-release
         run: |
           git push --force \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
-            refs/heads/main:refs/heads/desicool-release
+            refs/remotes/origin/main:refs/heads/desicool-release
