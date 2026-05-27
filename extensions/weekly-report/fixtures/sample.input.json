@@ -1,0 +1,27 @@
+{
+  "week_title": "2026.5.18-2026.5.24",
+  "current_week": [
+    {
+      "title": "GrowX 同步",
+      "intent": "推进 GrowX 的设计和落地",
+      "objective": "完成 GrowX 周内迭代节奏的对齐",
+      "completed": [
+        "和旭哥同步本周的设计变更",
+        "落地评审会议中的两条 action item"
+      ]
+    },
+    {
+      "title": "OpenClaw Weekly Report Plugin",
+      "intent": "把每周五的周报流程做成可恢复的 TaskFlow",
+      "objective": "完成最小闭环：cron + 卡片 + 文档写入",
+      "completed": [
+        "完成需求拆解和技术方案",
+        "搭建 weekly-report extension 脚手架"
+      ]
+    }
+  ],
+  "next_week": [
+    { "project": "GrowX", "plan": "完成 V2 prototype 评审" },
+    { "project": "Weekly Report Plugin", "plan": "上线最小闭环并跑通真实卡片" }
+  ]
+}
