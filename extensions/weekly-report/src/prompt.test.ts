@@ -20,6 +20,15 @@ describe("DRAFTING_PROMPT_TEMPLATE", () => {
     expect(DRAFTING_PROMPT_TEMPLATE).toContain("submit_weekly_report_draft");
   });
 
+  it("instructs the agent to deliver the card via feishu_ask_user_question (not plain reply)", () => {
+    expect(DRAFTING_PROMPT_TEMPLATE).toContain("feishu_ask_user_question");
+    expect(DRAFTING_PROMPT_TEMPLATE).toMatch(/NEVER reply.*plain text|will not render/iu);
+  });
+
+  it("names respond_to_weekly_report_card as the follow-up after the user answers", () => {
+    expect(DRAFTING_PROMPT_TEMPLATE).toContain("respond_to_weekly_report_card");
+  });
+
   it("still ships the strict JSON schema fields", () => {
     for (const field of ["current_week", "next_week", "intent", "objective", "completed"]) {
       expect(DRAFTING_PROMPT_TEMPLATE).toContain(field);

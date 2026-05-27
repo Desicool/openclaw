@@ -12,8 +12,7 @@
 
 import { Type } from "typebox";
 import type { OpenClawPluginApi } from "../runtime-api.js";
-import { parseCardActionInput, type RespondToCardArgs } from "./card-action-handler.js";
-import { buildConfirmationCard, type WeeklyReportCard } from "./card.js";
+import { buildDraftPreview } from "./card.js";
 import { findActiveWeeklyReportFlow } from "./dedupe.js";
 import { buildSentinelEnd, buildSentinelStart, spliceWeeklySection } from "./doc-splicer.js";
 import { runGitActivity, type RunCommandFn } from "./git-activity.js";
@@ -23,6 +22,7 @@ import {
   WEEKLY_REPORT_CARD_ACTIONS,
   WEEKLY_REPORT_STEPS,
   isWeeklyReportFlowState,
+  type WeeklyReportCardAction,
   type WeeklyReportFlowState,
 } from "./types.js";
 
@@ -182,13 +182,8 @@ export function createSubmitWeeklyReportDraftTool(
         stateJson: initialState as never,
       });
 
-      const card: WeeklyReportCard = buildConfirmationCard({
-        flowId: flow.flowId,
-        weekKey,
-        weekTitle,
-        draft,
-        ...(revisionLabel ? { revisionLabel } : {}),
-      });
+      const previewMarkdown = buildDraftPreview(draft);
+      const headerSuffix = revisionLabel ? ` (${revisionLabel})` : "";
 
       const setWaitResult = taskFlow.setWaiting({
         flowId: flow.flowId,
@@ -204,16 +199,27 @@ export function createSubmitWeeklyReportDraftTool(
 
       return buildResponse({
         ok: true,
-        action: "card_ready",
+        action: "ask_user",
         flowId: flow.flowId,
         revision: flow.revision,
         weekKey,
         weekTitle,
         recipientSessionKey,
-        card,
+        previewMarkdown,
+        questionHeader: `Weekly Report — ${weekTitle}${headerSuffix}`,
+        confirmLabel: "直接写入",
+        supplementLabel: "我要补充（在下方输入补充内容）",
         waitingMutation: setWaitResult,
-        instructions:
-          "Send the `card` JSON to `recipientSessionKey` via the appropriate Feishu card delivery mechanism. Then wait for the user's card-action event.",
+        instructions: [
+          "DO NOT reply with the raw preview text or any JSON to the user — replies are rendered as plain messages, not interactive cards.",
+          "Call `feishu_ask_user_question` with ONE question entry shaped like:",
+          "  { header: questionHeader, question: previewMarkdown, options: [confirmLabel, supplementLabel] }",
+          "That tool delivers an interactive Feishu card with the preview + an input field + selection buttons, and returns immediately.",
+          "When the user submits, you will receive a NEW message containing their selection and any supplement text.",
+          "Then call `respond_to_weekly_report_card` with:",
+          `  { flowId: "${flow.flowId}", weekKey: "${weekKey}", sessionKey: <current sessionKey>, action: "confirm" | "supplement", supplement?: <text if action=supplement> }`,
+          "Map the user's choice: if they picked `confirmLabel` → action='confirm'. If they picked `supplementLabel` or supplied free-text → action='supplement', supplement=<their text>.",
+        ].join("\n"),
       });
     },
   };
@@ -227,11 +233,13 @@ export function createRespondToWeeklyReportCardTool(deps: CommonToolDeps) {
     name: "respond_to_weekly_report_card",
     label: "Respond to Weekly Report Card",
     description:
-      "Handle a synthetic card-action event from the Feishu plugin. Validates trust and routes to confirm (transition to writing_doc, return splice instructions) or supplement (transition to revising, return draft + supplement for re-drafting).",
+      "Call after the user submits the feishu_ask_user_question card created by submit_weekly_report_draft. Validates trust and either transitions to writing_doc (action='confirm', returns splice instructions) or to revising (action='supplement', returns the originalDraft + supplement for re-drafting).",
     parameters: Type.Object({
-      metadataJson: Type.String({
+      flowId: Type.String({ description: "Flow id returned by submit_weekly_report_draft." }),
+      weekKey: Type.String({ description: "Week key returned alongside the flowId." }),
+      action: Type.String({
         description:
-          "JSON string of the card-action envelope `.m` metadata (the {type, flowId, weekKey, action} payload).",
+          "Either 'confirm' (user wants the current draft written as-is) or 'supplement' (user added text to be merged into a revised draft).",
       }),
       supplement: Type.Optional(
         Type.String({
@@ -239,36 +247,35 @@ export function createRespondToWeeklyReportCardTool(deps: CommonToolDeps) {
         }),
       ),
       sessionKey: Type.String({
-        description: "Bound session key of the inbound card-action event (for trust check).",
+        description: "Bound session key (your current ctx.sessionKey) for trust check.",
       }),
     }),
     async execute(_id: string, params: Record<string, unknown>): Promise<ToolContent> {
-      const metadataRaw = readRequiredString(params.metadataJson, "metadataJson");
-      let metadata: unknown;
-      try {
-        metadata = JSON.parse(metadataRaw);
-      } catch (err) {
-        throw new Error(`metadataJson must be valid JSON: ${(err as Error).message}`);
-      }
-
+      const flowId = readRequiredString(params.flowId, "flowId");
+      const weekKey = readRequiredString(params.weekKey, "weekKey");
+      const actionRaw = readRequiredString(params.action, "action");
       const sessionKey = readRequiredString(params.sessionKey, "sessionKey");
-      const parse = parseCardActionInput({
-        metadata,
-        supplement: params.supplement,
-      });
-      if (!parse.ok) {
+      if (!WEEKLY_REPORT_CARD_ACTIONS.includes(actionRaw as WeeklyReportCardAction)) {
         return buildResponse({
           ok: false,
           action: "invalid",
-          reason: parse.reason,
-          userMessage:
-            parse.reason === "wrong_action_supplement_required"
-              ? "Supplement card was clicked but no supplement text was provided. Please type a supplement and resubmit."
-              : "This weekly-report card is no longer valid.",
+          reason: "unknown_action",
+          userMessage: `Unknown action "${actionRaw}". Expected one of: ${WEEKLY_REPORT_CARD_ACTIONS.join(", ")}.`,
         });
       }
-
-      const args: RespondToCardArgs = parse.args;
+      const action = actionRaw as WeeklyReportCardAction;
+      const supplementText =
+        action === "supplement" ? readOptionalString(params.supplement, "supplement") : undefined;
+      if (action === "supplement" && !supplementText) {
+        return buildResponse({
+          ok: false,
+          action: "invalid",
+          reason: "supplement_required",
+          userMessage:
+            "User picked supplement but did not provide text. Ask them again with feishu_ask_user_question.",
+        });
+      }
+      const args = { flowId, weekKey, action, supplement: supplementText };
       const trustResult = validateTrust({
         taskFlow,
         controllerId,
@@ -353,11 +360,11 @@ export function createRespondToWeeklyReportCardTool(deps: CommonToolDeps) {
         weekKey: state.weekKey,
         weekTitle: state.weekTitle,
         originalDraft: state.draft,
-        supplement: args.supplement!,
+        supplement: supplementText,
         instructions: [
           "Merge the supplement into the original draft (likely as a new current_week item or additional bullet on an existing item). Use your judgment about grouping.",
-          "Call `submit_weekly_report_draft` again with the revised draft and `supersedeFlowId` set to this flowId.",
-          "Use a `revisionLabel` like 'Revision 2' to make the new card distinguishable.",
+          `Call \`submit_weekly_report_draft\` again with the revised draft, \`supersedeFlowId: "${flow.flowId}"\`, and a \`revisionLabel\` like 'Revision 2' to make the new card distinguishable.`,
+          "The follow-up will return new instructions to call `feishu_ask_user_question` again with the revised preview.",
         ].join("\n"),
       });
     },

@@ -23,9 +23,11 @@ Steps:
    - Optionally read the configured notesDocToken (if any) via \`feishu_doc read\`.
 3. Organize the inputs into the strict JSON schema below. Group by project, not by chronology. Each \`current_week\` item must have a real \`intent\` (why this project exists), \`objective\` (what success looks like this week), and at least one \`completed\` bullet (what actually shipped). Anchor \`completed\` bullets in factual records: quote commit subjects, branch / ref names, and project names from \`fetch_git_activity\`. If you cannot identify a project's intent/objective from context, ASK the user before submitting — do not fabricate placeholder text.
 4. If any entry in \`fetch_git_activity\`'s response has \`ok: false\`, mention the missing repo in the draft (e.g. "git data for \`growx\` was unavailable: <error>") rather than silently dropping it. Hidden gaps defeat the purpose of the fact source.
-5. Call \`submit_weekly_report_draft\` with \`{ weekKey, draft }\`. The tool will validate the schema and return a card spec for you to send. After the user clicks a button:
-   - If they click "直接写入", you will be called via \`respond_to_weekly_report_card\` with action="confirm".
-   - If they submit supplement text and click "提交补充", you will be called with action="supplement"; revise the draft using the supplement and call \`submit_weekly_report_draft\` again with \`supersedeFlowId\`.
+5. Call \`submit_weekly_report_draft\` with \`{ weekKey, weekTitle, draftJson }\`. It will create a TaskFlow, return \`{flowId, previewMarkdown, questionHeader, confirmLabel, supplementLabel, instructions}\`, and tell you to deliver the card via \`feishu_ask_user_question\` — NEVER reply with the preview as plain text or JSON, that will not render as an interactive card.
+6. Call \`feishu_ask_user_question\` with one question entry: \`{ header: questionHeader, question: previewMarkdown, options: [confirmLabel, supplementLabel] }\`. That tool sends the actual Feishu card and returns immediately; the user's answer will arrive as a NEW message in this conversation.
+7. When the user's answer arrives:
+   - If they picked the confirm label → call \`respond_to_weekly_report_card({ flowId, weekKey, sessionKey, action: "confirm" })\`. The tool returns splice instructions; follow them (feishu_doc read → splice_weekly_report_doc → feishu_doc write → finalize_weekly_report).
+   - If they picked the supplement label OR added free-text → call \`respond_to_weekly_report_card({ flowId, weekKey, sessionKey, action: "supplement", supplement: <their text> })\`. The tool returns the originalDraft + supplement; merge them yourself and call \`submit_weekly_report_draft\` again with \`supersedeFlowId\` set to the returned flowId.
 
 JSON schema:
 {
