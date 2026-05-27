@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OutputRuntimeEnv } from "../../runtime.js";
-import { runCronPurge } from "./register.cron-purge.js";
+import { printHumanReport, runCronPurge, type RunCronPurgeFlags } from "./register.cron-purge.js";
 
 type Logs = { log: string[]; error: string[]; json: unknown[] };
 
@@ -60,6 +60,19 @@ function touchOld(filePath: string, ageMs: number, nowMs: number): void {
   fs.utimesSync(filePath, ts, ts);
 }
 
+function flags(overrides: Partial<RunCronPurgeFlags> = {}): RunCronPurgeFlags {
+  return {
+    dryRun: false,
+    orphaned: false,
+    staleRunning: false,
+    duplicates: false,
+    zombies: false,
+    expired: false,
+    force: false,
+    ...overrides,
+  };
+}
+
 const NOW = Date.parse("2026-05-27T12:00:00Z");
 
 describe("cron purge", () => {
@@ -82,25 +95,13 @@ describe("cron purge", () => {
       throw new Error("tmp missing");
     }
     writeJobs(tmp.storePath, []);
-    const { runtime } = makeRuntime();
     await expect(
       runCronPurge(
-        {
-          dryRun: false,
-          orphaned: false,
-          staleRunning: false,
-          duplicates: false,
-          zombies: true,
-          expired: false,
-          all: false,
-          force: false,
-          json: false,
-        },
+        { flags: flags({ zombies: true }) },
         {
           storePath: tmp.storePath,
           nowMs: NOW,
           probeGatewayUp: async () => true,
-          runtime,
         },
       ),
     ).rejects.toThrow(/gateway is currently running/);
@@ -118,24 +119,12 @@ describe("cron purge", () => {
     touchOld(oldNested, 20 * 86_400_000, NOW);
     touchOld(youngFile, 1 * 86_400_000, NOW);
 
-    const { runtime, logs } = makeRuntime();
-    await runCronPurge(
-      {
-        dryRun: true,
-        orphaned: false,
-        staleRunning: false,
-        duplicates: false,
-        zombies: true,
-        expired: false,
-        all: false,
-        force: false,
-        json: true,
-      },
+    const report = await runCronPurge(
+      { flags: flags({ dryRun: true, zombies: true }) },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
@@ -143,8 +132,7 @@ describe("cron purge", () => {
     expect(fs.existsSync(oldNested)).toBe(true);
     expect(fs.existsSync(youngFile)).toBe(true);
 
-    const report = logs.json[0] as { classifiers: { zombies: { files: { path: string }[] } } };
-    const paths = report.classifiers.zombies.files.map((entry) => entry.path).toSorted();
+    const paths = report.classifiers.zombies?.files.map((entry) => entry.path).toSorted() ?? [];
     expect(paths).toEqual([oldFile, oldNested].toSorted());
   });
 
@@ -159,24 +147,12 @@ describe("cron purge", () => {
     touchOld(oldFile, 15 * 86_400_000, NOW);
     touchOld(oldNested, 20 * 86_400_000, NOW);
 
-    const { runtime } = makeRuntime();
     await runCronPurge(
-      {
-        dryRun: false,
-        orphaned: false,
-        staleRunning: false,
-        duplicates: false,
-        zombies: true,
-        expired: false,
-        all: false,
-        force: false,
-        json: true,
-      },
+      { flags: flags({ zombies: true }) },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
@@ -218,25 +194,13 @@ describe("cron purge", () => {
       return realRmSync(p, options);
     }) as typeof fs.rmSync);
 
-    const { runtime } = makeRuntime();
     await expect(
       runCronPurge(
-        {
-          dryRun: false,
-          orphaned: false,
-          staleRunning: false,
-          duplicates: false,
-          zombies: true,
-          expired: false,
-          all: false,
-          force: false,
-          json: true,
-        },
+        { flags: flags({ zombies: true }) },
         {
           storePath: tmp.storePath,
           nowMs: NOW,
           probeGatewayUp: async () => false,
-          runtime,
         },
       ),
     ).rejects.toThrow(/removed 1 of 3 zombie file\(s\) before failing on .*b-fail\.jsonl/);
@@ -259,24 +223,12 @@ describe("cron purge", () => {
       buildAtJob("future-1", futureFireAt, "still pending"),
     ]);
 
-    const { runtime } = makeRuntime();
     await runCronPurge(
-      {
-        dryRun: false,
-        orphaned: false,
-        staleRunning: false,
-        duplicates: false,
-        zombies: false,
-        expired: true,
-        all: false,
-        force: false,
-        json: true,
-      },
+      { flags: flags({ expired: true }) },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
@@ -307,24 +259,12 @@ describe("cron purge", () => {
     (job.state as Record<string, unknown>).runningAtMs = NOW - 60_000;
     writeJobs(tmp.storePath, [job]);
 
-    const { runtime } = makeRuntime();
     await runCronPurge(
-      {
-        dryRun: false,
-        orphaned: false,
-        staleRunning: false,
-        duplicates: false,
-        zombies: false,
-        expired: true,
-        all: false,
-        force: false,
-        json: true,
-      },
+      { flags: flags({ expired: true }) },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
@@ -343,71 +283,30 @@ describe("cron purge", () => {
     const oldFile = path.join(tmp.runsDir, "zz.jsonl");
     touchOld(oldFile, 30 * 86_400_000, NOW);
 
-    const { runtime, logs } = makeRuntime();
-    await runCronPurge(
+    const report = await runCronPurge(
       {
-        dryRun: true,
-        orphaned: false,
-        staleRunning: false,
-        duplicates: false,
-        zombies: false,
-        expired: false,
-        all: true,
-        force: false,
-        json: true,
+        flags: flags({
+          dryRun: true,
+          orphaned: true,
+          staleRunning: true,
+          duplicates: true,
+          zombies: true,
+          expired: true,
+        }),
       },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
     expect(fs.existsSync(oldFile)).toBe(true);
-    const report = logs.json[0] as {
-      classifiers: {
-        orphaned: { status: string };
-        staleRunning: { status: string };
-        duplicates: { status: string };
-        zombies: { files: { path: string }[] };
-        expired: { jobs: { id: string }[] };
-      };
-    };
-    expect(report.classifiers.zombies.files.map((entry) => entry.path)).toEqual([oldFile]);
-    expect(report.classifiers.expired.jobs.map((entry) => entry.id)).toEqual(["expired-2"]);
-    expect(report.classifiers.orphaned.status).toBe("deferred");
-    expect(report.classifiers.staleRunning.status).toBe("deferred");
-    expect(report.classifiers.duplicates.status).toBe("deferred");
-  });
-
-  it("rejects when no classifier flag is provided", async () => {
-    if (!tmp) {
-      throw new Error("tmp missing");
-    }
-    writeJobs(tmp.storePath, []);
-    const { runtime } = makeRuntime();
-    await expect(
-      runCronPurge(
-        {
-          dryRun: false,
-          orphaned: false,
-          staleRunning: false,
-          duplicates: false,
-          zombies: false,
-          expired: false,
-          all: false,
-          force: false,
-          json: false,
-        },
-        {
-          storePath: tmp.storePath,
-          nowMs: NOW,
-          probeGatewayUp: async () => false,
-          runtime,
-        },
-      ),
-    ).rejects.toThrow(/specify at least one classifier flag/);
+    expect(report.classifiers.zombies?.files.map((entry) => entry.path)).toEqual([oldFile]);
+    expect(report.classifiers.expired?.jobs.map((entry) => entry.id)).toEqual(["expired-2"]);
+    expect(report.classifiers.orphaned?.status).toBe("deferred");
+    expect(report.classifiers.staleRunning?.status).toBe("deferred");
+    expect(report.classifiers.duplicates?.status).toBe("deferred");
   });
 
   it("archive naming uses second-precision UTC and tie-breaks rapid re-runs", async () => {
@@ -420,10 +319,7 @@ describe("cron purge", () => {
       buildAtJob("expired-b", expiredFireAt, "two"),
     ]);
 
-    const { runtime } = makeRuntime();
-    // First run removes expired-a only by feeding a curated single-id store.
-    // Simpler: run twice with the same now; second run will be a no-op because
-    // store is empty, so simulate collision by pre-creating the archive file.
+    // Simulate a collision by pre-creating the archive file at the natural stamp.
     const stamp = new Date(NOW)
       .toISOString()
       .replace(/\.\d{3}Z$/, "Z")
@@ -432,22 +328,11 @@ describe("cron purge", () => {
     fs.writeFileSync(collisionPath, "{}");
 
     await runCronPurge(
-      {
-        dryRun: false,
-        orphaned: false,
-        staleRunning: false,
-        duplicates: false,
-        zombies: false,
-        expired: true,
-        all: false,
-        force: false,
-        json: true,
-      },
+      { flags: flags({ expired: true }) },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
@@ -468,24 +353,19 @@ describe("cron purge", () => {
     const oldFile = path.join(tmp.runsDir, "zz.jsonl");
     touchOld(oldFile, 30 * 86_400_000, NOW);
 
-    const { runtime, logs } = makeRuntime();
-    await runCronPurge(
+    const report = await runCronPurge(
       {
-        dryRun: false,
-        orphaned: true,
-        staleRunning: true,
-        duplicates: true,
-        zombies: false,
-        expired: false,
-        all: false,
-        force: true,
-        json: true,
+        flags: flags({
+          orphaned: true,
+          staleRunning: true,
+          duplicates: true,
+          force: true,
+        }),
       },
       {
         storePath: tmp.storePath,
         nowMs: NOW,
         probeGatewayUp: async () => false,
-        runtime,
       },
     );
 
@@ -493,20 +373,43 @@ describe("cron purge", () => {
     expect(fs.readFileSync(tmp.storePath, "utf-8")).toContain("future-1");
     const archives = fs.readdirSync(tmp.dir).filter((name) => name.includes(".purged-"));
     expect(archives).toHaveLength(0);
-    const report = logs.json[0] as {
-      classifiers: {
-        orphaned: { status: string };
-        staleRunning: { status: string };
-        duplicates: { status: string };
-        zombies: unknown;
-        expired: unknown;
-      };
-    };
-    expect(report.classifiers.orphaned.status).toBe("deferred");
-    expect(report.classifiers.staleRunning.status).toBe("deferred");
-    expect(report.classifiers.duplicates.status).toBe("deferred");
+    expect(report.classifiers.orphaned?.status).toBe("deferred");
+    expect(report.classifiers.staleRunning?.status).toBe("deferred");
+    expect(report.classifiers.duplicates?.status).toBe("deferred");
     expect(report.classifiers.zombies).toBeNull();
     expect(report.classifiers.expired).toBeNull();
+  });
+
+  it("printHumanReport renders deferred classifiers and removal counts", async () => {
+    if (!tmp) {
+      throw new Error("tmp missing");
+    }
+    writeJobs(tmp.storePath, [buildAtJob("future-1", NOW + 86_400_000, "soon")]);
+    const report = await runCronPurge(
+      {
+        flags: flags({
+          dryRun: true,
+          orphaned: true,
+          staleRunning: true,
+          duplicates: true,
+          zombies: true,
+          expired: true,
+        }),
+      },
+      {
+        storePath: tmp.storePath,
+        nowMs: NOW,
+        probeGatewayUp: async () => false,
+      },
+    );
+    const { runtime, logs } = makeRuntime();
+    printHumanReport(runtime, report);
+    const joined = logs.log.join("\n");
+    expect(joined).toContain("orphaned:");
+    expect(joined).toContain("stale-running:");
+    expect(joined).toContain("duplicates:");
+    expect(joined).toContain("zombies:");
+    expect(joined).toContain("expired:");
   });
 
   it("help text mentions every flag and the --force note", async () => {

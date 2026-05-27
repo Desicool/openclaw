@@ -421,6 +421,16 @@ async function runLegacyCronHealth(ctx: DoctorHealthFlowContext): Promise<void> 
   });
 }
 
+async function runCronPurgeHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeRunCronPurgeSafeSubset } = await import("../commands/doctor-cron-purge.js");
+  await maybeRunCronPurgeSafeSubset({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+    runtime: ctx.runtime,
+  });
+}
+
 async function runSandboxHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { maybeRepairSandboxImages, maybeRepairSandboxRegistryFiles, noteSandboxScopeWarnings } =
     await import("../commands/doctor-sandbox.js");
@@ -826,6 +836,11 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       label: "Legacy cron",
       healthCheckIds: ["core/doctor/legacy-whatsapp-crontab"],
       run: runLegacyCronHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-purge",
+      label: "Cron purge",
+      run: runCronPurgeHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:sandbox",

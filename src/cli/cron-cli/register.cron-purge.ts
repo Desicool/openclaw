@@ -17,39 +17,58 @@ const GATEWAY_PROBE_TIMEOUT_MS = 500;
 const MAX_ARCHIVE_COLLISIONS = 1000;
 const DEFERRED_PHASE_2_REASON =
   "deferred to Phase 2 (requires runId / idempotencyKey fields not yet present)";
+export const GATEWAY_UP_MESSAGE =
+  "openclaw gateway is currently running. Stop it (`openclaw gateway stop`) before running `cron purge`, or use the gateway-up path planned for Phase 2.";
 
-type PurgeFlags = {
+export type RunCronPurgeFlags = {
   dryRun: boolean;
   orphaned: boolean;
   staleRunning: boolean;
   duplicates: boolean;
   zombies: boolean;
   expired: boolean;
-  all: boolean;
   force: boolean;
-  json: boolean;
 };
 
-type ZombieEntry = { path: string; sizeBytes: number; mtimeMs: number };
-type ExpiredEntry = { id: string; name: string; fireAtMs: number };
+export type RunCronPurgeInput = {
+  flags: RunCronPurgeFlags;
+};
 
-type PurgeReport = {
+export type ZombieEntry = { path: string; sizeBytes: number; mtimeMs: number };
+export type ExpiredEntry = { id: string; name: string; fireAtMs: number };
+
+export type DeferredClassifier = { status: "deferred"; reason: string };
+export type ZombiesClassifier = { files: ZombieEntry[]; emptyDirsRemoved: string[] };
+export type ExpiredClassifier = { jobs: ExpiredEntry[] };
+
+export type PurgeReport = {
   dryRun: boolean;
   classifiers: {
-    orphaned: { status: "deferred"; reason: string } | null;
-    staleRunning: { status: "deferred"; reason: string } | null;
-    duplicates: { status: "deferred"; reason: string } | null;
-    zombies: { files: ZombieEntry[]; emptyDirsRemoved: string[] } | null;
-    expired: { jobs: ExpiredEntry[] } | null;
+    orphaned: DeferredClassifier | null;
+    staleRunning: DeferredClassifier | null;
+    duplicates: DeferredClassifier | null;
+    zombies: ZombiesClassifier | null;
+    expired: ExpiredClassifier | null;
   };
   archive: { jobsJson?: string };
 };
 
-type RunCronPurgeDeps = {
+export type RunCronPurgeDeps = {
   storePath?: string;
   nowMs?: number;
   probeGatewayUp?: () => Promise<boolean>;
-  runtime?: OutputRuntimeEnv;
+};
+
+type CommanderPurgeOpts = {
+  dryRun?: boolean;
+  orphaned?: boolean;
+  staleRunning?: boolean;
+  duplicates?: boolean;
+  zombies?: boolean;
+  expired?: boolean;
+  all?: boolean;
+  force?: boolean;
+  json?: boolean;
 };
 
 export function registerCronPurgeCommand(cron: Command) {
@@ -77,50 +96,57 @@ export function registerCronPurgeCommand(cron: Command) {
       false,
     )
     .option("--json", "Emit machine-readable JSON", false)
-    .action(async (opts) => {
+    .action(async (opts: CommanderPurgeOpts) => {
       try {
-        const flags: PurgeFlags = {
+        const all = Boolean(opts.all);
+        const flags: RunCronPurgeFlags = {
           dryRun: Boolean(opts.dryRun),
-          orphaned: Boolean(opts.orphaned),
-          staleRunning: Boolean(opts.staleRunning),
-          duplicates: Boolean(opts.duplicates),
-          zombies: Boolean(opts.zombies),
-          expired: Boolean(opts.expired),
-          all: Boolean(opts.all),
+          orphaned: Boolean(opts.orphaned) || all,
+          staleRunning: Boolean(opts.staleRunning) || all,
+          duplicates: Boolean(opts.duplicates) || all,
+          zombies: Boolean(opts.zombies) || all,
+          expired: Boolean(opts.expired) || all,
           force: Boolean(opts.force),
-          json: Boolean(opts.json),
         };
-        await runCronPurge(flags);
+        const anyClassifier =
+          flags.orphaned ||
+          flags.staleRunning ||
+          flags.duplicates ||
+          flags.zombies ||
+          flags.expired;
+        if (!anyClassifier) {
+          throw new Error(
+            "specify at least one classifier flag (--orphaned, --stale-running, --duplicates, --zombies, --expired, --all) or use --dry-run --all to preview",
+          );
+        }
+        const report = await runCronPurge({ flags });
+        if (opts.json) {
+          defaultRuntime.writeJson(report);
+        } else {
+          printHumanReport(defaultRuntime, report);
+        }
       } catch (err) {
         handleCronCliError(err);
       }
     });
 }
 
-export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {}): Promise<void> {
-  const runtime = deps.runtime ?? defaultRuntime;
+/**
+ * Pure orchestration for cron purge. Returns a structured report; never
+ * prints, never exits. CLI/doctor surface results their own way.
+ */
+export async function runCronPurge(
+  input: RunCronPurgeInput,
+  deps: RunCronPurgeDeps = {},
+): Promise<PurgeReport> {
+  const { flags } = input;
   const nowMs = deps.nowMs ?? Date.now();
-
-  const anyClassifier =
-    flags.orphaned ||
-    flags.staleRunning ||
-    flags.duplicates ||
-    flags.zombies ||
-    flags.expired ||
-    flags.all;
-  if (!anyClassifier) {
-    throw new Error(
-      "specify at least one classifier flag (--orphaned, --stale-running, --duplicates, --zombies, --expired, --all) or use --dry-run --all to preview",
-    );
-  }
 
   const probeGatewayUp = deps.probeGatewayUp ?? probeGatewayUpDefault;
   if (!flags.dryRun) {
     const gatewayUp = await probeGatewayUp();
     if (gatewayUp) {
-      throw new Error(
-        "openclaw gateway is currently running. Stop it (`openclaw gateway stop`) before running `cron purge`, or use the gateway-up path planned for Phase 2.",
-      );
+      throw new Error(GATEWAY_UP_MESSAGE);
     }
   }
 
@@ -128,27 +154,21 @@ export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {
   const cronDir = path.dirname(storePath);
   const runsDir = path.join(cronDir, "runs");
 
-  const wantZombies = flags.zombies || flags.all;
-  const wantExpired = flags.expired || flags.all;
-  const wantOrphaned = flags.orphaned || flags.all;
-  const wantStaleRunning = flags.staleRunning || flags.all;
-  const wantDuplicates = flags.duplicates || flags.all;
-
   const report: PurgeReport = {
     dryRun: flags.dryRun,
     classifiers: {
-      orphaned: wantOrphaned ? { status: "deferred", reason: DEFERRED_PHASE_2_REASON } : null,
-      staleRunning: wantStaleRunning
+      orphaned: flags.orphaned ? { status: "deferred", reason: DEFERRED_PHASE_2_REASON } : null,
+      staleRunning: flags.staleRunning
         ? { status: "deferred", reason: DEFERRED_PHASE_2_REASON }
         : null,
-      duplicates: wantDuplicates ? { status: "deferred", reason: DEFERRED_PHASE_2_REASON } : null,
-      zombies: wantZombies ? { files: [], emptyDirsRemoved: [] } : null,
-      expired: wantExpired ? { jobs: [] } : null,
+      duplicates: flags.duplicates ? { status: "deferred", reason: DEFERRED_PHASE_2_REASON } : null,
+      zombies: flags.zombies ? { files: [], emptyDirsRemoved: [] } : null,
+      expired: flags.expired ? { jobs: [] } : null,
     },
     archive: {},
   };
 
-  if (wantZombies) {
+  if (flags.zombies) {
     const found = classifyZombies(runsDir, nowMs);
     // Sort by path so removal order and reports are deterministic across
     // platforms (readdir order is FS-dependent).
@@ -157,13 +177,17 @@ export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {
   }
 
   let expiredJobs: ExpiredEntry[] = [];
-  if (wantExpired) {
+  if (flags.expired) {
     expiredJobs = classifyExpired(storePath, nowMs);
     report.classifiers.expired = { jobs: expiredJobs };
   }
 
   if (!flags.dryRun) {
-    if (wantZombies && report.classifiers.zombies && report.classifiers.zombies.files.length > 0) {
+    if (
+      flags.zombies &&
+      report.classifiers.zombies &&
+      report.classifiers.zombies.files.length > 0
+    ) {
       const classified = report.classifiers.zombies.files;
       const removed: ZombieEntry[] = [];
       let firstError: { path: string; err: unknown } | null = null;
@@ -191,21 +215,17 @@ export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {
       }
     }
 
-    if (wantExpired && expiredJobs.length > 0) {
+    if (flags.expired && expiredJobs.length > 0) {
       const archivePath = await archiveJobsJson(storePath, nowMs);
       report.archive.jobsJson = archivePath;
       await removeExpiredJobsFromStore(storePath, expiredJobs);
     }
   }
 
-  if (flags.json) {
-    runtime.writeJson(report);
-    return;
-  }
-  printHumanReport(runtime, report);
+  return report;
 }
 
-function probeGatewayUpDefault(): Promise<boolean> {
+export function probeGatewayUpDefault(): Promise<boolean> {
   // Canonical port resolution: env override > config > default. The config
   // path stays undefined here because purge is a local-only command and we do
   // not pull the full config graph in just to read one field; env override
@@ -403,7 +423,7 @@ function formatArchiveTimestamp(nowMs: number): string {
     .replace(/:/g, "-");
 }
 
-function printHumanReport(runtime: OutputRuntimeEnv, report: PurgeReport): void {
+export function printHumanReport(runtime: OutputRuntimeEnv, report: PurgeReport): void {
   const heading = report.dryRun ? "cron purge (dry-run)" : "cron purge";
   runtime.log(theme.heading(heading));
 
