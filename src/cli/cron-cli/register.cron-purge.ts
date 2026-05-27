@@ -17,7 +17,7 @@ const GATEWAY_PROBE_TIMEOUT_MS = 500;
 const MAX_ARCHIVE_COLLISIONS = 1000;
 const DEFERRED_PHASE_2_REASON =
   "deferred to Phase 2 (requires runId / idempotencyKey fields not yet present)";
-export const GATEWAY_UP_MESSAGE =
+const GATEWAY_UP_MESSAGE =
   "openclaw gateway is currently running. Stop it (`openclaw gateway stop`) before running `cron purge`, or use the gateway-up path planned for Phase 2.";
 
 export type RunCronPurgeFlags = {
@@ -37,18 +37,14 @@ export type RunCronPurgeInput = {
 export type ZombieEntry = { path: string; sizeBytes: number; mtimeMs: number };
 export type ExpiredEntry = { id: string; name: string; fireAtMs: number };
 
-export type DeferredClassifier = { status: "deferred"; reason: string };
-export type ZombiesClassifier = { files: ZombieEntry[]; emptyDirsRemoved: string[] };
-export type ExpiredClassifier = { jobs: ExpiredEntry[] };
-
 export type PurgeReport = {
   dryRun: boolean;
   classifiers: {
-    orphaned: DeferredClassifier | null;
-    staleRunning: DeferredClassifier | null;
-    duplicates: DeferredClassifier | null;
-    zombies: ZombiesClassifier | null;
-    expired: ExpiredClassifier | null;
+    orphaned: { status: "deferred"; reason: string } | null;
+    staleRunning: { status: "deferred"; reason: string } | null;
+    duplicates: { status: "deferred"; reason: string } | null;
+    zombies: { files: ZombieEntry[]; emptyDirsRemoved: string[] } | null;
+    expired: { jobs: ExpiredEntry[] } | null;
   };
   archive: { jobsJson?: string };
 };
@@ -423,7 +419,7 @@ function formatArchiveTimestamp(nowMs: number): string {
     .replace(/:/g, "-");
 }
 
-export function printHumanReport(runtime: OutputRuntimeEnv, report: PurgeReport): void {
+function printHumanReport(runtime: OutputRuntimeEnv, report: PurgeReport): void {
   const heading = report.dryRun ? "cron purge (dry-run)" : "cron purge";
   runtime.log(theme.heading(heading));
 

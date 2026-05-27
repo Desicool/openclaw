@@ -427,7 +427,6 @@ async function runCronPurgeHealth(ctx: DoctorHealthFlowContext): Promise<void> {
     cfg: ctx.cfg,
     options: ctx.options,
     prompter: ctx.prompter,
-    runtime: ctx.runtime,
   });
 }
 

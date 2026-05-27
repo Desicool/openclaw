@@ -2,32 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OutputRuntimeEnv } from "../../runtime.js";
-import { printHumanReport, runCronPurge, type RunCronPurgeFlags } from "./register.cron-purge.js";
-
-type Logs = { log: string[]; error: string[]; json: unknown[] };
-
-function makeRuntime(): { runtime: OutputRuntimeEnv; logs: Logs } {
-  const logs: Logs = { log: [], error: [], json: [] };
-  const runtime: OutputRuntimeEnv = {
-    log: (...args) => {
-      logs.log.push(args.map((arg) => String(arg)).join(" "));
-    },
-    error: (...args) => {
-      logs.error.push(args.map((arg) => String(arg)).join(" "));
-    },
-    writeStdout: (value) => {
-      logs.log.push(value);
-    },
-    writeJson: (value) => {
-      logs.json.push(value);
-    },
-    exit: (code) => {
-      throw new Error(`exit ${String(code)}`);
-    },
-  };
-  return { runtime, logs };
-}
+import { runCronPurge, type RunCronPurgeFlags } from "./register.cron-purge.js";
 
 function makeTmpCronDir(): { dir: string; storePath: string; runsDir: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-cron-purge-"));
@@ -378,38 +353,6 @@ describe("cron purge", () => {
     expect(report.classifiers.duplicates?.status).toBe("deferred");
     expect(report.classifiers.zombies).toBeNull();
     expect(report.classifiers.expired).toBeNull();
-  });
-
-  it("printHumanReport renders deferred classifiers and removal counts", async () => {
-    if (!tmp) {
-      throw new Error("tmp missing");
-    }
-    writeJobs(tmp.storePath, [buildAtJob("future-1", NOW + 86_400_000, "soon")]);
-    const report = await runCronPurge(
-      {
-        flags: flags({
-          dryRun: true,
-          orphaned: true,
-          staleRunning: true,
-          duplicates: true,
-          zombies: true,
-          expired: true,
-        }),
-      },
-      {
-        storePath: tmp.storePath,
-        nowMs: NOW,
-        probeGatewayUp: async () => false,
-      },
-    );
-    const { runtime, logs } = makeRuntime();
-    printHumanReport(runtime, report);
-    const joined = logs.log.join("\n");
-    expect(joined).toContain("orphaned:");
-    expect(joined).toContain("stale-running:");
-    expect(joined).toContain("duplicates:");
-    expect(joined).toContain("zombies:");
-    expect(joined).toContain("expired:");
   });
 
   it("help text mentions every flag and the --force note", async () => {

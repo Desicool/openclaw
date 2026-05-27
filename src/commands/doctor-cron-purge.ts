@@ -1,6 +1,5 @@
 import { formatCliCommand } from "../cli/command-format.js";
 import {
-  GATEWAY_UP_MESSAGE,
   probeGatewayUpDefault,
   runCronPurge,
   type PurgeReport,
@@ -9,7 +8,6 @@ import {
 } from "../cli/cron-cli/register.cron-purge.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveCronStorePath } from "../cron/store.js";
-import type { RuntimeEnv } from "../runtime.js";
 import { note } from "../terminal/note.js";
 import { shortenHomePath } from "../utils.js";
 import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
@@ -26,10 +24,6 @@ const SAFE_SUBSET_FLAGS: RunCronPurgeFlags = {
 
 const GATEWAY_UP_NOTE =
   "cron purge skipped: openclaw gateway is currently running. Stop it before running `openclaw doctor --fix` for cron cleanup.";
-
-function isGatewayUpError(err: unknown): boolean {
-  return err instanceof Error && err.message === GATEWAY_UP_MESSAGE;
-}
 
 function noteGatewayUp(): void {
   note(GATEWAY_UP_NOTE, "Cron purge");
@@ -80,15 +74,11 @@ export async function maybeRunCronPurgeSafeSubset(params: {
   cfg: OpenClawConfig;
   options: DoctorOptions;
   prompter: Pick<DoctorPrompter, "confirm" | "shouldRepair">;
-  runtime?: RuntimeEnv;
   /** Test seam: override runCronPurge dependencies (gateway probe, nowMs, storePath). */
   deps?: RunCronPurgeDeps;
-  /** Test seam: replace runCronPurge implementation. */
-  runCronPurgeImpl?: typeof runCronPurge;
 }): Promise<void> {
   const storePath = resolveCronStorePath(params.cfg.cron?.store);
   const deps: RunCronPurgeDeps = { storePath, ...params.deps };
-  const purge = params.runCronPurgeImpl ?? runCronPurge;
 
   // Probe gateway up-front so both classify and mutate paths share the same
   // "skipped" branch with a single informational note. The probe in
@@ -104,16 +94,7 @@ export async function maybeRunCronPurgeSafeSubset(params: {
 
   // Phase 1: always classify (dry-run) so we can show what would be removed
   // regardless of --fix. The mutating second call only runs if prompter says so.
-  let preview: PurgeReport;
-  try {
-    preview = await purge({ flags: SAFE_SUBSET_FLAGS }, purgeDeps);
-  } catch (err) {
-    if (isGatewayUpError(err)) {
-      noteGatewayUp();
-      return;
-    }
-    throw err;
-  }
+  const preview = await runCronPurge({ flags: SAFE_SUBSET_FLAGS }, purgeDeps);
 
   if (!hasFindings(preview)) {
     note(
@@ -148,16 +129,7 @@ export async function maybeRunCronPurgeSafeSubset(params: {
     return;
   }
 
-  let result: PurgeReport;
-  try {
-    result = await purge({ flags: { ...SAFE_SUBSET_FLAGS, dryRun: false } }, purgeDeps);
-  } catch (err) {
-    if (isGatewayUpError(err)) {
-      noteGatewayUp();
-      return;
-    }
-    throw err;
-  }
+  const result = await runCronPurge({ flags: { ...SAFE_SUBSET_FLAGS, dryRun: false } }, purgeDeps);
 
   note(summarizeRemoved(result).join("\n"), "Doctor changes");
 }
