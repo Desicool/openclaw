@@ -2,6 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import type { Command } from "commander";
+import { resolveGatewayPort } from "../../config/paths.js";
 import { parseAbsoluteTimeMs } from "../../cron/parse.js";
 import { loadCronStoreSync, resolveCronStorePath, saveCronStore } from "../../cron/store.js";
 import type { CronJob } from "../../cron/types.js";
@@ -13,6 +14,7 @@ import { handleCronCliError } from "./shared.js";
 const ZOMBIE_AGE_MS = 14 * 86_400_000;
 const EXPIRED_AGE_MS = 7 * 86_400_000;
 const GATEWAY_PROBE_TIMEOUT_MS = 500;
+const MAX_ARCHIVE_COLLISIONS = 1000;
 const DEFERRED_PHASE_2_REASON =
   "deferred to Phase 2 (requires runId / idempotencyKey fields not yet present)";
 
@@ -148,6 +150,9 @@ export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {
 
   if (wantZombies) {
     const found = classifyZombies(runsDir, nowMs);
+    // Sort by path so removal order and reports are deterministic across
+    // platforms (readdir order is FS-dependent).
+    found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     report.classifiers.zombies = { files: found, emptyDirsRemoved: [] };
   }
 
@@ -159,13 +164,31 @@ export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {
 
   if (!flags.dryRun) {
     if (wantZombies && report.classifiers.zombies && report.classifiers.zombies.files.length > 0) {
-      for (const entry of report.classifiers.zombies.files) {
-        fs.rmSync(entry.path, { force: true });
+      const classified = report.classifiers.zombies.files;
+      const removed: ZombieEntry[] = [];
+      let firstError: { path: string; err: unknown } | null = null;
+      for (const entry of classified) {
+        try {
+          fs.rmSync(entry.path, { force: true });
+          removed.push(entry);
+        } catch (err) {
+          firstError = { path: entry.path, err };
+          break;
+        }
       }
-      report.classifiers.zombies.emptyDirsRemoved = removeEmptyJobDirs(
-        runsDir,
-        report.classifiers.zombies.files,
-      );
+      // The report must reflect on-disk state, not intent: only files we
+      // actually removed are listed. emptyDirsRemoved is computed from the
+      // verified-removed set so we never claim a dir was cleaned that still
+      // holds files.
+      report.classifiers.zombies.files = removed;
+      report.classifiers.zombies.emptyDirsRemoved = removeEmptyJobDirs(runsDir, removed);
+      if (firstError) {
+        const cause =
+          firstError.err instanceof Error ? firstError.err.message : String(firstError.err);
+        throw new Error(
+          `removed ${String(removed.length)} of ${String(classified.length)} zombie file(s) before failing on ${firstError.path}: ${cause}`,
+        );
+      }
     }
 
     if (wantExpired && expiredJobs.length > 0) {
@@ -183,21 +206,11 @@ export async function runCronPurge(flags: PurgeFlags, deps: RunCronPurgeDeps = {
 }
 
 function probeGatewayUpDefault(): Promise<boolean> {
-  return probeTcpPort(loadGatewayPort(), GATEWAY_PROBE_TIMEOUT_MS);
-}
-
-function loadGatewayPort(): number {
-  // Avoid pulling the entire config graph in: the env var override covers the
-  // common case, and the default port is the documented fallback. The full
-  // config-backed port lookup belongs in the gateway-up path (Phase 2 RPC).
-  const envRaw = process.env.OPENCLAW_GATEWAY_PORT?.trim();
-  if (envRaw && /^\d+$/.test(envRaw)) {
-    const parsed = Number.parseInt(envRaw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return 18789;
+  // Canonical port resolution: env override > config > default. The config
+  // path stays undefined here because purge is a local-only command and we do
+  // not pull the full config graph in just to read one field; env override
+  // covers the common case in CI/scripted scenarios.
+  return probeTcpPort(resolveGatewayPort(undefined, process.env), GATEWAY_PROBE_TIMEOUT_MS);
 }
 
 function probeTcpPort(port: number, timeoutMs: number): Promise<boolean> {
@@ -350,8 +363,18 @@ async function removeExpiredJobsFromStore(
 async function archiveJobsJson(storePath: string, nowMs: number): Promise<string> {
   const stamp = formatArchiveTimestamp(nowMs);
   let archivePath = buildArchivePath(storePath, stamp, 0);
-  for (let attempt = 1; attempt < 1000 && fs.existsSync(archivePath); attempt += 1) {
+  let attempt = 1;
+  while (fs.existsSync(archivePath)) {
+    if (attempt >= MAX_ARCHIVE_COLLISIONS) {
+      // Refuse to silently overwrite: a purge tool whose job is "never lose
+      // state silently" must not clobber an existing archive after exhausting
+      // the tie-breaker suffix space.
+      throw new Error(
+        `could not allocate purge archive filename within ${String(MAX_ARCHIVE_COLLISIONS)} attempts at ${archivePath}; rerun in a moment`,
+      );
+    }
     archivePath = buildArchivePath(storePath, stamp, attempt);
+    attempt += 1;
   }
   const content = fs.readFileSync(storePath, "utf-8");
   await replaceFileAtomic({

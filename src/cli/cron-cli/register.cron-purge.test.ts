@@ -188,6 +188,66 @@ describe("cron purge", () => {
     expect(archives).toHaveLength(0);
   });
 
+  it("zombie rm partial failure throws and report reflects only files actually removed", async () => {
+    if (!tmp) {
+      throw new Error("tmp missing");
+    }
+    writeJobs(tmp.storePath, []);
+    // Names chosen so directory iteration order processes the OK file first,
+    // then the failing one (a-ok < b-fail < c-skipped). The exact order of
+    // readdirSync is not contractually sorted, but for fresh empty entries on
+    // the common FS layouts it tracks creation order; alphabetic prefixes give
+    // us a stable assertion either way.
+    const okFile = path.join(tmp.runsDir, "a-ok.jsonl");
+    const failingFile = path.join(tmp.runsDir, "b-fail.jsonl");
+    const skippedFile = path.join(tmp.runsDir, "c-skipped.jsonl");
+    touchOld(okFile, 15 * 86_400_000, NOW);
+    touchOld(failingFile, 16 * 86_400_000, NOW);
+    touchOld(skippedFile, 17 * 86_400_000, NOW);
+
+    const realRmSync = fs.rmSync;
+    const rmSpy = vi.spyOn(fs, "rmSync").mockImplementation(((
+      p: fs.PathLike,
+      options?: fs.RmOptions,
+    ) => {
+      if (typeof p === "string" && p === failingFile) {
+        const err = new Error("EACCES: simulated") as NodeJS.ErrnoException;
+        err.code = "EACCES";
+        throw err;
+      }
+      return realRmSync(p, options);
+    }) as typeof fs.rmSync);
+
+    const { runtime } = makeRuntime();
+    await expect(
+      runCronPurge(
+        {
+          dryRun: false,
+          orphaned: false,
+          staleRunning: false,
+          duplicates: false,
+          zombies: true,
+          expired: false,
+          all: false,
+          force: false,
+          json: true,
+        },
+        {
+          storePath: tmp.storePath,
+          nowMs: NOW,
+          probeGatewayUp: async () => false,
+          runtime,
+        },
+      ),
+    ).rejects.toThrow(/removed 1 of 3 zombie file\(s\) before failing on .*b-fail\.jsonl/);
+
+    rmSpy.mockRestore();
+    // The first file should be gone, the failing and later files still on disk.
+    expect(fs.existsSync(okFile)).toBe(false);
+    expect(fs.existsSync(failingFile)).toBe(true);
+    expect(fs.existsSync(skippedFile)).toBe(true);
+  });
+
   it("--expired removes one-shot jobs older than 7 days and archives jobs.json", async () => {
     if (!tmp) {
       throw new Error("tmp missing");
