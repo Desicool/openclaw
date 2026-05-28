@@ -8,7 +8,7 @@ function createBaseJob(overrides?: Partial<CronJob>): CronJob {
     id: "job-1",
     name: "job",
     enabled: true,
-    schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+    schedule: { kind: "cron", expr: "*/5 * * * *" },
     sessionTarget: "main",
     wakeMode: "now",
     payload: { kind: "systemEvent", text: "tick" },

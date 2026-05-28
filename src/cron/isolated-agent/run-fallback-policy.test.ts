@@ -7,7 +7,7 @@ function makeJob(payload: CronJob["payload"]): CronJob {
   return {
     id: "cron-fallback-policy",
     name: "Cron fallback policy",
-    schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
+    schedule: { kind: "cron", expr: "0 9 * * *" },
     sessionTarget: "isolated",
     payload,
     state: {},

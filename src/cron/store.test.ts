@@ -355,7 +355,7 @@ describe("cron store", () => {
     const { storePath } = await makeStorePath();
     const payload = makeStore("job-restart-drift", true);
     const staleNextRunAtMs = payload.jobs[0].createdAtMs + 3_600_000;
-    payload.jobs[0].schedule = { kind: "cron", expr: "0 6 * * *", tz: "UTC" };
+    payload.jobs[0].schedule = { kind: "cron", expr: "0 6 * * *" };
     payload.jobs[0].state = { nextRunAtMs: staleNextRunAtMs };
 
     await saveCronStore(storePath, payload);

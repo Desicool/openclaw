@@ -145,7 +145,7 @@ describe("Cron issue regressions", () => {
     const created = await cron.add({
       name: "repair-target",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 * * * *" },
       sessionTarget: "main",
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: "tick" },
@@ -225,7 +225,7 @@ describe("Cron issue regressions", () => {
     expect(listedJobIds).toContain("missing-enabled-update");
 
     const updated = await cron.update("missing-enabled-update", {
-      schedule: { kind: "cron", expr: "0 */3 * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 */3 * * *" },
     });
 
     expect(updated.state.nextRunAtMs).toBeTypeOf("number");
@@ -278,7 +278,7 @@ describe("Cron issue regressions", () => {
     const disabledJob = await cron.add({
       name: "disabled-cron",
       enabled: false,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 * * * *" },
       sessionTarget: "main",
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: "tick" },
@@ -286,7 +286,7 @@ describe("Cron issue regressions", () => {
 
     await expect(
       cron.update(disabledJob.id, {
-        schedule: { kind: "cron", expr: "* * * 13 *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "* * * 13 *" },
       }),
     ).rejects.toThrow("CronPattern");
 
@@ -298,7 +298,6 @@ describe("Cron issue regressions", () => {
       throw new Error("expected stored cron schedule");
     }
     expect(storedJob.schedule.expr).toBe("0 * * * *");
-    expect(storedJob.schedule.tz).toBe("UTC");
 
     await writeCronStoreSnapshot(store.storePath, [
       {
