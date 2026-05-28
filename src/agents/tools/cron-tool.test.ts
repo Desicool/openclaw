@@ -1531,7 +1531,7 @@ describe("cron tool", () => {
       // returns a deterministic hash key rather than undefined.
       const key = computeReminderIdempotencyKey({
         ...BASE,
-        schedule: { kind: "cron" as unknown as "at", expr: "0 9 * * *" } as {
+        schedule: { kind: "cron", expr: "0 9 * * *" } as unknown as {
           kind: "at";
           at: string;
         },
@@ -1544,7 +1544,7 @@ describe("cron tool", () => {
     it("returns undefined for kind:cron with an empty expr", () => {
       const key = computeReminderIdempotencyKey({
         ...BASE,
-        schedule: { kind: "cron" as unknown as "at", expr: "" } as {
+        schedule: { kind: "cron", expr: "" } as unknown as {
           kind: "at";
           at: string;
         },
