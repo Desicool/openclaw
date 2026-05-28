@@ -1399,7 +1399,7 @@
     "check:deprecated-jsdoc": "node scripts/check-deprecated-jsdoc.mjs",
     "check:docs": "pnpm format:docs:check && pnpm lint:docs && pnpm docs:check-mdx && pnpm docs:check-i18n-glossary && pnpm docs:check-links",
     "check:host-env-policy:swift": "node scripts/generate-host-env-security-policy-swift.mjs --check",
-    "check:import-cycles": "node --import tsx scripts/check-import-cycles.ts",
+    "check:import-cycles": "node --import tsx scripts/check-import-cycles.ts && node scripts/check-cron-parent-boundary.mjs",
     "check:loc": "node --import tsx scripts/check-ts-max-loc.ts --max 500",
     "check:madge-import-cycles": "node --import tsx scripts/check-madge-import-cycles.ts",
     "check:media-download-helpers": "node scripts/check-media-download-helper-roundtrip.mjs",
