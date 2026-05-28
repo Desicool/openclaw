@@ -15,7 +15,7 @@ export type RunCronJobDeps = {
 };
 
 function resolveExitCode(status: CronRunnerResultStatus): number {
-  return status === "ok" ? 0 : 1;
+  return status === "ok" || status === "skipped" ? 0 : 1;
 }
 
 function formatError(err: unknown): string {
@@ -34,16 +34,15 @@ export async function runCronJobHandler(params: {
   const { jobId, runId, deps } = params;
 
   const startedAtMs = Date.now();
-  let status: CronRunnerResultStatus = "error";
+  let status: CronRunnerResultStatus;
   let error: string | undefined;
   let deliveryReceipt: unknown;
 
-  let agentResult: RunCronAgentTurnResult | undefined;
   try {
     // Locate the job in the cron store.
     const storePath = resolveCronStorePath();
     const store = await loadCronStore(storePath);
-    const job = (store.jobs as unknown as CronJob[]).find((j) => j.id === jobId);
+    const job = store.jobs.find((j) => j.id === jobId);
     if (!job) {
       throw new Error(`cron job not found: ${jobId}`);
     }
@@ -53,13 +52,16 @@ export async function runCronJobHandler(params: {
       );
     }
 
-    agentResult = await deps.runIsolatedAgent({ job, message: job.payload.message });
+    const agentResult = await deps.runIsolatedAgent({ job, message: job.payload.message });
 
     if (agentResult.status === "ok") {
       status = "ok";
       deliveryReceipt = agentResult.delivery;
+    } else if (agentResult.status === "skipped") {
+      status = "skipped";
+      error = agentResult.error;
     } else {
-      status = agentResult.status === "skipped" ? "error" : agentResult.status;
+      status = agentResult.status;
       error = agentResult.error ?? `cron run ${jobId} returned status: ${agentResult.status}`;
     }
   } catch (err) {

@@ -10,6 +10,7 @@ export const CronRunnerResultStatusSchema = Type.Union([
   Type.Literal("ok"),
   Type.Literal("error"),
   Type.Literal("timeout"),
+  Type.Literal("skipped"),
 ]);
 
 export const CronRunnerResultFileSchema = Type.Object(
@@ -65,10 +66,11 @@ export type CronJobTerminalRecord = Static<typeof CronJobTerminalRecordSchema>;
 // AJV validator compiled at module load — pay the compile cost once, not per call.
 type AjvInstance = { compile<T>(schema: unknown): ValidateFunction<T> };
 const AjvCtor = AjvPkg as unknown as new (opts?: object) => AjvInstance;
-const validateStdoutMarker: ValidateFunction<CronRunnerStdoutMarker> = new AjvCtor({
-  allErrors: false,
-  strict: false,
-}).compile<CronRunnerStdoutMarker>(CronRunnerStdoutMarkerSchema);
+const ajv = new AjvCtor({ allErrors: false, strict: false });
+const validateStdoutMarker: ValidateFunction<CronRunnerStdoutMarker> =
+  ajv.compile<CronRunnerStdoutMarker>(CronRunnerStdoutMarkerSchema);
+export const validateCronRunnerResultFile: ValidateFunction<CronRunnerResultFile> =
+  ajv.compile<CronRunnerResultFile>(CronRunnerResultFileSchema);
 
 // Compose the relative path under `~/.openclaw/cron/runs/`. Callers join with
 // the runs directory. Reject any traversal-style id; cron core controls these

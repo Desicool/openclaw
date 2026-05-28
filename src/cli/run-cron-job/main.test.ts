@@ -99,6 +99,60 @@ describe("runCronJobHandler — success path", () => {
     stdoutSpy.mockRestore();
   });
 
+  it("skipped path: agent returns skipped; result file written with status=skipped; exit code 0", async () => {
+    const loadCronStoreMod = await import("../../cron/store.js");
+    const storeSpy = vi.spyOn(loadCronStoreMod, "loadCronStore").mockResolvedValue({
+      version: 1,
+      jobs: [
+        {
+          id: "job-skip",
+          name: "Skip Job",
+          enabled: true,
+          sessionTarget: "isolated",
+          payload: { kind: "agentTurn", message: "hello" },
+          schedule: { kind: "every", everyMs: 60000 },
+        } as unknown as CronJob,
+      ],
+    });
+
+    const stdoutLines: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdoutLines.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    });
+
+    let writtenInput: Parameters<RunCronJobDeps["writeResult"]>[0] | undefined;
+
+    const deps: RunCronJobDeps = {
+      runIsolatedAgent: async () => ({
+        status: "skipped" as const,
+        error: "model preflight failed",
+      }),
+      writeResult: async (input) => {
+        writtenInput = input;
+        return { resultFilePath: "/fake/path" };
+      },
+    };
+
+    const exitCode = await runCronJobHandler({ jobId: "job-skip", runId: "run-skip", deps });
+
+    expect(exitCode).toBe(0);
+    expect(writtenInput?.status).toBe("skipped");
+    expect(writtenInput?.error).toBe("model preflight failed");
+
+    // Marker should reflect skipped status
+    const markerLines = stdoutLines.filter((l) => l.includes("OPENCLAW_CRON_RESULT"));
+    expect(markerLines).toHaveLength(1);
+    const markerJson: { runId: string; status: string; durationMs: number } = JSON.parse(
+      (markerLines[0] ?? "").replace("OPENCLAW_CRON_RESULT ", "").trim(),
+    );
+    expect(markerJson.runId).toBe("run-skip");
+    expect(markerJson.status).toBe("skipped");
+
+    storeSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
   it("error path: stub throws; result file written with status=error; exit code 1", async () => {
     const loadCronStoreMod = await import("../../cron/store.js");
     const storeSpy = vi.spyOn(loadCronStoreMod, "loadCronStore").mockResolvedValue({

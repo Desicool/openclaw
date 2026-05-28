@@ -1,22 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import AjvPkg, { type ValidateFunction } from "ajv";
 import type { Static } from "typebox";
 import {
   buildResultFileRelativePath,
   CronRunnerResultFileSchema,
   formatStdoutMarkerLine,
   type CronRunnerResultStatus,
+  validateCronRunnerResultFile,
 } from "../../cron/runner-protocol.js";
 import { replaceFileAtomic } from "../../infra/replace-file.js";
 import { resolveConfigDir } from "../../utils.js";
-
-// AJV validator compiled at module load — pay the compile cost once.
-type AjvInstance = { compile<T>(schema: unknown): ValidateFunction<T> };
-const AjvCtor = AjvPkg as unknown as new (opts?: object) => AjvInstance;
-const validateResultFile: ValidateFunction<Static<typeof CronRunnerResultFileSchema>> = new AjvCtor(
-  { allErrors: false, strict: false },
-).compile(CronRunnerResultFileSchema);
 
 export function assertCronRunnerContext(): void {
   if (process.env.OPENCLAW_CRON_RUNNER !== "1") {
@@ -56,9 +49,9 @@ export async function writeRunnerResultFile(
   };
 
   // Internal consistency check — schema violations here are programming errors.
-  if (!validateResultFile(payload)) {
+  if (!validateCronRunnerResultFile(payload)) {
     throw new Error(
-      `cron runner: result file payload failed schema validation: ${JSON.stringify(validateResultFile.errors)}`,
+      `cron runner: result file payload failed schema validation: ${JSON.stringify(validateCronRunnerResultFile.errors)}`,
     );
   }
 

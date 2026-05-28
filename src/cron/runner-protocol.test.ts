@@ -71,6 +71,12 @@ describe("stdout marker line roundtrip", () => {
     expect(parsed).toEqual(original);
   });
 
+  it("roundtrips skipped status via tryParseStdoutMarkerLine", () => {
+    const original = { runId: "run-skip", status: "skipped" as const, durationMs: 10 };
+    const parsed = tryParseStdoutMarkerLine(formatStdoutMarkerLine(original));
+    expect(parsed).toEqual(original);
+  });
+
   it("returns null when the prefix is absent", () => {
     expect(tryParseStdoutMarkerLine('{"runId":"x","status":"ok","durationMs":0}')).toBeNull();
   });
@@ -170,6 +176,19 @@ describe("CronRunnerResultFileSchema", () => {
     ).toBe(false);
   });
 
+  it("accepts status=skipped", () => {
+    expect(
+      validate({
+        schemaVersion: 1,
+        runId: "r",
+        jobId: "j",
+        status: "skipped",
+        startedAtMs: 1,
+        endedAtMs: 2,
+      }),
+    ).toBe(true);
+  });
+
   it("rejects unknown status", () => {
     expect(
       validate({
@@ -222,6 +241,10 @@ describe("CronJobTerminalRecordSchema", () => {
 
   it("accepts terminal record with optional error", () => {
     expect(validate({ runId: "r", status: "timeout", endedAtMs: 1, error: "x" })).toBe(true);
+  });
+
+  it("accepts status=skipped", () => {
+    expect(validate({ runId: "r", status: "skipped", endedAtMs: 1 })).toBe(true);
   });
 
   it("rejects unknown status", () => {
