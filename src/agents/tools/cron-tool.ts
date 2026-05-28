@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Type, type TSchema } from "typebox";
 import { getRuntimeConfig } from "../../config/config.js";
 import { resolveCronCreationDelivery } from "../../cron/delivery-context.js";
@@ -312,6 +313,10 @@ type CronToolOptions = {
   agentSessionKey?: string;
   currentDeliveryContext?: DeliveryContext;
   selfRemoveOnlyJobId?: string;
+  /** Trusted sender/user identity for idempotency key derivation. */
+  userId?: string;
+  /** Ephemeral session UUID for idempotency key derivation. */
+  originSessionId?: string;
 };
 
 type GatewayToolCaller = typeof callGatewayTool;
@@ -343,6 +348,66 @@ function truncateText(input: string, maxLen: number) {
 
 function readCronJobIdParam(params: Record<string, unknown>) {
   return readStringParam(params, "jobId") ?? readStringParam(params, "id");
+}
+
+type ReminderScheduleInput = { kind: "at"; at?: unknown; atMs?: unknown } | Record<string, unknown>;
+
+/**
+ * Compute a dedup key for reminder-style cron.add calls.
+ *
+ * Recipe: sha256(userId | originSessionId | intentHash | scheduleAnchor)
+ * where intentHash = sha256(body | deliveryTarget).
+ *
+ * Only called for kind:"at" jobs with a delivery target.  Returns undefined
+ * when the schedule anchor cannot be derived (missing or invalid `at` field).
+ */
+export function computeReminderIdempotencyKey(params: {
+  userId: string;
+  originSessionId: string;
+  body: string;
+  deliveryTarget: string;
+  schedule: ReminderScheduleInput;
+}): string | undefined {
+  const schedule = params.schedule as Record<string, unknown>;
+  let scheduleAnchor: string;
+  if (schedule.kind === "at") {
+    const atRaw = schedule.at;
+    if (typeof atRaw !== "string" || !atRaw) {
+      return undefined;
+    }
+    const fireAtMs = Date.parse(atRaw);
+    if (!Number.isFinite(fireAtMs)) {
+      return undefined;
+    }
+    scheduleAnchor = String(Math.floor(fireAtMs / 1000) * 1000);
+  } else if (schedule.kind === "every") {
+    // Recurring interval jobs are not reminder-style; callers should not pass them here.
+    return undefined;
+  } else if (schedule.kind === "cron") {
+    const expr = schedule.expr;
+    if (typeof expr !== "string" || !expr) {
+      return undefined;
+    }
+    scheduleAnchor = expr;
+  } else {
+    return undefined;
+  }
+
+  const intentHash = createHash("sha256")
+    .update(params.body)
+    .update("|")
+    .update(params.deliveryTarget)
+    .digest("hex");
+
+  return createHash("sha256")
+    .update(params.userId)
+    .update("|")
+    .update(params.originSessionId)
+    .update("|")
+    .update(intentHash)
+    .update("|")
+    .update(scheduleAnchor)
+    .digest("hex");
 }
 
 const CRON_SELF_REMOVE_SCOPE_ERROR = "Cron tool is restricted to the current cron job.";
@@ -741,6 +806,39 @@ Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous me
               if (contextLines.length > 0) {
                 const baseText = stripExistingContext(payload.text);
                 payload.text = `${baseText}${REMINDER_CONTEXT_MARKER}${contextLines.join("\n")}`;
+              }
+            }
+          }
+          // Compute idempotencyKey for reminder-style (kind:"at" with delivery target) jobs.
+          // Requires both userId and originSessionId from invocation context; skip if either
+          // is missing to avoid computing a bogus key that could block legitimate re-creation.
+          const userId = opts?.userId?.trim();
+          const originSessionId = opts?.originSessionId?.trim();
+          if (
+            userId &&
+            originSessionId &&
+            job &&
+            typeof job === "object" &&
+            isRecord(job) &&
+            isRecord(job.schedule) &&
+            job.schedule.kind === "at"
+          ) {
+            const jobDelivery = isRecord(job.delivery) ? job.delivery : undefined;
+            const rawTarget = jobDelivery?.to ?? jobDelivery?.channel;
+            const deliveryTarget = typeof rawTarget === "string" ? rawTarget.trim() : "";
+            if (deliveryTarget) {
+              const jobPayload = isRecord(job.payload) ? job.payload : undefined;
+              const rawBody = jobPayload?.text ?? jobPayload?.message;
+              const payloadBody = typeof rawBody === "string" ? rawBody : "";
+              const idempotencyKey = computeReminderIdempotencyKey({
+                userId,
+                originSessionId,
+                body: payloadBody,
+                deliveryTarget,
+                schedule: job.schedule as ReminderScheduleInput,
+              });
+              if (idempotencyKey) {
+                job.idempotencyKey = idempotencyKey;
               }
             }
           }
