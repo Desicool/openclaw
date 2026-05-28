@@ -243,6 +243,8 @@ export type CronJob = CronJobBase<
   CronDelivery,
   CronFailureAlert | false
 > & {
+  // Caller-supplied dedup key. ops.add() rejects duplicates within the unexpired job set.
+  idempotencyKey?: string;
   state: CronJobState;
 };
 

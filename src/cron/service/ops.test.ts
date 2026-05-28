@@ -552,3 +552,181 @@ describe("cron service ops seam coverage", () => {
     }
   });
 });
+
+describe("idempotencyKey dedup in ops.add()", () => {
+  const baseInput = {
+    name: "dedup test",
+    enabled: true,
+    sessionTarget: "main" as const,
+    wakeMode: "next-heartbeat" as const,
+    payload: { kind: "systemEvent" as const, text: "ping" },
+  };
+
+  it("happy path: first add succeeds, second with same key and future fireAt throws", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const futureAt = new Date(now + 3_600_000).toISOString();
+    const first = await add(state, {
+      ...baseInput,
+      idempotencyKey: "abc",
+      schedule: { kind: "at", at: futureAt },
+    });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(first.idempotencyKey).toBe("abc");
+
+    await expect(
+      add(state, {
+        ...baseInput,
+        idempotencyKey: "abc",
+        schedule: { kind: "at", at: futureAt },
+      }),
+    ).rejects.toThrow(`cron job with idempotencyKey abc already exists (jobId=${first.id})`);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+  });
+
+  it("no key: two adds without idempotencyKey both succeed", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const schedule = { kind: "every" as const, everyMs: 60_000 };
+    const first = await add(state, { ...baseInput, schedule });
+    const second = await add(state, { ...baseInput, schedule });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(first.id).not.toBe(second.id);
+    expect(first.idempotencyKey).toBeUndefined();
+    expect(second.idempotencyKey).toBeUndefined();
+  });
+
+  it("different keys: add with 'abc' and add with 'def' both succeed", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const schedule = { kind: "every" as const, everyMs: 60_000 };
+    const first = await add(state, { ...baseInput, idempotencyKey: "abc", schedule });
+    const second = await add(state, { ...baseInput, idempotencyKey: "def", schedule });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(first.idempotencyKey).toBe("abc");
+    expect(second.idempotencyKey).toBe("def");
+  });
+
+  it("expired existing (kind:at in the past): second add with same key succeeds", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const pastAt = new Date(now - 86_400_000).toISOString();
+    const futureAt = new Date(now + 3_600_000).toISOString();
+
+    // Pre-populate with an expired kind:at job carrying the key.
+    const expiredJob: CronJob = {
+      id: "expired-at-job",
+      name: "expired at",
+      enabled: false,
+      idempotencyKey: "abc",
+      createdAtMs: now - 90_000_000,
+      updatedAtMs: now - 86_400_000,
+      schedule: { kind: "at", at: pastAt },
+      sessionTarget: "main",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "systemEvent", text: "old" },
+      state: {},
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [expiredJob] });
+
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const newJob = await add(state, {
+      ...baseInput,
+      idempotencyKey: "abc",
+      schedule: { kind: "at", at: futureAt },
+    });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(newJob.idempotencyKey).toBe("abc");
+    expect(newJob.id).not.toBe("expired-at-job");
+  });
+
+  it("recurring + disabled existing: second add with same key succeeds", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+
+    // Pre-populate with a disabled kind:cron job carrying the key.
+    const disabledJob: CronJob = {
+      id: "disabled-cron-job",
+      name: "disabled cron",
+      enabled: false,
+      idempotencyKey: "abc",
+      createdAtMs: now - 86_400_000,
+      updatedAtMs: now - 3_600_000,
+      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      sessionTarget: "main",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "systemEvent", text: "old" },
+      state: {},
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [disabledJob] });
+
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const newJob = await add(state, {
+      ...baseInput,
+      idempotencyKey: "abc",
+      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+    });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(newJob.idempotencyKey).toBe("abc");
+    expect(newJob.id).not.toBe("disabled-cron-job");
+  });
+
+  it("recurring + enabled existing: second add with same key throws", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+
+    // Pre-populate with an enabled kind:cron job carrying the key.
+    const enabledJob: CronJob = {
+      id: "enabled-cron-job",
+      name: "enabled cron",
+      enabled: true,
+      idempotencyKey: "abc",
+      createdAtMs: now - 86_400_000,
+      updatedAtMs: now - 3_600_000,
+      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      sessionTarget: "main",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "systemEvent", text: "existing" },
+      state: { nextRunAtMs: now + 3_600_000 },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [enabledJob] });
+
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    await expect(
+      add(state, {
+        ...baseInput,
+        idempotencyKey: "abc",
+        schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      }),
+    ).rejects.toThrow("cron job with idempotencyKey abc already exists (jobId=enabled-cron-job)");
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+  });
+});

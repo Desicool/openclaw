@@ -705,6 +705,7 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     description: normalizeOptionalString(input.description),
     enabled,
     deleteAfterRun,
+    ...(typeof input.idempotencyKey === "string" ? { idempotencyKey: input.idempotencyKey } : {}),
     createdAtMs: now,
     updatedAtMs: now,
     schedule,
