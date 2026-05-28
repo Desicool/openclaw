@@ -8,6 +8,7 @@ import { parseWeeklyReportPluginConfig, weeklyReportConfigSchema } from "./src/s
 import { startTimeoutSweeper } from "./src/timeout-sweeper.js";
 import {
   createFetchGitActivityTool,
+  createFetchRecentGroupMessagesTool,
   createFinalizeWeeklyReportTool,
   createRespondToWeeklyReportCardTool,
   createSpliceWeeklyReportDocTool,
@@ -23,6 +24,16 @@ type ToolBuilder = (params: {
     >
   >;
 }) => AnyAgentTool;
+
+/**
+ * Fallback derivation when `ctx.agentId` isn't populated: pull the second segment of a sessionKey
+ * shaped like `agent:<id>:...`. Returns undefined for malformed sessionKeys.
+ */
+function deriveAgentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  if (!sessionKey) return undefined;
+  const match = /^agent:([^:]+):/u.exec(sessionKey);
+  return match?.[1];
+}
 
 function withBoundFlow(api: OpenClawPluginApi, build: ToolBuilder): OpenClawPluginToolFactory {
   return ((ctx: OpenClawPluginToolContext) => {
@@ -102,6 +113,30 @@ export default definePluginEntry({
         settings,
         runCommand: runtime.system.runCommandWithTimeout,
         resolveStateDir: () => runtime.state.resolveStateDir(),
+      }) as AnyAgentTool;
+    }) as OpenClawPluginToolFactory);
+
+    api.registerTool(((ctx: OpenClawPluginToolContext) => {
+      if (ctx.sandboxed) {
+        return null;
+      }
+      const runtime = api.runtime;
+      if (!runtime?.agent?.session?.listSessionEntries || !runtime?.subagent?.getSessionMessages) {
+        return null;
+      }
+      const agentId =
+        typeof ctx.agentId === "string" && ctx.agentId.length > 0
+          ? ctx.agentId
+          : deriveAgentIdFromSessionKey(ctx.sessionKey);
+      if (!agentId) {
+        return null;
+      }
+      return createFetchRecentGroupMessagesTool({
+        settings,
+        agentId,
+        listSessionEntries: ({ agentId: id }) =>
+          runtime.agent.session.listSessionEntries({ agentId: id }),
+        getSessionMessages: (params) => runtime.subagent.getSessionMessages(params),
       }) as AnyAgentTool;
     }) as OpenClawPluginToolFactory);
 

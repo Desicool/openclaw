@@ -11,7 +11,8 @@
       "respond_to_weekly_report_card",
       "splice_weekly_report_doc",
       "finalize_weekly_report",
-      "fetch_git_activity"
+      "fetch_git_activity",
+      "fetch_recent_group_messages"
     ]
   },
   "configSchema": {
@@ -72,7 +73,34 @@
       },
       "gitMaxParallelOps": { "type": "integer", "minimum": 1 },
       "gitMaxRepoCount": { "type": "integer", "minimum": 1 },
-      "gitOverallTimeoutMs": { "type": "integer", "minimum": 5000 }
+      "gitOverallTimeoutMs": { "type": "integer", "minimum": 5000 },
+      "userOpenId": {
+        "type": "string",
+        "description": "Feishu open_id (ou_...) of the human user; auto-derived from recipientSessionKey's :direct: suffix when unset."
+      },
+      "botOpenId": {
+        "type": "string",
+        "description": "Feishu open_id of the bot account; messages with this sender are excluded from group collection. No auto-derivation."
+      },
+      "groupDenylist": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Full sessionKeys or bare chatIds to skip during group collection."
+      },
+      "groupStaleAfterDays": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Skip group sessions with no activity for this many days. Default 14."
+      },
+      "topicGroups": {
+        "type": "string",
+        "enum": ["include", "collapse-by-chatid", "exclude"],
+        "description": "Handling of Feishu topic-group sub-sessions. include=keep all (default); exclude=dedupe by groupId; collapse-by-chatid deferred to v3.1."
+      },
+      "groupMaxMessagesPerGroup": { "type": "integer", "minimum": 1 },
+      "groupMaxParallelOps": { "type": "integer", "minimum": 1 },
+      "groupMaxGroupsScanned": { "type": "integer", "minimum": 1 },
+      "groupOverallTimeoutMs": { "type": "integer", "minimum": 5000 }
     }
   }
 }

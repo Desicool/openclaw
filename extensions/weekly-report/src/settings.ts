@@ -5,6 +5,13 @@
  * v2 adds the git-activity fact source. The git fields default to "disabled" — empty gitRemotes
  * means the plugin does not touch git at all. If gitRemotes is non-empty, gitAuthor MUST be set
  * and every remote MUST pass URL + name validation before any subprocess can be considered.
+ *
+ * v3 adds the group-message collection fact source. Auto-on (the tool auto-discovers Feishu
+ * group sessions via `listSessionEntries`). `userOpenId` is auto-derived from
+ * `recipientSessionKey`'s `:direct:<openid>` suffix when not explicitly set; if derivation
+ * fails AND no explicit override is provided, the resolved value is left `undefined` and the
+ * group collection tool refuses to run at call time (does NOT throw at parse so the rest of
+ * the plugin stays usable).
  */
 
 import { buildJsonPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
@@ -14,6 +21,8 @@ export type GitRemoteSpec = {
   name: string;
   sshUrl: string;
 };
+
+export type TopicGroupsMode = "include" | "collapse-by-chatid" | "exclude";
 
 export type WeeklyReportPluginSettings = {
   targetDocToken: string | undefined;
@@ -33,6 +42,15 @@ export type WeeklyReportPluginSettings = {
   gitMaxParallelOps: number;
   gitMaxRepoCount: number;
   gitOverallTimeoutMs: number;
+  userOpenId: string | undefined;
+  botOpenId: string | undefined;
+  groupDenylist: string[];
+  groupStaleAfterDays: number;
+  topicGroups: TopicGroupsMode;
+  groupMaxMessagesPerGroup: number;
+  groupMaxParallelOps: number;
+  groupMaxGroupsScanned: number;
+  groupOverallTimeoutMs: number;
 };
 
 const DEFAULT_REMINDER_DAYS = 3;
@@ -47,11 +65,20 @@ const DEFAULT_GIT_MAX_PARALLEL_OPS = 3;
 const DEFAULT_GIT_MAX_REPO_COUNT = 10;
 const DEFAULT_GIT_OVERALL_TIMEOUT_MS = 120_000;
 
+const DEFAULT_GROUP_STALE_AFTER_DAYS = 14;
+const DEFAULT_TOPIC_GROUPS: TopicGroupsMode = "include";
+const DEFAULT_GROUP_MAX_MESSAGES_PER_GROUP = 200;
+const DEFAULT_GROUP_MAX_PARALLEL_OPS = 5;
+const DEFAULT_GROUP_MAX_GROUPS_SCANNED = 50;
+const DEFAULT_GROUP_OVERALL_TIMEOUT_MS = 60_000;
+
 const GIT_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 const GIT_HOST_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{0,253}$/u;
-// scp-style ssh: user@host:path/to/repo.git
 const GIT_SSH_URL_REGEX = /^[A-Za-z0-9_-]+@([A-Za-z0-9._-]+):([\w./-]+)\.git$/u;
 const FORBIDDEN_URL_SUBSTRINGS = ["..", "--", "`", "$", " ", "\t", "\n", "\r"];
+
+export const FEISHU_OPEN_ID_REGEX = /^ou_[A-Za-z0-9_-]{8,}$/u;
+const FEISHU_DIRECT_SESSION_KEY_REGEX = /:feishu:direct:(ou_[A-Za-z0-9_-]+)$/u;
 
 export const weeklyReportConfigSchema = buildJsonPluginConfigSchema({
   type: "object",
@@ -85,6 +112,15 @@ export const weeklyReportConfigSchema = buildJsonPluginConfigSchema({
     gitMaxParallelOps: { type: "integer", minimum: 1 },
     gitMaxRepoCount: { type: "integer", minimum: 1 },
     gitOverallTimeoutMs: { type: "integer", minimum: 5_000 },
+    userOpenId: { type: "string" },
+    botOpenId: { type: "string" },
+    groupDenylist: { type: "array", items: { type: "string" } },
+    groupStaleAfterDays: { type: "integer", minimum: 1 },
+    topicGroups: { type: "string", enum: ["include", "collapse-by-chatid", "exclude"] },
+    groupMaxMessagesPerGroup: { type: "integer", minimum: 1 },
+    groupMaxParallelOps: { type: "integer", minimum: 1 },
+    groupMaxGroupsScanned: { type: "integer", minimum: 1 },
+    groupOverallTimeoutMs: { type: "integer", minimum: 5_000 },
   },
 });
 
@@ -129,6 +165,18 @@ function readWeekStartsOn(value: unknown): WeekStartsOn {
   throw new Error(`weekly-report.weekStartsOn must be "monday" or "sunday"`);
 }
 
+function readTopicGroupsMode(value: unknown): TopicGroupsMode {
+  if (value === undefined || value === null) {
+    return DEFAULT_TOPIC_GROUPS;
+  }
+  if (value === "include" || value === "collapse-by-chatid" || value === "exclude") {
+    return value;
+  }
+  throw new Error(
+    `weekly-report.topicGroups must be one of "include" | "collapse-by-chatid" | "exclude"`,
+  );
+}
+
 function readHostAllowlist(value: unknown): string[] {
   if (value === undefined || value === null) {
     return [...DEFAULT_GIT_HOST_ALLOWLIST];
@@ -147,6 +195,23 @@ function readHostAllowlist(value: unknown): string[] {
     return host;
   });
   return normalized.length === 0 ? [...DEFAULT_GIT_HOST_ALLOWLIST] : normalized;
+}
+
+function readStringArray(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`weekly-report.${field} must be a string[]`);
+  }
+  return value
+    .map((entry, idx) => {
+      if (typeof entry !== "string") {
+        throw new Error(`weekly-report.${field}[${idx}] must be a string`);
+      }
+      return entry.trim();
+    })
+    .filter((entry) => entry.length > 0);
 }
 
 export function validateGitRemoteSpec(
@@ -198,6 +263,36 @@ function readGitRemotes(value: unknown, allowedHosts: string[]): GitRemoteSpec[]
     throw new Error("weekly-report.gitRemotes must be an array of {name, sshUrl}");
   }
   return value.map((entry, idx) => validateGitRemoteSpec(entry, idx, allowedHosts));
+}
+
+/**
+ * Derive a Feishu open_id from a `recipientSessionKey` of shape
+ * `agent:<id>:feishu:direct:<open_id>`. Returns undefined when the suffix is not present or
+ * doesn't match the open_id shape. Used as a fallback when `userOpenId` is not explicitly set.
+ */
+export function deriveUserOpenIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  if (!sessionKey) {
+    return undefined;
+  }
+  const match = FEISHU_DIRECT_SESSION_KEY_REGEX.exec(sessionKey);
+  if (!match) {
+    return undefined;
+  }
+  const candidate = match[1];
+  return FEISHU_OPEN_ID_REGEX.test(candidate) ? candidate : undefined;
+}
+
+function readOpenIdField(value: unknown, field: string): string | undefined {
+  const raw = readOptionalString(value, field);
+  if (!raw) {
+    return undefined;
+  }
+  if (!FEISHU_OPEN_ID_REGEX.test(raw)) {
+    throw new Error(
+      `weekly-report.${field} "${raw}" must match Feishu open_id shape (${FEISHU_OPEN_ID_REGEX.source})`,
+    );
+  }
+  return raw;
 }
 
 export function parseWeeklyReportPluginConfig(raw: unknown): WeeklyReportPluginSettings {
@@ -270,9 +365,45 @@ export function parseWeeklyReportPluginConfig(raw: unknown): WeeklyReportPluginS
     }
   }
 
+  const recipientSessionKey = readOptionalString(cfg.recipientSessionKey, "recipientSessionKey");
+
+  const explicitUserOpenId = readOpenIdField(cfg.userOpenId, "userOpenId");
+  const userOpenId = explicitUserOpenId ?? deriveUserOpenIdFromSessionKey(recipientSessionKey);
+
+  const botOpenId = readOpenIdField(cfg.botOpenId, "botOpenId");
+
+  const groupDenylist = readStringArray(cfg.groupDenylist, "groupDenylist");
+  const groupStaleAfterDays = readPositiveInteger(
+    cfg.groupStaleAfterDays,
+    "groupStaleAfterDays",
+    DEFAULT_GROUP_STALE_AFTER_DAYS,
+  );
+  const topicGroups = readTopicGroupsMode(cfg.topicGroups);
+  const groupMaxMessagesPerGroup = readPositiveInteger(
+    cfg.groupMaxMessagesPerGroup,
+    "groupMaxMessagesPerGroup",
+    DEFAULT_GROUP_MAX_MESSAGES_PER_GROUP,
+  );
+  const groupMaxParallelOps = readPositiveInteger(
+    cfg.groupMaxParallelOps,
+    "groupMaxParallelOps",
+    DEFAULT_GROUP_MAX_PARALLEL_OPS,
+  );
+  const groupMaxGroupsScanned = readPositiveInteger(
+    cfg.groupMaxGroupsScanned,
+    "groupMaxGroupsScanned",
+    DEFAULT_GROUP_MAX_GROUPS_SCANNED,
+  );
+  const groupOverallTimeoutMs = readBoundedInteger(
+    cfg.groupOverallTimeoutMs,
+    "groupOverallTimeoutMs",
+    DEFAULT_GROUP_OVERALL_TIMEOUT_MS,
+    5_000,
+  );
+
   return {
     targetDocToken: readOptionalString(cfg.targetDocToken, "targetDocToken"),
-    recipientSessionKey: readOptionalString(cfg.recipientSessionKey, "recipientSessionKey"),
+    recipientSessionKey,
     reminderAfterDays,
     failAfterDays,
     notesDocToken: readOptionalString(cfg.notesDocToken, "notesDocToken"),
@@ -288,5 +419,14 @@ export function parseWeeklyReportPluginConfig(raw: unknown): WeeklyReportPluginS
     gitMaxParallelOps,
     gitMaxRepoCount,
     gitOverallTimeoutMs,
+    userOpenId,
+    botOpenId,
+    groupDenylist,
+    groupStaleAfterDays,
+    topicGroups,
+    groupMaxMessagesPerGroup,
+    groupMaxParallelOps,
+    groupMaxGroupsScanned,
+    groupOverallTimeoutMs,
   };
 }

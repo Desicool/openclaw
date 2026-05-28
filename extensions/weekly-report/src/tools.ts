@@ -1,11 +1,12 @@
 /**
- * Five agent-facing tools wiring the weekly-report flow.
+ * Six agent-facing tools wiring the weekly-report flow.
  *
  *   submit_weekly_report_draft    : kickoff or revision (creates/supersedes flow, returns card spec)
  *   respond_to_weekly_report_card : handles synthetic card-action events (confirm | supplement)
  *   splice_weekly_report_doc      : pure server-side splice on a doc body the agent fetched
  *   finalize_weekly_report        : finalize success or failure after the agent writes the doc
  *   fetch_git_activity            : v2 fact source — clone-on-demand + `git log` for the week
+ *   fetch_recent_group_messages   : v3 fact source — user's messages/mentions/threads across groups
  *
  * Each tool keeps its own error surface so failures are localized.
  */
@@ -16,6 +17,12 @@ import { buildDraftPreview } from "./card.js";
 import { findActiveWeeklyReportFlow } from "./dedupe.js";
 import { buildSentinelEnd, buildSentinelStart, spliceWeeklySection } from "./doc-splicer.js";
 import { runGitActivity, type RunCommandFn } from "./git-activity.js";
+import {
+  runGroupActivity,
+  type GetSessionMessagesFn,
+  type GroupMessageReason,
+  type ListSessionEntriesFn,
+} from "./group-activity.js";
 import { renderReport, type WeeklyReportInput } from "./report-renderer.js";
 import type { WeeklyReportPluginSettings } from "./settings.js";
 import {
@@ -598,6 +605,106 @@ export function createFetchGitActivityTool(deps: FetchGitActivityDeps) {
           instruction:
             "Continue drafting using chat history only. Mention in the draft that git activity wasn't available because: " +
             (err as Error).message,
+        });
+      }
+    },
+  };
+}
+
+// ── fetch_recent_group_messages ────────────────────────────────────
+
+export type FetchRecentGroupMessagesDeps = {
+  settings: WeeklyReportPluginSettings;
+  agentId: string;
+  listSessionEntries: ListSessionEntriesFn;
+  getSessionMessages: GetSessionMessagesFn;
+};
+
+const KNOWN_REASONS: GroupMessageReason[] = ["author", "mention", "thread"];
+
+export function createFetchRecentGroupMessagesTool(deps: FetchRecentGroupMessagesDeps) {
+  const { settings, agentId, listSessionEntries, getSessionMessages } = deps;
+  return {
+    name: "fetch_recent_group_messages",
+    label: "Fetch Recent Group Messages",
+    description:
+      "v3 fact source. Returns the user's contributions across all Feishu group chats the agent is a member of (own messages + mentions + thread participation). Call this alongside `getSessionMessages` (DM) and `fetch_git_activity` (commits) during drafting. Returns {windowStart, windowEnd, scannedGroups, skippedGroups, userOpenId, threadFilterAvailable, groups: [{sessionKey, ok, messages|error}]}. Each kept message carries a `reason` field. Returns a single ok:false entry when userOpenId is not resolved.",
+    parameters: Type.Object({
+      sinceTs: Type.Optional(
+        Type.Number({ description: "Unix ms. Default: Monday 00:00 UTC of the current ISO week." }),
+      ),
+      untilTs: Type.Optional(Type.Number({ description: "Unix ms. Default: now." })),
+      includeReasons: Type.Optional(
+        Type.String({
+          description: "Comma-separated subset of `author,mention,thread`. Default: all three.",
+        }),
+      ),
+    }),
+    async execute(_id: string, params: Record<string, unknown>): Promise<ToolContent> {
+      const sinceTs =
+        typeof params.sinceTs === "number" && Number.isFinite(params.sinceTs)
+          ? params.sinceTs
+          : undefined;
+      const untilTs =
+        typeof params.untilTs === "number" && Number.isFinite(params.untilTs)
+          ? params.untilTs
+          : undefined;
+
+      let includeReasons: GroupMessageReason[] | undefined;
+      if (typeof params.includeReasons === "string" && params.includeReasons.trim().length > 0) {
+        const requested = params.includeReasons
+          .split(",")
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => entry.length > 0);
+        const invalid = requested.filter(
+          (entry) => !KNOWN_REASONS.includes(entry as GroupMessageReason),
+        );
+        if (invalid.length > 0) {
+          return buildResponse({
+            ok: false,
+            action: "invalid",
+            reason: "unknown_include_reasons",
+            invalid,
+            userMessage: `Unknown includeReasons: ${invalid.join(", ")}. Expected subset of ${KNOWN_REASONS.join(", ")}.`,
+          });
+        }
+        includeReasons = requested as GroupMessageReason[];
+      }
+
+      try {
+        const result = await runGroupActivity({
+          settings,
+          agentId,
+          listSessionEntries,
+          getSessionMessages,
+          ...(sinceTs !== undefined ? { sinceTs } : {}),
+          ...(untilTs !== undefined ? { untilTs } : {}),
+          ...(includeReasons ? { includeReasons } : {}),
+        });
+        const failures = result.groups.filter((g) => !g.ok);
+        return buildResponse({
+          ok: true,
+          windowStart: result.windowStart,
+          windowEnd: result.windowEnd,
+          scannedGroups: result.scannedGroups,
+          skippedGroups: result.skippedGroups,
+          userOpenId: result.userOpenId,
+          threadFilterAvailable: result.threadFilterAvailable,
+          groups: result.groups,
+          partial: failures.length > 0,
+          partialNote:
+            failures.length > 0
+              ? "One or more groups returned ok=false. Mention them in the draft rather than hiding the gap."
+              : undefined,
+        });
+      } catch (err) {
+        return buildResponse({
+          ok: false,
+          action: "group_activity_failed",
+          reason: err instanceof Error ? err.message : String(err),
+          instruction:
+            "Continue drafting using chat-history + git-activity only. Mention in the draft that group data wasn't available because: " +
+            (err instanceof Error ? err.message : String(err)),
         });
       }
     },

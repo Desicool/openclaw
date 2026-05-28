@@ -26,6 +26,15 @@ function makeSettings(
     gitMaxParallelOps: 3,
     gitMaxRepoCount: 10,
     gitOverallTimeoutMs: 120_000,
+    userOpenId: undefined,
+    botOpenId: undefined,
+    groupDenylist: [],
+    groupStaleAfterDays: 14,
+    topicGroups: "include",
+    groupMaxMessagesPerGroup: 200,
+    groupMaxParallelOps: 5,
+    groupMaxGroupsScanned: 50,
+    groupOverallTimeoutMs: 60_000,
     ...overrides,
   };
 }

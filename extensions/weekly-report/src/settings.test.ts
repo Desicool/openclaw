@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { parseWeeklyReportPluginConfig, validateGitRemoteSpec } from "./settings.js";
+import {
+  deriveUserOpenIdFromSessionKey,
+  parseWeeklyReportPluginConfig,
+  validateGitRemoteSpec,
+} from "./settings.js";
+
+const REAL_OPEN_ID = "ou_f95d535ac705bf89608914906e339424";
+const BOT_OPEN_ID = "ou_botaccount0123456789abcdef0123";
+const REAL_DIRECT_SESSION_KEY = `agent:silver-chariot:feishu:direct:${REAL_OPEN_ID}`;
 
 describe("parseWeeklyReportPluginConfig", () => {
   it("returns defaults when nothing is supplied", () => {
@@ -22,6 +30,15 @@ describe("parseWeeklyReportPluginConfig", () => {
       gitMaxParallelOps: 3,
       gitMaxRepoCount: 10,
       gitOverallTimeoutMs: 120_000,
+      userOpenId: undefined,
+      botOpenId: undefined,
+      groupDenylist: [],
+      groupStaleAfterDays: 14,
+      topicGroups: "include",
+      groupMaxMessagesPerGroup: 200,
+      groupMaxParallelOps: 5,
+      groupMaxGroupsScanned: 50,
+      groupOverallTimeoutMs: 60_000,
     });
   });
 
@@ -110,6 +127,109 @@ describe("parseWeeklyReportPluginConfig", () => {
       gitHostAllowlist: ["gitlab.internal.example.com"],
     });
     expect(result.gitHostAllowlist).toEqual(["gitlab.internal.example.com"]);
+  });
+
+  // v3 — group collection config
+
+  it("auto-derives userOpenId from recipientSessionKey :direct: suffix", () => {
+    const result = parseWeeklyReportPluginConfig({
+      recipientSessionKey: REAL_DIRECT_SESSION_KEY,
+    });
+    expect(result.userOpenId).toBe(REAL_OPEN_ID);
+  });
+
+  it("leaves userOpenId undefined when recipientSessionKey doesn't match :direct:<open_id>", () => {
+    const result = parseWeeklyReportPluginConfig({
+      recipientSessionKey: "agent:silver:feishu:group:oc_someGroup",
+    });
+    expect(result.userOpenId).toBeUndefined();
+  });
+
+  it("prefers explicit userOpenId over auto-derived", () => {
+    const explicit = "ou_alternateopenid0123456789abcdef";
+    const result = parseWeeklyReportPluginConfig({
+      recipientSessionKey: REAL_DIRECT_SESSION_KEY,
+      userOpenId: explicit,
+    });
+    expect(result.userOpenId).toBe(explicit);
+  });
+
+  it("rejects userOpenId not matching Feishu open_id shape", () => {
+    expect(() => parseWeeklyReportPluginConfig({ userOpenId: "not_an_open_id" })).toThrow(
+      /open_id shape/,
+    );
+    expect(() => parseWeeklyReportPluginConfig({ userOpenId: "ou_short" })).toThrow(
+      /open_id shape/,
+    );
+  });
+
+  it("rejects botOpenId not matching Feishu open_id shape", () => {
+    expect(() => parseWeeklyReportPluginConfig({ botOpenId: "cli_botappid" })).toThrow(
+      /open_id shape/,
+    );
+  });
+
+  it("accepts botOpenId in canonical shape", () => {
+    const result = parseWeeklyReportPluginConfig({ botOpenId: BOT_OPEN_ID });
+    expect(result.botOpenId).toBe(BOT_OPEN_ID);
+  });
+
+  it("accepts groupDenylist as a string array, trims and drops empties", () => {
+    const result = parseWeeklyReportPluginConfig({
+      groupDenylist: ["oc_groupA", "  oc_groupB  ", ""],
+    });
+    expect(result.groupDenylist).toEqual(["oc_groupA", "oc_groupB"]);
+  });
+
+  it("rejects groupDenylist with non-string entries", () => {
+    expect(() => parseWeeklyReportPluginConfig({ groupDenylist: ["ok", 42 as never] })).toThrow(
+      /groupDenylist\[1\] must be a string/,
+    );
+  });
+
+  it("accepts topicGroups enum values, rejects others", () => {
+    expect(parseWeeklyReportPluginConfig({ topicGroups: "include" }).topicGroups).toBe("include");
+    expect(parseWeeklyReportPluginConfig({ topicGroups: "exclude" }).topicGroups).toBe("exclude");
+    expect(parseWeeklyReportPluginConfig({ topicGroups: "collapse-by-chatid" }).topicGroups).toBe(
+      "collapse-by-chatid",
+    );
+    expect(() => parseWeeklyReportPluginConfig({ topicGroups: "passthrough" })).toThrow(
+      /topicGroups must be one of/,
+    );
+  });
+
+  it("rejects groupOverallTimeoutMs below 5000", () => {
+    expect(() => parseWeeklyReportPluginConfig({ groupOverallTimeoutMs: 1_000 })).toThrow(
+      /integer >= 5000/,
+    );
+  });
+
+  it("rejects groupStaleAfterDays of 0", () => {
+    expect(() => parseWeeklyReportPluginConfig({ groupStaleAfterDays: 0 })).toThrow(
+      /positive integer/,
+    );
+  });
+});
+
+describe("deriveUserOpenIdFromSessionKey", () => {
+  it("extracts the open_id from a canonical Feishu direct sessionKey", () => {
+    expect(deriveUserOpenIdFromSessionKey(REAL_DIRECT_SESSION_KEY)).toBe(REAL_OPEN_ID);
+  });
+
+  it("returns undefined for a group sessionKey", () => {
+    expect(
+      deriveUserOpenIdFromSessionKey("agent:silver:feishu:group:oc_someGroup"),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the suffix doesn't pass open_id regex (too short)", () => {
+    expect(deriveUserOpenIdFromSessionKey("agent:x:feishu:direct:ou_x")).toBeUndefined();
+  });
+
+  it("returns undefined for undefined / empty / non-feishu inputs", () => {
+    expect(deriveUserOpenIdFromSessionKey(undefined)).toBeUndefined();
+    expect(deriveUserOpenIdFromSessionKey("")).toBeUndefined();
+    expect(deriveUserOpenIdFromSessionKey("agent:silver:telegram:direct:123456")).toBeUndefined();
   });
 });
 

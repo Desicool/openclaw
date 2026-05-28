@@ -34,6 +34,21 @@ describe("DRAFTING_PROMPT_TEMPLATE", () => {
       expect(DRAFTING_PROMPT_TEMPLATE).toContain(field);
     }
   });
+
+  // v3 — group-message collection
+
+  it("mentions fetch_recent_group_messages as the third parallel data source", () => {
+    expect(DRAFTING_PROMPT_TEMPLATE).toContain("fetch_recent_group_messages");
+  });
+
+  it("explicitly says THREE tools run in parallel in the same turn", () => {
+    expect(DRAFTING_PROMPT_TEMPLATE).toMatch(/THREE tools.*SAME TURN/iu);
+  });
+
+  it("failure-transparency rule covers all three sources, not just git", () => {
+    expect(DRAFTING_PROMPT_TEMPLATE).toMatch(/all three data sources/iu);
+    expect(DRAFTING_PROMPT_TEMPLATE).toMatch(/fetch_recent_group_messages.*ok: false/su);
+  });
 });
 
 describe("resolveDraftingPrompt", () => {
