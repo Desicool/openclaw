@@ -61,7 +61,7 @@ function makeIsolatedAgentJob(overrides?: Partial<CronJob>): CronJob {
     enabled: true,
     createdAtMs: now - 60_000,
     updatedAtMs: now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: now - 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "test subprocess" },

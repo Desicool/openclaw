@@ -213,7 +213,7 @@ describe("buildGatewayCronService", () => {
       const job = await state.cron.add({
         name: "scheduler-hook",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "main",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "sync external wake" },
@@ -251,7 +251,7 @@ describe("buildGatewayCronService", () => {
       const job = await state.cron.add({
         name: "to-be-removed",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "main",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "will be removed" },
@@ -291,7 +291,7 @@ describe("buildGatewayCronService", () => {
         name: "agent-scoped-job",
         enabled: true,
         agentId: "yinze",
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "session:project-alpha",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "agent check" },
@@ -329,7 +329,7 @@ describe("buildGatewayCronService", () => {
       await state.cron.add({
         name: "runtime-cfg-check",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "main",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "cfg check" },

@@ -86,7 +86,7 @@ function baseJob(id: string): Partial<CronJob> & { id: string } {
     enabled: true,
     createdAtMs: Date.now() - 60_000,
     updatedAtMs: Date.now() - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: Date.now() - 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "test" },
