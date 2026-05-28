@@ -8,9 +8,10 @@ import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
 
 export type CronTzMigrationStats = {
   examined: number;
-  migrated: number;
+  atMigrated: number; // kind:"at" with tz pre-resolved to UTC
+  cronStripped: number; // kind:"cron" with tz/staggerMs stripped
   archived: number;
-  failed: number; // unparseable `at` / `tz`
+  failed: number; // at-kind with unparseable tz/at
 };
 
 export type MaybeMigrateLegacyCronTzParams = {
@@ -49,8 +50,8 @@ function convertLocalToUtc(localIso: string, tz: string): string | null {
   const fixedMatch = tz.match(/^([+-])(\d{2}):?(\d{2})$/);
   if (fixedMatch) {
     const sign = fixedMatch[1] === "+" ? 1 : -1;
-    const hours = parseInt(fixedMatch[2] ?? "0", 10);
-    const minutes = parseInt(fixedMatch[3] ?? "0", 10);
+    const hours = Number.parseInt(fixedMatch[2] ?? "0", 10);
+    const minutes = Number.parseInt(fixedMatch[3] ?? "0", 10);
     const offsetMs = sign * (hours * 60 + minutes) * 60_000;
     const utcMs = new Date(`${naive}Z`).getTime() - offsetMs;
     if (!Number.isFinite(utcMs)) {
@@ -86,25 +87,27 @@ function convertLocalToUtc(localIso: string, tz: string): string | null {
       fmt.formatToParts(new Date(candidateUtcMs)).map((p) => [p.type, p.value]),
     ) as Record<string, string>;
 
-    const tzYear = parseInt(parts.year ?? "0", 10);
-    const tzMonth = parseInt(parts.month ?? "0", 10);
-    const tzDay = parseInt(parts.day ?? "0", 10);
-    const tzHour = parseInt(parts.hour ?? "0", 10) % 24; // 24:00 → 0
-    const tzMinute = parseInt(parts.minute ?? "0", 10);
-    const tzSecond = parseInt(parts.second ?? "0", 10);
+    const tzYear = Number.parseInt(parts.year ?? "0", 10);
+    const tzMonth = Number.parseInt(parts.month ?? "0", 10);
+    const tzDay = Number.parseInt(parts.day ?? "0", 10);
+    const tzHour = Number.parseInt(parts.hour ?? "0", 10) % 24; // 24:00 → 0
+    const tzMinute = Number.parseInt(parts.minute ?? "0", 10);
+    const tzSecond = Number.parseInt(parts.second ?? "0", 10);
 
     // Parse the naive input to extract the target local time.
     const naiveParts = naive.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
     if (!naiveParts) {
       return null;
     }
-    const wantYear = parseInt(naiveParts[1] ?? "0", 10);
-    const wantMonth = parseInt(naiveParts[2] ?? "0", 10);
-    const wantDay = parseInt(naiveParts[3] ?? "0", 10);
-    const wantHour = parseInt(naiveParts[4] ?? "0", 10);
-    const wantMinute = parseInt(naiveParts[5] ?? "0", 10);
-    const wantSecond = parseInt(naiveParts[6] ?? "0", 10);
-    const wantMs = naiveParts[7] ? parseInt(naiveParts[7].padEnd(3, "0").slice(0, 3), 10) : 0;
+    const wantYear = Number.parseInt(naiveParts[1] ?? "0", 10);
+    const wantMonth = Number.parseInt(naiveParts[2] ?? "0", 10);
+    const wantDay = Number.parseInt(naiveParts[3] ?? "0", 10);
+    const wantHour = Number.parseInt(naiveParts[4] ?? "0", 10);
+    const wantMinute = Number.parseInt(naiveParts[5] ?? "0", 10);
+    const wantSecond = Number.parseInt(naiveParts[6] ?? "0", 10);
+    const wantMs = naiveParts[7]
+      ? Number.parseInt(naiveParts[7].padEnd(3, "0").slice(0, 3), 10)
+      : 0;
 
     // Compute the difference between what Intl reports for the candidate epoch
     // and what we want (in seconds), then adjust.
@@ -156,41 +159,56 @@ export async function maybeMigrateLegacyCronTz(
 
   // Find kind:at jobs with a non-empty tz field.
   type JobWithTz = { job: Record<string, unknown>; schedule: Record<string, unknown> };
-  const tzJobs: JobWithTz[] = [];
+  const atTzJobs: JobWithTz[] = [];
+
+  // Find kind:cron jobs with tz or staggerMs fields (legacy fields to strip).
+  type CronStripJob = {
+    job: Record<string, unknown>;
+    schedule: Record<string, unknown>;
+    hasTz: boolean;
+    hasStaggerMs: boolean;
+  };
+  const cronStripJobs: CronStripJob[] = [];
+
   for (const job of rawJobs) {
     const schedule = job.schedule;
     if (!schedule || typeof schedule !== "object" || Array.isArray(schedule)) {
       continue;
     }
     const sched = schedule as Record<string, unknown>;
-    if (sched.kind !== "at") {
-      continue;
+    if (sched.kind === "at") {
+      const tz = typeof sched.tz === "string" ? sched.tz.trim() : "";
+      if (tz) {
+        atTzJobs.push({ job, schedule: sched });
+      }
+    } else if (sched.kind === "cron") {
+      const hasTz = sched.tz !== undefined;
+      const hasStaggerMs = sched.staggerMs !== undefined;
+      if (hasTz || hasStaggerMs) {
+        cronStripJobs.push({ job, schedule: sched, hasTz, hasStaggerMs });
+      }
     }
-    const tz = typeof sched.tz === "string" ? sched.tz.trim() : "";
-    if (!tz) {
-      continue;
-    }
-    tzJobs.push({ job, schedule: sched });
   }
 
-  if (tzJobs.length === 0) {
+  if (atTzJobs.length === 0 && cronStripJobs.length === 0) {
     return;
   }
 
   const stats: CronTzMigrationStats = {
     examined: rawJobs.length,
-    migrated: 0,
+    atMigrated: 0,
+    cronStripped: 0,
     archived: 0,
     failed: 0,
   };
 
-  // Compute conversions to surface a preview (without mutating yet).
+  // Compute at-kind conversions to surface a preview (without mutating yet).
   const conversions: Array<{
     job: Record<string, unknown>;
     schedule: Record<string, unknown>;
     utcAt: string | null;
     tz: string;
-  }> = tzJobs.map(({ job, schedule }) => {
+  }> = atTzJobs.map(({ job, schedule }) => {
     const tz = String(schedule.tz);
     const at = typeof schedule.at === "string" ? schedule.at : "";
     const utcAt = at ? convertLocalToUtc(at, tz) : null;
@@ -200,28 +218,54 @@ export async function maybeMigrateLegacyCronTz(
   const parseable = conversions.filter((c) => c.utcAt !== null);
   const unparseable = conversions.filter((c) => c.utcAt === null);
 
-  note(
-    [
-      `${tzJobs.length} cron job(s) at ${shortenHomePath(storePath)} have a tz field on a kind:at schedule:`,
-      ...parseable.map(
-        (c) =>
-          `  - ${typeof c.job.id === "string" ? c.job.id : "<unknown>"}: at ${String(c.schedule.at)} (${c.tz}) → ${String(c.utcAt)} UTC`,
-      ),
-      ...(unparseable.length > 0
-        ? [
-            `  - ${unparseable.length} job(s) could not be parsed (tz or at value unrecognized) — will be left unchanged.`,
-          ]
-        : []),
-      `Run \`openclaw doctor --fix\` to convert at to UTC and drop the tz field.`,
-    ].join("\n"),
-    "Cron tz migration",
-  );
+  const noteLines: string[] = [];
+
+  if (atTzJobs.length > 0) {
+    noteLines.push(
+      `${atTzJobs.length} cron job(s) at ${shortenHomePath(storePath)} have a tz field on a kind:at schedule:`,
+    );
+    for (const c of parseable) {
+      noteLines.push(
+        `  - ${typeof c.job.id === "string" ? c.job.id : "<unknown>"}: at ${String(c.schedule.at)} (${c.tz}) → ${String(c.utcAt)} UTC`,
+      );
+    }
+    if (unparseable.length > 0) {
+      noteLines.push(
+        `  - ${unparseable.length} job(s) could not be parsed (tz or at value unrecognized) — will be left unchanged.`,
+      );
+    }
+  }
+
+  if (cronStripJobs.length > 0) {
+    noteLines.push(
+      `${cronStripJobs.length} kind:cron job(s) carry legacy tz/staggerMs fields that will be stripped:`,
+    );
+    for (const { job, hasTz, hasStaggerMs } of cronStripJobs) {
+      const fields = [hasTz ? "tz" : null, hasStaggerMs ? "staggerMs" : null]
+        .filter(Boolean)
+        .join(", ");
+      noteLines.push(
+        `  - ${typeof job.id === "string" ? job.id : "<unknown>"}: will strip ${fields}`,
+      );
+    }
+  }
+
+  if (atTzJobs.length > 0) {
+    noteLines.push(`Run \`openclaw doctor --fix\` to convert at to UTC and drop the tz field.`);
+  } else {
+    noteLines.push(`Run \`openclaw doctor --fix\` to strip tz/staggerMs from cron schedules.`);
+  }
+
+  note(noteLines.join("\n"), "Cron tz migration");
 
   if (!params.prompter.shouldRepair) {
     return;
   }
 
-  if (parseable.length === 0) {
+  const hasAtWork = parseable.length > 0;
+  const hasCronWork = cronStripJobs.length > 0;
+
+  if (!hasAtWork && !hasCronWork) {
     stats.failed = unparseable.length;
     return;
   }
@@ -240,6 +284,7 @@ export async function maybeMigrateLegacyCronTz(
     return;
   }
 
+  // Migrate kind:at jobs.
   for (const conv of conversions) {
     if (conv.utcAt === null) {
       stats.failed++;
@@ -247,20 +292,41 @@ export async function maybeMigrateLegacyCronTz(
     }
     conv.schedule.at = conv.utcAt;
     delete conv.schedule.tz;
-    stats.migrated++;
+    stats.atMigrated++;
+  }
+
+  // Strip tz/staggerMs from kind:cron jobs.
+  for (const { schedule } of cronStripJobs) {
+    delete schedule.tz;
+    delete schedule.staggerMs;
+    stats.cronStripped++;
   }
 
   const updated = JSON.stringify({ ...store, jobs: rawJobs }, null, 2);
   fs.writeFileSync(storePath, updated, "utf-8");
 
-  note(
-    [
-      `Migrated ${stats.migrated} job(s): tz-aware at → UTC at ${shortenHomePath(storePath)}.`,
-      ...(stats.failed > 0
-        ? [`${stats.failed} job(s) could not be parsed and were left unchanged.`]
-        : []),
-      `Archived prior jobs.json to ${shortenHomePath(archivePath)}.`,
-    ].join("\n"),
-    "Doctor changes",
-  );
+  const resultLines: string[] = [];
+  if (stats.atMigrated > 0) {
+    resultLines.push(
+      `Migrated ${stats.atMigrated} job(s): tz-aware at → UTC at ${shortenHomePath(storePath)}.`,
+    );
+  }
+  if (stats.cronStripped > 0) {
+    resultLines.push(
+      `Stripped tz/staggerMs from ${stats.cronStripped} kind:cron job(s) at ${shortenHomePath(storePath)}.`,
+    );
+  }
+  if (stats.failed > 0) {
+    resultLines.push(`${stats.failed} job(s) could not be parsed and were left unchanged.`);
+  }
+  resultLines.push(`Archived prior jobs.json to ${shortenHomePath(archivePath)}.`);
+
+  note(resultLines.join("\n"), "Doctor changes");
+
+  if (stats.cronStripped > 0) {
+    note(
+      "After tz is dropped, cron expressions fire under the gateway process TZ. Verify your gateway's TZ env var or system timezone matches the previous `tz` value, or the cron schedules will fire at different wall-clock times.",
+      "Cron tz migration",
+    );
+  }
 }

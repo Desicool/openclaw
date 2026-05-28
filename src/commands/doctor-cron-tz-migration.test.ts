@@ -193,16 +193,42 @@ describe("maybeMigrateLegacyCronTz", () => {
     expect(noteSpy).toHaveBeenCalled();
   });
 
-  it("kind:cron job with tz field is ignored (not counted)", async () => {
+  it("non-fix mode: emits preview note but does not mutate or archive", async () => {
+    tmp = makeTmpCronDir();
+    writeJobs(tmp.storePath, [
+      {
+        id: "job-tz-preview",
+        name: "tz preview",
+        enabled: true,
+        schedule: { kind: "at", at: "2026-06-01T17:00:00", tz: "Asia/Shanghai" },
+        payload: { kind: "agentTurn", message: "test" },
+        state: {},
+      },
+    ]);
+    const beforeContent = fs.readFileSync(tmp.storePath, "utf-8");
+
+    await maybeMigrateLegacyCronTz({
+      cfg: makeCfg(tmp.storePath),
+      options: makeOptions(),
+      prompter: makePrompter({ shouldRepair: false }),
+    });
+
+    expect(noteSpy).toHaveBeenCalled();
+    expect(fs.readFileSync(tmp.storePath, "utf-8")).toBe(beforeContent);
+    const files = fs.readdirSync(tmp.dir);
+    expect(files.filter((f) => f.includes("tz-migrated"))).toHaveLength(0);
+  });
+
+  // --- New cases for kind:cron tz/staggerMs stripping ---
+
+  it("fix mode: kind:cron with tz and staggerMs → both stripped, expr unchanged", async () => {
     tmp = makeTmpCronDir();
     writeJobs(tmp.storePath, [
       {
         id: "job-cron-tz",
         name: "cron with tz",
         enabled: true,
-        // kind:cron shouldn't normally have a tz field post-schema change,
-        // but if present it must be ignored by this migration.
-        schedule: { kind: "cron", expr: "0 9 * * *", tz: "America/New_York" },
+        schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai", staggerMs: 0 },
         payload: { kind: "agentTurn", message: "test" },
         state: {},
       },
@@ -214,20 +240,136 @@ describe("maybeMigrateLegacyCronTz", () => {
       prompter: makePrompter({ shouldRepair: true }),
     });
 
-    // No note, no archive, no mutation.
-    expect(noteSpy).not.toHaveBeenCalled();
+    const jobs = readJobs(tmp.storePath) as Array<{
+      id: string;
+      schedule: { kind: string; expr: string; tz?: string; staggerMs?: number };
+    }>;
+    expect(jobs).toHaveLength(1);
+    const sched = jobs[0]?.schedule;
+    expect(sched?.kind).toBe("cron");
+    expect(sched?.expr).toBe("0 9 * * *");
+    expect(sched?.tz).toBeUndefined();
+    expect(sched?.staggerMs).toBeUndefined();
+
+    // Archive must exist.
     const files = fs.readdirSync(tmp.dir);
-    expect(files.filter((f) => f.includes("tz-migrated"))).toHaveLength(0);
+    expect(files.filter((f) => f.includes("tz-migrated"))).toHaveLength(1);
   });
 
-  it("non-fix mode: emits preview note but does not mutate or archive", async () => {
+  it("fix mode: kind:cron with only staggerMs (no tz) → staggerMs stripped", async () => {
     tmp = makeTmpCronDir();
     writeJobs(tmp.storePath, [
       {
-        id: "job-tz-preview",
-        name: "tz preview",
+        id: "job-cron-stagger",
+        name: "cron with staggerMs only",
+        enabled: true,
+        schedule: { kind: "cron", expr: "*/15 * * * *", staggerMs: 0 },
+        payload: { kind: "agentTurn", message: "test" },
+        state: {},
+      },
+    ]);
+
+    await maybeMigrateLegacyCronTz({
+      cfg: makeCfg(tmp.storePath),
+      options: makeOptions(),
+      prompter: makePrompter({ shouldRepair: true }),
+    });
+
+    const jobs = readJobs(tmp.storePath) as Array<{
+      id: string;
+      schedule: { kind: string; expr: string; tz?: string; staggerMs?: number };
+    }>;
+    expect(jobs).toHaveLength(1);
+    const sched = jobs[0]?.schedule;
+    expect(sched?.kind).toBe("cron");
+    expect(sched?.expr).toBe("*/15 * * * *");
+    expect(sched?.tz).toBeUndefined();
+    expect(sched?.staggerMs).toBeUndefined();
+  });
+
+  it("fix mode: cron-kind tz strip emits process-TZ warning note", async () => {
+    tmp = makeTmpCronDir();
+    writeJobs(tmp.storePath, [
+      {
+        id: "job-cron-tz-warn",
+        name: "cron tz warn",
+        enabled: true,
+        schedule: { kind: "cron", expr: "0 17 * * *", tz: "Asia/Shanghai" },
+        payload: { kind: "agentTurn", message: "test" },
+        state: {},
+      },
+    ]);
+
+    await maybeMigrateLegacyCronTz({
+      cfg: makeCfg(tmp.storePath),
+      options: makeOptions(),
+      prompter: makePrompter({ shouldRepair: true }),
+    });
+
+    // The warning about process TZ must be emitted.
+    const allNoteText = noteSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allNoteText).toContain("process TZ");
+  });
+
+  it("fix mode: stats counters — atMigrated and cronStripped tracked separately", async () => {
+    tmp = makeTmpCronDir();
+    writeJobs(tmp.storePath, [
+      {
+        id: "job-at",
+        name: "at with tz",
         enabled: true,
         schedule: { kind: "at", at: "2026-06-01T17:00:00", tz: "Asia/Shanghai" },
+        payload: { kind: "agentTurn", message: "test" },
+        state: {},
+      },
+      {
+        id: "job-cron",
+        name: "cron with tz",
+        enabled: true,
+        schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai", staggerMs: 0 },
+        payload: { kind: "agentTurn", message: "test" },
+        state: {},
+      },
+    ]);
+
+    await maybeMigrateLegacyCronTz({
+      cfg: makeCfg(tmp.storePath),
+      options: makeOptions(),
+      prompter: makePrompter({ shouldRepair: true }),
+    });
+
+    const jobs = readJobs(tmp.storePath) as Array<{
+      id: string;
+      schedule: Record<string, unknown>;
+    }>;
+    expect(jobs).toHaveLength(2);
+
+    // at job migrated to UTC.
+    const atJob = jobs.find((j) => j.id === "job-at");
+    expect(atJob?.schedule.tz).toBeUndefined();
+    expect(typeof atJob?.schedule.at).toBe("string");
+    expect(String(atJob?.schedule.at).endsWith("Z")).toBe(true);
+
+    // cron job stripped.
+    const cronJob = jobs.find((j) => j.id === "job-cron");
+    expect(cronJob?.schedule.tz).toBeUndefined();
+    expect(cronJob?.schedule.staggerMs).toBeUndefined();
+    expect(cronJob?.schedule.expr).toBe("0 9 * * *");
+
+    // Result note mentions both.
+    const allNoteText = noteSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(allNoteText).toContain("tz-aware at → UTC");
+    expect(allNoteText).toContain("Stripped tz/staggerMs");
+  });
+
+  it("non-fix mode: kind:cron with tz emits preview note but does not mutate", async () => {
+    tmp = makeTmpCronDir();
+    writeJobs(tmp.storePath, [
+      {
+        id: "job-cron-tz-preview",
+        name: "cron tz preview",
+        enabled: true,
+        schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
         payload: { kind: "agentTurn", message: "test" },
         state: {},
       },

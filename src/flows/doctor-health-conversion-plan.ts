@@ -124,6 +124,30 @@ export const doctorHealthConversionRules = [
     rule: "Split crontab warning from cron store migration; repair only mutates cron store findings.",
   },
   {
+    contributionId: "doctor:cron-purge",
+    conversion: "repair-backed-detect",
+    target: ["core/doctor/cron-purge"],
+    rule: "Detect completed/expired cron jobs eligible for purge; repair removes only the selected subset.",
+  },
+  {
+    contributionId: "doctor:cron-target-migration",
+    conversion: "repair-backed-detect",
+    target: ["core/doctor/cron-target-migration"],
+    rule: "Detect non-isolated sessionTarget jobs; repair rewrites all affected targets to isolated.",
+  },
+  {
+    contributionId: "doctor:cron-every-migration",
+    conversion: "repair-backed-detect",
+    target: ["core/doctor/cron-every-migration"],
+    rule: "Detect kind:every jobs and convert to kind:cron where expressible; leave unmigratable jobs unchanged.",
+  },
+  {
+    contributionId: "doctor:cron-tz-migration",
+    conversion: "repair-backed-detect",
+    target: ["core/doctor/cron-tz-migration"],
+    rule: "Detect tz-bearing cron/at schedules; repair pre-resolves at-kind to UTC and strips tz/staggerMs from cron-kind.",
+  },
+  {
     contributionId: "doctor:sandbox",
     conversion: "split-detect-repair",
     target: [

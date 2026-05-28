@@ -440,6 +440,16 @@ async function runCronSessionTargetMigrationHealth(ctx: DoctorHealthFlowContext)
   });
 }
 
+async function runCronEveryMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeMigrateLegacyCronEveryKind } =
+    await import("../commands/doctor-cron-every-migration.js");
+  await maybeMigrateLegacyCronEveryKind({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
 async function runCronTzMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { maybeMigrateLegacyCronTz } = await import("../commands/doctor-cron-tz-migration.js");
   await maybeMigrateLegacyCronTz({
@@ -865,6 +875,12 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       label: "Cron sessionTarget migration",
       healthCheckIds: [],
       run: runCronSessionTargetMigrationHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-every-migration",
+      label: "Cron every-kind migration",
+      healthCheckIds: [],
+      run: runCronEveryMigrationHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:cron-tz-migration",
