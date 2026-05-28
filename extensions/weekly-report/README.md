@@ -62,18 +62,23 @@ This plugin doesn't ship a cron schedule. Add an entry to your OpenClaw cron job
 }
 ```
 
-Adjust schedule, timezone, prompt, and `sessionTarget` as you like. The prompt text is yours — the plugin doesn't care what nudges the agent, only that the agent ends up calling `submit_weekly_report_draft`. Use `openclaw cron add` (or the cron service surface) to create the entry rather than hand-editing if you're unsure of the exact field shape — it's the source of truth.
+Adjust schedule, timezone, and prompt as you like. The prompt text is yours — the plugin doesn't care what nudges the agent, only that the agent ends up calling `submit_weekly_report_draft`.
+
+> ⚠️ **Use `sessionTarget: "main"` + `payload.kind: "systemEvent"`, not `agentTurn`.** The cron runner spawns a fresh isolated agent process for every `agentTurn` job and has a hardcoded **60 s setup watchdog** (`CRON_AGENT_SETUP_WATCHDOG_MS` in `src/cron/service/timer.ts`). On hosts with several plugins, plugin loading + model auth routinely exceed that budget and the job fails with `cron: isolated agent setup timed out before runner start` _before our tool ever runs_. `systemEvent` queues the event into the user's already-running main session — no fork, no bootstrap, no 60 s deadline. The agent still has every tool it normally has, including `feishu_ask_user_question` (the card delivery), so nothing about the interactive flow is lost.
+>
+> Concretely: the systemEvent flavor expects `payload: { kind: "systemEvent", text: "…" }` (note the field is `text`, not `message`). The agentTurn flavor would use `message` — that mismatch is also a common gotcha when migrating an existing entry.
+
+Use `openclaw cron add` (or the cron service surface) to create the entry rather than hand-editing if you're unsure of the exact field shape — it's the source of truth.
 
 ## Tools
 
-The plugin exposes four tools the agent calls in sequence:
+The plugin exposes five tools. The agent calls them in this order:
 
-1. **`submit_weekly_report_draft({weekKey, weekTitle, draftJson, supersedeFlowId?, revisionLabel?})`** — validates the draft against the renderer schema, runs best-effort dedupe (or supersedes the named flow), creates a managed flow at `await_user_reply`, and returns a Feishu card JSON to send to `recipientSessionKey`. If a flow for this `weekKey` is already pending, the call no-ops and returns `action: "noop_already_pending"`.
-2. **`respond_to_weekly_report_card({metadataJson, supplement?, sessionKey})`** — call this when a synthetic card-action event arrives from the Feishu plugin. Validates trust (controllerId / sessionKey / status / weekKey all checked against the bound flow) and branches:
-   - `confirm` → transitions to `writing_doc`, returns splice instructions.
-   - `supplement` → transitions to a transient `revising` state, returns `(originalDraft, supplement)` for the agent to merge and re-submit via `submit_weekly_report_draft` with `supersedeFlowId`.
-3. **`splice_weekly_report_doc({flowId, currentDocBody})`** — pure server-side splice. Call between `feishu_doc read` and `feishu_doc write`. Returns the doc body with this flow's section replaced (or prepended) at sentinel boundaries.
-4. **`finalize_weekly_report({flowId, success, error?})`** — call after the `feishu_doc write` step to `finish` (success) or `fail` (failure, with reason) the flow.
+1. **`submit_weekly_report_draft({weekKey, weekTitle, draftJson, supersedeFlowId?, revisionLabel?})`** — validates the draft against the renderer schema, runs best-effort dedupe (or supersedes the named flow), creates a managed flow at `await_user_reply`, and returns `{flowId, weekKey, weekTitle, previewMarkdown, questionHeader, confirmLabel, supplementLabel, instructions}`. **It does NOT return a raw card JSON** — the response's `instructions` tell the agent to deliver the card via `feishu_ask_user_question` (provided by `@larksuite/openclaw-lark` or any other lark plugin that registers it). If a flow for this `weekKey` is already pending, the call no-ops and returns `action: "noop_already_pending"`.
+2. **`fetch_git_activity({sinceTs?, untilTs?, repoFilter?})`** — v2 fact source. Returns `{windowStart, windowEnd, repos: [{name, sshUrl, ok, commits|error}]}`. Agent typically calls this in the same turn as `getSessionMessages` so the LLM has both chat context and factual commit records before drafting. Returns an empty repos array if `gitRemotes` is unset; per-repo failures surface as `{ok: false, error}` and the agent is required by prompt to mention them in the draft.
+3. **`respond_to_weekly_report_card({flowId, weekKey, action, supplement?, sessionKey})`** — call after the user submits the `feishu_ask_user_question` card. `action` is `"confirm"` or `"supplement"`. Validates trust (controllerId / sessionKey / status / weekKey all checked against the bound flow). On `confirm` → transitions to `writing_doc`, returns splice instructions. On `supplement` → transitions to a transient `revising` state, returns `(originalDraft, supplement)` for the agent to merge and re-submit via `submit_weekly_report_draft` with `supersedeFlowId`.
+4. **`splice_weekly_report_doc({flowId, currentDocBody})`** — pure server-side splice. Call between `feishu_doc read` and `feishu_doc write`. Returns the doc body with this flow's section replaced (or prepended) at sentinel boundaries.
+5. **`finalize_weekly_report({flowId, success, error?})`** — call after the `feishu_doc write` step to `finish` (success) or `fail` (failure, with reason) the flow.
 
 ## Drafting contract
 
@@ -94,7 +99,7 @@ The splicer matches on the `weekKey` carried in the sentinel, not the visible he
 
 ## Behavior notes
 
-- **Cross-extension calls.** The plugin does not import Feishu plugin internals. The card JSON is returned to the agent; the agent calls Feishu's existing tools (`feishu_doc`, whatever card-send mechanism is wired into your deployment) to perform actual I/O. Tool responses include explicit `instructions` strings to guide the agent through the multi-step flow.
+- **Cross-extension calls.** The plugin does not import Feishu/lark plugin internals. Tool responses include explicit `instructions` naming the lark tools the agent must call: `feishu_ask_user_question` to render the interactive card, `feishu_doc` for read/write of the target doc. If your deployment uses a different lark plugin, register equivalent tool names or override `draftPromptOverride`/`questionHeader` to match.
 - **Dedupe is best-effort.** `submit_weekly_report_draft` lists current flows, filters by `weekKey + active status`, and skips with a notification message if one already exists. The race window between list and create is theoretical for a single-user weekly cron; the read-modify-write doc strategy is the backstop.
 - **Sweeper is CAS-idempotent.** Reminder and fail transitions use `expectedRevision`; two sweepers racing on the same flow can only succeed once.
 - **Card-action trust.** `respond_to_weekly_report_card` validates `flowId` resolves, `controllerId === "weekly-report"`, `sessionKey` matches, `status === "waiting"`, and `weekKey` matches. Stale or forged events get a user-visible "no longer valid" response and no flow mutation.

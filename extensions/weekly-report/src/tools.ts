@@ -103,7 +103,7 @@ export function createSubmitWeeklyReportDraftTool(
     name: "submit_weekly_report_draft",
     label: "Submit Weekly Report Draft",
     description:
-      "Submit a structured weekly-report draft. Creates a managed TaskFlow, builds a Feishu confirmation card, and stores `waiting` state. Use `supersedeFlowId` when revising after a 'supplement' card click. Returns the card JSON to send to the user.",
+      "Step 1 of the weekly-report flow. Submit a structured weekly-report draft. Creates a managed TaskFlow and returns `{flowId, weekKey, weekTitle, previewMarkdown, questionHeader, confirmLabel, supplementLabel, instructions}`. DO NOT reply to the user with the response — plain replies don't render as cards. Instead, after this returns, call `feishu_ask_user_question` with one question entry shaped { header: questionHeader, question: previewMarkdown, options: [confirmLabel, supplementLabel] } to deliver the interactive card. Use `supersedeFlowId` when revising after a 'supplement' answer.",
     parameters: Type.Object({
       weekKey: Type.String({ description: "ISO week key, e.g. 2026-W21" }),
       weekTitle: Type.String({
