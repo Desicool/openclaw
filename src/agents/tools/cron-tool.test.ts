@@ -1504,6 +1504,53 @@ describe("cron tool", () => {
       });
       expect(key).toBeUndefined();
     });
+
+    // ── Gap 1: body and deliveryTarget sensitivity ──────────────────────
+
+    it("returns different keys for different body values (same other inputs)", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({
+        ...BASE,
+        body: "Remind me about the retrospective",
+      });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("returns different keys for different deliveryTarget values (same other inputs)", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({
+        ...BASE,
+        deliveryTarget: "-9999999999",
+      });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("returns a 64-char hex string for kind:cron with a valid expr (cron branch is exported)", () => {
+      // The injection site only calls computeReminderIdempotencyKey for kind:at
+      // jobs, but the cron branch is live in the exported function. Verify it
+      // returns a deterministic hash key rather than undefined.
+      const key = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "cron" as unknown as "at", expr: "0 9 * * *" } as {
+          kind: "at";
+          at: string;
+        },
+      });
+      expect(typeof key).toBe("string");
+      expect(key).toHaveLength(64);
+      expect(key).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("returns undefined for kind:cron with an empty expr", () => {
+      const key = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "cron" as unknown as "at", expr: "" } as {
+          kind: "at";
+          at: string;
+        },
+      });
+      expect(key).toBeUndefined();
+    });
   });
 
   describe("cron.add idempotencyKey injection", () => {

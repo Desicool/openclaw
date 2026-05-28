@@ -14,8 +14,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadCronStore } from "../store.js";
-import type { CronJob } from "../types.js";
+import { loadCronStore, saveCronStore } from "../store.js";
+import type { CronJob, CronStoreFile } from "../types.js";
 import { createCronServiceState } from "./state.js";
 import { executeJobCore } from "./timer.js";
 
@@ -316,6 +316,69 @@ describe("atomic-remove: crash mid-commit → boot reconcile removes the job", (
       const store = await loadCronStore(storePath);
       // The job should have been removed by boot reconcile.
       expect(store.jobs.find((j) => j.id === jobId)).toBeUndefined();
+    } finally {
+      if (originalConfigDir !== undefined) {
+        process.env.OPENCLAW_STATE_DIR = originalConfigDir;
+      } else {
+        delete process.env.OPENCLAW_STATE_DIR;
+      }
+    }
+  });
+
+  // Gap 2: durability follow-up — after boot reconcile removes the entry in
+  // memory, calling saveCronStore must propagate the removal to disk so the
+  // entry is absent on a subsequent cold read.
+  it("crash-recovery is durable: saveCronStore after boot reconcile drops entry from disk", async () => {
+    const jobId = "at-crash-durability-job";
+    const storePath = makeStorePath();
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+
+    const job: Partial<CronJob> & { id: string } = {
+      id: jobId,
+      name: "crash durability test",
+      enabled: true,
+      schedule: { kind: "at", at: new Date(Date.now() + 3_600_000).toISOString() },
+      sessionTarget: "isolated",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "agentTurn", message: "durability check" },
+    };
+
+    // jobs.json has the job (process crashed before removal).
+    await fs.writeFile(storePath, JSON.stringify({ version: 1, jobs: [job] }, null, 2), "utf8");
+
+    // State file carries removeRequested=true.
+    const statePath = storePath.replace(/\.json$/, "-state.json");
+    const stateFile = {
+      version: 1,
+      jobs: {
+        [jobId]: {
+          state: {
+            running: {
+              runId: "durability-run-id",
+              startedAtMs: Date.now() - 5000,
+              removeRequested: true,
+            },
+          },
+        },
+      },
+    };
+    await fs.writeFile(statePath, JSON.stringify(stateFile, null, 2), "utf8");
+
+    const originalConfigDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = tmpDir;
+
+    try {
+      // Step 1: boot reconcile loads store and removes entry in memory.
+      const store = await loadCronStore(storePath);
+      expect(store.jobs.find((j) => j.id === jobId)).toBeUndefined();
+
+      // Step 2: write the reconciled store back to disk.
+      await saveCronStore(storePath, store as CronStoreFile);
+
+      // Step 3: cold-read from disk and assert the entry is gone.
+      const diskContent = await fs.readFile(storePath, "utf-8");
+      const diskStore = JSON.parse(diskContent) as { jobs: Array<{ id: string }> };
+      expect(diskStore.jobs.find((j) => j.id === jobId)).toBeUndefined();
     } finally {
       if (originalConfigDir !== undefined) {
         process.env.OPENCLAW_STATE_DIR = originalConfigDir;

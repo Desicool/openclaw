@@ -732,3 +732,47 @@ describe("idempotencyKey dedup in ops.add()", () => {
     }
   });
 });
+
+// Gap 4: idempotency end-to-end — disk durability of dedup rejection.
+//
+// Verifies that when a second add with a duplicate idempotencyKey is rejected,
+// only ONE job exists in jobs.json on disk afterward. This catches regressions
+// where the in-memory dedup guard fires but a partial write leaves a stale entry.
+describe("idempotencyKey dedup: disk durability after rejection", () => {
+  it("only one job in jobs.json after duplicate-key rejection", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+    const futureAt = new Date(now + 3_600_000).toISOString();
+
+    const input = {
+      name: "dedup-durability",
+      enabled: true,
+      idempotencyKey: "durability-key-xyz",
+      schedule: { kind: "at" as const, at: futureAt },
+      sessionTarget: "main" as const,
+      wakeMode: "next-heartbeat" as const,
+      payload: { kind: "systemEvent" as const, text: "ping" },
+    };
+
+    // First add — should succeed.
+    const first = await add(state, input);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    // Second add with the same key — should be rejected.
+    await expect(add(state, { ...input, name: "dedup-durability-dup" })).rejects.toThrow(
+      `cron job with idempotencyKey durability-key-xyz already exists (jobId=${first.id})`,
+    );
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    // Disk must contain exactly one job with this idempotencyKey.
+    const persisted = await loadCronStore(storePath);
+    const matching = persisted.jobs.filter((j) => j.idempotencyKey === "durability-key-xyz");
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.id).toBe(first.id);
+  });
+});

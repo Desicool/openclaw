@@ -397,4 +397,68 @@ describe("boot reconcile", () => {
       }
     }
   });
+
+  // Gap 5: pid-recycling resilience.
+  //
+  // A "recycled pid" is when a new process reuses a pid that was previously
+  // assigned to a cron child.  The OS start time of the current occupant of
+  // that pid will differ significantly (>2s) from the startedAtMs that was
+  // persisted when the original child was spawned.  Boot reconcile must detect
+  // this mismatch and treat the running entry as orphaned.
+  it("case 5 (pid recycled): same pid alive but start-time mismatch → running cleared as orphan", async () => {
+    const storePath = makeStorePath("pid-recycled");
+    const job = baseJob("pid-recycled-job");
+
+    const selfPid = process.pid;
+    const runId = "recycled-pid-run-id-0000-111111111111";
+    const now = Date.now();
+
+    // Persist a startedAtMs that is 1_000_000 ms in the past relative to
+    // our process's real start time.  The mock below returns our real start
+    // time, so the delta will be ~1_000_000 ms >> 2_000 ms tolerance.
+    const persistedStartedAtMs = now - 1_000_000;
+
+    // Mock readProcessStartTimeMs to return a start time that does NOT match
+    // the persisted value (simulating a recycled pid: the current occupant of
+    // this pid started much later than the original cron child did).
+    vi.spyOn(
+      await import("../infra/process-start-time.js"),
+      "readProcessStartTimeMs",
+    ).mockImplementationOnce(async (pid) => {
+      if (pid === selfPid) {
+        // Return a start time that is significantly different from persistedStartedAtMs.
+        return { kind: "ok" as const, startedAtMs: now - 1_000 };
+      }
+      return { kind: "no-such-pid" as const };
+    });
+
+    await writeStore(storePath, [job]);
+    await writeStateFile(storePath, {
+      "pid-recycled-job": {
+        runningAtMs: persistedStartedAtMs,
+        running: { runId, pid: selfPid, startedAtMs: persistedStartedAtMs },
+      },
+    });
+
+    const configDir = path.join(tmpDir, "pid-recycled");
+    const originalConfigDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = configDir;
+    try {
+      const store = await loadCronStore(storePath);
+      const loaded = store.jobs.find((j) => j.id === "pid-recycled-job");
+      expect(loaded).toBeDefined();
+      if (!loaded) return;
+
+      // Start-time mismatch (>2s tolerance) → treated as orphan; running cleared.
+      const runningField = (loaded.state as Record<string, unknown>).running;
+      expect(runningField).toBeUndefined();
+      expect(loaded.state.runningAtMs).toBeUndefined();
+    } finally {
+      if (originalConfigDir !== undefined) {
+        process.env.OPENCLAW_STATE_DIR = originalConfigDir;
+      } else {
+        delete process.env.OPENCLAW_STATE_DIR;
+      }
+    }
+  });
 });
