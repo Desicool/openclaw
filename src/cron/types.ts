@@ -199,9 +199,17 @@ type CronAgentTurnPayloadPatch = {
 } & Partial<Omit<CronAgentTurnPayloadFields, "toolsAllow">> & {
     toolsAllow?: string[] | null;
   };
+export type CronRunningState = {
+  runId: string;
+  pid?: number;
+  startedAtMs?: number;
+};
+
 export type CronJobState = {
   nextRunAtMs?: number;
   runningAtMs?: number;
+  /** In-flight subprocess/run tracking. Cleared by boot reconcile or after child exits. */
+  running?: CronRunningState;
   lastRunAtMs?: number;
   /** Preferred execution outcome field. */
   lastRunStatus?: CronRunStatus;
@@ -221,6 +229,10 @@ export type CronJobState = {
   lastFailureAlertAtMs?: number;
   /** Number of consecutive schedule computation errors. Auto-disables job after threshold. */
   scheduleErrorCount?: number;
+  /** Number of runs skipped due to subprocess collision (previous run still alive). */
+  missedCount?: number;
+  /** Timestamp (ms) of the most recent skip-on-collision event. */
+  lastMissedAtMs?: number;
   /** Explicit delivery outcome, separate from execution outcome. */
   lastDeliveryStatus?: CronDeliveryStatus;
   /** Delivery-specific error text when available. */

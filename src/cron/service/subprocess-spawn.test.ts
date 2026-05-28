@@ -8,7 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCronServiceState } from "../../cron/service/state.js";
-import { executeJobCore } from "../../cron/service/timer.js";
+import type { CronSubprocessEntry } from "../../cron/service/state.js";
+import { executeJobCore, runMissedJobs } from "../../cron/service/timer.js";
 import type { CronJob } from "../../cron/types.js";
 
 // Minimal logger that drops everything.
@@ -341,5 +342,65 @@ describe("executeJobCore inline fallback (no subprocess paths)", () => {
 
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("ok");
+  });
+});
+
+describe("skip-on-collision: missedCount and lastMissedAtMs", () => {
+  it("increments missedCount and sets lastMissedAtMs when child is still alive in pidTable", async () => {
+    const storePath = makeStorePath();
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+    await fs.writeFile(storePath, JSON.stringify({ version: 1, jobs: [] }, null, 2), "utf8");
+
+    const now = Date.now();
+    const job = makeIsolatedAgentJob({
+      id: "collision-miss-job",
+      state: { nextRunAtMs: now - 1 },
+    });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: noopLog,
+      schedulerLockPath: null,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+    });
+    state.store = { version: 1, jobs: [job] };
+
+    // Simulate an alive child in the pidTable (exitCode === null means still running).
+    const fakeChild = {
+      exitCode: null,
+      pid: 99999,
+      kill: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      stdout: null,
+    } as unknown as import("node:child_process").ChildProcess;
+
+    const entry: CronSubprocessEntry = {
+      pid: 99999,
+      runId: "fake-run-id",
+      startedAtMs: now - 10_000,
+      child: fakeChild,
+    };
+    state.pidTable.set(job.id, entry);
+
+    const originalConfigDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = tmpDir;
+    try {
+      // runMissedJobs calls collectRunnableJobs → isRunnableJob, which detects
+      // the collision and records the miss on job.state.
+      await runMissedJobs(state);
+
+      expect(job.state.missedCount).toBe(1);
+      expect(typeof job.state.lastMissedAtMs).toBe("number");
+    } finally {
+      if (originalConfigDir !== undefined) {
+        process.env.OPENCLAW_STATE_DIR = originalConfigDir;
+      } else {
+        delete process.env.OPENCLAW_STATE_DIR;
+      }
+    }
   });
 });

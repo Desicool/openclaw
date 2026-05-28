@@ -281,10 +281,20 @@ const CronFailureNotificationDeliverySchema = Type.Object(
   { additionalProperties: false },
 );
 
+const CronRunningStateSchema = Type.Object(
+  {
+    runId: NonEmptyString,
+    pid: Type.Optional(Type.Integer({ minimum: 1 })),
+    startedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
 export const CronJobStateSchema = Type.Object(
   {
     nextRunAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
     runningAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    running: Type.Optional(CronRunningStateSchema),
     lastRunAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
     lastRunStatus: Type.Optional(CronRunStatusSchema),
     lastStatus: Type.Optional(DeprecatedCronRunStatusSchema),
@@ -295,6 +305,8 @@ export const CronJobStateSchema = Type.Object(
     lastDurationMs: Type.Optional(Type.Integer({ minimum: 0 })),
     consecutiveErrors: Type.Optional(Type.Integer({ minimum: 0 })),
     consecutiveSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
+    missedCount: Type.Optional(Type.Integer({ minimum: 0 })),
+    lastMissedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
     lastDelivered: Type.Optional(Type.Boolean()),
     lastDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
     lastDeliveryError: Type.Optional(Type.String()),

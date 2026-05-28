@@ -205,8 +205,9 @@ export type CronServiceState = {
    */
   openClawBin?: string;
   /**
-   * Active subprocess entries keyed by jobId. Used to prevent double-spawning
-   * and to send termination signals on timeout/shutdown.
+   * Tracks live child processes by jobId. Used by isRunnableJob for skip-on-collision
+   * and by the SIGTERM/SIGKILL escalation in executeJobInSubprocess. Not iterated on
+   * stop(): per design, children finish naturally.
    */
   pidTable: Map<string, CronSubprocessEntry>;
   /**

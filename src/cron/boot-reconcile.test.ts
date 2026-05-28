@@ -6,6 +6,7 @@
  *   1. Legacy running marker (no runId) → cleared.
  *   2. running.runId present + result file exists → terminal state applied.
  *   3. running.runId present + pid alive matching start time → left alone.
+ *      runningAtMs is cleared so start()'s interrupted-run sweep ignores it.
  *   4. running.runId present + pid dead → cleared.
  */
 
@@ -276,7 +277,7 @@ describe("boot reconcile", () => {
     }
   });
 
-  it("case 3: running.runId present + pid alive matching start time → left alone", async () => {
+  it("case 3: running.runId present + pid alive matching start time → running left, runningAtMs cleared", async () => {
     const storePath = makeStorePath("pid-alive");
     const job = baseJob("pid-alive-job");
 
@@ -315,12 +316,79 @@ describe("boot reconcile", () => {
       expect(loaded).toBeDefined();
       if (!loaded) return;
 
-      // Pid is alive with matching start time → running left alone.
-      const runningField = (loaded.state as Record<string, unknown>).running;
-      expect(runningField).toBeDefined();
-      expect((runningField as Record<string, unknown>).runId).toBe(runId);
-      // runningAtMs is preserved (still set).
-      expect(loaded.state.runningAtMs).toBe(startedAtMs);
+      // Pid is alive with matching start time → running block is preserved.
+      expect(loaded.state.running).toBeDefined();
+      expect(loaded.state.running?.runId).toBe(runId);
+      // runningAtMs must be cleared — it is the legacy interrupted-run gate and must
+      // not trigger start()'s markInterruptedStartupRun sweep on a live subprocess.
+      expect(loaded.state.runningAtMs).toBeUndefined();
+    } finally {
+      if (originalConfigDir !== undefined) {
+        process.env.OPENCLAW_STATE_DIR = originalConfigDir;
+      } else {
+        delete process.env.OPENCLAW_STATE_DIR;
+      }
+    }
+  });
+
+  it("case 3 + start() sweep: live subprocess is NOT falsely marked as interrupted", async () => {
+    const storePath = makeStorePath("pid-alive-no-interrupt");
+    const job = baseJob("pid-alive-no-interrupt-job");
+
+    const selfPid = process.pid;
+    const runId = "aaaabbbb-cccc-dddd-eeee-ffffffffffff";
+    const now = Date.now();
+    const startedAtMs = now - 5_000;
+
+    // Mock readProcessStartTimeMs to report the pid as alive with matching start time.
+    vi.spyOn(
+      await import("../infra/process-start-time.js"),
+      "readProcessStartTimeMs",
+    ).mockResolvedValue({ kind: "ok" as const, startedAtMs });
+
+    await writeStore(storePath, [job]);
+    await writeStateFile(storePath, {
+      "pid-alive-no-interrupt-job": {
+        runningAtMs: startedAtMs,
+        running: { runId, pid: selfPid, startedAtMs },
+      },
+    });
+
+    const configDir = path.join(tmpDir, "pid-alive-no-interrupt");
+    const originalConfigDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = configDir;
+    try {
+      const store = await loadCronStore(storePath);
+      const loaded = store.jobs.find((j) => j.id === "pid-alive-no-interrupt-job");
+      expect(loaded).toBeDefined();
+      if (!loaded) return;
+
+      // After boot reconcile: running block present, runningAtMs cleared.
+      expect(loaded.state.running).toBeDefined();
+      expect(loaded.state.runningAtMs).toBeUndefined();
+
+      // Simulate start()'s interrupted-run sweep: it checks runningAtMs.
+      // Since runningAtMs is now undefined, the sweep must NOT touch this job.
+      const preSweepConsecutiveErrors = loaded.state.consecutiveErrors;
+      const preSweepEnabled = loaded.enabled;
+      const preSweepLastRunStatus = loaded.state.lastRunStatus;
+
+      for (const j of store.jobs) {
+        j.state ??= {};
+        if (typeof j.state.runningAtMs === "number") {
+          // This would be the markInterruptedStartupRun path — it must not fire.
+          j.state.consecutiveErrors = (j.state.consecutiveErrors ?? 0) + 1;
+          j.state.lastRunStatus = "error";
+          if (j.schedule.kind === "at") {
+            j.enabled = false;
+          }
+        }
+      }
+
+      // Verify none of the interrupted-run side-effects applied.
+      expect(loaded.state.consecutiveErrors).toBe(preSweepConsecutiveErrors);
+      expect(loaded.enabled).toBe(preSweepEnabled);
+      expect(loaded.state.lastRunStatus).toBe(preSweepLastRunStatus);
     } finally {
       if (originalConfigDir !== undefined) {
         process.env.OPENCLAW_STATE_DIR = originalConfigDir;

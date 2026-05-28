@@ -1396,9 +1396,11 @@ function isRunnableJob(params: {
   if (typeof job.state.runningAtMs === "number") {
     return false;
   }
-  // Subprocess collision guard: if a child is still alive for this jobId, skip.
+  // Subprocess collision guard: if a child is still alive for this jobId, skip and record miss.
   const pidEntry = params.pidTable?.get(job.id);
   if (pidEntry && pidEntry.child.exitCode === null) {
+    job.state.missedCount = (job.state.missedCount ?? 0) + 1;
+    job.state.lastMissedAtMs = params.nowMs;
     return false;
   }
   if (params.skipAtIfAlreadyRan && job.schedule.kind === "at" && job.state.lastStatus) {
@@ -1914,7 +1916,7 @@ async function executeJobInSubprocess(
     runId,
     startedAtMs,
   };
-  (job.state as Record<string, unknown>).running = runningState;
+  job.state.running = runningState;
   // Flush the pre-spawn running record to disk.
   await persist(state, { stateOnly: true });
 
@@ -1932,7 +1934,7 @@ async function executeJobInSubprocess(
   // Update running state with PID now that we have it.
   if (typeof child.pid === "number") {
     runningState.pid = child.pid;
-    (job.state as Record<string, unknown>).running = runningState;
+    job.state.running = runningState;
     await persist(state, { stateOnly: true }).catch(() => undefined);
   }
 
@@ -2043,7 +2045,7 @@ async function executeJobInSubprocess(
   }
 
   // Clear the running marker from job state and persist the terminal record.
-  (job.state as Record<string, unknown>).running = undefined;
+  job.state.running = undefined;
   await persist(state, { stateOnly: true }).catch(() => undefined);
 
   return { status: finalStatus, error: finalError };
