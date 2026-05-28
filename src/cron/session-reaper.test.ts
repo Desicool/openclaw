@@ -2,287 +2,220 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach } from "vitest";
-import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
-import type { Logger } from "./service/state.js";
-import { sweepCronRunSessions, resolveRetentionMs, resetReaperThrottle } from "./session-reaper.js";
+import {
+  sweepCronRunsArtifacts,
+  resolveRetentionMs,
+  resetReaperThrottle,
+  sweepCronRunSessions,
+} from "./session-reaper.js";
 
-function createTestLogger(): Logger {
-  return {
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  };
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function mkRunsDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "cron-reaper-"));
 }
 
-describe("resolveRetentionMs", () => {
-  it("returns 24h default when no config", () => {
-    expect(resolveRetentionMs()).toBe(24 * 3_600_000);
+/** Age a file by setting its mtime to (now - ageMs). */
+function ageFile(filePath: string, ageMs: number): void {
+  const t = new Date(Date.now() - ageMs);
+  fs.utimesSync(filePath, t, t);
+}
+
+function writeFile(filePath: string, content = ""): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+}
+
+// ---------------------------------------------------------------------------
+// sweepCronRunsArtifacts
+// ---------------------------------------------------------------------------
+
+describe("sweepCronRunsArtifacts", () => {
+  let runsDir: string;
+  const RETENTION_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+  const OLD_AGE_MS = RETENTION_MS + 1000; // just past the retention window
+
+  beforeEach(() => {
+    runsDir = mkRunsDir();
   });
 
-  it("returns 24h default when config is empty", () => {
-    expect(resolveRetentionMs({})).toBe(24 * 3_600_000);
+  it("removes old .result.json and .pid files; keeps fresh ones", async () => {
+    const jobDir = path.join(runsDir, "job-a");
+    const oldResult = path.join(jobDir, "run-1.result.json");
+    const oldPid = path.join(jobDir, "run-1.pid");
+    const freshResult = path.join(jobDir, "run-2.result.json");
+
+    writeFile(oldResult, "{}");
+    writeFile(oldPid, "12345");
+    writeFile(freshResult, "{}");
+
+    ageFile(oldResult, OLD_AGE_MS);
+    ageFile(oldPid, OLD_AGE_MS);
+    // freshResult mtime stays at now
+
+    const result = await sweepCronRunsArtifacts({ runsDir });
+
+    expect(result.filesRemoved).toBe(2);
+    expect(result.emptyDirsRemoved).toBe(0);
+    expect(fs.existsSync(oldResult)).toBe(false);
+    expect(fs.existsSync(oldPid)).toBe(false);
+    expect(fs.existsSync(freshResult)).toBe(true);
   });
 
-  it("parses duration string", () => {
-    expect(resolveRetentionMs({ sessionRetention: "1h" })).toBe(3_600_000);
-    expect(resolveRetentionMs({ sessionRetention: "7d" })).toBe(7 * 86_400_000);
-    expect(resolveRetentionMs({ sessionRetention: "30m" })).toBe(30 * 60_000);
+  it("removes old session-*.json files", async () => {
+    const jobDir = path.join(runsDir, "job-b");
+    const oldSession = path.join(jobDir, "session-abc123.json");
+
+    writeFile(oldSession, "{}");
+    ageFile(oldSession, OLD_AGE_MS);
+
+    const result = await sweepCronRunsArtifacts({ runsDir });
+
+    expect(result.filesRemoved).toBe(1);
+    expect(fs.existsSync(oldSession)).toBe(false);
   });
 
-  it("returns null when disabled", () => {
-    expect(resolveRetentionMs({ sessionRetention: false })).toBeNull();
+  it("removes empty job directory after all files are swept", async () => {
+    const jobDir = path.join(runsDir, "job-c");
+    const oldResult = path.join(jobDir, "run-1.result.json");
+
+    writeFile(oldResult, "{}");
+    ageFile(oldResult, OLD_AGE_MS);
+
+    const result = await sweepCronRunsArtifacts({ runsDir });
+
+    expect(result.filesRemoved).toBe(1);
+    expect(result.emptyDirsRemoved).toBe(1);
+    expect(fs.existsSync(jobDir)).toBe(false);
   });
 
-  it("falls back to default on invalid string", () => {
-    expect(resolveRetentionMs({ sessionRetention: "abc" })).toBe(24 * 3_600_000);
-  });
-});
+  it("does not remove job directory when fresh files remain", async () => {
+    const jobDir = path.join(runsDir, "job-d");
+    const oldResult = path.join(jobDir, "run-old.result.json");
+    const freshResult = path.join(jobDir, "run-new.result.json");
 
-describe("isCronRunSessionKey", () => {
-  it("matches cron run session keys", () => {
-    expect(isCronRunSessionKey("agent:main:cron:abc-123:run:def-456")).toBe(true);
-    expect(isCronRunSessionKey("agent:debugger:cron:249ecf82:run:1102aabb")).toBe(true);
-  });
+    writeFile(oldResult, "{}");
+    writeFile(freshResult, "{}");
+    ageFile(oldResult, OLD_AGE_MS);
 
-  it("matches cron run descendant session keys", () => {
-    expect(isCronRunSessionKey("agent:main:cron:abc-123:run:def-456:subagent:worker")).toBe(true);
-    expect(isCronRunSessionKey("agent:main:cron:abc-123:run:def-456:thread:reply")).toBe(true);
-  });
+    const result = await sweepCronRunsArtifacts({ runsDir });
 
-  it("does not match base cron session keys", () => {
-    expect(isCronRunSessionKey("agent:main:cron:abc-123")).toBe(false);
+    expect(result.filesRemoved).toBe(1);
+    expect(result.emptyDirsRemoved).toBe(0);
+    expect(fs.existsSync(jobDir)).toBe(true);
+    expect(fs.existsSync(freshResult)).toBe(true);
   });
 
-  it("does not match regular session keys", () => {
-    expect(isCronRunSessionKey("agent:main:telegram:dm:123")).toBe(false);
+  it("respects custom retentionMs option", async () => {
+    const jobDir = path.join(runsDir, "job-e");
+    const recentResult = path.join(jobDir, "run-1.result.json");
+
+    writeFile(recentResult, "{}");
+    // Age the file 2 hours
+    ageFile(recentResult, 2 * 60 * 60 * 1000);
+
+    // Default 14-day retention: file is fresh, should be kept
+    const r1 = await sweepCronRunsArtifacts({ runsDir });
+    expect(r1.filesRemoved).toBe(0);
+
+    // Custom 1-hour retention: file is now "old"
+    const r2 = await sweepCronRunsArtifacts({ runsDir, retentionMs: 60 * 60 * 1000 });
+    expect(r2.filesRemoved).toBe(1);
   });
 
-  it("does not match non-canonical cron-like keys", () => {
-    expect(isCronRunSessionKey("agent:main:slack:cron:job:run:uuid")).toBe(false);
-    expect(isCronRunSessionKey("cron:job:run:uuid")).toBe(false);
-  });
-});
+  it("ignores files that do not match artifact patterns", async () => {
+    const jobDir = path.join(runsDir, "job-f");
+    const otherFile = path.join(jobDir, "something-else.txt");
 
-describe("sweepCronRunSessions", () => {
-  let tmpDir: string;
-  let storePath: string;
-  const log = createTestLogger();
+    writeFile(otherFile, "data");
+    ageFile(otherFile, OLD_AGE_MS);
 
-  beforeEach(async () => {
-    resetReaperThrottle();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cron-reaper-"));
-    storePath = path.join(tmpDir, "sessions.json");
+    const result = await sweepCronRunsArtifacts({ runsDir });
+
+    expect(result.filesRemoved).toBe(0);
+    expect(fs.existsSync(otherFile)).toBe(true);
   });
 
-  it("prunes expired cron run sessions", async () => {
-    const now = Date.now();
-    const store: Record<string, { sessionId: string; updatedAt: number }> = {
-      "agent:main:cron:job1": {
-        sessionId: "base-session",
-        updatedAt: now,
-      },
-      "agent:main:cron:job1:run:old-run": {
-        sessionId: "old-run",
-        updatedAt: now - 25 * 3_600_000, // 25h ago — expired
-      },
-      "agent:main:cron:job1:run:old-run:subagent:worker": {
-        sessionId: "old-run-child",
-        updatedAt: now - 25 * 3_600_000, // expired cron-run descendant
-      },
-      "agent:main:cron:job1:run:recent-run": {
-        sessionId: "recent-run",
-        updatedAt: now - 1 * 3_600_000, // 1h ago — not expired
-      },
-      "agent:main:cron:job1:run:recent-run:thread:reply": {
-        sessionId: "recent-run-thread",
-        updatedAt: now - 1 * 3_600_000, // active cron-run descendant
-      },
-      "agent:main:telegram:dm:123": {
-        sessionId: "regular-session",
-        updatedAt: now - 100 * 3_600_000, // old but not a cron run
-      },
-    };
-    fs.writeFileSync(storePath, JSON.stringify(store));
-
-    const result = await sweepCronRunSessions({
-      sessionStorePath: storePath,
-      nowMs: now,
-      log,
-      force: true,
-    });
-
-    expect(result.swept).toBe(true);
-    expect(result.pruned).toBe(2);
-
-    const updated = JSON.parse(fs.readFileSync(storePath, "utf-8"));
-    expect(updated).toEqual({
-      "agent:main:cron:job1": {
-        sessionId: "base-session",
-        updatedAt: now,
-      },
-      "agent:main:cron:job1:run:recent-run": {
-        sessionId: "recent-run",
-        updatedAt: now - 1 * 3_600_000,
-      },
-      "agent:main:cron:job1:run:recent-run:thread:reply": {
-        sessionId: "recent-run-thread",
-        updatedAt: now - 1 * 3_600_000,
-      },
-      "agent:main:telegram:dm:123": {
-        sessionId: "regular-session",
-        updatedAt: now - 100 * 3_600_000,
-      },
-    });
+  it("returns zeros and does not throw when runsDir does not exist", async () => {
+    const missing = path.join(runsDir, "does-not-exist");
+    const result = await sweepCronRunsArtifacts({ runsDir: missing });
+    expect(result).toEqual({ filesRemoved: 0, emptyDirsRemoved: 0 });
   });
 
-  it("archives transcript files for pruned run sessions that are no longer referenced", async () => {
-    const now = Date.now();
-    const runSessionId = "old-run";
-    const runTranscript = path.join(tmpDir, `${runSessionId}.jsonl`);
-    fs.writeFileSync(runTranscript, '{"type":"session"}\n');
-    const store: Record<string, { sessionId: string; updatedAt: number }> = {
-      "agent:main:cron:job1:run:old-run": {
-        sessionId: runSessionId,
-        updatedAt: now - 25 * 3_600_000,
-      },
-    };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+  it("is best-effort: unreadable file does not crash sweep; other files still processed", async () => {
+    const jobDir = path.join(runsDir, "job-g");
+    const lockedFile = path.join(jobDir, "run-locked.result.json");
+    const oldResult = path.join(jobDir, "run-old.result.json");
 
-    const result = await sweepCronRunSessions({
-      sessionStorePath: storePath,
-      nowMs: now,
-      log,
-      force: true,
-    });
+    writeFile(lockedFile, "{}");
+    writeFile(oldResult, "{}");
+    ageFile(lockedFile, OLD_AGE_MS);
+    ageFile(oldResult, OLD_AGE_MS);
 
-    expect(result.pruned).toBe(1);
-    expect(fs.existsSync(runTranscript)).toBe(false);
-    const files = fs.readdirSync(tmpDir);
-    const archivedRunTranscripts = files.filter((name) =>
-      name.startsWith(`${runSessionId}.jsonl.deleted.`),
-    );
-    expect(archivedRunTranscripts.length).toBeGreaterThan(0);
-  });
-
-  it("does not archive external transcript paths for pruned runs", async () => {
-    const now = Date.now();
-    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), "cron-reaper-external-"));
-    const externalTranscript = path.join(externalDir, "outside.jsonl");
-    fs.writeFileSync(externalTranscript, '{"type":"session"}\n');
-    const store: Record<string, { sessionId: string; sessionFile?: string; updatedAt: number }> = {
-      "agent:main:cron:job1:run:old-run": {
-        sessionId: "old-run",
-        sessionFile: externalTranscript,
-        updatedAt: now - 25 * 3_600_000,
-      },
-    };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+    // Make lockedFile unreadable (stat will fail)
+    fs.chmodSync(lockedFile, 0o000);
 
     try {
-      const result = await sweepCronRunSessions({
-        sessionStorePath: storePath,
-        nowMs: now,
-        log,
-        force: true,
-      });
-
-      expect(result.pruned).toBe(1);
-      expect(fs.existsSync(externalTranscript)).toBe(true);
+      const result = await sweepCronRunsArtifacts({ runsDir });
+      // The old result should still be removed despite the locked file error
+      expect(fs.existsSync(oldResult)).toBe(false);
+      // We removed at least one file (the old result)
+      expect(result.filesRemoved).toBeGreaterThanOrEqual(1);
     } finally {
-      fs.rmSync(externalDir, { recursive: true, force: true });
+      // Restore so temp dir cleanup works
+      try {
+        fs.chmodSync(lockedFile, 0o644);
+      } catch {
+        // ignore
+      }
     }
   });
 
-  it("respects custom retention", async () => {
-    const now = Date.now();
-    const store: Record<string, { sessionId: string; updatedAt: number }> = {
-      "agent:main:cron:job1:run:run1": {
-        sessionId: "run1",
-        updatedAt: now - 2 * 3_600_000, // 2h ago
-      },
-    };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+  it("handles multiple job directories in one sweep", async () => {
+    for (const jobId of ["job1", "job2", "job3"]) {
+      const jobDir = path.join(runsDir, jobId);
+      const f = path.join(jobDir, "run.result.json");
+      writeFile(f, "{}");
+      ageFile(f, OLD_AGE_MS);
+    }
 
-    const result = await sweepCronRunSessions({
-      cronConfig: { sessionRetention: "1h" },
-      sessionStorePath: storePath,
-      nowMs: now,
-      log,
-      force: true,
-    });
+    const result = await sweepCronRunsArtifacts({ runsDir });
 
-    expect(result.pruned).toBe(1);
+    expect(result.filesRemoved).toBe(3);
+    expect(result.emptyDirsRemoved).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deprecated shims — smoke tests to ensure they don't throw
+// ---------------------------------------------------------------------------
+
+describe("resolveRetentionMs (deprecated shim)", () => {
+  it("returns 14-day default when no config", () => {
+    expect(resolveRetentionMs()).toBe(14 * 24 * 60 * 60 * 1000);
   });
 
-  it("does nothing when pruning is disabled", async () => {
-    const now = Date.now();
-    const store: Record<string, { sessionId: string; updatedAt: number }> = {
-      "agent:main:cron:job1:run:run1": {
-        sessionId: "run1",
-        updatedAt: now - 100 * 3_600_000,
-      },
-    };
-    fs.writeFileSync(storePath, JSON.stringify(store));
-
-    const result = await sweepCronRunSessions({
-      cronConfig: { sessionRetention: false },
-      sessionStorePath: storePath,
-      nowMs: now,
-      log,
-      force: true,
-    });
-
-    expect(result.swept).toBe(false);
-    expect(result.pruned).toBe(0);
+  it("returns null when sessionRetention is false", () => {
+    expect(resolveRetentionMs({ sessionRetention: false })).toBeNull();
   });
 
-  it("throttles sweeps without force", async () => {
-    const now = Date.now();
-    fs.writeFileSync(storePath, JSON.stringify({}));
-
-    // First sweep runs
-    const r1 = await sweepCronRunSessions({
-      sessionStorePath: storePath,
-      nowMs: now,
-      log,
-    });
-    expect(r1.swept).toBe(true);
-
-    // Second sweep (1 second later) is throttled
-    const r2 = await sweepCronRunSessions({
-      sessionStorePath: storePath,
-      nowMs: now + 1000,
-      log,
-    });
-    expect(r2.swept).toBe(false);
+  it("returns default even when a duration string is passed (config ignored)", () => {
+    // The old parseDurationMs logic is gone; shim always returns the default.
+    expect(resolveRetentionMs({ sessionRetention: "1h" })).toBe(14 * 24 * 60 * 60 * 1000);
   });
+});
 
-  it("throttles per store path", async () => {
-    const now = Date.now();
-    const otherPath = path.join(tmpDir, "sessions-other.json");
-    fs.writeFileSync(storePath, JSON.stringify({}));
-    fs.writeFileSync(otherPath, JSON.stringify({}));
+describe("resetReaperThrottle (deprecated shim)", () => {
+  it("is a no-op and does not throw", () => {
+    expect(() => resetReaperThrottle()).not.toThrow();
+  });
+});
 
-    const r1 = await sweepCronRunSessions({
-      sessionStorePath: storePath,
-      nowMs: now,
-      log,
-    });
-    expect(r1.swept).toBe(true);
-
-    const r2 = await sweepCronRunSessions({
-      sessionStorePath: otherPath,
-      nowMs: now + 1000,
-      log,
-    });
-    expect(r2.swept).toBe(true);
-
-    const r3 = await sweepCronRunSessions({
-      sessionStorePath: storePath,
-      nowMs: now + 1000,
-      log,
-    });
-    expect(r3.swept).toBe(false);
+describe("sweepCronRunSessions (deprecated shim)", () => {
+  it("returns {swept: true, pruned: 0} and does not throw", async () => {
+    const result = await sweepCronRunSessions({ sessionStorePath: "/dev/null", log: {} });
+    expect(result).toEqual({ swept: true, pruned: 0 });
   });
 });

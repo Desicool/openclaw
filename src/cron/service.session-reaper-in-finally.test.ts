@@ -130,7 +130,7 @@ describe("CronService - session reaper runs in finally block (#31946)", () => {
     });
   });
 
-  it("prunes expired cron-run sessions even when cron store load throws", async () => {
+  it("reaper runs in finally block even when cron store load throws (P3.1: file-sweep only)", async () => {
     const store = await makeStorePath();
     const now = Date.parse("2026-02-10T10:00:00.000Z");
     const sessionStorePath = path.join(path.dirname(store.storePath), "sessions", "sessions.json");
@@ -139,7 +139,9 @@ describe("CronService - session reaper runs in finally block (#31946)", () => {
     await fs.mkdir(path.dirname(store.storePath), { recursive: true });
     await fs.writeFile(store.storePath, "{invalid-json", "utf-8");
 
-    // Seed an expired cron-run session entry that should be pruned by the reaper.
+    // The session store is no longer managed by the reaper (P3.1: subprocess execution,
+    // file-artifact sweep only).  We only verify that the reaper does not crash and that
+    // state.running is reset in the finally block.
     await fs.mkdir(path.dirname(sessionStorePath), { recursive: true });
     await fs.writeFile(
       sessionStorePath,
@@ -166,11 +168,16 @@ describe("CronService - session reaper runs in finally block (#31946)", () => {
     await withCronServiceStateForTest(state, async () => {
       await expect(onTimer(state)).rejects.toThrow("Failed to parse cron store");
 
-      const updatedSessionStore = JSON.parse(
-        await fs.readFile(sessionStorePath, "utf-8"),
-      ) as Record<string, unknown>;
-      expect(updatedSessionStore).toStrictEqual({});
+      // state.running must be cleared by the finally block.
       expect(state.running).toBe(false);
+
+      // Session store file is NOT modified by the reaper (P3.1); stale entries remain
+      // until a dedicated store-pruning pass runs.
+      const sessionStore = JSON.parse(await fs.readFile(sessionStorePath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      expect(Object.keys(sessionStore).length).toBe(1);
     });
   });
 });

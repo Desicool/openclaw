@@ -1,149 +1,188 @@
 /**
- * Cron session reaper — prunes completed isolated cron run sessions
- * from the session store after a configurable retention period.
+ * Cron session reaper — periodic file sweep for cron run artifacts.
  *
- * Pattern: sessions keyed as `...:cron:<jobId>:run:<uuid>` are ephemeral
- * run records. The base session (`...:cron:<jobId>`) is kept as-is.
+ * Phase 2 moved job execution to OS subprocesses that exit naturally, so
+ * in-process session tracking is gone.  What remains is a best-effort sweep
+ * of the on-disk run artifact tree:
+ *
+ *   ~/.openclaw/cron/runs/<jobId>/<runId>.result.json
+ *   ~/.openclaw/cron/runs/<jobId>/<runId>.pid
+ *   ~/.openclaw/cron/runs/<jobId>/session-*.json
+ *
+ * Files older than retentionMs are removed; empty <jobId>/ directories are
+ * pruned afterwards.
  */
 
-import { parseDurationMs } from "../cli/parse-duration.js";
-import { loadSessionStore } from "../config/sessions/store-load.js";
-import { archiveRemovedSessionTranscripts, updateSessionStore } from "../config/sessions/store.js";
-import type { CronConfig } from "../config/types.cron.js";
-import { cleanupArchivedSessionTranscripts } from "../gateway/session-utils.fs.js";
-import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
-import type { Logger } from "./service/state.js";
+import type { Dirent } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { resolveConfigDir } from "../utils.js";
 
-const DEFAULT_RETENTION_MS = 24 * 3_600_000; // 24 hours
+const DEFAULT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
-/** Minimum interval between reaper sweeps (avoid running every timer tick). */
-const MIN_SWEEP_INTERVAL_MS = 5 * 60_000; // 5 minutes
+export type CronRunsSweepResult = {
+  filesRemoved: number;
+  emptyDirsRemoved: number;
+};
 
-const lastSweepAtMsByStore = new Map<string, number>();
+export type CronRunsSweepOptions = {
+  /** Override the runs directory (defaults to <configDir>/cron/runs). */
+  runsDir?: string;
+  /** Files older than this many ms are deleted. Default: 14 days. */
+  retentionMs?: number;
+  /** Override for testing. Default: Date.now(). */
+  nowMs?: number;
+};
 
-export function resolveRetentionMs(cronConfig?: CronConfig): number | null {
-  if (cronConfig?.sessionRetention === false) {
-    return null; // pruning disabled
+/**
+ * Walk <runsDir>/<jobId>/* one level deep.  For each file matching
+ * /(\.result\.json|\.pid|^session-.*\.json)$/, removes if (now - mtime) > retentionMs.
+ * After per-job sweep, removes the <jobId>/ dir if it is empty.
+ *
+ * Returns counts.  Never throws on per-file errors (best-effort); throws only if
+ * the runsDir itself is unreadable (e.g. EACCES on root).
+ */
+export async function sweepCronRunsArtifacts(
+  opts: CronRunsSweepOptions = {},
+): Promise<CronRunsSweepResult> {
+  const retentionMs = opts.retentionMs ?? DEFAULT_RETENTION_MS;
+  const nowMs = opts.nowMs ?? Date.now();
+  const runsDir = opts.runsDir ?? path.join(resolveConfigDir(), "cron", "runs");
+
+  const cutoff = nowMs - retentionMs;
+
+  let filesRemoved = 0;
+  let emptyDirsRemoved = 0;
+
+  // May throw with ENOENT (treated as nothing to sweep) or EACCES (re-thrown).
+  let jobDirents: Dirent[];
+  try {
+    jobDirents = await fs.readdir(runsDir, { withFileTypes: true, encoding: "utf8" });
+  } catch (err) {
+    if (isEnoent(err)) {
+      return { filesRemoved: 0, emptyDirsRemoved: 0 };
+    }
+    throw err;
   }
-  const raw = cronConfig?.sessionRetention;
-  if (typeof raw === "string" && raw.trim()) {
+
+  for (const jobDirent of jobDirents) {
+    if (!jobDirent.isDirectory()) {
+      continue;
+    }
+    const jobDir = path.join(runsDir, jobDirent.name);
+
+    let fileDirents: Dirent[];
     try {
-      return parseDurationMs(raw.trim(), { defaultUnit: "h" });
+      fileDirents = await fs.readdir(jobDir, { withFileTypes: true, encoding: "utf8" });
     } catch {
-      return DEFAULT_RETENTION_MS;
+      // Best-effort: skip unreadable job dirs.
+      continue;
+    }
+
+    for (const fileDirent of fileDirents) {
+      if (!fileDirent.isFile()) {
+        continue;
+      }
+      if (!isArtifactFile(fileDirent.name)) {
+        continue;
+      }
+      const filePath = path.join(jobDir, fileDirent.name);
+      try {
+        const stat = await fs.stat(filePath);
+        if (stat.mtimeMs < cutoff) {
+          await fs.unlink(filePath);
+          filesRemoved++;
+        }
+      } catch {
+        // Best-effort: skip unreadable/already-gone files.
+        continue;
+      }
+    }
+
+    // Remove the job directory if it is now empty.
+    try {
+      const remaining = await fs.readdir(jobDir);
+      if (remaining.length === 0) {
+        await fs.rmdir(jobDir);
+        emptyDirsRemoved++;
+      }
+    } catch {
+      // Best-effort.
     }
   }
-  return DEFAULT_RETENTION_MS;
+
+  return { filesRemoved, emptyDirsRemoved };
 }
 
-type ReaperResult = {
+// ---------------------------------------------------------------------------
+// Legacy exports — kept so existing callers don't break while they migrate.
+// The "in-process session" model was removed in Phase 2 (subprocess execution).
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use sweepCronRunsArtifacts instead. In-process session tracking was removed in Phase 2. */
+export type ReaperResult = {
   swept: boolean;
   pruned: number;
 };
 
-/**
- * Sweep the session store and prune expired cron run sessions.
- * Designed to be called from the cron timer tick — self-throttles via
- * MIN_SWEEP_INTERVAL_MS to avoid excessive I/O.
- *
- * Lock ordering: this function acquires the session-store file lock via
- * `updateSessionStore`. It must be called OUTSIDE of the cron service's
- * own `locked()` section to avoid lock-order inversions. The cron timer
- * calls this after all `locked()` sections have been released.
- */
-export async function sweepCronRunSessions(params: {
-  cronConfig?: CronConfig;
-  /** Resolved path to sessions.json — required. */
-  sessionStorePath: string;
+/** @deprecated Params accepted for call-site compat; all are ignored except nowMs. */
+export type SweepCronRunSessionsParams = {
+  cronConfig?: { sessionRetention?: string | boolean };
+  sessionStorePath?: string;
   nowMs?: number;
-  log: Logger;
-  /** Override for testing — skips the min-interval throttle. */
+  log?: unknown;
   force?: boolean;
-}): Promise<ReaperResult> {
-  const now = params.nowMs ?? Date.now();
-  const storePath = params.sessionStorePath;
-  const lastSweepAtMs = lastSweepAtMsByStore.get(storePath) ?? 0;
+};
 
-  // Throttle: don't sweep more often than every 5 minutes.
-  if (!params.force && now - lastSweepAtMs < MIN_SWEEP_INTERVAL_MS) {
-    return { swept: false, pruned: 0 };
-  }
-
-  const retentionMs = resolveRetentionMs(params.cronConfig);
-  if (retentionMs === null) {
-    lastSweepAtMsByStore.set(storePath, now);
-    return { swept: false, pruned: 0 };
-  }
-
-  let pruned = 0;
-  const prunedSessions = new Map<string, string | undefined>();
-  try {
-    await updateSessionStore(storePath, (store) => {
-      const cutoff = now - retentionMs;
-      for (const key of Object.keys(store)) {
-        if (!isCronRunSessionKey(key)) {
-          continue;
-        }
-        const entry = store[key];
-        if (!entry) {
-          continue;
-        }
-        const updatedAt = entry.updatedAt ?? 0;
-        if (updatedAt < cutoff) {
-          if (!prunedSessions.has(entry.sessionId) || entry.sessionFile) {
-            prunedSessions.set(entry.sessionId, entry.sessionFile);
-          }
-          delete store[key];
-          pruned++;
-        }
-      }
-    });
-  } catch (err) {
-    params.log.warn({ err: String(err) }, "cron-reaper: failed to sweep session store");
-    return { swept: false, pruned: 0 };
-  }
-
-  lastSweepAtMsByStore.set(storePath, now);
-
-  if (prunedSessions.size > 0) {
-    try {
-      const store = loadSessionStore(storePath, { skipCache: true });
-      const referencedSessionIds = new Set(
-        Object.values(store)
-          .map((entry) => entry?.sessionId)
-          .filter((id): id is string => Boolean(id)),
-      );
-      const archivedDirs = await archiveRemovedSessionTranscripts({
-        removedSessionFiles: prunedSessions,
-        referencedSessionIds,
-        storePath,
-        reason: "deleted",
-        restrictToStoreDir: true,
-      });
-      if (archivedDirs.size > 0) {
-        await cleanupArchivedSessionTranscripts({
-          directories: [...archivedDirs],
-          olderThanMs: retentionMs,
-          reason: "deleted",
-          nowMs: now,
-        });
-      }
-    } catch (err) {
-      params.log.warn({ err: String(err) }, "cron-reaper: transcript cleanup failed");
-    }
-  }
-
-  if (pruned > 0) {
-    params.log.info(
-      { pruned, retentionMs },
-      `cron-reaper: pruned ${pruned} expired cron run session(s)`,
-    );
-  }
-
-  return { swept: true, pruned };
+/**
+ * @deprecated In-process cron run sessions no longer exist (Phase 2 subprocess
+ * execution).  Delegates to sweepCronRunsArtifacts and returns a compat result.
+ * The sessionStorePath / cronConfig / log params are ignored.
+ */
+export async function sweepCronRunSessions(
+  params: SweepCronRunSessionsParams,
+): Promise<ReaperResult> {
+  await sweepCronRunsArtifacts({ nowMs: params.nowMs });
+  return { swept: true, pruned: 0 };
 }
 
-/** Reset the throttle timer (for tests). */
+/**
+ * @deprecated In-process session retention config no longer applies.
+ * Returns the default 14-day retention value expressed in ms, or null when
+ * sessionRetention is explicitly false.
+ */
+export function resolveRetentionMs(cronConfig?: {
+  sessionRetention?: string | boolean;
+}): number | null {
+  if (cronConfig?.sessionRetention === false) {
+    return null;
+  }
+  return DEFAULT_RETENTION_MS;
+}
+
+/**
+ * @deprecated The per-store throttle map no longer exists; this is a no-op.
+ * Call sweepCronRunsArtifacts directly instead.
+ */
 export function resetReaperThrottle(): void {
-  lastSweepAtMsByStore.clear();
+  // No-op: the throttle map was removed with in-process session tracking.
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const ARTIFACT_RE = /\.result\.json$|\.pid$|^session-.*\.json$/;
+
+function isArtifactFile(name: string): boolean {
+  return ARTIFACT_RE.test(name);
+}
+
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "ENOENT"
+  );
 }
