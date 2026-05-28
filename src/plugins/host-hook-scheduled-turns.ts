@@ -230,6 +230,7 @@ export async function schedulePluginSessionTurn(params: {
     );
     return undefined;
   }
+  // Kept: cron-kind jobs cannot opt into deleteAfterRun. The at-kind path implies atomic-remove and the field is informational there.
   if (cronSchedule.kind === "cron" && params.schedule.deleteAfterRun === true) {
     log.warn(
       `plugin session turn scheduling failed (${formatScheduleLogContext({
@@ -285,6 +286,7 @@ export async function schedulePluginSessionTurn(params: {
       sessionTarget: `session:${sessionKey}`,
       payload: cronPayload,
       ...(params.schedule.agentId ? { agentId: params.schedule.agentId } : {}),
+      // Default stays for backward compatibility; runtime no longer branches on this field for at-kind jobs (atomic-remove implied).
       deleteAfterRun: params.schedule.deleteAfterRun ?? cronSchedule.kind === "at",
       wakeMode: "now",
       delivery: {

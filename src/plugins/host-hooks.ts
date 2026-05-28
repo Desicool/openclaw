@@ -273,15 +273,33 @@ type PluginSessionTurnScheduleCommonParams = {
 export type PluginSessionTurnScheduleParams =
   | ({
       at: string | number | Date;
+      /**
+       * @deprecated Since 2026.05. The `kind:"at"` schedule implies atomic-remove on
+       * successful terminal; the field is accepted for backward compatibility but
+       * has no runtime effect for at-kind jobs. For `kind:"cron"`, setting it to
+       * `true` is still rejected (see host-hook-scheduled-turns.ts).
+       */
       deleteAfterRun?: boolean;
     } & PluginSessionTurnScheduleCommonParams)
   | ({
       delayMs: number;
+      /**
+       * @deprecated Since 2026.05. The `kind:"at"` schedule implies atomic-remove on
+       * successful terminal; the field is accepted for backward compatibility but
+       * has no runtime effect for at-kind jobs. For `kind:"cron"`, setting it to
+       * `true` is still rejected (see host-hook-scheduled-turns.ts).
+       */
       deleteAfterRun?: boolean;
     } & PluginSessionTurnScheduleCommonParams)
   | ({
       cron: string;
       tz?: string;
+      /**
+       * @deprecated Since 2026.05. The `kind:"at"` schedule implies atomic-remove on
+       * successful terminal; the field is accepted for backward compatibility but
+       * has no runtime effect for at-kind jobs. For `kind:"cron"`, setting it to
+       * `true` is still rejected (see host-hook-scheduled-turns.ts).
+       */
       deleteAfterRun?: false;
     } & PluginSessionTurnScheduleCommonParams);
 
