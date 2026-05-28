@@ -515,7 +515,6 @@ describe("cron tool", () => {
       enabled: true,
       deleteAfterRun: true,
       schedule: { kind: "at", at: new Date(123).toISOString() },
-      sessionTarget: "main",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "hello" },
     });
