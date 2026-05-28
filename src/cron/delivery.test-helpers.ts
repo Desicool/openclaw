@@ -8,7 +8,7 @@ export function makeCronJob(overrides: Partial<CronJob>): CronJob {
     enabled: true,
     createdAtMs: now,
     updatedAtMs: now,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "hello" },

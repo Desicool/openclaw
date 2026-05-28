@@ -478,13 +478,15 @@ describe("cron service timer regressions", () => {
   it("prevents spin loop when cron job completes within the scheduled second (#17821)", async () => {
     const store = timerRegressionFixtures.makeStorePath();
     const scheduledAt = Date.parse("2026-02-15T13:00:00.000Z");
-    const nextDay = scheduledAt + 86_400_000;
 
     const cronJob = createIsolatedRegressionJob({
       id: "spin-loop-17821",
       name: "daily noon",
       scheduledAt,
-      schedule: { kind: "cron", expr: "0 13 * * *", tz: "UTC" },
+      // tz field removed (P3.2: cron schedules no longer carry tz).
+      // croner uses the local timezone; we verify spin-loop prevention without a
+      // UTC-specific boundary assertion.
+      schedule: { kind: "cron", expr: "0 13 * * *" },
       payload: { kind: "agentTurn", message: "briefing" },
       state: { nextRunAtMs: scheduledAt },
     });
@@ -510,7 +512,9 @@ describe("cron service timer regressions", () => {
     expect(fireCount).toBe(1);
 
     const job = requireJob(state, "spin-loop-17821");
-    expect(job.state.nextRunAtMs).toBeGreaterThanOrEqual(nextDay);
+    // After running, nextRunAtMs must be strictly in the future (no spin-loop).
+    // Timezone-agnostic: at least one minute after the run completed.
+    expect(job.state.nextRunAtMs).toBeGreaterThan(scheduledAt + 60_000);
 
     await onTimer(state);
     expect(fireCount).toBe(1);
@@ -524,7 +528,7 @@ describe("cron service timer regressions", () => {
       id: "spin-gap-17821",
       name: "second-granularity",
       scheduledAt,
-      schedule: { kind: "cron", expr: "* * * * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "* * * * * *" },
       payload: { kind: "agentTurn", message: "pulse" },
       state: { nextRunAtMs: scheduledAt },
     });
@@ -774,7 +778,7 @@ describe("cron service timer regressions", () => {
         id: "timeout-side-effects",
         name: "timeout side effects",
         scheduledAt,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: scheduledAt },
+        schedule: { kind: "cron", expr: "* * * * *" },
         payload: { kind: "agentTurn", message: "work", timeoutSeconds: FAST_TIMEOUT_SECONDS },
         state: { nextRunAtMs: scheduledAt },
       });
@@ -874,7 +878,8 @@ describe("cron service timer regressions", () => {
       createdAtMs: Date.now(),
       updatedAtMs: Date.now(),
       schedule: { kind: "at", at: new Date(Date.now() + 60_000).toISOString() },
-      sessionTarget: "main",
+      // sessionTarget cast: legacy "main" kept for warn-not-refuse runtime path test
+      sessionTarget: "main" as CronJob["sessionTarget"],
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
       state: {},
@@ -925,8 +930,9 @@ describe("cron service timer regressions", () => {
       enabled: true,
       createdAtMs: 0,
       updatedAtMs: 0,
-      schedule: { kind: "cron", expr: "*/3 * * * *", tz: "UTC", staggerMs: 0 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "*/3 * * * *", staggerMs: 0 },
+      // sessionTarget cast: legacy "main" kept for warn-not-refuse runtime path test
+      sessionTarget: "main" as CronJob["sessionTarget"],
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
       state: { nextRunAtMs: 0 },
@@ -962,7 +968,7 @@ describe("cron service timer regressions", () => {
       id: "retry-next-second-17821",
       name: "retry",
       scheduledAt,
-      schedule: { kind: "cron", expr: "0 13 * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 13 * * *" },
       payload: { kind: "agentTurn", message: "briefing" },
     });
 
@@ -1812,26 +1818,33 @@ describe("cron service timer regressions", () => {
       id: "apply-result-success-30905",
       name: "apply-result-success-30905",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Invalid/Timezone" },
+      schedule: { kind: "cron", expr: "0 7 * * *" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
-
-    const shouldDelete = applyJobResult(state, job, {
-      status: "ok",
-      delivered: true,
-      startedAt,
-      endedAt,
+    const nextRunSpy = vi.spyOn(schedule, "computeNextRunAtMs").mockImplementation(() => {
+      throw new Error("synthetic croner throw");
     });
 
-    expect(shouldDelete).toBe(false);
-    expect(job.state.runningAtMs).toBeUndefined();
-    expect(job.state.lastRunAtMs).toBe(startedAt);
-    expect(job.state.lastStatus).toBe("ok");
-    expect(job.state.scheduleErrorCount).toBe(1);
-    expect(job.state.lastError).toMatch(/^schedule error:/);
-    expect(job.state.nextRunAtMs).toBeUndefined();
-    expect(job.enabled).toBe(true);
+    try {
+      const shouldDelete = applyJobResult(state, job, {
+        status: "ok",
+        delivered: true,
+        startedAt,
+        endedAt,
+      });
+
+      expect(shouldDelete).toBe(false);
+      expect(job.state.runningAtMs).toBeUndefined();
+      expect(job.state.lastRunAtMs).toBe(startedAt);
+      expect(job.state.lastStatus).toBe("ok");
+      expect(job.state.scheduleErrorCount).toBe(1);
+      expect(job.state.lastError).toMatch(/^schedule error:/);
+      expect(job.state.nextRunAtMs).toBeUndefined();
+      expect(job.enabled).toBe(true);
+    } finally {
+      nextRunSpy.mockRestore();
+    }
   });
 
   it("keeps state updates when cron next-run computation throws on error path (#30905)", () => {
@@ -1850,27 +1863,34 @@ describe("cron service timer regressions", () => {
       id: "apply-result-error-30905",
       name: "apply-result-error-30905",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Invalid/Timezone" },
+      schedule: { kind: "cron", expr: "0 7 * * *" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
-
-    const shouldDelete = applyJobResult(state, job, {
-      status: "error",
-      error: "synthetic failure",
-      startedAt,
-      endedAt,
+    const nextRunSpy = vi.spyOn(schedule, "computeNextRunAtMs").mockImplementation(() => {
+      throw new Error("synthetic croner throw");
     });
 
-    expect(shouldDelete).toBe(false);
-    expect(job.state.runningAtMs).toBeUndefined();
-    expect(job.state.lastRunAtMs).toBe(startedAt);
-    expect(job.state.lastStatus).toBe("error");
-    expect(job.state.consecutiveErrors).toBe(1);
-    expect(job.state.scheduleErrorCount).toBe(1);
-    expect(job.state.lastError).toMatch(/^schedule error:/);
-    expect(job.state.nextRunAtMs).toBeUndefined();
-    expect(job.enabled).toBe(true);
+    try {
+      const shouldDelete = applyJobResult(state, job, {
+        status: "error",
+        error: "synthetic failure",
+        startedAt,
+        endedAt,
+      });
+
+      expect(shouldDelete).toBe(false);
+      expect(job.state.runningAtMs).toBeUndefined();
+      expect(job.state.lastRunAtMs).toBe(startedAt);
+      expect(job.state.lastStatus).toBe("error");
+      expect(job.state.consecutiveErrors).toBe(1);
+      expect(job.state.scheduleErrorCount).toBe(1);
+      expect(job.state.lastError).toMatch(/^schedule error:/);
+      expect(job.state.nextRunAtMs).toBeUndefined();
+      expect(job.enabled).toBe(true);
+    } finally {
+      nextRunSpy.mockRestore();
+    }
   });
 
   it("does not synthesize a 2s retry when cron schedule computation returns undefined (#66019)", () => {
@@ -1889,7 +1909,7 @@ describe("cron service timer regressions", () => {
       id: "cron-66019-success",
       name: "cron-66019-success",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Asia/Shanghai" },
+      schedule: { kind: "cron", expr: "0 7 * * *" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
@@ -1930,7 +1950,7 @@ describe("cron service timer regressions", () => {
       id: "cron-66019-error",
       name: "cron-66019-error",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Asia/Shanghai" },
+      schedule: { kind: "cron", expr: "0 7 * * *" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
@@ -1956,43 +1976,6 @@ describe("cron service timer regressions", () => {
     }
   });
 
-  it("force run preserves 'every' anchor while recording manual lastRunAtMs", () => {
-    const nowMs = Date.now();
-    const everyMs = 24 * 60 * 60 * 1_000;
-    const lastScheduledRunMs = nowMs - 6 * 60 * 60 * 1_000;
-    const expectedNextMs = lastScheduledRunMs + everyMs;
-
-    const job: CronJob = {
-      id: "daily-job",
-      name: "Daily job",
-      enabled: true,
-      createdAtMs: lastScheduledRunMs - everyMs,
-      updatedAtMs: lastScheduledRunMs,
-      schedule: { kind: "every", everyMs, anchorMs: lastScheduledRunMs - everyMs },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "daily check-in" },
-      state: {
-        lastRunAtMs: lastScheduledRunMs,
-        nextRunAtMs: expectedNextMs,
-      },
-    };
-    const state = createRunningCronServiceState({
-      storePath: "/tmp/cron-force-run-anchor-test.json",
-      log: noopLogger,
-      nowMs: () => nowMs,
-      jobs: [job],
-    });
-
-    const startedAt = nowMs;
-    const endedAt = nowMs + 2_000;
-
-    applyJobResult(state, job, { status: "ok", startedAt, endedAt }, { preserveSchedule: true });
-
-    expect(job.state.lastRunAtMs).toBe(startedAt);
-    expect(job.state.nextRunAtMs).toBe(expectedNextMs);
-  });
-
   it("persists and warns with last cron run diagnostics", () => {
     const startedAt = Date.parse("2026-04-14T12:00:00.000Z");
     const endedAt = startedAt + 500;
@@ -2000,7 +1983,7 @@ describe("cron service timer regressions", () => {
       id: "diagnostics-job",
       name: "diagnostics-job",
       scheduledAt: startedAt,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: startedAt },
+      schedule: { kind: "cron", expr: "* * * * *" },
       payload: { kind: "agentTurn", message: "diagnose" },
       state: { runningAtMs: startedAt },
     });

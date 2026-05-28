@@ -52,10 +52,10 @@ describe("CronService restart catch-up", () => {
       enabled: true,
       createdAtMs: nextRunAtMs - 60_000,
       updatedAtMs: nextRunAtMs - 60_000,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: nextRunAtMs - 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: `tick-${id}` },
+      payload: { kind: "agentTurn", message: `tick-${id}` },
       state: { nextRunAtMs },
     };
   }
@@ -179,7 +179,7 @@ describe("CronService restart catch-up", () => {
         enabled: true,
         createdAtMs: startNow - 120_000,
         updatedAtMs: startNow - 120_000,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: startNow - 120_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "do work" },

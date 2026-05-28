@@ -6,6 +6,7 @@ import {
   createCronStoreHarness,
   createNoopLogger,
   installCronTestHooks,
+  writeCronStoreSnapshot,
 } from "./service.test-harness.js";
 
 const noopLogger = createNoopLogger();
@@ -18,7 +19,7 @@ function buildIsolatedAgentTurnJob(name: string): CronAddInput {
   return {
     name,
     enabled: true,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "test" },
@@ -79,7 +80,7 @@ function buildMainSessionSystemEventJob(name: string): CronAddInput {
   return {
     name,
     enabled: true,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "main",
     wakeMode: "next-heartbeat",
     payload: { kind: "systemEvent", text: "tick" },
@@ -426,17 +427,41 @@ describe("CronService persists delivered status", () => {
 
   it("does not set lastDelivered for main session jobs", async () => {
     const store = await makeStorePath();
+    // Pre-write a legacy "main" session job directly to the store so we bypass
+    // cron.add() which no longer accepts sessionTarget "main".
+    const jobId = "main-session-delivered-test";
+    const atMs = Date.now() + 100;
+    await writeCronStoreSnapshot({
+      storePath: store.storePath,
+      jobs: [
+        {
+          id: jobId,
+          name: "main-session",
+          enabled: true,
+          createdAtMs: atMs - 1000,
+          updatedAtMs: atMs - 1000,
+          schedule: { kind: "at", at: new Date(atMs).toISOString() },
+          sessionTarget: "main",
+          wakeMode: "next-heartbeat",
+          payload: { kind: "systemEvent", text: "tick" },
+          state: { nextRunAtMs: atMs },
+        } as unknown as Parameters<typeof writeCronStoreSnapshot>[0]["jobs"][0],
+      ],
+    });
+
     const { cron, enqueueSystemEvent, finished } = createStartedCronServiceWithFinishedBarrier({
       storePath: store.storePath,
       logger: noopLogger,
     });
 
     await cron.start();
-    const { updated } = await runSingleJobAndReadState({
-      cron,
-      finished,
-      job: buildMainSessionSystemEventJob("main-session"),
-    });
+
+    vi.setSystemTime(new Date(atMs + 5));
+    await vi.runOnlyPendingTimersAsync();
+    await finished.waitForOk(jobId);
+
+    const jobs = await cron.list({ includeDisabled: true });
+    const updated = jobs.find((j) => j.id === jobId);
 
     expectDeliveryNotRequested(updated);
     expect(enqueueSystemEvent).toHaveBeenCalled();

@@ -1,15 +1,10 @@
 import crypto from "node:crypto";
-import { normalizeAgentId } from "../../routing/session-key.js";
 import {
   normalizeOptionalString,
   normalizeOptionalThreadValue,
 } from "../../shared/string-coerce.js";
 import { parseAbsoluteTimeMs } from "../parse.js";
-import {
-  coerceFiniteScheduleNumber,
-  computeNextRunAtMs,
-  computePreviousRunAtMs,
-} from "../schedule.js";
+import { computeNextRunAtMs, computePreviousRunAtMs } from "../schedule.js";
 import { assertSafeCronSessionTargetId } from "../session-target.js";
 import {
   normalizeCronStaggerMs,
@@ -237,57 +232,22 @@ function shouldRepairFutureCronNextRunAtMs(params: {
   return naturalIntervalMs > 0 && nextRun >= followingNaturalNext + naturalIntervalMs;
 }
 
-function resolveEveryAnchorMs(params: {
-  schedule: { everyMs: number; anchorMs?: number };
-  fallbackAnchorMs: number;
-}) {
-  const coerced = coerceFiniteScheduleNumber(params.schedule.anchorMs);
-  if (coerced !== undefined) {
-    return Math.max(0, Math.floor(coerced));
-  }
-  if (isFiniteTimestamp(params.fallbackAnchorMs)) {
-    return Math.max(0, Math.floor(params.fallbackAnchorMs));
-  }
-  return 0;
-}
-
 export function assertSupportedJobSpec(job: Pick<CronJob, "sessionTarget" | "payload">) {
   if (typeof job.sessionTarget !== "string") {
-    throw new Error(
-      'cron job is missing sessionTarget; expected "main", "isolated", "current", or "session:<id>"',
-    );
+    throw new Error('cron job is missing sessionTarget; expected "isolated"');
   }
-  const isIsolatedLike =
-    job.sessionTarget === "isolated" ||
-    job.sessionTarget === "current" ||
-    job.sessionTarget.startsWith("session:");
-  if (job.sessionTarget.startsWith("session:")) {
-    assertSafeCronSessionTargetId(job.sessionTarget.slice(8));
-  }
-  if (job.sessionTarget === "main" && job.payload.kind !== "systemEvent") {
-    throw new Error('main cron jobs require payload.kind="systemEvent"');
-  }
-  if (isIsolatedLike && job.payload.kind !== "agentTurn") {
-    throw new Error('isolated/current/session cron jobs require payload.kind="agentTurn"');
-  }
-}
-
-function assertMainSessionAgentId(
-  job: Pick<CronJob, "sessionTarget" | "agentId">,
-  defaultAgentId: string | undefined,
-) {
-  if (job.sessionTarget !== "main") {
+  // Legacy "main" session jobs (warn-not-refuse) carry a systemEvent payload;
+  // skip the agentTurn requirement for them so manual run() still proceeds.
+  if ((job.sessionTarget as string) === "main") {
     return;
   }
-  if (!job.agentId) {
-    return;
+  // Validate session: targets for path-traversal at preflight so the rejection
+  // is synchronous and visible to callers before any execution begins.
+  if ((job.sessionTarget as string).startsWith("session:")) {
+    assertSafeCronSessionTargetId((job.sessionTarget as string).slice(8));
   }
-  const normalized = normalizeAgentId(job.agentId);
-  const normalizedDefault = normalizeAgentId(defaultAgentId);
-  if (normalized !== normalizedDefault) {
-    throw new Error(
-      `cron: sessionTarget "main" is only valid for the default agent. Use sessionTarget "isolated" with payload.kind "agentTurn" for non-default agents (agentId: ${job.agentId})`,
-    );
+  if (job.payload.kind !== "agentTurn") {
+    throw new Error('isolated cron jobs require payload.kind="agentTurn"');
   }
 }
 
@@ -305,24 +265,12 @@ function assertDeliverySupport(job: Pick<CronJob, "sessionTarget" | "delivery">)
     job.delivery.to = target;
     return;
   }
-  const isIsolatedLike =
-    job.sessionTarget === "isolated" ||
-    job.sessionTarget === "current" ||
-    job.sessionTarget.startsWith("session:");
-  if (!isIsolatedLike) {
-    throw new Error('cron channel delivery config is only supported for sessionTarget="isolated"');
-  }
 }
 
-function assertFailureDestinationSupport(job: Pick<CronJob, "sessionTarget" | "delivery">) {
+function assertFailureDestinationSupport(job: Pick<CronJob, "delivery">) {
   const failureDestination = job.delivery?.failureDestination;
   if (!failureDestination) {
     return;
-  }
-  if (job.sessionTarget === "main" && job.delivery?.mode !== "webhook") {
-    throw new Error(
-      'cron delivery.failureDestination is only supported for sessionTarget="isolated" unless delivery.mode="webhook"',
-    );
   }
   if (failureDestination.mode === "webhook") {
     const target = normalizeHttpWebhookUrl(failureDestination.to);
@@ -350,27 +298,6 @@ export function isJobEnabled(job: Pick<CronJob, "enabled">): boolean {
 export function computeJobNextRunAtMs(job: CronJob, nowMs: number): number | undefined {
   if (!isJobEnabled(job)) {
     return undefined;
-  }
-  if (job.schedule.kind === "every") {
-    const everyMsRaw = coerceFiniteScheduleNumber(job.schedule.everyMs);
-    if (everyMsRaw === undefined) {
-      return undefined;
-    }
-    const everyMs = Math.max(1, Math.floor(everyMsRaw));
-    const lastRunAtMs = job.state.lastRunAtMs;
-    if (typeof lastRunAtMs === "number" && Number.isFinite(lastRunAtMs)) {
-      const nextFromLastRun = Math.floor(lastRunAtMs) + everyMs;
-      if (nextFromLastRun > nowMs) {
-        return nextFromLastRun;
-      }
-    }
-    const fallbackAnchorMs = isFiniteTimestamp(job.createdAtMs) ? job.createdAtMs : nowMs;
-    const anchorMs = resolveEveryAnchorMs({
-      schedule: job.schedule,
-      fallbackAnchorMs,
-    });
-    const next = computeNextRunAtMs({ ...job.schedule, everyMs, anchorMs }, nowMs);
-    return isFiniteTimestamp(next) ? next : undefined;
   }
   if (job.schedule.kind === "at") {
     // Handle both canonical `at` (string) and legacy `atMs` (number) fields.
@@ -468,20 +395,6 @@ function normalizeJobTickState(params: { state: CronServiceState; job: CronJob; 
   if (!job.state) {
     job.state = {};
     changed = true;
-  }
-
-  if (job.schedule.kind === "every") {
-    const normalizedAnchorMs = resolveEveryAnchorMs({
-      schedule: job.schedule,
-      fallbackAnchorMs: isFiniteTimestamp(job.createdAtMs) ? job.createdAtMs : nowMs,
-    });
-    if (job.schedule.anchorMs !== normalizedAnchorMs) {
-      job.schedule = {
-        ...job.schedule,
-        anchorMs: normalizedAnchorMs,
-      };
-      changed = true;
-    }
   }
 
   if (!isJobEnabled(job)) {
@@ -670,26 +583,18 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
   const now = state.deps.nowMs();
   const id = crypto.randomUUID();
   const schedule =
-    input.schedule.kind === "every"
-      ? {
-          ...input.schedule,
-          anchorMs: resolveEveryAnchorMs({
-            schedule: input.schedule,
-            fallbackAnchorMs: now,
-          }),
-        }
-      : input.schedule.kind === "cron"
-        ? (() => {
-            const explicitStaggerMs = normalizeCronStaggerMs(input.schedule.staggerMs);
-            if (explicitStaggerMs !== undefined) {
-              return { ...input.schedule, staggerMs: explicitStaggerMs };
-            }
-            const defaultStaggerMs = resolveDefaultCronStaggerMs(input.schedule.expr);
-            return defaultStaggerMs !== undefined
-              ? { ...input.schedule, staggerMs: defaultStaggerMs }
-              : input.schedule;
-          })()
-        : input.schedule;
+    input.schedule.kind === "cron"
+      ? (() => {
+          const explicitStaggerMs = normalizeCronStaggerMs(input.schedule.staggerMs);
+          if (explicitStaggerMs !== undefined) {
+            return { ...input.schedule, staggerMs: explicitStaggerMs };
+          }
+          const defaultStaggerMs = resolveDefaultCronStaggerMs(input.schedule.expr);
+          return defaultStaggerMs !== undefined
+            ? { ...input.schedule, staggerMs: defaultStaggerMs }
+            : input.schedule;
+        })()
+      : input.schedule;
   const deleteAfterRun =
     typeof input.deleteAfterRun === "boolean"
       ? input.deleteAfterRun
@@ -719,18 +624,13 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     },
   };
   assertSupportedJobSpec(job);
-  assertMainSessionAgentId(job, state.deps.defaultAgentId);
   assertDeliverySupport(job);
   assertFailureDestinationSupport(job);
   job.state.nextRunAtMs = computeJobNextRunAtMs(job, now);
   return job;
 }
 
-export function applyJobPatch(
-  job: CronJob,
-  patch: CronJobPatch,
-  opts?: { defaultAgentId?: string },
-) {
+export function applyJobPatch(job: CronJob, patch: CronJobPatch) {
   if ("name" in patch) {
     job.name = normalizeRequiredName(patch.name);
   }
@@ -748,13 +648,16 @@ export function applyJobPatch(
       const explicitStaggerMs = normalizeCronStaggerMs(patch.schedule.staggerMs);
       if (explicitStaggerMs !== undefined) {
         job.schedule = { ...patch.schedule, staggerMs: explicitStaggerMs };
-      } else if (job.schedule.kind === "cron") {
-        job.schedule = { ...patch.schedule, staggerMs: job.schedule.staggerMs };
       } else {
+        // Inherit staggerMs from the prior cron schedule when one was set; otherwise
+        // fall back to the new schedule's default (e.g. top-of-hour → 5 min).
+        const inheritedStaggerMs =
+          job.schedule.kind === "cron" ? normalizeCronStaggerMs(job.schedule.staggerMs) : undefined;
         const defaultStaggerMs = resolveDefaultCronStaggerMs(patch.schedule.expr);
+        const resolvedStaggerMs = inheritedStaggerMs ?? defaultStaggerMs;
         job.schedule =
-          defaultStaggerMs !== undefined
-            ? { ...patch.schedule, staggerMs: defaultStaggerMs }
+          resolvedStaggerMs !== undefined
+            ? { ...patch.schedule, staggerMs: resolvedStaggerMs }
             : patch.schedule;
       }
     } else {
@@ -776,18 +679,6 @@ export function applyJobPatch(
   if ("failureAlert" in patch) {
     job.failureAlert = mergeCronFailureAlert(job.failureAlert, patch.failureAlert);
   }
-  if (
-    job.sessionTarget === "main" &&
-    job.delivery?.mode !== "webhook" &&
-    job.delivery?.failureDestination
-  ) {
-    throw new Error(
-      'cron delivery.failureDestination is only supported for sessionTarget="isolated" unless delivery.mode="webhook"',
-    );
-  }
-  if (job.sessionTarget === "main" && job.delivery?.mode !== "webhook") {
-    job.delivery = undefined;
-  }
   if (patch.state) {
     job.state = { ...job.state, ...patch.state };
   }
@@ -798,7 +689,6 @@ export function applyJobPatch(
     job.sessionKey = normalizeOptionalString((patch as { sessionKey?: unknown }).sessionKey);
   }
   assertSupportedJobSpec(job);
-  assertMainSessionAgentId(job, opts?.defaultAgentId);
   assertDeliverySupport(job);
   assertFailureDestinationSupport(job);
 }

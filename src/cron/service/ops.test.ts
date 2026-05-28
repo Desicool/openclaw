@@ -65,8 +65,9 @@ function createInterruptedMainJob(now: number): CronJob {
     enabled: true,
     createdAtMs: now - 86_400_000,
     updatedAtMs: now - 30 * 60_000,
-    schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-    sessionTarget: "main",
+    schedule: { kind: "cron", expr: "0 * * * *" },
+    // sessionTarget cast: legacy "main" kept for warn-not-refuse runtime path test
+    sessionTarget: "main" as CronJob["sessionTarget"],
     wakeMode: "next-heartbeat",
     payload: { kind: "systemEvent", text: "should not replay on startup" },
     state: {
@@ -85,7 +86,7 @@ function createDueIsolatedJob(now: number): CronJob {
     enabled: true,
     createdAtMs: now - 60_000,
     updatedAtMs: now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: now - 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "do work" },
@@ -146,7 +147,7 @@ function createMissedIsolatedJob(now: number): CronJob {
     enabled: true,
     createdAtMs: now - 86_400_000,
     updatedAtMs: now - 30 * 60_000,
-    schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+    schedule: { kind: "cron", expr: "0 * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "should timeout" },
@@ -161,17 +162,17 @@ describe("cron service ops seam coverage", () => {
   it("preserves legacy top-level array jobs when adding a new job (#60799)", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-05-20T08:00:00.000Z");
-    const legacyJobs: CronJob[] = [
+    const legacyJobs = [
       {
         id: "legacy-alpha",
         name: "legacy alpha",
         enabled: true,
         createdAtMs: now - 120_000,
         updatedAtMs: now - 120_000,
-        schedule: { kind: "every", everyMs: 3_600_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
-        payload: { kind: "systemEvent", text: "alpha" },
+        payload: { kind: "agentTurn", message: "alpha" },
         state: { nextRunAtMs: now + 3_600_000 },
       },
       {
@@ -180,10 +181,10 @@ describe("cron service ops seam coverage", () => {
         enabled: true,
         createdAtMs: now - 60_000,
         updatedAtMs: now - 60_000,
-        schedule: { kind: "every", everyMs: 7_200_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "0 */2 * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
-        payload: { kind: "systemEvent", text: "beta" },
+        payload: { kind: "agentTurn", message: "beta" },
         state: { nextRunAtMs: now + 7_200_000 },
       },
     ];
@@ -193,10 +194,10 @@ describe("cron service ops seam coverage", () => {
     const newJob = await add(state, {
       name: "new after upgrade",
       enabled: true,
-      schedule: { kind: "every", everyMs: 10_800_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 */3 * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "new" },
+      payload: { kind: "agentTurn", message: "new" },
     });
     if (state.timer) {
       clearTimeout(state.timer);
@@ -294,10 +295,10 @@ describe("cron service ops seam coverage", () => {
               name: "future sidecar repair",
               enabled: true,
               createdAtMs,
-              schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
-              sessionTarget: "main",
+              schedule: { kind: "cron", expr: "0 9 * * *" },
+              sessionTarget: "isolated",
               wakeMode: "next-heartbeat",
-              payload: { kind: "systemEvent", text: "daily" },
+              payload: { kind: "agentTurn", message: "daily" },
               state: {},
             },
           ],
@@ -477,10 +478,10 @@ describe("cron service ops seam coverage", () => {
           enabled: true,
           createdAtMs: now - 86_400_000,
           updatedAtMs: now - 3_600_000,
-          schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 9 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "daily" },
+          payload: { kind: "agentTurn", message: "daily" },
           state: { nextRunAtMs: originalNextRunAtMs },
         },
       ],
@@ -507,10 +508,10 @@ describe("cron service ops seam coverage", () => {
           enabled: true,
           createdAtMs: now - 86_400_000,
           updatedAtMs: now - 3_600_000,
-          schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 9 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "test" },
+          payload: { kind: "agentTurn", message: "test" },
           state: { nextRunAtMs: 0 },
         },
       ],
@@ -559,9 +560,9 @@ describe("idempotencyKey dedup in ops.add()", () => {
   const baseInput = {
     name: "dedup test",
     enabled: true,
-    sessionTarget: "main" as const,
+    sessionTarget: "isolated" as const,
     wakeMode: "next-heartbeat" as const,
-    payload: { kind: "systemEvent" as const, text: "ping" },
+    payload: { kind: "agentTurn" as const, message: "ping" },
   };
 
   it("happy path: first add succeeds, second with same key and future fireAt throws", async () => {
@@ -598,7 +599,7 @@ describe("idempotencyKey dedup in ops.add()", () => {
     const now = Date.parse("2026-05-28T10:00:00.000Z");
     const state = createOkIsolatedCronState({ storePath, now });
 
-    const schedule = { kind: "every" as const, everyMs: 60_000 };
+    const schedule = { kind: "cron" as const, expr: "* * * * *" };
     const first = await add(state, { ...baseInput, schedule });
     const second = await add(state, { ...baseInput, schedule });
     if (state.timer) {
@@ -615,7 +616,7 @@ describe("idempotencyKey dedup in ops.add()", () => {
     const now = Date.parse("2026-05-28T10:00:00.000Z");
     const state = createOkIsolatedCronState({ storePath, now });
 
-    const schedule = { kind: "every" as const, everyMs: 60_000 };
+    const schedule = { kind: "cron" as const, expr: "* * * * *" };
     const first = await add(state, { ...baseInput, idempotencyKey: "abc", schedule });
     const second = await add(state, { ...baseInput, idempotencyKey: "def", schedule });
     if (state.timer) {
@@ -641,9 +642,9 @@ describe("idempotencyKey dedup in ops.add()", () => {
       createdAtMs: now - 90_000_000,
       updatedAtMs: now - 86_400_000,
       schedule: { kind: "at", at: pastAt },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "old" },
+      payload: { kind: "agentTurn", message: "old" },
       state: {},
     };
     await writeCronStoreSnapshot({ storePath, jobs: [expiredJob] });
@@ -675,10 +676,10 @@ describe("idempotencyKey dedup in ops.add()", () => {
       idempotencyKey: "abc",
       createdAtMs: now - 86_400_000,
       updatedAtMs: now - 3_600_000,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "old" },
+      payload: { kind: "agentTurn", message: "old" },
       state: {},
     };
     await writeCronStoreSnapshot({ storePath, jobs: [disabledJob] });
@@ -688,7 +689,7 @@ describe("idempotencyKey dedup in ops.add()", () => {
     const newJob = await add(state, {
       ...baseInput,
       idempotencyKey: "abc",
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 * * * *" },
     });
     if (state.timer) {
       clearTimeout(state.timer);
@@ -710,10 +711,10 @@ describe("idempotencyKey dedup in ops.add()", () => {
       idempotencyKey: "abc",
       createdAtMs: now - 86_400_000,
       updatedAtMs: now - 3_600_000,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "existing" },
+      payload: { kind: "agentTurn", message: "existing" },
       state: { nextRunAtMs: now + 3_600_000 },
     };
     await writeCronStoreSnapshot({ storePath, jobs: [enabledJob] });
@@ -724,7 +725,7 @@ describe("idempotencyKey dedup in ops.add()", () => {
       add(state, {
         ...baseInput,
         idempotencyKey: "abc",
-        schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "0 * * * *" },
       }),
     ).rejects.toThrow("cron job with idempotencyKey abc already exists (jobId=enabled-cron-job)");
     if (state.timer) {
@@ -750,9 +751,9 @@ describe("idempotencyKey dedup: disk durability after rejection", () => {
       enabled: true,
       idempotencyKey: "durability-key-xyz",
       schedule: { kind: "at" as const, at: futureAt },
-      sessionTarget: "main" as const,
+      sessionTarget: "isolated" as const,
       wakeMode: "next-heartbeat" as const,
-      payload: { kind: "systemEvent" as const, text: "ping" },
+      payload: { kind: "agentTurn" as const, message: "ping" },
     };
 
     // First add — should succeed.

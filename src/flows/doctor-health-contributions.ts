@@ -430,6 +430,25 @@ async function runCronPurgeHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   });
 }
 
+async function runCronSessionTargetMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeMigrateLegacyCronSessionTargets } =
+    await import("../commands/doctor-cron-target-migration.js");
+  await maybeMigrateLegacyCronSessionTargets({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
+async function runCronTzMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeMigrateLegacyCronTz } = await import("../commands/doctor-cron-tz-migration.js");
+  await maybeMigrateLegacyCronTz({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
 async function runSandboxHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { maybeRepairSandboxImages, maybeRepairSandboxRegistryFiles, noteSandboxScopeWarnings } =
     await import("../commands/doctor-sandbox.js");
@@ -840,6 +859,18 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       id: "doctor:cron-purge",
       label: "Cron purge",
       run: runCronPurgeHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-target-migration",
+      label: "Cron sessionTarget migration",
+      healthCheckIds: [],
+      run: runCronSessionTargetMigrationHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-tz-migration",
+      label: "Cron tz migration",
+      healthCheckIds: [],
+      run: runCronTzMigrationHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:sandbox",

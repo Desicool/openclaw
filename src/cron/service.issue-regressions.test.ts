@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
+import { computeNextRunAtMs } from "./schedule.js";
 import {
   noopLogger,
   setupCronIssueRegressionFixtures,
@@ -16,6 +17,7 @@ describe("Cron issue regressions", () => {
 
   it("covers schedule updates and payload patching", async () => {
     const store = cronIssueRegressionFixtures.makeStorePath();
+    const now = Date.parse("2026-02-06T10:05:00.000Z");
     const cron = await startCronForStore({
       storePath: store.storePath,
       cronEnabled: false,
@@ -24,24 +26,28 @@ describe("Cron issue regressions", () => {
     const created = await cron.add({
       name: "hourly",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "tick" },
+      payload: { kind: "agentTurn", message: "tick" },
     });
     const offsetMs = topOfHourOffsetMs(created.id);
-    expect(created.state.nextRunAtMs).toBe(Date.parse("2026-02-06T11:00:00.000Z") + offsetMs);
+    // Compute timezone-agnostically: next "0 * * * *" from the fixture base time.
+    const baseNext1 = computeNextRunAtMs({ kind: "cron", expr: "0 * * * *" }, now);
+    expect(created.state.nextRunAtMs).toBe(baseNext1! + offsetMs);
 
     const updated = await cron.update(created.id, {
-      schedule: { kind: "cron", expr: "0 */2 * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 */2 * * *" },
     });
 
-    expect(updated.state.nextRunAtMs).toBe(Date.parse("2026-02-06T12:00:00.000Z") + offsetMs);
+    // Compute timezone-agnostically: next "0 */2 * * *" from the fixture base time.
+    const baseNext2 = computeNextRunAtMs({ kind: "cron", expr: "0 */2 * * *" }, now);
+    expect(updated.state.nextRunAtMs).toBe(baseNext2! + offsetMs);
 
     const unsafeToggle = await cron.add({
       name: "unsafe toggle",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: Date.now() },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "hi" },
@@ -60,14 +66,17 @@ describe("Cron issue regressions", () => {
     cron.stop();
   });
 
-  it("repairs isolated every jobs missing createdAtMs and sets nextWakeAtMs", async () => {
+  it("skips (does not repair) legacy every-kind jobs on load — requires doctor --fix", async () => {
+    // Phase 3.2: kind:"every" is no longer a valid schedule. Jobs with this
+    // schedule in the store are invalid and skipped at load time.
+    // Use `openclaw doctor --fix` to migrate them to kind:"cron" schedules.
     const store = cronIssueRegressionFixtures.makeStorePath();
     await writeCronStoreSnapshot(store.storePath, [
       {
-        id: "legacy-isolated",
+        id: "legacy-every",
         agentId: "feature-dev_planner",
         sessionKey: "agent:main:main",
-        name: "legacy isolated",
+        name: "legacy every",
         enabled: true,
         schedule: { kind: "every", everyMs: 300_000 },
         sessionTarget: "isolated",
@@ -77,10 +86,11 @@ describe("Cron issue regressions", () => {
       },
     ]);
 
+    const warnLogger = { ...noopLogger, warn: vi.fn() };
     const cron = new CronService({
       cronEnabled: true,
       storePath: store.storePath,
-      log: noopLogger,
+      log: warnLogger,
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn().mockResolvedValue({ status: "ok", summary: "ok" }),
@@ -88,16 +98,13 @@ describe("Cron issue regressions", () => {
     });
     await cron.start();
 
-    const status = await cron.status();
+    // The job is invalid (schedule kind:"every" not recognized) — it should be absent.
     const jobs = await cron.list({ includeDisabled: true });
-    const isolated = jobs.find((job) => job.id === "legacy-isolated");
-    expect(Number.isFinite(isolated?.state.nextRunAtMs)).toBe(true);
-    expect(Number.isFinite(status.nextWakeAtMs)).toBe(true);
+    const legacyJob = jobs.find((job) => job.id === "legacy-every");
+    expect(legacyJob).toBeUndefined();
 
-    const persisted = await loadCronStore(store.storePath);
-    const persistedIsolated = persisted.jobs.find((job) => job.id === "legacy-isolated");
-    expect(typeof persistedIsolated?.state?.nextRunAtMs).toBe("number");
-    expect(Number.isFinite(persistedIsolated?.state?.nextRunAtMs)).toBe(true);
+    // A warning should have been logged about the invalid persisted job.
+    expect(warnLogger.warn).toHaveBeenCalled();
 
     cron.stop();
   });
@@ -164,18 +171,18 @@ describe("Cron issue regressions", () => {
     const dueJob = await cron.add({
       name: "due-preserved",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: now },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "due-preserved" },
+      payload: { kind: "agentTurn", message: "due-preserved" },
     });
     const otherJob = await cron.add({
       name: "other-job",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "other" },
+      payload: { kind: "agentTurn", message: "other" },
     });
 
     const originalDueNextRunAtMs = dueJob.state.nextRunAtMs;
@@ -184,7 +191,7 @@ describe("Cron issue regressions", () => {
     vi.setSystemTime(now + 5 * 60_000);
 
     await cron.update(otherJob.id, {
-      payload: { kind: "systemEvent", text: "other-updated" },
+      payload: { kind: "agentTurn", message: "other-updated" },
     });
 
     const storeData = await loadCronStore(store.storePath);
@@ -345,7 +352,7 @@ describe("Cron issue regressions", () => {
     const job = await cron.add({
       name: "manual-writeback",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: Date.now() },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "test" },

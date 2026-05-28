@@ -37,11 +37,10 @@ function resolveSchedule(
 ): ResolvedSessionTurnSchedule | undefined {
   const cron = normalizeOptionalString((params as { cron?: unknown }).cron);
   if (cron) {
-    const tz = normalizeOptionalString((params as { tz?: unknown }).tz);
+    // per-job tz was removed in P3.2; the process timezone is always used.
     return {
       kind: "cron",
       expr: cron,
-      ...(tz ? { tz } : {}),
     };
   }
   if ("delayMs" in params) {
@@ -283,7 +282,8 @@ export async function schedulePluginSessionTurn(params: {
       name: cronJobName,
       enabled: true,
       schedule: cronSchedule,
-      sessionTarget: `session:${sessionKey}`,
+      sessionTarget: "isolated",
+      sessionKey,
       payload: cronPayload,
       ...(params.schedule.agentId ? { agentId: params.schedule.agentId } : {}),
       // Default stays for backward compatibility; runtime no longer branches on this field for at-kind jobs (atomic-remove implied).
@@ -384,8 +384,14 @@ export async function unschedulePluginSessionTurnsByTag(params: {
     log.warn(`plugin session turn untag-list failed: ${formatErrorMessage(error)}`);
     return { removed: 0, failed: 1 };
   }
+  // Since P3.2, session binding is via sessionKey field rather than sessionTarget.
+  // Match on sessionKey for jobs created after the migration; also match legacy
+  // session:-prefixed targets for backward compat with previously created jobs.
   const candidates = jobs.filter((job) => {
-    return job.name.startsWith(namePrefix) && job.sessionTarget === `session:${sessionKey}`;
+    return (
+      job.name.startsWith(namePrefix) &&
+      (job.sessionKey === sessionKey || (job.sessionTarget as string) === `session:${sessionKey}`)
+    );
   });
   let removed = 0;
   let failed = 0;

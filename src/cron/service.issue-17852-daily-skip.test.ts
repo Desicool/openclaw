@@ -16,73 +16,75 @@ import type { CronJob } from "./types.js";
  * existing (including past-due) ones.
  */
 describe("issue #17852 - daily cron jobs should not skip days", () => {
-  const HOUR_MS = 3_600_000;
-  const DAY_MS = 24 * HOUR_MS;
+  const MIN_MS = 60_000;
 
-  function createDailyThreeAmJob(threeAM: number): CronJob {
+  // Use a "every minute" schedule so the test is timezone-agnostic.
+  // The regression applies to any recurring cron — not just daily ones.
+  function createEveryMinuteJob(scheduledAt: number): CronJob {
     return {
-      id: "daily-job",
-      name: "daily 3am",
+      id: "recurring-job",
+      name: "every minute",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 3 * * *", tz: "UTC" },
-      payload: { kind: "systemEvent", text: "daily task" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      payload: { kind: "agentTurn", message: "tick" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      createdAtMs: threeAM - DAY_MS,
-      updatedAtMs: threeAM - DAY_MS,
+      createdAtMs: scheduledAt - MIN_MS,
+      updatedAtMs: scheduledAt - MIN_MS,
       state: {
-        nextRunAtMs: threeAM,
+        nextRunAtMs: scheduledAt,
       },
     };
   }
 
   it("recomputeNextRunsForMaintenance should NOT advance past-due nextRunAtMs by default", () => {
-    // Simulate: job scheduled for 3:00 AM, timer processing happens at 3:00:01
+    // Simulate: job scheduled for a minute boundary; timer fires 1 second later.
     // The job was NOT executed in this tick (e.g., it became due between
     // findDueJobs and the post-execution block).
-    const threeAM = Date.parse("2026-02-16T03:00:00.000Z");
-    const now = threeAM + 1_000; // 3:00:01
+    const scheduledAt = Date.parse("2026-02-16T03:00:00.000Z");
+    const now = scheduledAt + 1_000; // 1 second after the due slot
 
-    const job = createDailyThreeAmJob(threeAM);
+    const job = createEveryMinuteJob(scheduledAt);
 
     const state = createMockCronStateForJobs({ jobs: [job], nowMs: now });
     recomputeNextRunsForMaintenance(state);
 
     // Maintenance should NOT touch existing past-due nextRunAtMs.
     // The job should still be eligible for execution on the next timer tick.
-    expect(job.state.nextRunAtMs).toBe(threeAM);
+    expect(job.state.nextRunAtMs).toBe(scheduledAt);
   });
 
   it("recomputeNextRunsForMaintenance can advance expired nextRunAtMs on recovery path when slot already executed", () => {
-    const threeAM = Date.parse("2026-02-16T03:00:00.000Z");
-    const now = threeAM + 1_000; // 3:00:01
+    const scheduledAt = Date.parse("2026-02-16T03:00:00.000Z");
+    const now = scheduledAt + 1_000; // 1 second after the due slot
 
-    const job = createDailyThreeAmJob(threeAM);
-    job.state.lastRunAtMs = threeAM + 1;
+    const job = createEveryMinuteJob(scheduledAt);
+    job.state.lastRunAtMs = scheduledAt + 1; // mark slot as already executed
 
     const state = createMockCronStateForJobs({ jobs: [job], nowMs: now });
     recomputeNextRunsForMaintenance(state, { recomputeExpired: true });
 
-    const tomorrowThreeAM = threeAM + DAY_MS;
-    expect(job.state.nextRunAtMs).toBe(tomorrowThreeAM);
+    // Slot already executed: maintenance should advance to the next occurrence.
+    // With `* * * * *` the next slot is exactly one minute ahead.
+    const nextSlot = scheduledAt + MIN_MS;
+    expect(job.state.nextRunAtMs).toBe(nextSlot);
   });
 
   it("full recomputeNextRuns WOULD silently advance past-due nextRunAtMs (the bug)", () => {
     // This test documents the buggy behavior that caused #17852.
     // The full recomputeNextRuns sees a past-due nextRunAtMs and advances it
     // to the next occurrence WITHOUT executing the job.
-    const threeAM = Date.parse("2026-02-16T03:00:00.000Z");
-    const now = threeAM + 1_000; // 3:00:01
+    const scheduledAt = Date.parse("2026-02-16T03:00:00.000Z");
+    const now = scheduledAt + 1_000; // 1 second after the due slot
 
-    const job = createDailyThreeAmJob(threeAM);
+    const job = createEveryMinuteJob(scheduledAt);
 
     const state = createMockCronStateForJobs({ jobs: [job], nowMs: now });
     recomputeNextRuns(state);
 
-    // The full recomputeNextRuns advances it to TOMORROW — skipping today's
-    // execution entirely.  This is the 48h jump bug: from the previous run
-    // (yesterday 3 AM) to the newly computed next run (tomorrow 3 AM).
-    const tomorrowThreeAM = threeAM + DAY_MS;
-    expect(job.state.nextRunAtMs).toBe(tomorrowThreeAM);
+    // The full recomputeNextRuns advances to the NEXT slot — skipping the
+    // current slot's execution entirely.  This is the jump bug.
+    const nextSlot = scheduledAt + MIN_MS;
+    expect(job.state.nextRunAtMs).toBe(nextSlot);
   });
 });

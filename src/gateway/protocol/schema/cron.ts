@@ -18,12 +18,7 @@ function cronAgentTurnPayloadSchema(params: { message: TSchema; toolsAllow: TSch
   );
 }
 
-const CronSessionTargetSchema = Type.Union([
-  Type.Literal("main"),
-  Type.Literal("isolated"),
-  Type.Literal("current"),
-  Type.String({ pattern: "^session:.+" }),
-]);
+const CronSessionTargetSchema = Type.Literal("isolated");
 const CronWakeModeSchema = Type.Union([Type.Literal("next-heartbeat"), Type.Literal("now")]);
 function cronRunStatusSchema(options: Record<string, unknown> = {}) {
   return Type.Union([Type.Literal("ok"), Type.Literal("error"), Type.Literal("skipped")], options);
@@ -152,17 +147,8 @@ export const CronScheduleSchema = Type.Union([
   ),
   Type.Object(
     {
-      kind: Type.Literal("every"),
-      everyMs: Type.Integer({ minimum: 1 }),
-      anchorMs: Type.Optional(Type.Integer({ minimum: 0 })),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
       kind: Type.Literal("cron"),
       expr: NonEmptyString,
-      tz: Type.Optional(Type.String()),
       staggerMs: Type.Optional(Type.Integer({ minimum: 0 })),
     },
     { additionalProperties: false },

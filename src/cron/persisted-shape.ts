@@ -26,18 +26,12 @@ export function getInvalidPersistedCronJobReason(
   }
   const scheduleRecord = schedule as Record<string, unknown>;
   const scheduleKind = scheduleRecord.kind;
-  if (scheduleKind !== "at" && scheduleKind !== "every" && scheduleKind !== "cron") {
+  if (scheduleKind !== "at" && scheduleKind !== "cron") {
     return "invalid-schedule";
   }
   if (scheduleKind === "at") {
     const at = scheduleRecord.at;
     if (typeof at !== "string" || parseAbsoluteTimeMs(at) === null) {
-      return "invalid-schedule";
-    }
-  }
-  if (scheduleKind === "every") {
-    const everyMs = scheduleRecord.everyMs;
-    if (typeof everyMs !== "number" || !Number.isFinite(everyMs) || everyMs <= 0) {
       return "invalid-schedule";
     }
   }

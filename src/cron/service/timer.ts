@@ -43,7 +43,7 @@ import {
   validateCronRunnerResultFile,
   type CronRunnerResultStatus,
 } from "../runner-protocol.js";
-import { sweepCronRunSessions } from "../session-reaper.js";
+import { sweepCronRunsArtifacts } from "../session-reaper.js";
 import type {
   CronAgentExecutionPhase,
   CronAgentExecutionPhaseUpdate,
@@ -185,8 +185,10 @@ export async function executeJobCoreWithTimeout(
     resolveTimeout = resolve;
   });
 
+  // Legacy "main" jobs (warn-not-refuse) have a systemEvent payload; only
+  // agentTurn jobs need the execution-start watchdog deferral.
   const deferTimeoutUntilExecutionStart =
-    job.sessionTarget !== "main" && job.payload.kind === "agentTurn";
+    (job.sessionTarget as string) !== "main" && job.payload.kind === "agentTurn";
   const triggerTimeout = (reason: string) => {
     if (runAbortController.signal.aborted) {
       return;
@@ -487,15 +489,13 @@ function resolveCronTaskChildSessionKey(params: {
   job: CronJob;
   startedAt: number;
 }): string | undefined {
-  if (params.job.sessionTarget === "main") {
+  // Legacy "main" jobs (warn-not-refuse) still resolve the main session key.
+  if ((params.job.sessionTarget as string) === "main") {
     return resolveMainSessionCronRunSessionKey(params.job, params.startedAt);
   }
   const explicitSessionKey = params.job.sessionKey?.trim();
   if (explicitSessionKey) {
     return explicitSessionKey;
-  }
-  if (params.job.sessionTarget !== "isolated") {
-    return undefined;
   }
   return resolveCronAgentSessionKey({
     sessionKey: `cron:${params.job.id}`,
@@ -861,21 +861,7 @@ export function applyJobResult(
     startedAt: number;
     endedAt: number;
   },
-  opts?: {
-    // Preserve recurring "every" anchors for manual force runs.
-    preserveSchedule?: boolean;
-  },
 ): boolean {
-  const prevLastRunAtMs = job.state.lastRunAtMs;
-  const computeNextWithPreservedLastRun = (nowMs: number) => {
-    const saved = job.state.lastRunAtMs;
-    job.state.lastRunAtMs = prevLastRunAtMs;
-    try {
-      return computeJobNextRunAtMs(job, nowMs);
-    } finally {
-      job.state.lastRunAtMs = saved;
-    }
-  };
   job.state.runningAtMs = undefined;
   job.state.lastRunAtMs = result.startedAt;
   job.state.lastRunStatus = result.status;
@@ -1007,10 +993,7 @@ export function applyJobResult(
       const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
       let normalNext: number | undefined;
       try {
-        normalNext =
-          opts?.preserveSchedule && job.schedule.kind === "every"
-            ? computeNextWithPreservedLastRun(result.endedAt)
-            : computeJobNextRunAtMs(job, result.endedAt);
+        normalNext = computeJobNextRunAtMs(job, result.endedAt);
       } catch (err) {
         // If the schedule expression/timezone throws (croner edge cases),
         // record the schedule error (auto-disables after repeated failures)
@@ -1043,10 +1026,7 @@ export function applyJobResult(
     } else if (isJobEnabled(job)) {
       let naturalNext: number | undefined;
       try {
-        naturalNext =
-          opts?.preserveSchedule && job.schedule.kind === "every"
-            ? computeNextWithPreservedLastRun(result.endedAt)
-            : computeJobNextRunAtMs(job, result.endedAt);
+        naturalNext = computeJobNextRunAtMs(job, result.endedAt);
       } catch (err) {
         // If the schedule expression/timezone throws (croner edge cases),
         // record the schedule error (auto-disables after repeated failures)
@@ -1334,44 +1314,17 @@ export async function onTimer(state: CronServiceState) {
       });
     }
   } finally {
-    // Piggyback session reaper on timer tick (self-throttled to every 5 min).
-    // Placed in `finally` so the reaper runs even when a long-running job keeps
-    // `state.running` true across multiple timer ticks — the early return at the
-    // top of onTimer would otherwise skip the reaper indefinitely.
-    const storePaths = new Set<string>();
-    if (state.deps.resolveSessionStorePath) {
-      const defaultAgentId = state.deps.defaultAgentId ?? DEFAULT_AGENT_ID;
-      if (state.store?.jobs?.length) {
-        for (const job of state.store.jobs) {
-          const agentId =
-            typeof job.agentId === "string" && job.agentId.trim() ? job.agentId : defaultAgentId;
-          storePaths.add(state.deps.resolveSessionStorePath(agentId));
-        }
-      } else {
-        storePaths.add(state.deps.resolveSessionStorePath(defaultAgentId));
-      }
-    } else if (state.deps.sessionStorePath) {
-      storePaths.add(state.deps.sessionStorePath);
-    }
-
-    if (storePaths.size > 0) {
-      const nowMs = state.deps.nowMs();
-      for (const storePath of storePaths) {
-        try {
-          await sweepCronRunSessions({
-            cronConfig: state.deps.cronConfig,
-            sessionStorePath: storePath,
-            nowMs,
-            log: state.deps.log,
-          });
-        } catch (err) {
-          state.deps.log.warn({ err: String(err), storePath }, "cron: session reaper sweep failed");
-        }
-      }
-    }
-
+    // Reset running flag and re-arm before the reaper sweep so callers
+    // waiting on state.running see the scheduler back online immediately.
     state.running = false;
     armTimer(state);
+    // Phase 3.2: subprocess execution — artifacts-only sweep; fire-and-forget
+    // so the scheduler restart is not delayed by async filesystem cleanup.
+    // Placed in `finally` so the reaper runs even when a long-running job keeps
+    // `state.running` true across multiple timer ticks.
+    sweepCronRunsArtifacts({ nowMs: state.deps.nowMs() }).catch((err) => {
+      state.deps.log.warn({ err: String(err) }, "cron: session reaper sweep failed");
+    });
   }
 }
 
@@ -1737,7 +1690,9 @@ export async function executeJobCore(
   if (abortSignal?.aborted) {
     return resolveAbortError();
   }
-  if (job.sessionTarget === "main") {
+  // Legacy "main" jobs (warn-not-refuse) are still executed via the main session
+  // path. Run `openclaw doctor --fix` to migrate to isolated execution.
+  if ((job.sessionTarget as string) === "main") {
     return await executeMainSessionCronJob(state, job, abortSignal, waitWithAbort);
   }
 

@@ -38,10 +38,10 @@ function makeStore(jobId: string, enabled: boolean): CronStoreFile {
         enabled,
         createdAtMs: now,
         updatedAtMs: now,
-        schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
-        payload: { kind: "systemEvent", text: `tick-${jobId}` },
+        payload: { kind: "agentTurn", message: `tick-${jobId}` },
         state: {},
       },
     ],
@@ -376,7 +376,7 @@ describe("cron store", () => {
     const { storePath } = await makeStorePath();
     const payload = makeStore("job-sync-restart-drift", true);
     const staleNextRunAtMs = payload.jobs[0].createdAtMs + 3_600_000;
-    payload.jobs[0].schedule = { kind: "every", everyMs: 60_000, anchorMs: 1 };
+    payload.jobs[0].schedule = { kind: "cron", expr: "0 6 * * *" };
     payload.jobs[0].state = { nextRunAtMs: staleNextRunAtMs };
 
     await saveCronStore(storePath, payload);
@@ -384,12 +384,12 @@ describe("cron store", () => {
     const config = JSON.parse(await fs.readFile(storePath, "utf-8")) as {
       jobs: Array<Record<string, unknown>>;
     };
-    config.jobs[0].schedule = { kind: "every", everyMs: 60_000, anchorMs: 2 };
+    config.jobs[0].schedule = { kind: "cron", expr: "30 6 * * 0,6" };
     await fs.writeFile(storePath, JSON.stringify(config, null, 2), "utf-8");
 
     const loaded = loadCronStoreSync(storePath);
 
-    expect(loaded.jobs[0]?.schedule).toEqual({ kind: "every", everyMs: 60_000, anchorMs: 2 });
+    expect(loaded.jobs[0]?.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6" });
     expect(loaded.jobs[0]?.state.nextRunAtMs).toBeUndefined();
   });
 

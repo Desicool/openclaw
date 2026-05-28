@@ -506,23 +506,7 @@ export async function update(state: CronServiceState, id: string, patch: CronJob
     const job = findJobOrThrow(state, id);
     const now = state.deps.nowMs();
     const nextJob = structuredClone(job);
-    applyJobPatch(nextJob, patch, { defaultAgentId: state.deps.defaultAgentId });
-    if (nextJob.schedule.kind === "every") {
-      const anchor = nextJob.schedule.anchorMs;
-      if (typeof anchor !== "number" || !Number.isFinite(anchor)) {
-        const patchSchedule = patch.schedule;
-        const fallbackAnchorMs =
-          patchSchedule?.kind === "every"
-            ? now
-            : typeof nextJob.createdAtMs === "number" && Number.isFinite(nextJob.createdAtMs)
-              ? nextJob.createdAtMs
-              : now;
-        nextJob.schedule = {
-          ...nextJob.schedule,
-          anchorMs: Math.max(0, Math.floor(fallbackAnchorMs)),
-        };
-      }
-    }
+    applyJobPatch(nextJob, patch);
     const scheduleChanged = patch.schedule !== undefined;
     const enabledChanged = patch.enabled !== undefined;
 
@@ -626,18 +610,13 @@ async function skipInvalidPersistedManualRun(params: {
     severity: "warn",
     nowMs: params.state.deps.nowMs,
   });
-  const shouldDelete = applyJobResult(
-    params.state,
-    params.job,
-    {
-      status: "skipped",
-      error: errorText,
-      diagnostics,
-      startedAt: endedAt,
-      endedAt,
-    },
-    { preserveSchedule: params.mode === "force" },
-  );
+  const shouldDelete = applyJobResult(params.state, params.job, {
+    status: "skipped",
+    error: errorText,
+    diagnostics,
+    startedAt: endedAt,
+    endedAt,
+  });
 
   emit(params.state, {
     jobId: params.job.id,
@@ -838,7 +817,6 @@ async function prepareManualRun(
 async function finishPreparedManualRun(
   state: CronServiceState,
   prepared: Extract<PreparedManualRun, { ran: true }>,
-  mode?: "due" | "force",
 ): Promise<void> {
   const executionJob = prepared.executionJob;
   const startedAt = prepared.startedAt;
@@ -867,19 +845,14 @@ async function finishPreparedManualRun(
         return;
       }
 
-      const shouldDelete = applyJobResult(
-        state,
-        job,
-        {
-          status: coreResult.status,
-          error: coreResult.error,
-          diagnostics: coreResult.diagnostics,
-          delivered: coreResult.delivered,
-          startedAt,
-          endedAt,
-        },
-        { preserveSchedule: mode === "force" },
-      );
+      const shouldDelete = applyJobResult(state, job, {
+        status: coreResult.status,
+        error: coreResult.error,
+        diagnostics: coreResult.diagnostics,
+        delivered: coreResult.delivered,
+        startedAt,
+        endedAt,
+      });
 
       emit(state, {
         jobId: job.id,
@@ -949,7 +922,7 @@ export async function run(
   if (!prepared.ok || !prepared.ran) {
     return prepared;
   }
-  await finishPreparedManualRun(state, prepared, mode);
+  await finishPreparedManualRun(state, prepared);
   return { ok: true, ran: true } as const;
 }
 
