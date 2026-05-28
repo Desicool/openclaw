@@ -286,6 +286,7 @@ const CronRunningStateSchema = Type.Object(
     runId: NonEmptyString,
     pid: Type.Optional(Type.Integer({ minimum: 1 })),
     startedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    removeRequested: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
@@ -314,6 +315,7 @@ export const CronJobStateSchema = Type.Object(
     lastFailureNotificationDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
     lastFailureNotificationDeliveryError: Type.Optional(Type.String()),
     lastFailureAlertAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    removedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   { additionalProperties: false },
 );

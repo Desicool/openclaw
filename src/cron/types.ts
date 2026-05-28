@@ -203,6 +203,8 @@ export type CronRunningState = {
   runId: string;
   pid?: number;
   startedAtMs?: number;
+  /** Set to true after a kind:at subprocess exits ok to signal atomic removal is pending. */
+  removeRequested?: boolean;
 };
 
 export type CronJobState = {
@@ -245,6 +247,8 @@ export type CronJobState = {
   lastFailureNotificationDeliveryStatus?: CronDeliveryStatus;
   /** Delivery-specific error for the last failed run's failure notification. */
   lastFailureNotificationDeliveryError?: string;
+  /** Timestamp (ms) when the job was atomically removed after a successful kind:at run. */
+  removedAtMs?: number;
 };
 
 export type CronJob = CronJobBase<

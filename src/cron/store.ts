@@ -57,6 +57,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function isScheduleKindAt(job: { schedule?: unknown }): boolean {
+  return isRecord(job.schedule) && job.schedule.kind === "at";
+}
+
 function normalizeCronStoreFile(parsed: unknown): CronStoreFile {
   const rawJobs = Array.isArray(parsed)
     ? parsed
@@ -338,6 +342,18 @@ async function reconcileRunningJobStates(
   log?: (msg: string, meta: Record<string, unknown>) => void,
 ): Promise<void> {
   const runsDir = path.join(resolveConfigDir(), "cron", "runs");
+
+  // §5 crash recovery pre-pass: identify kind:at jobs with removeRequested=true
+  // before reconcileJobRunningState clears the running field. These are jobs where
+  // the parent wrote removeRequested but crashed before removing the entry from jobs.json.
+  const pendingRemoveIds = new Set<string>();
+  for (const job of store.jobs) {
+    const running = job.state?.running;
+    if (running?.removeRequested === true && isScheduleKindAt(job)) {
+      pendingRemoveIds.add(job.id);
+    }
+  }
+
   for (const job of store.jobs) {
     try {
       await reconcileJobRunningState(job, runsDir, log);
@@ -348,6 +364,16 @@ async function reconcileRunningJobStates(
         err: String(err),
       });
     }
+  }
+
+  // §5 crash recovery: finish atomic removal for jobs pre-identified above.
+  if (pendingRemoveIds.size > 0) {
+    for (const jobId of pendingRemoveIds) {
+      log?.("cron: boot reconcile — finishing atomic remove for kind:at job (removeRequested)", {
+        jobId,
+      });
+    }
+    store.jobs = store.jobs.filter((job) => !pendingRemoveIds.has(job.id));
   }
 }
 

@@ -2044,11 +2044,65 @@ async function executeJobInSubprocess(
     finalError = "cron: subprocess exited without a terminal record";
   }
 
+  // §5 commit protocol: for kind:at jobs that succeeded, atomically remove the
+  // job entry instead of leaving a disabled tombstone.
+  if (finalStatus === "ok" && job.schedule.kind === "at") {
+    // Crash-safe: mark removeRequested on the running record and flush to
+    // jobs-state.json BEFORE touching jobs.json. If the parent crashes here,
+    // boot reconcile will re-enter commitAtomicRemoveAt on next restart.
+    if (job.state.running) {
+      job.state.running = { ...job.state.running, removeRequested: true };
+    }
+    await persist(state, { stateOnly: true }).catch(() => undefined);
+    // STEP A + B: remove from jobs.json (and clear state entry) atomically.
+    await commitAtomicRemoveAt(state, jobId);
+    return { status: finalStatus, error: finalError };
+  }
+
   // Clear the running marker from job state and persist the terminal record.
   job.state.running = undefined;
   await persist(state, { stateOnly: true }).catch(() => undefined);
 
   return { status: finalStatus, error: finalError };
+}
+
+/**
+ * Commit the atomic-remove protocol for a kind:at job that exited ok.
+ *
+ * §5 protocol — STEP A + B:
+ *   STEP A: write jobs.json without the entry (and jobs-state.json without the state entry).
+ *   STEP B: running is cleared implicitly because the job's state entry is removed entirely.
+ *
+ * Idempotent: if the job is already absent from jobs.json this is a no-op.
+ * Protected by the store lock so concurrent callers (timer tick, boot reconcile) are safe.
+ */
+export async function commitAtomicRemoveAt(state: CronServiceState, jobId: string): Promise<void> {
+  await locked(state, async () => {
+    // Use the current in-memory store: the caller has already set
+    // running.removeRequested = true and persisted it (stateOnly) so the
+    // flag is durable on disk. We do NOT force-reload here because
+    // loadCronStore runs boot-reconcile which would clear running (and
+    // removeRequested) before we can check it.
+    await ensureLoaded(state, { skipRecompute: true });
+    if (!state.store) {
+      return;
+    }
+    const job = state.store.jobs.find((j) => j.id === jobId);
+    // Already removed (e.g. idempotent retry or concurrent explicit removal) — no-op.
+    if (!job) {
+      return;
+    }
+    // Guard: only proceed if removeRequested is still signalled. A concurrent
+    // removal (e.g. explicit cron.remove call) may have already cleaned up.
+    if (!job.state.running?.removeRequested) {
+      return;
+    }
+    // STEP A: remove job from both jobs.json and jobs-state.json in one persist.
+    state.store.jobs = state.store.jobs.filter((j) => j.id !== jobId);
+    await persist(state);
+    emit(state, { jobId, action: "removed", job });
+    armTimer(state);
+  });
 }
 
 async function executeDetachedCronJob(
