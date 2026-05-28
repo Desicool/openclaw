@@ -859,6 +859,15 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       label: "Config audit",
       run: runConfigAuditScrubHealth,
     }),
+    // Must run before doctor:legacy-cron: the legacy handler classifies
+    // kind:"every" as an invalid persisted schedule and deletes it before
+    // the every-migration has a chance to convert it to kind:"cron".
+    createDoctorHealthContribution({
+      id: "doctor:cron-every-migration",
+      label: "Cron every-kind migration",
+      healthCheckIds: [],
+      run: runCronEveryMigrationHealth,
+    }),
     createDoctorHealthContribution({
       id: "doctor:legacy-cron",
       label: "Legacy cron",
@@ -875,12 +884,6 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       label: "Cron sessionTarget migration",
       healthCheckIds: [],
       run: runCronSessionTargetMigrationHealth,
-    }),
-    createDoctorHealthContribution({
-      id: "doctor:cron-every-migration",
-      label: "Cron every-kind migration",
-      healthCheckIds: [],
-      run: runCronEveryMigrationHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:cron-tz-migration",
