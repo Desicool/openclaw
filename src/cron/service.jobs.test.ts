@@ -82,7 +82,7 @@ describe("applyJobPatch", () => {
         channel: "telegram",
         to: "123",
       },
-      { sessionTarget: "session:project-alpha" },
+      { sessionTarget: "isolated" },
     );
 
     applyJobPatch(job, {

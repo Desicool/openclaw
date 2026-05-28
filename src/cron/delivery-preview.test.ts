@@ -28,7 +28,7 @@ describe("resolveCronDeliveryPreview", () => {
     // the delivery path is exercised regardless of the sessionTarget check.
     const job = makeCronJob({
       agentId: "avery",
-      sessionTarget: "session:agent:avery:telegram:direct:direct-123",
+      sessionTarget: "session:agent:avery:telegram:direct:direct-123" as unknown as "isolated",
       sessionKey: "agent:avery:telegram:group:ops:sender:direct-123",
       delivery: { mode: "announce" },
     });

@@ -7,7 +7,6 @@ import {
 } from "./timeout-policy.js";
 
 function makeJob(payload: CronJob["payload"]): CronJob {
-  const sessionTarget = payload.kind === "agentTurn" ? "isolated" : "main";
   return {
     id: "job-1",
     name: "job",
@@ -15,7 +14,7 @@ function makeJob(payload: CronJob["payload"]): CronJob {
     updatedAtMs: 0,
     enabled: true,
     schedule: { kind: "cron", expr: "* * * * *" },
-    sessionTarget,
+    sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload,
     state: {},

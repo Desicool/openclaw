@@ -112,7 +112,7 @@ function makeCronJob(input: Partial<CronJob> & { id: string }): CronJob {
     name: input.name ?? input.id,
     enabled: true,
     schedule: { kind: "at", at: "2026-05-01T00:00:00.000Z" },
-    sessionTarget: input.sessionTarget ?? `session:${MAIN_SESSION_KEY}`,
+    sessionTarget: input.sessionTarget ?? "isolated",
     wakeMode: "now",
     payload: { kind: "agentTurn", message: "wake" },
     delivery: { mode: "announce", channel: "last" },
@@ -243,7 +243,7 @@ describe("plugin scheduled turns", () => {
     });
     const job = getCronAddBody();
     expect(job.name).toBe("plugin:workflow-plugin:tag:nudge:agent:main:main:custom-nudge-name");
-    expect(job.sessionTarget).toBe("session:agent:main:main");
+    expect(job.sessionTarget).toBe("isolated");
     expect(job.deleteAfterRun).toBe(true);
     expect(job.delivery).toEqual({ mode: "announce", channel: "last" });
     expect(job.payload).toEqual({ kind: "agentTurn", message: "wake" });
@@ -294,7 +294,7 @@ describe("plugin scheduled turns", () => {
             makeCronJob({
               id: "job-page-1",
               name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-              sessionTarget: "session:agent:main:main",
+              sessionTarget: "session:agent:main:main" as unknown as "isolated",
             }),
           ],
           total: 2,
@@ -309,7 +309,7 @@ describe("plugin scheduled turns", () => {
           makeCronJob({
             id: "job-page-2",
             name: "plugin:workflow-plugin:tag:nudge:agent:main:main:2",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as unknown as "isolated",
           }),
         ],
         total: 2,
@@ -881,22 +881,22 @@ describe("plugin scheduled turns", () => {
           makeCronJob({
             id: "job-a",
             name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as unknown as "isolated",
           }),
           makeCronJob({
             id: "job-b",
             name: "plugin:workflow-plugin:tag:nudge:agent:main:main:2",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as unknown as "isolated",
           }),
           makeCronJob({
             id: "job-c",
             name: "plugin:other-plugin:tag:nudge:agent:main:main:1",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as unknown as "isolated",
           }),
           makeCronJob({
             id: "job-d",
             name: "plugin:workflow-plugin:tag:nudge:agent:other:main:1",
-            sessionTarget: "session:agent:other:main",
+            sessionTarget: "session:agent:other:main" as unknown as "isolated",
           }),
         ],
         total: 4,
@@ -927,12 +927,12 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "job-1",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:first",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as unknown as "isolated",
         }),
         makeCronJob({
           id: "job-2",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:second",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as unknown as "isolated",
         }),
       ],
       total: 2,
@@ -976,12 +976,12 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "job-ok",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as unknown as "isolated",
         }),
         makeCronJob({
           id: "job-fail",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:2",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as unknown as "isolated",
         }),
       ],
       total: 2,
@@ -1005,7 +1005,7 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "job-missing",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as unknown as "isolated",
         }),
       ],
       total: 1,
@@ -1100,7 +1100,7 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "second-cron-existing-job",
           name: "plugin:scheduler-plugin:tag:nudge:agent:main:main:1",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as unknown as "isolated",
         }),
       ],
       total: 1,

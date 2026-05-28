@@ -39,7 +39,7 @@ function createJob(overrides: Partial<CronJob> = {}): CronJob {
     createdAtMs: Date.now() - 100_000,
     updatedAtMs: Date.now() - 100_000,
     schedule: { kind: "cron", expr: "0 * * * *" }, // Every hour
-    sessionTarget: "main",
+    sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "systemEvent", text: "test" },
     state: {},

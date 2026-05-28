@@ -103,7 +103,7 @@ describe("printCronList", () => {
       id: "staggered-job",
       name: "Staggered",
       schedule: { kind: "cron", expr: "0 * * * *", staggerMs: 5 * 60_000 },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       state: {},
       payload: { kind: "systemEvent", text: "tick" },
     });
@@ -177,7 +177,7 @@ describe("printCronList", () => {
     const job = createBaseJob({
       id: "sys-event-job",
       name: "System Event",
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       payload: { kind: "systemEvent", text: "tick" },
     });
 
@@ -221,7 +221,7 @@ describe("printCronList", () => {
       id: "exact-job",
       name: "Exact",
       schedule: { kind: "cron", expr: "0 7 * * *", staggerMs: 0 },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       state: {},
       payload: { kind: "systemEvent", text: "tick" },
     });

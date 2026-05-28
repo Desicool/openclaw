@@ -214,7 +214,7 @@ describe("buildGatewayCronService", () => {
         name: "scheduler-hook",
         enabled: true,
         schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "sync external wake" },
       });
@@ -252,7 +252,7 @@ describe("buildGatewayCronService", () => {
         name: "to-be-removed",
         enabled: true,
         schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "will be removed" },
       });
@@ -292,7 +292,7 @@ describe("buildGatewayCronService", () => {
         enabled: true,
         agentId: "yinze",
         schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "session:project-alpha",
+        sessionTarget: "session:project-alpha" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "agent check" },
       });
@@ -330,7 +330,7 @@ describe("buildGatewayCronService", () => {
         name: "runtime-cfg-check",
         enabled: true,
         schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "cfg check" },
       });
@@ -360,7 +360,7 @@ describe("buildGatewayCronService", () => {
         name: "canonicalize-session-key",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         sessionKey: "discord:channel:ops",
         payload: { kind: "systemEvent", text: "hello" },
@@ -401,7 +401,7 @@ describe("buildGatewayCronService", () => {
         name: "global-queued",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "hello global" },
       });
@@ -442,7 +442,7 @@ describe("buildGatewayCronService", () => {
         name: "global-now",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "now",
         payload: { kind: "systemEvent", text: "hello now" },
       });
@@ -609,7 +609,7 @@ describe("buildGatewayCronService", () => {
         name: "queued-heartbeat-route",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         sessionKey: "telegram:group:123:topic:456",
         payload: { kind: "systemEvent", text: "hello" },
@@ -997,7 +997,7 @@ describe("buildGatewayCronService", () => {
         name: "ssrf-webhook-blocked",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "hello" },
         delivery: {
@@ -1046,7 +1046,7 @@ describe("buildGatewayCronService", () => {
         name: "custom-session",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "session:project-alpha-monitor",
+        sessionTarget: "session:project-alpha-monitor" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "hello" },
       });

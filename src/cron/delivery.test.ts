@@ -291,7 +291,7 @@ describe("resolveFailureDestination", () => {
   it("returns null when webhook failure destination matches the primary webhook target", () => {
     const plan = resolveFailureDestination(
       makeCronJob({
-        sessionTarget: "main",
+        sessionTarget: "isolated",
         payload: { kind: "systemEvent", text: "tick" },
         delivery: {
           mode: "webhook",

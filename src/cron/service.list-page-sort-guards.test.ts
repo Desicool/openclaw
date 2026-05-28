@@ -9,7 +9,7 @@ function createBaseJob(overrides?: Partial<CronJob>): CronJob {
     name: "job",
     enabled: true,
     schedule: { kind: "cron", expr: "*/5 * * * *" },
-    sessionTarget: "main",
+    sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "systemEvent", text: "tick" },
     state: { nextRunAtMs: Date.parse("2026-02-27T15:30:00.000Z") },

@@ -81,7 +81,7 @@ function buildMainSessionSystemEventJob(name: string): CronAddInput {
     name,
     enabled: true,
     schedule: { kind: "cron", expr: "* * * * *" },
-    sessionTarget: "main",
+    sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "systemEvent", text: "tick" },
   };

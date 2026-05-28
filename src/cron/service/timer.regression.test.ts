@@ -89,7 +89,7 @@ describe("cron service timer regressions", () => {
       createdAtMs: Date.now(),
       updatedAtMs: Date.now(),
       schedule: { kind: "at", at: "2035-01-01T00:00:00.000Z" },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: "future" },
       state: { nextRunAtMs: Date.parse("2035-01-01T00:00:00.000Z") },

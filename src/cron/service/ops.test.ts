@@ -162,7 +162,7 @@ describe("cron service ops seam coverage", () => {
   it("preserves legacy top-level array jobs when adding a new job (#60799)", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-05-20T08:00:00.000Z");
-    const legacyJobs = [
+    const legacyJobs: CronJob[] = [
       {
         id: "legacy-alpha",
         name: "legacy alpha",
