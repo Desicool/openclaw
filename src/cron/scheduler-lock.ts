@@ -143,8 +143,9 @@ function makeHandle(lockPath: string, pid: number): SchedulerLockHandle {
       released = true;
       try {
         // Only unlink if we still own the file (pid still matches).
+        // If file content is unreadable, the lock was stolen or corrupted — leave it for the current owner.
         const holderPid = await readHolderPid(lockPath);
-        if (holderPid === null || holderPid === pid) {
+        if (holderPid === pid) {
           await fs.unlink(lockPath).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== "ENOENT") {
               throw error;

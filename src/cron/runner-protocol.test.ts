@@ -43,6 +43,10 @@ describe("buildResultFileRelativePath", () => {
     expect(() => buildResultFileRelativePath("job", "..")).toThrow(/runId/);
   });
 
+  it("rejects runId containing backslash", () => {
+    expect(() => buildResultFileRelativePath("job", "a\\b")).toThrow(/runId/);
+  });
+
   it("rejects empty jobId", () => {
     expect(() => buildResultFileRelativePath("", "run")).toThrow(/jobId/);
   });
@@ -206,6 +210,10 @@ describe("CronJobRunningEntrySchema", () => {
 
   it("rejects extras", () => {
     expect(validate({ runId: "r", pid: 1234, startedAtMs: 1, hello: 1 })).toBe(false);
+  });
+
+  it("rejects pid 0 (not a valid process target)", () => {
+    expect(validate({ runId: "r", pid: 0, startedAtMs: 1 })).toBe(false);
   });
 });
 

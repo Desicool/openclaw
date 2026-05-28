@@ -28,10 +28,11 @@ const FORBIDDEN_TARGET_PATTERNS = [
 const IGNORED_PATH_PART = /(^|\/)(node_modules|dist|build|coverage|\.artifacts|\.git)(\/|$)/;
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 // Matches: side-effect imports (`import "x"`), default/named/namespace imports
-// (`import ... from "x"`), and re-exports (`export ... from "x"`). Both static
+// (`import ... from "x"`), and re-exports (`export ... from "x"`,
+// `export * as ns from "x"`, `export { ... } from "x"`). Both static
 // import forms are needed; dynamic `import("x")` is out of scope for this gate.
 const IMPORT_SPEC_REGEX =
-  /(?:^|\n)\s*(?:import\s+(?:(?:type\s+)?[^"';\n]*?from\s*)?|export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s*from\s*)["']([^"']+)["']/g;
+  /(?:^|\n)\s*(?:import\s+(?:(?:type\s+)?[^"';\n]*?from\s*)?|export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s*from\s*)["']([^"']+)["']/g;
 
 function isSourceFile(repoPath) {
   return (

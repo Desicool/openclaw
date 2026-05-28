@@ -40,7 +40,7 @@ export const CronRunnerStdoutMarkerSchema = Type.Object(
 export const CronJobRunningEntrySchema = Type.Object(
   {
     runId: Type.String({ minLength: 1 }),
-    pid: Type.Integer({ minimum: 0 }),
+    pid: Type.Integer({ minimum: 1 }),
     startedAtMs: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
@@ -61,6 +61,14 @@ export type CronRunnerResultFile = Static<typeof CronRunnerResultFileSchema>;
 export type CronRunnerStdoutMarker = Static<typeof CronRunnerStdoutMarkerSchema>;
 export type CronJobRunningEntry = Static<typeof CronJobRunningEntrySchema>;
 export type CronJobTerminalRecord = Static<typeof CronJobTerminalRecordSchema>;
+
+// AJV validator compiled at module load — pay the compile cost once, not per call.
+type AjvInstance = { compile<T>(schema: unknown): ValidateFunction<T> };
+const AjvCtor = AjvPkg as unknown as new (opts?: object) => AjvInstance;
+const validateStdoutMarker: ValidateFunction<CronRunnerStdoutMarker> = new AjvCtor({
+  allErrors: false,
+  strict: false,
+}).compile<CronRunnerStdoutMarker>(CronRunnerStdoutMarkerSchema);
 
 // Compose the relative path under `~/.openclaw/cron/runs/`. Callers join with
 // the runs directory. Reject any traversal-style id; cron core controls these
@@ -99,22 +107,8 @@ export function tryParseStdoutMarkerLine(line: string): CronRunnerStdoutMarker |
   } catch {
     return null;
   }
-  const validate = getStdoutMarkerValidator();
-  if (!validate(parsed)) {
+  if (!validateStdoutMarker(parsed)) {
     return null;
   }
   return parsed;
-}
-
-type AjvInstance = { compile<T>(schema: unknown): ValidateFunction<T> };
-const AjvCtor = AjvPkg as unknown as new (opts?: object) => AjvInstance;
-
-let stdoutMarkerValidator: ValidateFunction<CronRunnerStdoutMarker> | undefined;
-
-function getStdoutMarkerValidator(): ValidateFunction<CronRunnerStdoutMarker> {
-  stdoutMarkerValidator ??= new AjvCtor({
-    allErrors: false,
-    strict: false,
-  }).compile<CronRunnerStdoutMarker>(CronRunnerStdoutMarkerSchema);
-  return stdoutMarkerValidator;
 }

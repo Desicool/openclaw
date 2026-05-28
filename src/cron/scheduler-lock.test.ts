@@ -128,4 +128,28 @@ describe("acquireSchedulerLock", () => {
     }
     expect(result.holderPid).toBeNull();
   });
+
+  it("release is idempotent — calling release twice does not throw", async () => {
+    const result = await acquireSchedulerLock({ path: lockPath, pid: 70_001 });
+    expect(result.kind).toBe("acquired");
+    if (result.kind !== "acquired") {
+      return;
+    }
+    await result.handle.release();
+    // Second call must not throw.
+    await expect(result.handle.release()).resolves.toBeUndefined();
+  });
+
+  it("release does not unlink when lock file content has been corrupted by another process", async () => {
+    const result = await acquireSchedulerLock({ path: lockPath, pid: 80_001 });
+    expect(result.kind).toBe("acquired");
+    if (result.kind !== "acquired") {
+      return;
+    }
+    // Simulate another process corrupting the file.
+    await fsp.writeFile(lockPath, "garbage content — unreadable");
+    await result.handle.release();
+    // The corrupted file must still exist because we did not own it.
+    expect(fs.existsSync(lockPath)).toBe(true);
+  });
 });
