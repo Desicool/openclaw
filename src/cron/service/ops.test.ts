@@ -231,6 +231,7 @@ describe("cron service ops seam coverage", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     await start(state);
@@ -332,6 +333,7 @@ describe("cron service ops seam coverage", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     try {

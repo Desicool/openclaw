@@ -41,6 +41,7 @@ describe("CronService restart catch-up", () => {
       ...(params.startupDeferredMissedAgentJobDelayMs !== undefined
         ? { startupDeferredMissedAgentJobDelayMs: params.startupDeferredMissedAgentJobDelayMs }
         : {}),
+      schedulerLockPath: null,
     });
   }
 

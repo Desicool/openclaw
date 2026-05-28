@@ -36,6 +36,7 @@ describe("cron backup timing for edit", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     await service.start();
@@ -68,6 +69,7 @@ describe("cron backup timing for edit", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     await service2.start();

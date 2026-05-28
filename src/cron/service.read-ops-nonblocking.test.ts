@@ -114,6 +114,7 @@ describe("CronService read ops while job is running", () => {
           resolveFinished?.();
         }
       },
+      schedulerLockPath: null,
     });
 
     try {
@@ -186,6 +187,7 @@ describe("CronService read ops while job is running", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob: isolatedRun.runIsolatedAgentJob,
+      schedulerLockPath: null,
     });
 
     try {
@@ -263,6 +265,7 @@ describe("CronService read ops while job is running", () => {
       requestHeartbeat,
       runIsolatedAgentJob: isolatedRun.runIsolatedAgentJob,
       startupDeferredMissedAgentJobDelayMs: 120_000,
+      schedulerLockPath: null,
     });
 
     try {

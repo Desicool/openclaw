@@ -60,6 +60,7 @@ describe("CronService store load", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     await cron.start();

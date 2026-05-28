@@ -178,15 +178,21 @@ async function resolveSubprocessBinPaths(): Promise<{
   const openClawNode = process.execPath;
   const rawBin = process.argv[1];
   if (typeof rawBin === "string" && rawBin.trim()) {
-    try {
-      const resolved = path.resolve(rawBin);
-      await fs.access(resolved);
-      return { openClawNode, openClawBin: resolved };
-    } catch {
-      // Falls through to env-var fallback below.
+    // Only treat argv[1] as the openclaw CLI if it looks like the real binary:
+    // its basename must contain "openclaw" (not a test runner like vitest.mjs).
+    const base = path.basename(rawBin);
+    if (base.includes("openclaw")) {
+      try {
+        const resolved = path.resolve(rawBin);
+        await fs.access(resolved);
+        return { openClawNode, openClawBin: resolved };
+      } catch {
+        // Falls through to env-var fallback below.
+      }
     }
   }
-  // Fallback: use OPENCLAW_BIN env var if set (e.g. node --eval invocations).
+  // Fallback: use OPENCLAW_BIN env var if set (e.g. node --eval invocations,
+  // or when the gateway is launched via a wrapper that sets this variable).
   const envBin = process.env.OPENCLAW_BIN?.trim();
   return { openClawNode, openClawBin: envBin || undefined };
 }
@@ -200,18 +206,27 @@ export async function start(state: CronServiceState) {
   // Acquire the scheduler lock before doing any work. If another instance
   // holds the lock, log loudly and mark the state as held — jobs will not
   // be scheduled, but other gateway functionality is unaffected.
-  const lockResult = await acquireSchedulerLock();
-  if (lockResult.kind === "acquired") {
-    state.schedulerLockHandle = lockResult.handle;
-    state.schedulerLockHeld = false;
-  } else {
-    const holderPid = lockResult.holderPid;
-    state.schedulerLockHeld = true;
-    state.deps.log.warn(
-      { holderPid: holderPid ?? "null" },
-      "cron: scheduler lock held by another process — this instance will not schedule jobs",
-    );
-    return;
+  //
+  // schedulerLockPath=null disables locking (used in tests so they do not
+  // compete for the global ~/.openclaw/cron/scheduler.lock).
+  // schedulerLockPath=undefined uses the default path (production).
+  // schedulerLockPath=<string> uses a custom path.
+  const lockPathDep = state.deps.schedulerLockPath;
+  if (lockPathDep !== null) {
+    const lockParams = typeof lockPathDep === "string" ? { path: lockPathDep } : {};
+    const lockResult = await acquireSchedulerLock(lockParams);
+    if (lockResult.kind === "acquired") {
+      state.schedulerLockHandle = lockResult.handle;
+      state.schedulerLockHeld = false;
+    } else {
+      const holderPid = lockResult.holderPid;
+      state.schedulerLockHeld = true;
+      state.deps.log.warn(
+        { holderPid: holderPid ?? "null" },
+        "cron: scheduler lock held by another process — this instance will not schedule jobs",
+      );
+      return;
+    }
   }
 
   // Capture subprocess bin paths at startup (immutable for the lifetime of this gateway).

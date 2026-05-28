@@ -3,18 +3,22 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { acquireSchedulerLock } from "./scheduler-lock.js";
 
 let tmpDir: string;
 let lockPath: string;
 
 beforeEach(() => {
+  // This file uses real process spawns and real setTimeout; guard against
+  // fake-timer bleed-in from another --isolate=false test file.
+  vi.useRealTimers();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "scheduler-lock-"));
   lockPath = path.join(tmpDir, "scheduler.lock");
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -38,7 +42,12 @@ describe("acquireSchedulerLock", () => {
       stdio: "ignore",
     });
     try {
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      // Wait for the process to actually start (avoids relying on setTimeout which
+      // can be faked in --isolate=false test runs sharing a worker with fake-timer tests).
+      await new Promise<void>((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
+      });
       const childPid = child.pid;
       if (!childPid) {
         throw new Error("child pid missing");

@@ -179,6 +179,7 @@ describe("CronService interval/cron jobs fire on time", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     await cron.start();

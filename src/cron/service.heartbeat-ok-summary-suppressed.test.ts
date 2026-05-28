@@ -47,6 +47,7 @@ function createCronServiceForSummary(params: {
       delivered: false,
       deliveryAttempted: false,
     })),
+    schedulerLockPath: null,
   });
 }
 

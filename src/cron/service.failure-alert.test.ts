@@ -38,6 +38,7 @@ function createFailureAlertCron(params: {
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: params.runIsolatedAgentJob,
     sendCronFailureAlert: params.sendCronFailureAlert,
+    schedulerLockPath: null,
   });
 }
 

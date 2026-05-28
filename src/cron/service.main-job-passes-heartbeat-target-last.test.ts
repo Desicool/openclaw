@@ -42,6 +42,7 @@ describe("cron main job passes heartbeat target=last", () => {
       requestHeartbeat,
       runHeartbeatOnce: params.runHeartbeatOnce,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
     return { cron, enqueueSystemEvent, requestHeartbeat };
   }

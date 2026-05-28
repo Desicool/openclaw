@@ -126,6 +126,7 @@ function createIsolatedCronWithFinishedBarrier(params: {
       }
       finished.onEvent(evt);
     },
+    schedulerLockPath: null,
   });
   return { cron, finished };
 }

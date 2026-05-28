@@ -90,6 +90,7 @@ async function createCronHarness(options: CronHarnessOptions = {}) {
         status: "ok",
       })) as unknown as CronServiceDeps["runIsolatedAgentJob"]),
     ...(events ? { onEvent: events.onEvent } : {}),
+    schedulerLockPath: null,
   });
   await cron.start();
   return { store, cron, enqueueSystemEvent, requestHeartbeat, events };
@@ -252,6 +253,7 @@ function createStartedCronService(
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: runIsolatedAgentJob ?? vi.fn(async () => ({ status: "ok" as const })),
+    schedulerLockPath: null,
   });
 }
 

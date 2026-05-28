@@ -67,6 +67,7 @@ describe("cron service ops regressions", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(),
+      schedulerLockPath: null,
     });
     state.store = {
       version: 1,

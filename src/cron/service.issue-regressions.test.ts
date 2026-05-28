@@ -84,6 +84,7 @@ describe("Cron issue regressions", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn().mockResolvedValue({ status: "ok", summary: "ok" }),
+      schedulerLockPath: null,
     });
     await cron.start();
 

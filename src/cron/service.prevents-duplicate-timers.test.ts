@@ -27,6 +27,7 @@ describe("CronService", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob,
+      schedulerLockPath: null,
     });
 
     await cronA.start();
@@ -47,6 +48,7 @@ describe("CronService", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob,
+      schedulerLockPath: null,
     });
 
     await cronB.start();
