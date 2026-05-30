@@ -3,8 +3,11 @@ import {
   collectBlockIds,
   extractHeadings,
   findWeekSectionHeadingId,
+  formatMMDD,
   legacySentinelKeyword,
+  nextDocTitle,
   parseFetchEnvelope,
+  parseInspectTitle,
   writeWeeklySection,
   type RunCommandFn,
 } from "./doc-writer.js";
@@ -87,6 +90,28 @@ describe("doc-writer parse helpers", () => {
     expect(kw).toContain("weekly-report:begin weekKey=2026-W22");
     expect(kw).toContain("weekly-report:end weekKey=2026-W22");
   });
+
+  it("formatMMDD zero-pads month and day", () => {
+    expect(formatMMDD(new Date(2026, 4, 30))).toBe("0530"); // month 0-indexed: 4 = May
+    expect(formatMMDD(new Date(2026, 0, 9))).toBe("0109");
+  });
+
+  it("nextDocTitle bumps the date marker (full- or half-width parens), else returns undefined", () => {
+    expect(nextDocTitle("周报-姚迟亮（updated at 0524）", "0530")).toBe(
+      "周报-姚迟亮（updated at 0530）",
+    );
+    expect(nextDocTitle("Weekly (updated at 0101)", "0530")).toBe("Weekly (updated at 0530)");
+    // No marker → leave the title alone (safe for titles that don't opt in).
+    expect(nextDocTitle("周报-姚迟亮", "0530")).toBeUndefined();
+  });
+
+  it("parseInspectTitle reads data.title from a drive +inspect response", () => {
+    expect(
+      parseInspectTitle(JSON.stringify({ ok: true, data: { title: "T", type: "docx" } })),
+    ).toBe("T");
+    expect(parseInspectTitle(JSON.stringify({ ok: true, data: { type: "docx" } }))).toBeUndefined();
+    expect(parseInspectTitle("not json")).toBeUndefined();
+  });
 });
 
 function routedRunCommand(docs: {
@@ -95,11 +120,20 @@ function routedRunCommand(docs: {
   keyword: unknown;
   insert: unknown;
   other: unknown;
+  inspectTitle?: string | null; // title returned by `drive +inspect` (null = no title field)
+  patchFail?: boolean; // `drive files patch` exits non-zero
 }) {
   const calls: string[][] = [];
   const runCommand = vi.fn(async (argv: readonly string[]) => {
     const a = [...argv];
     calls.push(a);
+    if (a.includes("drive") && a.includes("+inspect")) {
+      const title = docs.inspectTitle === undefined ? "周报（updated at 0101）" : docs.inspectTitle;
+      return json({ ok: true, data: title === null ? { type: "docx" } : { title, type: "docx" } });
+    }
+    if (a.includes("drive") && a.includes("patch")) {
+      return docs.patchFail ? fail("title patch denied") : json({ ok: true });
+    }
     if (a.includes("+fetch")) {
       const scope = a[a.indexOf("--scope") + 1];
       if (scope === "outline") {
@@ -133,6 +167,7 @@ const baseParams = {
   weekTitle: "2026.5.25-2026.5.31",
   sectionMarkdown: "## 2026.5.25-2026.5.31\n...",
   timeoutMs: 30_000,
+  now: new Date(2026, 4, 30), // May 30 → MMDD "0530" (month is 0-indexed)
 };
 
 describe("writeWeeklySection orchestration", () => {
@@ -165,6 +200,52 @@ describe("writeWeeklySection orchestration", () => {
     expect(calls.filter((c) => c.includes("+update")).every((c) => !c.includes("--format"))).toBe(
       true,
     );
+    // Title bump: read the title (+inspect) then patch it to today (0530). Default mock title is
+    // "周报（updated at 0101）" → "周报（updated at 0530）".
+    expect(calls.some((c) => c.includes("drive") && c.includes("+inspect"))).toBe(true);
+    const patch = calls.find((c) => c.includes("drive") && c.includes("patch"))!;
+    expect(patch[patch.indexOf("--data") + 1]).toContain("0530");
+    if (res.ok) {
+      expect(res.titleNote).toBeUndefined();
+    }
+  });
+
+  it("title bump: no marker → no patch; patch failure → titleNote, write still ok", async () => {
+    const freshOutline = {
+      ok: true,
+      data: { document: { document_id: "page-root", content: '<h1 id="t">x</h1>' } },
+    };
+    // (a) title without the marker → inspect happens, but no patch, no note
+    const a = routedRunCommand({
+      outline: freshOutline,
+      section: EMPTY,
+      keyword: EMPTY,
+      insert: UPDATE_OK,
+      other: UPDATE_OK,
+      inspectTitle: "周报-姚迟亮", // no "（updated at …）"
+    });
+    const resA = await writeWeeklySection({ ...baseParams, runCommand: a.runCommand });
+    expect(resA.ok).toBe(true);
+    expect(a.calls.some((c) => c.includes("drive") && c.includes("patch"))).toBe(false);
+    if (resA.ok) {
+      expect(resA.titleNote).toBeUndefined();
+    }
+
+    // (b) patch fails → the report is still written ok, but a titleNote is surfaced
+    const b = routedRunCommand({
+      outline: freshOutline,
+      section: EMPTY,
+      keyword: EMPTY,
+      insert: UPDATE_OK,
+      other: UPDATE_OK,
+      inspectTitle: "周报（updated at 0101）",
+      patchFail: true,
+    });
+    const resB = await writeWeeklySection({ ...baseParams, runCommand: b.runCommand });
+    expect(resB.ok).toBe(true);
+    if (resB.ok) {
+      expect(resB.titleNote).toMatch(/标题日期未更新/);
+    }
   });
 
   it("existing same-week section: deletes its blocks before inserting", async () => {

@@ -335,7 +335,10 @@ export function createWeeklyReportInteractiveHandler(deps: CreateInteractiveHand
       } as never,
     });
 
-    await ctx.respond.reply({ text: `✅ 周报已写入文档（${state.weekTitle}）。` }).catch(() => {});
+    const writtenText = writeRes.titleNote
+      ? `✅ 周报已写入文档（${state.weekTitle}）。\n⚠️ ${writeRes.titleNote}`
+      : `✅ 周报已写入文档（${state.weekTitle}）。`;
+    await ctx.respond.reply({ text: writtenText }).catch(() => {});
 
     return { handled: true, toast: { type: "success", content: "Report written" } };
   };

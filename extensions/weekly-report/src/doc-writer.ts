@@ -43,9 +43,13 @@ export type WriteWeeklySectionParams = {
   weekTitle: string;
   sectionMarkdown: string;
   timeoutMs: number;
+  /** Override "today" for the doc-title date bump. Defaults to `new Date()`. */
+  now?: Date;
 };
 
-export type WriteWeeklySectionResult = { ok: true } | { ok: false; error: string };
+export type WriteWeeklySectionResult =
+  | { ok: true; titleNote?: string }
+  | { ok: false; error: string };
 
 type ExecResult = { stdout: string; stderr: string; code: number | null };
 
@@ -192,6 +196,43 @@ export function findWeekSectionHeadingId(
   return headings.find((h) => h.text === target)?.id;
 }
 
+// ── doc-title date bump helpers ──────────────────────────────────────────────
+
+/** Today's date as MMDD (zero-padded), e.g. 2026-05-30 → "0530". */
+export function formatMMDD(date: Date): string {
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${mm}${dd}`;
+}
+
+/** Matches a "（updated at 0524）" / "(updated at 0524)" marker (full- or half-width parens). */
+const UPDATED_AT_MARKER = /([（(]\s*updated at\s*)(\d+)(\s*[）)])/iu;
+
+/**
+ * Bump the doc title's "（updated at MMDD）" marker to `todayMMDD`. Returns the new title, or
+ * `undefined` when the title has no such marker — so we only ever touch titles that opt in by
+ * already carrying the marker (a colleague whose title doesn't use it is left untouched).
+ */
+export function nextDocTitle(currentTitle: string, todayMMDD: string): string | undefined {
+  if (!UPDATED_AT_MARKER.test(currentTitle)) {
+    return undefined;
+  }
+  return currentTitle.replace(UPDATED_AT_MARKER, `$1${todayMMDD}$3`);
+}
+
+/** A `drive +inspect` response → the document's current title. */
+export function parseInspectTitle(stdout: string): string | undefined {
+  const envelope = parseCliJson(stdout);
+  const data = envelope?.data;
+  if (data && typeof data === "object") {
+    const title = (data as Record<string, unknown>).title;
+    if (typeof title === "string" && title.length > 0) {
+      return title;
+    }
+  }
+  return undefined;
+}
+
 // ── argv builders ───────────────────────────────────────────────────────────
 
 function fetchArgv(p: {
@@ -265,6 +306,31 @@ function updateArgv(p: {
     argv.push("--doc-format", "markdown", "--content", p.content);
   }
   return argv;
+}
+
+function inspectArgv(binPath: string, docToken: string, asIdentity: DocIdentity): string[] {
+  return [binPath, "drive", "+inspect", "--url", docToken, "--type", "docx", "--as", asIdentity];
+}
+
+function patchTitleArgv(
+  binPath: string,
+  docToken: string,
+  asIdentity: DocIdentity,
+  newTitle: string,
+): string[] {
+  // `drive files patch` is a raw-API command: `type` is a required query param; `new_title` is the body.
+  return [
+    binPath,
+    "drive",
+    "files",
+    "patch",
+    "--params",
+    JSON.stringify({ file_token: docToken, type: "docx" }),
+    "--data",
+    JSON.stringify({ new_title: newTitle }),
+    "--as",
+    asIdentity,
+  ];
 }
 
 // ── orchestrator ────────────────────────────────────────────────────────────
@@ -421,7 +487,60 @@ export async function writeWeeklySection(
     return { ok: false, error: `block_insert_after: ${insertRes.error}` };
   }
 
-  return { ok: true };
+  // 5. Best-effort: bump the doc title's "（updated at MMDD）" marker to today. The section is already
+  //    written, so a title hiccup must NOT fail the report — it's surfaced as a note instead.
+  const titleNote = await bumpDocTitleDate({
+    runCommand,
+    binPath,
+    asIdentity,
+    docToken,
+    todayMMDD: formatMMDD(params.now ?? new Date()),
+    timeoutMs,
+  });
+
+  return titleNote ? { ok: true, titleNote } : { ok: true };
+}
+
+/**
+ * Best-effort doc-title date bump. Reads the title (`drive +inspect`); if it carries an
+ * "（updated at MMDD）" marker, patches it to today (`drive files patch`). Returns a human-readable
+ * note when the bump failed (so the caller can surface it), or undefined on success / nothing-to-do.
+ */
+async function bumpDocTitleDate(p: {
+  runCommand: RunCommandFn;
+  binPath: string;
+  asIdentity: DocIdentity;
+  docToken: string;
+  todayMMDD: string;
+  timeoutMs: number;
+}): Promise<string | undefined> {
+  const inspectRes = await runCli(
+    p.runCommand,
+    inspectArgv(p.binPath, p.docToken, p.asIdentity),
+    p.timeoutMs,
+    p.asIdentity,
+  );
+  if (!inspectRes.ok) {
+    return `标题日期未更新（读取标题失败：${inspectRes.error}）`;
+  }
+  const currentTitle = parseInspectTitle(inspectRes.stdout);
+  if (!currentTitle) {
+    return undefined; // couldn't read the title — leave it untouched, silently
+  }
+  const newTitle = nextDocTitle(currentTitle, p.todayMMDD);
+  if (!newTitle || newTitle === currentTitle) {
+    return undefined; // no "（updated at …）" marker, or already today
+  }
+  const patchRes = await runCli(
+    p.runCommand,
+    patchTitleArgv(p.binPath, p.docToken, p.asIdentity, newTitle),
+    p.timeoutMs,
+    p.asIdentity,
+  );
+  if (!patchRes.ok) {
+    return `标题日期未更新（${patchRes.error}）`;
+  }
+  return undefined;
 }
 
 /** Sentinel strings the old overwrite path embedded; used only for one-time orphan cleanup. */

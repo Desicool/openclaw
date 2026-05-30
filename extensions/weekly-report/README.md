@@ -131,6 +131,8 @@ The plugin exposes these agent-facing tools:
 
 Each week renders as exactly one `## <week_title>` H2 block followed by its body. The writer locates a week's existing section by **matching that H2 heading text** (via `docs +fetch --scope outline/section --detail with-ids`), deletes that section's blocks, and inserts the freshly rendered section at the document head — so the newest week is always on top and everything else is preserved. (Legacy `<!-- weekly-report:* -->` sentinel comments from the old overwrite-era write are cleaned up on the next write.)
 
+**Doc-title date bump.** After writing, the plugin bumps the doc title's `（updated at MMDD）` marker to today (`drive +inspect` to read the title, `drive files patch` to set it). It is **opt-in by marker**: a title that already contains `（updated at …）` / `(updated at …)` (full- or half-width parens) gets its date refreshed; a title without the marker is left untouched (so a colleague who doesn't want it simply omits the marker). It is best-effort — if the rename fails, the report is still written and the failure is surfaced as a `⚠️` note in the DM reply rather than failing the write.
+
 ## Behavior notes
 
 - **Cross-extension calls.** The plugin does not import Feishu/lark plugin internals. Card delivery and the doc read/write shell out to the official `@larksuite/cli` (`lark-cli`) via `runtime.system.runCommandWithTimeout` — card send as bot, doc ops as `docIdentity` (default `user`). Group collection uses `@richord/lark-cli` (`larkcli`) `im search-messages`. The drafting prompt is owned by the plugin (`begin_weekly_report`), not the cron `jobs.json`.
