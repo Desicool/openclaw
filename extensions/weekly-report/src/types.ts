@@ -10,6 +10,22 @@ import type { WeeklyReportInput } from "./report-renderer.js";
 
 export const WEEKLY_REPORT_CONTROLLER_ID = "weekly-report";
 
+/**
+ * Session-key segment for the isolated re-draft sub-session spawned on a supplement. Used both to
+ * build the sub-session key (interactive-handler) and to HARD-GATE `respond_to_weekly_report_card`
+ * out of that session (index.ts) — a re-draft must submit via `submit_weekly_report_draft`, never
+ * call the card-action handler, so we don't even expose it there rather than relying on the prompt.
+ */
+export const WEEKLY_REPORT_SUPPLEMENT_SESSION_SEGMENT = "weekly-report-supplement";
+
+/** True for the isolated re-draft sub-session spawned on a supplement (key carries the segment). */
+export function isWeeklyReportSupplementSession(sessionKey: string | undefined): boolean {
+  return (
+    typeof sessionKey === "string" &&
+    sessionKey.includes(`:${WEEKLY_REPORT_SUPPLEMENT_SESSION_SEGMENT}:`)
+  );
+}
+
 export const WEEKLY_REPORT_STEPS = {
   awaitUserReply: "await_user_reply",
   revising: "revising",
@@ -30,6 +46,7 @@ export type WeeklyReportFlowState = {
   recipientSessionKey: string;
   targetDocToken: string;
   cardMessageId?: string;
+  cardChatId?: string;
   supplementSubmittedAt?: number;
   reminderSentAt?: number;
   writeStartedAt?: number;

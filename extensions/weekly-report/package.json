@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/weekly-report",
-  "version": "2026.5.28",
+  "version": "9.4.1",
   "description": "Weekly report TaskFlow plugin (cron-triggered draft, Feishu card confirmation, doc write, optional git-activity and group-message fact sources).",
   "type": "module",
   "files": [

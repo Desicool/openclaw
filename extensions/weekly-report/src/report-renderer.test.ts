@@ -12,9 +12,9 @@ function readFixture(name: string): string {
 }
 
 describe("renderReport", () => {
-  it("matches the golden Python-generated fixture byte-for-byte", () => {
+  it("matches the golden Markdown fixture byte-for-byte", () => {
     const input = JSON.parse(readFixture("sample.input.json")) as WeeklyReportInput;
-    const expected = readFixture("sample.expected.docxml");
+    const expected = readFixture("sample.expected.md");
     expect(renderReport(input)).toBe(expected);
   });
 

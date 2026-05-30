@@ -24,31 +24,9 @@
 - 搭建 weekly-report extension 脚手架
 
 ### 下周计划
-<lark-table rows="3" cols="2" header-row="true" column-widths="212,526">
-  <lark-tr>
-    <lark-td>
-      项目
-    </lark-td>
-    <lark-td>
-      计划
-    </lark-td>
-  </lark-tr>
-  <lark-tr>
-    <lark-td>
-      **GrowX**
-    </lark-td>
-    <lark-td>
-      完成 V2 prototype 评审
-    </lark-td>
-  </lark-tr>
-  <lark-tr>
-    <lark-td>
-      **Weekly Report Plugin**
-    </lark-td>
-    <lark-td>
-      上线最小闭环并跑通真实卡片
-    </lark-td>
-  </lark-tr>
-</lark-table>
+| 项目 | 计划 |
+| --- | --- |
+| **GrowX** | 完成 V2 prototype 评审 |
+| **Weekly Report Plugin** | 上线最小闭环并跑通真实卡片 |
 
 ---

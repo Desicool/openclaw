@@ -17,8 +17,6 @@ describe("parseWeeklyReportPluginConfig", () => {
       recipientSessionKey: undefined,
       reminderAfterDays: 3,
       failAfterDays: 7,
-      notesDocToken: undefined,
-      draftPromptOverride: undefined,
       weekStartsOn: "monday",
       sweeperIntervalMs: 60 * 60 * 1000,
       gitRemotes: [],
@@ -33,13 +31,21 @@ describe("parseWeeklyReportPluginConfig", () => {
       userOpenId: undefined,
       botOpenId: undefined,
       groupDenylist: [],
-      groupStaleAfterDays: 14,
-      topicGroups: "include",
-      groupMaxMessagesPerGroup: 200,
-      groupMaxParallelOps: 5,
-      groupMaxGroupsScanned: 50,
-      groupOverallTimeoutMs: 60_000,
+      groupMaxMessagesPerPass: 200,
+      larkCliBinPath: "larkcli",
+      larkCliAccountId: undefined,
+      larkCliTimeoutMs: 30_000,
+      larkCliMaxPages: 4,
+      larkOfficialCliBinPath: "lark-cli",
+      larkOfficialCliTimeoutMs: 30_000,
+      docIdentity: "user",
     });
+  });
+
+  it("accepts docIdentity=bot and rejects anything else", () => {
+    expect(parseWeeklyReportPluginConfig({ docIdentity: "bot" }).docIdentity).toBe("bot");
+    expect(parseWeeklyReportPluginConfig({ docIdentity: "user" }).docIdentity).toBe("user");
+    expect(() => parseWeeklyReportPluginConfig({ docIdentity: "admin" })).toThrow(/docIdentity/);
   });
 
   it("accepts a fully populated config", () => {
@@ -48,8 +54,6 @@ describe("parseWeeklyReportPluginConfig", () => {
       recipientSessionKey: "agent:silver-chariot:feishu:direct:ou_xxx",
       reminderAfterDays: 2,
       failAfterDays: 5,
-      notesDocToken: "NotesDocToken123",
-      draftPromptOverride: "Custom drafting prompt",
       weekStartsOn: "monday",
       sweeperIntervalMs: 5 * 60 * 1000,
       gitRemotes: [{ name: "growx", sshUrl: "git@gitlab.com:noumena/growx.git" }],
@@ -187,25 +191,35 @@ describe("parseWeeklyReportPluginConfig", () => {
     );
   });
 
-  it("accepts topicGroups enum values, rejects others", () => {
-    expect(parseWeeklyReportPluginConfig({ topicGroups: "include" }).topicGroups).toBe("include");
-    expect(parseWeeklyReportPluginConfig({ topicGroups: "exclude" }).topicGroups).toBe("exclude");
-    expect(parseWeeklyReportPluginConfig({ topicGroups: "collapse-by-chatid" }).topicGroups).toBe(
-      "collapse-by-chatid",
-    );
-    expect(() => parseWeeklyReportPluginConfig({ topicGroups: "passthrough" })).toThrow(
-      /topicGroups must be one of/,
+  // v4 — lark-cli fields
+
+  it("accepts the lark-cli config block", () => {
+    const result = parseWeeklyReportPluginConfig({
+      larkCliBinPath: "/usr/local/bin/larkcli",
+      larkCliAccountId: "silver-chariot",
+      larkCliTimeoutMs: 45_000,
+      larkCliMaxPages: 8,
+      groupMaxMessagesPerPass: 100,
+    });
+    expect(result.larkCliBinPath).toBe("/usr/local/bin/larkcli");
+    expect(result.larkCliAccountId).toBe("silver-chariot");
+    expect(result.larkCliTimeoutMs).toBe(45_000);
+    expect(result.larkCliMaxPages).toBe(8);
+    expect(result.groupMaxMessagesPerPass).toBe(100);
+  });
+
+  it("rejects larkCliTimeoutMs below 1000", () => {
+    expect(() => parseWeeklyReportPluginConfig({ larkCliTimeoutMs: 500 })).toThrow(
+      /integer >= 1000/,
     );
   });
 
-  it("rejects groupOverallTimeoutMs below 5000", () => {
-    expect(() => parseWeeklyReportPluginConfig({ groupOverallTimeoutMs: 1_000 })).toThrow(
-      /integer >= 5000/,
-    );
+  it("rejects larkCliMaxPages of 0", () => {
+    expect(() => parseWeeklyReportPluginConfig({ larkCliMaxPages: 0 })).toThrow(/positive integer/);
   });
 
-  it("rejects groupStaleAfterDays of 0", () => {
-    expect(() => parseWeeklyReportPluginConfig({ groupStaleAfterDays: 0 })).toThrow(
+  it("rejects groupMaxMessagesPerPass of 0", () => {
+    expect(() => parseWeeklyReportPluginConfig({ groupMaxMessagesPerPass: 0 })).toThrow(
       /positive integer/,
     );
   });

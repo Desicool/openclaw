@@ -9,7 +9,7 @@ describe("parseCardActionInput", () => {
       weekKey: "2026-W21",
       action: "confirm",
     });
-    const result = parseCardActionInput({ metadata: envelope.m });
+    const result = parseCardActionInput({ metadata: envelope });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.args).toEqual({
@@ -27,7 +27,7 @@ describe("parseCardActionInput", () => {
       action: "supplement",
     });
     const result = parseCardActionInput({
-      metadata: envelope.m,
+      metadata: envelope,
       supplement: "  also worked on GrowX  ",
     });
     expect(result.ok).toBe(true);
@@ -43,7 +43,7 @@ describe("parseCardActionInput", () => {
       weekKey: "2026-W21",
       action: "supplement",
     });
-    const result = parseCardActionInput({ metadata: envelope.m });
+    const result = parseCardActionInput({ metadata: envelope });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("wrong_action_supplement_required");

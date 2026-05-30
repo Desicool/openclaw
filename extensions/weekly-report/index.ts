@@ -4,16 +4,23 @@ import type {
   OpenClawPluginToolContext,
   OpenClawPluginToolFactory,
 } from "./runtime-api.js";
-import { parseWeeklyReportPluginConfig, weeklyReportConfigSchema } from "./src/settings.js";
+import { sendInteractiveCard } from "./src/card-sender.js";
+import { createWeeklyReportInteractiveHandler } from "./src/interactive-handler.js";
+import {
+  parseWeeklyReportPluginConfig,
+  weeklyReportConfigSchema,
+  type WeeklyReportPluginSettings,
+} from "./src/settings.js";
 import { startTimeoutSweeper } from "./src/timeout-sweeper.js";
 import {
+  createBeginWeeklyReportTool,
   createFetchGitActivityTool,
   createFetchRecentGroupMessagesTool,
   createFinalizeWeeklyReportTool,
   createRespondToWeeklyReportCardTool,
-  createSpliceWeeklyReportDocTool,
   createSubmitWeeklyReportDraftTool,
 } from "./src/tools.js";
+import { isWeeklyReportSupplementSession } from "./src/types.js";
 
 const WEEKLY_REPORT_CONTROLLER_ID = "weekly-report";
 
@@ -26,24 +33,43 @@ type ToolBuilder = (params: {
 }) => AnyAgentTool;
 
 /**
- * Fallback derivation when `ctx.agentId` isn't populated: pull the second segment of a sessionKey
- * shaped like `agent:<id>:...`. Returns undefined for malformed sessionKeys.
+ * Bind all weekly-report tool factories to `recipientSessionKey` (the user's DM session) rather
+ * than the calling agent's `ctx.sessionKey`. The cron-fired draft runs in an isolated runner
+ * session whose sessionKey shifts every run (`agent:<id>:cron:<jobId>:run:<startedAt>`), but the
+ * card click event from the lark plugin's interactive dispatcher arrives outside any agent
+ * session. To make `submit_weekly_report_draft` (create) + `respond_to_weekly_report_card`
+ * (transition) + the interactive handler's trust check all see the same `ownerKey`, every
+ * weekly-report tool binds to the stable `recipientSessionKey` from config.
+ *
+ * Fallback to `ctx.sessionKey` when `recipientSessionKey` isn't configured (early-deploy and
+ * test environments) — keeps the tool registrable but means the legacy "tool runs in user DM
+ * directly" path keeps working.
  */
-function deriveAgentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
-  if (!sessionKey) return undefined;
-  const match = /^agent:([^:]+):/u.exec(sessionKey);
-  return match?.[1];
-}
-
-function withBoundFlow(api: OpenClawPluginApi, build: ToolBuilder): OpenClawPluginToolFactory {
+function withBoundFlow(
+  api: OpenClawPluginApi,
+  settings: WeeklyReportPluginSettings,
+  build: ToolBuilder,
+  opts?: { unavailableWhen?: (ctx: OpenClawPluginToolContext) => boolean },
+): OpenClawPluginToolFactory {
   return ((ctx: OpenClawPluginToolContext) => {
     if (ctx.sandboxed) {
       return null;
     }
-    if (!api.runtime?.tasks?.managedFlows || !ctx.sessionKey) {
+    // Hard-gate: don't even register the tool for contexts where calling it is always wrong (e.g.
+    // the re-draft sub-session must NOT call respond_to_weekly_report_card). Enforcement by absence
+    // beats a prompt-level "please don't" — the model can't pick a tool it can't see.
+    if (opts?.unavailableWhen?.(ctx)) {
       return null;
     }
-    const taskFlow = api.runtime.tasks.managedFlows.fromToolContext(ctx);
+    const managedFlows = api.runtime?.tasks?.managedFlows;
+    if (!managedFlows) {
+      return null;
+    }
+    const boundSessionKey = settings.recipientSessionKey ?? ctx.sessionKey;
+    if (!boundSessionKey) {
+      return null;
+    }
+    const taskFlow = managedFlows.bindSession({ sessionKey: boundSessionKey });
     return build({ taskFlow });
   }) as OpenClawPluginToolFactory;
 }
@@ -57,42 +83,55 @@ export default definePluginEntry({
     const settings = parseWeeklyReportPluginConfig(api.pluginConfig);
 
     api.registerTool(
-      withBoundFlow(
-        api,
-        ({ taskFlow }) =>
-          createSubmitWeeklyReportDraftTool({
-            taskFlow,
-            controllerId: WEEKLY_REPORT_CONTROLLER_ID,
-            settings,
-          }) as AnyAgentTool,
-      ),
+      withBoundFlow(api, settings, ({ taskFlow }) => {
+        const runtime = api.runtime;
+        const cardSender = runtime?.system
+          ? async (params: { card: Record<string, unknown>; toOpenId: string }) =>
+              sendInteractiveCard({
+                runCommand: runtime.system.runCommandWithTimeout,
+                binPath: settings.larkOfficialCliBinPath,
+                toOpenId: params.toOpenId,
+                card: params.card,
+                timeoutMs: settings.larkOfficialCliTimeoutMs,
+              })
+          : undefined;
+        return createSubmitWeeklyReportDraftTool({
+          taskFlow,
+          controllerId: WEEKLY_REPORT_CONTROLLER_ID,
+          settings,
+          ...(cardSender ? { cardSender } : {}),
+        }) as AnyAgentTool;
+      }),
     );
 
     api.registerTool(
       withBoundFlow(
         api,
+        settings,
         ({ taskFlow }) =>
           createRespondToWeeklyReportCardTool({
             taskFlow,
             controllerId: WEEKLY_REPORT_CONTROLLER_ID,
           }) as AnyAgentTool,
+        {
+          // The re-draft sub-session must submit via submit_weekly_report_draft, never this tool —
+          // so it isn't exposed there at all (the prior revision failed because the model called it).
+          unavailableWhen: (ctx) => isWeeklyReportSupplementSession(ctx.sessionKey),
+        },
       ),
     );
+
+    api.registerTool(((ctx: OpenClawPluginToolContext) => {
+      if (ctx.sandboxed) {
+        return null;
+      }
+      return createBeginWeeklyReportTool({ settings }) as AnyAgentTool;
+    }) as OpenClawPluginToolFactory);
 
     api.registerTool(
       withBoundFlow(
         api,
-        ({ taskFlow }) =>
-          createSpliceWeeklyReportDocTool({
-            taskFlow,
-            controllerId: WEEKLY_REPORT_CONTROLLER_ID,
-          }) as AnyAgentTool,
-      ),
-    );
-
-    api.registerTool(
-      withBoundFlow(
-        api,
+        settings,
         ({ taskFlow }) =>
           createFinalizeWeeklyReportTool({
             taskFlow,
@@ -121,24 +160,37 @@ export default definePluginEntry({
         return null;
       }
       const runtime = api.runtime;
-      if (!runtime?.agent?.session?.listSessionEntries || !runtime?.subagent?.getSessionMessages) {
-        return null;
-      }
-      const agentId =
-        typeof ctx.agentId === "string" && ctx.agentId.length > 0
-          ? ctx.agentId
-          : deriveAgentIdFromSessionKey(ctx.sessionKey);
-      if (!agentId) {
+      if (!runtime?.system?.runCommandWithTimeout) {
         return null;
       }
       return createFetchRecentGroupMessagesTool({
         settings,
-        agentId,
-        listSessionEntries: ({ agentId: id }) =>
-          runtime.agent.session.listSessionEntries({ agentId: id }),
-        getSessionMessages: (params) => runtime.subagent.getSessionMessages(params),
+        runCommand: runtime.system.runCommandWithTimeout,
       }) as AnyAgentTool;
     }) as OpenClawPluginToolFactory);
+
+    if (
+      api.runtime?.tasks?.managedFlows &&
+      api.runtime?.system?.runCommandWithTimeout &&
+      settings.recipientSessionKey
+    ) {
+      const boundTaskFlowForHandler = api.runtime.tasks.managedFlows.bindSession({
+        sessionKey: settings.recipientSessionKey,
+      });
+      const handlerRunCommand = api.runtime.system.runCommandWithTimeout;
+      const subagentApi = api.runtime?.subagent;
+      api.registerInteractiveHandler({
+        channel: "feishu",
+        namespace: "weekly-report",
+        handler: createWeeklyReportInteractiveHandler({
+          taskFlow: boundTaskFlowForHandler,
+          controllerId: WEEKLY_REPORT_CONTROLLER_ID,
+          settings,
+          runCommand: handlerRunCommand,
+          ...(subagentApi ? { subagentRun: (params) => subagentApi.run(params) } : {}),
+        }),
+      } as never);
+    }
 
     if (api.runtime?.tasks?.managedFlows) {
       const stop = startTimeoutSweeper({

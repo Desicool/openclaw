@@ -1,6 +1,8 @@
 # weekly-report plugin
 
-Cron-triggered weekly report flow with a Feishu confirmation card and a sentinel-bounded doc write. The agent is the collector — it drafts from its own conversation context, the user confirms or supplements via a card, and the plugin writes the report into a configured Feishu doc.
+Cron-triggered weekly report flow with a Feishu confirmation card and a **non-destructive** doc write. The agent is the collector — it drafts from its own conversation context plus git/group fact sources, the user confirms or supplements via a card, and the plugin inserts the report at the **top** of a configured Feishu doc without disturbing anything already there.
+
+The drafting contract (first-person voice + "facts not chat-recap" rules) is **owned by the plugin** and returned by the `begin_weekly_report` tool, so the cron entry is a one-line trigger and the plugin behaves consistently for everyone who installs it — no per-deployment prompt authoring.
 
 This plugin is intentionally personal-deployment shaped: no per-user values are baked into source. Schedule, target doc, recipient chat, reminder cadence — everything comes from user config.
 
@@ -8,16 +10,24 @@ This plugin is intentionally personal-deployment shaped: no per-user values are 
 
 `openclaw.plugin.json` config under `plugins.entries.weekly-report`:
 
-| Key                   | Type             | Default        | Notes                                                                          |
-| --------------------- | ---------------- | -------------- | ------------------------------------------------------------------------------ |
-| `targetDocToken`      | string           | —              | Required at flow time. Feishu doc token where the report is written.           |
-| `recipientSessionKey` | string           | —              | Required. Where the card is delivered. Matches the user's main agent session.  |
-| `reminderAfterDays`   | integer ≥ 1      | `3`            | Days waiting before the sweeper posts a reminder.                              |
-| `failAfterDays`       | integer ≥ 1      | `7`            | Days waiting before the sweeper fails the flow. Must be > `reminderAfterDays`. |
-| `notesDocToken`       | string           | —              | Optional supplementary notes doc the agent may consult during drafting.        |
-| `draftPromptOverride` | string           | —              | Optional override for the agent drafting prompt.                               |
-| `weekStartsOn`        | `monday\|sunday` | monday         | Currently only `monday` is implemented; `sunday` throws.                       |
-| `sweeperIntervalMs`   | integer ≥ 60000  | `3600000` (1h) | Sweeper tick. Lower in tests.                                                  |
+| Key                   | Type             | Default        | Notes                                                                                                                               |
+| --------------------- | ---------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `targetDocToken`      | string           | —              | Required at flow time. Feishu doc token where the report is written.                                                                |
+| `recipientSessionKey` | string           | —              | Required. Where the card is delivered. Matches the user's main agent session.                                                       |
+| `reminderAfterDays`   | integer ≥ 1      | `3`            | Days waiting before the sweeper posts a reminder.                                                                                   |
+| `failAfterDays`       | integer ≥ 1      | `7`            | Days waiting before the sweeper fails the flow. Must be > `reminderAfterDays`.                                                      |
+| `weekStartsOn`        | `monday\|sunday` | monday         | Week-start anchor for `mondayMidnightUtcMs` (used as default time window when group/git tools are called without explicit sinceTs). |
+| `sweeperIntervalMs`   | integer ≥ 60000  | `3600000` (1h) | Sweeper tick. Lower in tests.                                                                                                       |
+
+### Doc write & card delivery (official lark-cli)
+
+Card delivery and the doc write both shell out to the **official `@larksuite/cli`** (`lark-cli`). The doc write uses `docs +update` block ops (`block_insert_after` / `block_delete` / `block_move_after`) so the new week's section is inserted at the document head and only this week's prior section is replaced — images, comments, prior weeks, and any other content are left intact.
+
+| Key                        | Type           | Default      | Notes                                                                                                                                                                                                                                                       |
+| -------------------------- | -------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `larkOfficialCliBinPath`   | string         | `"lark-cli"` | Path to the official `@larksuite/cli` binary. One-time setup: `npm install -g @larksuite/cli@latest` + `lark-cli config init --app-id <bot appId> --app-secret-stdin --brand feishu`.                                                                       |
+| `larkOfficialCliTimeoutMs` | integer ≥ 1000 | `30000`      | Per-invocation timeout for the official lark-cli (card send + each doc op).                                                                                                                                                                                 |
+| `docIdentity`              | `user\|bot`    | `user`       | Identity (`--as`) for the doc read/write. **`user`** is the default: a bot generally cannot see a user-owned doc unless it is shared with the bot. Use `bot` only when the target doc is shared with the bot app (with edit) and user auth isn't available. |
 
 ### Git-activity fact source (v2, opt-in)
 
@@ -42,25 +52,35 @@ The agent calls `fetch_git_activity` alongside `getSessionMessages` during draft
 - Per-repo failures (network, missing key, etc.) surface as `{ok: false, error}` in the tool output and the agent is required by prompt to mention them in the draft — they never fail the TaskFlow.
 - The git phase is purely additive: removing the SSH key or `gitRemotes` config returns the plugin to chat-only drafting with no error.
 
-### Group-message collection (v3, auto-on)
+### Group-message collection (v4 — shell-out to lark-cli)
 
-The agent calls `fetch_recent_group_messages` alongside `getSessionMessages` and `fetch_git_activity` during drafting to capture the user's contributions in Feishu group chats — own messages, mentions, and threads the user participated in. **Auto-discovers** all groups the bot is in via `runtime.agent.session.listSessionEntries`; no allowlist required. Skip noisy groups via `groupDenylist`.
+v3 enumerated via `runtime.agent.session.listSessionEntries`, which only saw groups the agent had local session records for (3 groups in practice for silver-chariot, vs. the user's actual ~dozens of Feishu memberships). **v4 replaces this with a shell-out to `@richord/lark-cli` (a.k.a. `@fanfanv5/feishu-cli`) `im search-messages`**, which queries Feishu's server-side `search:message` API for messages the user authored or was mentioned in — discovery (chat_id) comes free as a byproduct of the hit set.
 
-| Key                        | Type                                             | Default                                 | Notes                                                                                                                                                                                                                                                                                                             |
-| -------------------------- | ------------------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userOpenId`               | string `ou_…`                                    | auto-derived from `recipientSessionKey` | Feishu open*id of the human user. Auto-pulled from `:direct:<openid>` suffix of `recipientSessionKey` if not set. Validated against `^ou*[A-Za-z0-9_-]{8,}$`. If unresolvable, `fetch_recent_group_messages`returns a single`ok: false` entry with a remediation message — drafting continues without group data. |
-| `botOpenId`                | string `ou_…`                                    | —                                       | Bot account's open*id. Messages with `senderOpenId === botOpenId` are excluded from group output. **No auto-derivation** — appId (`cli*…`) ≠ open_id; the plugin doesn't call the Feishu contacts API. Optional; without it bot self-messages may surface in collector output.                                    |
-| `groupDenylist`            | string[]                                         | `[]`                                    | Full sessionKeys (`agent:…:feishu:group:oc_xxx`) or bare chatIds (`oc_xxx`) to skip.                                                                                                                                                                                                                              |
-| `groupStaleAfterDays`      | integer ≥ 1                                      | `14`                                    | Skip group sessions with no activity (per `lastInteractionAt ?? updatedAt`) for this many days. Stops scanning groups the bot left months ago.                                                                                                                                                                    |
-| `topicGroups`              | `"include" \| "collapse-by-chatid" \| "exclude"` | `"include"`                             | Feishu topic groups create one session per topic. `include` keeps all (default; can inflate scanned-count under `topicSessionMode: true`). `exclude` dedupes by `groupId` (keeps first session per parent chat). `collapse-by-chatid` deferred to v3.1.                                                           |
-| `groupMaxMessagesPerGroup` | integer ≥ 1                                      | `200`                                   | Per-group fetch cap. Matches `getSessionMessages` server-side ceiling at `src/gateway/server-methods/sessions.ts:2178`.                                                                                                                                                                                           |
-| `groupMaxParallelOps`      | integer ≥ 1                                      | `5`                                     | Concurrent group reads.                                                                                                                                                                                                                                                                                           |
-| `groupMaxGroupsScanned`    | integer ≥ 1                                      | `50`                                    | Safety cap; if more candidate groups exist after filtering, the rest are dropped (count surfaced as `skippedGroups` in the tool response).                                                                                                                                                                        |
-| `groupOverallTimeoutMs`    | integer ≥ 5000                                   | `60000`                                 | Overall tool budget. Groups not started before the deadline are marked `ok: false, error: "budget_exhausted"`.                                                                                                                                                                                                    |
+Two CLI invocations per drafting call: one with `--sender_ids` (author pass), one with `--mention_ids` (mention pass). Time window passed as explicit `--start_time`/`--end_time` ISO 8601 from the plugin's `mondayMidnightUtcMs` helper — `--relative_time this_week` is NOT used in production because lark-cli's notion of week-start may differ from configured `weekStartsOn`.
 
-**Volume budgeting** (v3): with defaults — up to 50 groups × 200 messages × ~50 tokens/message after filtering ≈ ~500k tokens worst case. Author+mention filtering typically drops this 10×+ in practice. If you're in many groups, lower `groupMaxGroupsScanned` or `groupMaxMessagesPerGroup`. The cron's main-session systemEvent path is unaffected by per-tool latency.
+**Prerequisites on the host** (one-time setup; reused across cron runs):
 
-**Concurrency interaction**: agent issues up to ~9 concurrent ops (`fetch_git_activity` parallelism 3 + `fetch_recent_group_messages` parallelism 5 + `getSessionMessages` 1) in the drafting turn. Tune individual caps if you see rate-limiting in practice.
+1. **Install lark-cli (pinned)**: `npm install -g @richord/lark-cli@0.0.4` — auto-downloads the prebuilt binary on postinstall. Verify with `larkcli --version`. (Falls back: `@fanfanv5/feishu-cli@2.0.11` — same CLI compiled from JS, bin name `feishu`.)
+2. **Bootstrap `~/.feishu-cli/config.json`** with the bot's app credentials (`appId`, `appSecret` pulled from `~/.openclaw/openclaw.json`'s `channels.feishu.accounts.<accountId>`). Use the same account id you'll pass to `larkCliAccountId` below.
+3. **REQUIRED first-run device-flow**: `larkcli -a <accountId> auth device-flow` — completes OAuth in a browser. Although the openclaw-lark plugin already has the UAT (user-access-token) in `~/.local/share/openclaw-feishu-uat/`, lark-cli also needs the `<appId>.user` mapping file which openclaw-lark does not write. Skipping this step makes `larkcli auth status` report "not authorized" even though the keychain entry exists.
+4. **REQUIRED scope pre-warm**: `larkcli -a <accountId> im search-messages --query test --page_size 1` once in an interactive shell. If lark-cli prompts for `search:message` scope grant, complete it. Subsequent non-interactive cron calls then have the scope cached. Without this, the first cron-triggered call surfaces a deferred-scope-grant error.
+
+After the prerequisites the plugin auto-shells out per cron call. No drift, no daily setup.
+
+| Key                       | Type           | Default     | Notes                                                                                                                                                                                                                       |
+| ------------------------- | -------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userOpenId`              | string `ou_…`  | auto-derive | Feishu open_id of the user. Auto-pulled from `recipientSessionKey`'s `:direct:<openid>` suffix. If unresolvable, the tool returns top-level `ok: false` with remediation; drafting continues without group data.            |
+| `botOpenId`               | string `ou_…`  | —           | Bot's open_id. Messages sent by the bot are dropped from `groupedByChat`. No auto-derivation (Feishu appId ≠ open_id).                                                                                                      |
+| `groupDenylist`           | string[]       | `[]`        | Bare chatIds (`oc_…`) to drop from `groupedByChat` after fetch. Post-filter only.                                                                                                                                           |
+| `groupMaxMessagesPerPass` | integer ≥ 1    | `200`       | Total messages per pass before pagination cap kicks in. Clamped to Feishu's per-page max (50) when invoking the CLI.                                                                                                        |
+| `larkCliBinPath`          | string         | `"larkcli"` | Path to the lark-cli binary. Resolves via PATH for the bare name; absolute paths accepted.                                                                                                                                  |
+| `larkCliAccountId`        | string         | —           | Account id passed to `larkcli -a`. **Required to enable group collection** — when unset the tool returns top-level `ok: false` synchronously without spawning anything. Must match an entry in `~/.feishu-cli/config.json`. |
+| `larkCliTimeoutMs`        | integer ≥ 1000 | `30000`     | Per-CLI-invocation timeout.                                                                                                                                                                                                 |
+| `larkCliMaxPages`         | integer ≥ 1    | `4`         | Hard cap on page-token follows per pass. With page_size 50, default = 200 messages max per pass. If `has_more` is still true at the cap, the pass result carries `truncated: true`.                                         |
+
+**Removed in v4** (delete from your existing config if upgrading): `groupStaleAfterDays`, `topicGroups`, `groupMaxParallelOps`, `groupMaxGroupsScanned`, `groupOverallTimeoutMs`, and the renamed `groupMaxMessagesPerGroup` (now `groupMaxMessagesPerPass`).
+
+**Volume / cost shape**: per cron draft, lark-cli does ~3 Feishu API round-trips per page (`search.message.create` + `mget` + `chats/batch_query`). With defaults: 4 pages × 2 passes × 3 calls ≈ 24 round-trips, budget roughly 5–12s total for the group phase. The agent's parallel `getSessionMessages` and `fetch_git_activity` calls are independent.
 
 ## Cron entry (sample)
 
@@ -76,15 +96,15 @@ This plugin doesn't ship a cron schedule. Add an entry to your OpenClaw cron job
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "systemEvent",
-    "text": "Time to draft this week's report. Pull the past week of conversation, organize it by project per the contract in `submit_weekly_report_draft`, and submit a draft."
+    "text": "Time for the weekly report — call `begin_weekly_report` and follow the contract it returns."
   },
   "state": {}
 }
 ```
 
-Adjust schedule, timezone, and prompt as you like. The prompt text is yours — the plugin doesn't care what nudges the agent, only that the agent ends up calling `submit_weekly_report_draft`.
+The cron text is just a trigger: `begin_weekly_report` returns the full first-person drafting contract (voice rules, the three fact sources, the JSON schema, and the submit→card→confirm/supplement flow). You don't author the drafting prompt — that's why the plugin is shareable as-is. Adjust schedule and timezone freely.
 
-> ⚠️ **Use `sessionTarget: "main"` + `payload.kind: "systemEvent"`, not `agentTurn`.** The cron runner spawns a fresh isolated agent process for every `agentTurn` job and has a hardcoded **60 s setup watchdog** (`CRON_AGENT_SETUP_WATCHDOG_MS` in `src/cron/service/timer.ts`). On hosts with several plugins, plugin loading + model auth routinely exceed that budget and the job fails with `cron: isolated agent setup timed out before runner start` _before our tool ever runs_. `systemEvent` queues the event into the user's already-running main session — no fork, no bootstrap, no 60 s deadline. The agent still has every tool it normally has, including `feishu_ask_user_question` (the card delivery), so nothing about the interactive flow is lost.
+> ⚠️ **Use `sessionTarget: "main"` + `payload.kind: "systemEvent"`, not `agentTurn`.** The cron runner spawns a fresh isolated agent process for every `agentTurn` job and has a hardcoded **60 s setup watchdog** (`CRON_AGENT_SETUP_WATCHDOG_MS` in `src/cron/service/timer.ts`). On hosts with several plugins, plugin loading + model auth routinely exceed that budget and the job fails with `cron: isolated agent setup timed out before runner start` _before our tool ever runs_. `systemEvent` queues the event into the user's already-running main session — no fork, no bootstrap, no 60 s deadline. The agent still has every tool it normally has (`begin_weekly_report`, `submit_weekly_report_draft`, the fact sources), so nothing about the flow is lost.
 >
 > Concretely: the systemEvent flavor expects `payload: { kind: "systemEvent", text: "…" }` (note the field is `text`, not `message`). The agentTurn flavor would use `message` — that mismatch is also a common gotcha when migrating an existing entry.
 
@@ -92,35 +112,28 @@ Use `openclaw cron add` (or the cron service surface) to create the entry rather
 
 ## Tools
 
-The plugin exposes six tools. The agent calls them in this order:
+The plugin exposes these agent-facing tools:
 
-1. **`submit_weekly_report_draft({weekKey, weekTitle, draftJson, supersedeFlowId?, revisionLabel?})`** — validates the draft against the renderer schema, runs best-effort dedupe (or supersedes the named flow), creates a managed flow at `await_user_reply`, and returns `{flowId, weekKey, weekTitle, previewMarkdown, questionHeader, confirmLabel, supplementLabel, instructions}`. **It does NOT return a raw card JSON** — the response's `instructions` tell the agent to deliver the card via `feishu_ask_user_question` (provided by `@larksuite/openclaw-lark` or any other lark plugin that registers it). If a flow for this `weekKey` is already pending, the call no-ops and returns `action: "noop_already_pending"`.
-2. **`fetch_git_activity({sinceTs?, untilTs?, repoFilter?})`** — v2 fact source. Returns `{windowStart, windowEnd, repos: [{name, sshUrl, ok, commits|error}]}`. Agent typically calls this in the same turn as `getSessionMessages` so the LLM has both chat context and factual commit records before drafting. Returns an empty repos array if `gitRemotes` is unset; per-repo failures surface as `{ok: false, error}` and the agent is required by prompt to mention them in the draft.
-3. **`fetch_recent_group_messages({sinceTs?, untilTs?, includeReasons?})`** — v3 fact source. Auto-discovers Feishu group sessions and returns the user's contributions per group: `{windowStart, windowEnd, scannedGroups, skippedGroups, userOpenId, threadFilterAvailable, groups: [{sessionKey, ok, messages|error}]}`. Each kept message has a `reason: "author" | "mention" | "thread"`. `includeReasons` is an optional comma-separated subset (default = all three). Returns a single ok:false entry when `userOpenId` is unresolved (remediation message in `error`).
-4. **`respond_to_weekly_report_card({flowId, weekKey, action, supplement?, sessionKey})`** — call after the user submits the `feishu_ask_user_question` card. `action` is `"confirm"` or `"supplement"`. Validates trust (controllerId / sessionKey / status / weekKey all checked against the bound flow). On `confirm` → transitions to `writing_doc`, returns splice instructions. On `supplement` → transitions to a transient `revising` state, returns `(originalDraft, supplement)` for the agent to merge and re-submit via `submit_weekly_report_draft` with `supersedeFlowId`.
-5. **`splice_weekly_report_doc({flowId, currentDocBody})`** — pure server-side splice. Call between `feishu_doc read` and `feishu_doc write`. Returns the doc body with this flow's section replaced (or prepended) at sentinel boundaries.
-6. **`finalize_weekly_report({flowId, success, error?})`** — call after the `feishu_doc write` step to `finish` (success) or `fail` (failure, with reason) the flow.
+1. **`begin_weekly_report({})`** — kickoff. Returns `{ok, weekKeyHint, weekTitleHint, contract}` where `contract` is the plugin-owned first-person drafting contract: voice/content rules, the three parallel fact-source calls, the JSON schema, and the submit→card→confirm/supplement flow. No side effects. Call this first and follow the `contract` verbatim.
+2. **`submit_weekly_report_draft({weekKey, weekTitle, draftJson, supersedeFlowId?, revisionLabel?})`** — validates the draft against the renderer schema, runs best-effort dedupe (or supersedes the named flow), creates a managed flow at `await_user_reply`, **and delivers the confirmation card to the user's DM** as a CardKit form card via the official `lark-cli` (`im +messages-send --as bot`). **Do NOT call `feishu_ask_user_question` afterwards** — the card is already sent. Your turn ends; the user taps a button on the card. If a flow for this `weekKey` is already pending, the call no-ops with `action: "noop_already_pending"`.
+3. **`fetch_git_activity({sinceTs?, untilTs?, repoFilter?})`** — fact source. Returns `{windowStart, windowEnd, repos: [{name, sshUrl, ok, commits|error}]}`. Called in the same turn as `getSessionMessages`/`fetch_recent_group_messages`. Empty repos array if `gitRemotes` is unset; per-repo failures surface as `{ok: false, error}`.
+4. **`fetch_recent_group_messages({sinceTs?, untilTs?, includeReasons?})`** — fact source. Shells out to lark-cli `im search-messages` (author + mention passes) and returns `{windowStart, windowEnd, userOpenId, accountId, passes: [...], groupedByChat: {chatId: messages[]}}`. Top-level `ok: false` when prerequisites are missing; `passes[].truncated: true` flags hard-cap exhaustion.
+5. **`respond_to_weekly_report_card({flowId, weekKey, action, supplement?, sessionKey})`** — legacy/agent-side handler for the rare case the user replies by text instead of tapping the card. The live confirm/supplement path is the card buttons, handled by the plugin's interactive handler (the plugin writes the doc itself on confirm). On `confirm` this tool just transitions and tells the agent the plugin writes on the card tap; on `supplement` it transitions to `revising`.
+6. **`finalize_weekly_report({flowId, success, error?})`** — `finish` (success) or `fail` (failure, with reason) the flow.
+
+**The doc write is not an agent tool.** When the user taps 「直接写入」 on the card, the plugin's interactive handler writes the doc inline via `doc-writer.writeWeeklySection` (official `lark-cli docs +update` block ops). The agent never fetches/splices/overwrites the doc.
 
 ## Drafting contract
 
-Each `current_week` item: `{title, intent, objective, completed[]}`. Each `next_week` row: `{project, plan}`. Rendering uses the same algorithm as the original `generate_weekly_report.py`; the test fixture is committed to keep the port honest.
+`begin_weekly_report` returns the authoritative contract. Each `current_week` item: `{title, intent, objective, completed[]}`; each `next_week` row: `{project, plan}`. Voice is **first person** ("我"/I — the report is written by the user for their manager); `completed` bullets are **concrete facts** (shipped/merged commits, submissions, agreed conclusions), never chat-history recap. The renderer emits Markdown (GFM pipe table for the next-week section); `fixtures/sample.expected.md` is the byte-equal golden. The shared voice/content rules (`DRAFTING_HARD_RULES`) are reused by the supplement re-draft prompt so both rounds stay consistent.
 
-## Sentinels in the doc
+## Section layout in the doc
 
-Each managed section is wrapped in invisible HTML comments:
-
-```
-<!-- weekly-report:begin weekKey=2026-W21 -->
-## 2026.5.18-2026.5.24
-...content...
-<!-- weekly-report:end weekKey=2026-W21 -->
-```
-
-The splicer matches on the `weekKey` carried in the sentinel, not the visible heading. You can rename headings, hand-edit other parts of the doc, or interleave non-plugin sections — only the matching bounded range is touched.
+Each week renders as exactly one `## <week_title>` H2 block followed by its body. The writer locates a week's existing section by **matching that H2 heading text** (via `docs +fetch --scope outline/section --detail with-ids`), deletes that section's blocks, and inserts the freshly rendered section at the document head — so the newest week is always on top and everything else is preserved. (Legacy `<!-- weekly-report:* -->` sentinel comments from the old overwrite-era write are cleaned up on the next write.)
 
 ## Behavior notes
 
-- **Cross-extension calls.** The plugin does not import Feishu/lark plugin internals. Tool responses include explicit `instructions` naming the lark tools the agent must call: `feishu_ask_user_question` to render the interactive card, `feishu_doc` for read/write of the target doc. If your deployment uses a different lark plugin, register equivalent tool names or override `draftPromptOverride`/`questionHeader` to match.
+- **Cross-extension calls.** The plugin does not import Feishu/lark plugin internals. Card delivery and the doc read/write shell out to the official `@larksuite/cli` (`lark-cli`) via `runtime.system.runCommandWithTimeout` — card send as bot, doc ops as `docIdentity` (default `user`). Group collection uses `@richord/lark-cli` (`larkcli`) `im search-messages`. The drafting prompt is owned by the plugin (`begin_weekly_report`), not the cron `jobs.json`.
 - **Dedupe is best-effort.** `submit_weekly_report_draft` lists current flows, filters by `weekKey + active status`, and skips with a notification message if one already exists. The race window between list and create is theoretical for a single-user weekly cron; the read-modify-write doc strategy is the backstop.
 - **Sweeper is CAS-idempotent.** Reminder and fail transitions use `expectedRevision`; two sweepers racing on the same flow can only succeed once.
 - **Card-action trust.** `respond_to_weekly_report_card` validates `flowId` resolves, `controllerId === "weekly-report"`, `sessionKey` matches, `status === "waiting"`, and `weekKey` matches. Stale or forged events get a user-visible "no longer valid" response and no flow mutation.
@@ -133,8 +146,10 @@ node scripts/run-vitest.mjs extensions/weekly-report
 
 Coverage:
 
-- `report-renderer.test.ts` — golden DocXML fixture (`fixtures/sample.expected.docxml`) verifies byte-equivalence with the Python source script.
-- `doc-splicer.test.ts` — sentinel match, prepend, replace, freeform preserved, multiple weeks, renamed headings, orphaned sentinels.
+- `report-renderer.test.ts` — golden Markdown fixture (`fixtures/sample.expected.md`) pins the render output byte-for-byte.
+- `doc-writer.test.ts` — XML parse helpers (headings, block ids, fetch/new-block envelopes), and the orchestration: fresh-doc insert-at-top, same-week replace via `block_delete`, legacy sentinel cleanup, and doc-access failure surfacing.
+- `drafting-contract.test.ts` — the contract embeds first-person voice + facts-not-chat + no-meta/no-id rules and the schema; hint substitution.
+- `begin-weekly-report.test.ts` — kickoff tool returns the contract + week hints with no side effects.
 - `dedupe.test.ts` — list+filter behavior.
 - `card.test.ts` — payload codec round-trip + envelope primitive-only check.
 - `card-action-handler.test.ts` — parsing happy paths and the five rejection reasons.

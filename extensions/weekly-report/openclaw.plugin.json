@@ -4,12 +4,12 @@
     "onStartup": true
   },
   "name": "Weekly Report",
-  "description": "Cron-triggered weekly report flow with Feishu card confirmation, supplement loop, and doc write. v2 adds git-activity fact source.",
+  "description": "Cron-triggered weekly report flow with Feishu card confirmation, supplement loop, and doc write. v2 adds git-activity fact source. v4 group collection shells out to lark-cli (@richord/lark-cli) im search-messages.",
   "contracts": {
     "tools": [
+      "begin_weekly_report",
       "submit_weekly_report_draft",
       "respond_to_weekly_report_card",
-      "splice_weekly_report_doc",
       "finalize_weekly_report",
       "fetch_git_activity",
       "fetch_recent_group_messages"
@@ -29,14 +29,6 @@
       },
       "reminderAfterDays": { "type": "integer", "minimum": 1 },
       "failAfterDays": { "type": "integer", "minimum": 1 },
-      "notesDocToken": {
-        "type": "string",
-        "description": "Optional supplementary notes doc the agent may consult."
-      },
-      "draftPromptOverride": {
-        "type": "string",
-        "description": "Optional override for the drafting prompt."
-      },
       "weekStartsOn": { "type": "string", "enum": ["monday", "sunday"] },
       "sweeperIntervalMs": {
         "type": "integer",
@@ -85,22 +77,45 @@
       "groupDenylist": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "Full sessionKeys or bare chatIds to skip during group collection."
+        "description": "Bare chatIds (oc_...) to drop from groupedByChat after lark-cli search returns. Post-filter only."
       },
-      "groupStaleAfterDays": {
+      "groupMaxMessagesPerPass": {
         "type": "integer",
         "minimum": 1,
-        "description": "Skip group sessions with no activity for this many days. Default 14."
+        "description": "Per-pass page-size cap for lark-cli im search-messages (Feishu API max 50). Default 200 — clamped to 50 per page when invoking the CLI."
       },
-      "topicGroups": {
+      "larkCliBinPath": {
         "type": "string",
-        "enum": ["include", "collapse-by-chatid", "exclude"],
-        "description": "Handling of Feishu topic-group sub-sessions. include=keep all (default); exclude=dedupe by groupId; collapse-by-chatid deferred to v3.1."
+        "description": "Path to the lark-cli binary. Default \"larkcli\" (resolves via PATH). Absolute paths accepted."
       },
-      "groupMaxMessagesPerGroup": { "type": "integer", "minimum": 1 },
-      "groupMaxParallelOps": { "type": "integer", "minimum": 1 },
-      "groupMaxGroupsScanned": { "type": "integer", "minimum": 1 },
-      "groupOverallTimeoutMs": { "type": "integer", "minimum": 5000 }
+      "larkCliAccountId": {
+        "type": "string",
+        "description": "Account id passed to lark-cli's -a flag (matches ~/.feishu-cli/config.json). Required for group-message collection; if unset the tool returns ok:false synchronously."
+      },
+      "larkCliTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "description": "Per CLI invocation timeout. Default 30000."
+      },
+      "larkCliMaxPages": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Hard cap on page-token follows per pass. Default 4 (4×50 = 200 messages max per pass)."
+      },
+      "larkOfficialCliBinPath": {
+        "type": "string",
+        "description": "Path to the official @larksuite/cli binary (default \"lark-cli\"). Used for bot-mode card delivery via `lark-cli im +messages-send --as bot`. One-time setup: `npm install -g @larksuite/cli@latest` + `lark-cli config init --app-id <bot appId> --app-secret-stdin --brand feishu`."
+      },
+      "larkOfficialCliTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "description": "Per-invocation timeout for the official lark-cli card send. Default 30000."
+      },
+      "docIdentity": {
+        "type": "string",
+        "enum": ["user", "bot"],
+        "description": "Identity (`--as`) for the official lark-cli doc read/write on confirm. Default \"user\" — a bot generally cannot see a user-owned doc unless it is shared with the bot. Use \"bot\" only when the target doc is shared with the bot app (edit) and user auth isn't available."
+      }
     }
   }
 }

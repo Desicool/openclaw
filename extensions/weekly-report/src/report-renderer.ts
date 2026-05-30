@@ -1,10 +1,12 @@
 /**
- * Weekly report renderer. Port of generate_weekly_report.py — byte-equivalent output is verified
- * by a golden fixture in fixtures/sample.expected.docxml.
+ * Weekly report renderer. Emits Markdown written into the Feishu doc as blocks by
+ * `doc-writer.writeWeeklySection`. The next-week table is a GFM pipe table.
  *
- * Output is Feishu DocXML (uses <lark-table>), not generic Markdown. The header line is
- *   ## {weekTitle}
- * which the splicer treats as a structural anchor (in addition to invisible sentinels).
+ * The leading `## <week_title>` H2 is load-bearing: `doc-writer` locates and replaces a week's
+ * existing section by matching that H2 text (each week = exactly one H2 block), so the H2 line and the
+ * week_title value must stay 1:1. Do not change the heading level or interpose another H2.
+ *
+ * Output shape is verified against fixtures/sample.expected.md.
  */
 
 export type WeeklyReportItem = {
@@ -73,34 +75,17 @@ function renderItem(index: number, item: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
+function escapeCell(value: string): string {
+  return value.replace(/\|/gu, "\\|").replace(/\n/gu, " ");
+}
+
 function renderNextWeekTable(rows: Array<Record<string, unknown>>): string {
-  const parts: string[] = [];
-  parts.push(
-    `<lark-table rows="${rows.length + 1}" cols="2" header-row="true" column-widths="212,526">`,
-  );
-  parts.push("  <lark-tr>");
-  parts.push("    <lark-td>");
-  parts.push("      项目");
-  parts.push("    </lark-td>");
-  parts.push("    <lark-td>");
-  parts.push("      计划");
-  parts.push("    </lark-td>");
-  parts.push("  </lark-tr>");
-
+  const parts: string[] = ["| 项目 | 计划 |", "| --- | --- |"];
   for (const row of rows) {
-    const project = requireString(row, "project");
-    const plan = requireString(row, "plan");
-    parts.push("  <lark-tr>");
-    parts.push("    <lark-td>");
-    parts.push(`      **${project}**`);
-    parts.push("    </lark-td>");
-    parts.push("    <lark-td>");
-    parts.push(`      ${plan}`);
-    parts.push("    </lark-td>");
-    parts.push("  </lark-tr>");
+    const project = escapeCell(requireString(row, "project"));
+    const plan = escapeCell(requireString(row, "plan"));
+    parts.push(`| **${project}** | ${plan} |`);
   }
-
-  parts.push("</lark-table>");
   return parts.join("\n");
 }
 

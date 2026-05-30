@@ -6,12 +6,12 @@
  * means the plugin does not touch git at all. If gitRemotes is non-empty, gitAuthor MUST be set
  * and every remote MUST pass URL + name validation before any subprocess can be considered.
  *
- * v3 adds the group-message collection fact source. Auto-on (the tool auto-discovers Feishu
- * group sessions via `listSessionEntries`). `userOpenId` is auto-derived from
- * `recipientSessionKey`'s `:direct:<openid>` suffix when not explicitly set; if derivation
- * fails AND no explicit override is provided, the resolved value is left `undefined` and the
- * group collection tool refuses to run at call time (does NOT throw at parse so the rest of
- * the plugin stays usable).
+ * v4 replaces v3's listSessionEntries-based group enumeration with a shell-out to lark-cli's
+ * `im search-messages` API. v3 fields (`groupStaleAfterDays`, `topicGroups`, `groupMaxParallelOps`,
+ * `groupMaxGroupsScanned`, `groupOverallTimeoutMs`) are removed. `groupMaxMessagesPerGroup` is
+ * renamed to `groupMaxMessagesPerPass`. New `larkCli*` fields configure the CLI invocation; group
+ * collection is opt-in via setting `larkCliAccountId` (otherwise the tool returns ok:false at
+ * call time without throwing on parse so the rest of the plugin stays usable).
  */
 
 import { buildJsonPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
@@ -22,15 +22,11 @@ export type GitRemoteSpec = {
   sshUrl: string;
 };
 
-export type TopicGroupsMode = "include" | "collapse-by-chatid" | "exclude";
-
 export type WeeklyReportPluginSettings = {
   targetDocToken: string | undefined;
   recipientSessionKey: string | undefined;
   reminderAfterDays: number;
   failAfterDays: number;
-  notesDocToken: string | undefined;
-  draftPromptOverride: string | undefined;
   weekStartsOn: WeekStartsOn;
   sweeperIntervalMs: number;
   gitRemotes: GitRemoteSpec[];
@@ -45,12 +41,14 @@ export type WeeklyReportPluginSettings = {
   userOpenId: string | undefined;
   botOpenId: string | undefined;
   groupDenylist: string[];
-  groupStaleAfterDays: number;
-  topicGroups: TopicGroupsMode;
-  groupMaxMessagesPerGroup: number;
-  groupMaxParallelOps: number;
-  groupMaxGroupsScanned: number;
-  groupOverallTimeoutMs: number;
+  groupMaxMessagesPerPass: number;
+  larkCliBinPath: string;
+  larkCliAccountId: string | undefined;
+  larkCliTimeoutMs: number;
+  larkCliMaxPages: number;
+  larkOfficialCliBinPath: string;
+  larkOfficialCliTimeoutMs: number;
+  docIdentity: "user" | "bot";
 };
 
 const DEFAULT_REMINDER_DAYS = 3;
@@ -65,12 +63,13 @@ const DEFAULT_GIT_MAX_PARALLEL_OPS = 3;
 const DEFAULT_GIT_MAX_REPO_COUNT = 10;
 const DEFAULT_GIT_OVERALL_TIMEOUT_MS = 120_000;
 
-const DEFAULT_GROUP_STALE_AFTER_DAYS = 14;
-const DEFAULT_TOPIC_GROUPS: TopicGroupsMode = "include";
-const DEFAULT_GROUP_MAX_MESSAGES_PER_GROUP = 200;
-const DEFAULT_GROUP_MAX_PARALLEL_OPS = 5;
-const DEFAULT_GROUP_MAX_GROUPS_SCANNED = 50;
-const DEFAULT_GROUP_OVERALL_TIMEOUT_MS = 60_000;
+const DEFAULT_GROUP_MAX_MESSAGES_PER_PASS = 200;
+const DEFAULT_LARK_CLI_BIN_PATH = "larkcli";
+const DEFAULT_LARK_CLI_TIMEOUT_MS = 30_000;
+const DEFAULT_LARK_CLI_MAX_PAGES = 4;
+const DEFAULT_LARK_OFFICIAL_CLI_BIN_PATH = "lark-cli";
+const DEFAULT_LARK_OFFICIAL_CLI_TIMEOUT_MS = 30_000;
+const DEFAULT_DOC_IDENTITY: "user" | "bot" = "user";
 
 const GIT_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 const GIT_HOST_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{0,253}$/u;
@@ -88,8 +87,6 @@ export const weeklyReportConfigSchema = buildJsonPluginConfigSchema({
     recipientSessionKey: { type: "string" },
     reminderAfterDays: { type: "integer", minimum: 1 },
     failAfterDays: { type: "integer", minimum: 1 },
-    notesDocToken: { type: "string" },
-    draftPromptOverride: { type: "string" },
     weekStartsOn: { type: "string", enum: ["monday", "sunday"] },
     sweeperIntervalMs: { type: "integer", minimum: 60_000 },
     gitRemotes: {
@@ -115,12 +112,14 @@ export const weeklyReportConfigSchema = buildJsonPluginConfigSchema({
     userOpenId: { type: "string" },
     botOpenId: { type: "string" },
     groupDenylist: { type: "array", items: { type: "string" } },
-    groupStaleAfterDays: { type: "integer", minimum: 1 },
-    topicGroups: { type: "string", enum: ["include", "collapse-by-chatid", "exclude"] },
-    groupMaxMessagesPerGroup: { type: "integer", minimum: 1 },
-    groupMaxParallelOps: { type: "integer", minimum: 1 },
-    groupMaxGroupsScanned: { type: "integer", minimum: 1 },
-    groupOverallTimeoutMs: { type: "integer", minimum: 5_000 },
+    groupMaxMessagesPerPass: { type: "integer", minimum: 1 },
+    larkCliBinPath: { type: "string" },
+    larkCliAccountId: { type: "string" },
+    larkCliTimeoutMs: { type: "integer", minimum: 1_000 },
+    larkCliMaxPages: { type: "integer", minimum: 1 },
+    larkOfficialCliBinPath: { type: "string" },
+    larkOfficialCliTimeoutMs: { type: "integer", minimum: 1_000 },
+    docIdentity: { type: "string", enum: ["user", "bot"] },
   },
 });
 
@@ -163,18 +162,6 @@ function readWeekStartsOn(value: unknown): WeekStartsOn {
     return value;
   }
   throw new Error(`weekly-report.weekStartsOn must be "monday" or "sunday"`);
-}
-
-function readTopicGroupsMode(value: unknown): TopicGroupsMode {
-  if (value === undefined || value === null) {
-    return DEFAULT_TOPIC_GROUPS;
-  }
-  if (value === "include" || value === "collapse-by-chatid" || value === "exclude") {
-    return value;
-  }
-  throw new Error(
-    `weekly-report.topicGroups must be one of "include" | "collapse-by-chatid" | "exclude"`,
-  );
 }
 
 function readHostAllowlist(value: unknown): string[] {
@@ -373,41 +360,43 @@ export function parseWeeklyReportPluginConfig(raw: unknown): WeeklyReportPluginS
   const botOpenId = readOpenIdField(cfg.botOpenId, "botOpenId");
 
   const groupDenylist = readStringArray(cfg.groupDenylist, "groupDenylist");
-  const groupStaleAfterDays = readPositiveInteger(
-    cfg.groupStaleAfterDays,
-    "groupStaleAfterDays",
-    DEFAULT_GROUP_STALE_AFTER_DAYS,
+  const groupMaxMessagesPerPass = readPositiveInteger(
+    cfg.groupMaxMessagesPerPass,
+    "groupMaxMessagesPerPass",
+    DEFAULT_GROUP_MAX_MESSAGES_PER_PASS,
   );
-  const topicGroups = readTopicGroupsMode(cfg.topicGroups);
-  const groupMaxMessagesPerGroup = readPositiveInteger(
-    cfg.groupMaxMessagesPerGroup,
-    "groupMaxMessagesPerGroup",
-    DEFAULT_GROUP_MAX_MESSAGES_PER_GROUP,
+
+  const larkCliBinPath =
+    readOptionalString(cfg.larkCliBinPath, "larkCliBinPath") ?? DEFAULT_LARK_CLI_BIN_PATH;
+  const larkCliAccountId = readOptionalString(cfg.larkCliAccountId, "larkCliAccountId");
+  const larkCliTimeoutMs = readBoundedInteger(
+    cfg.larkCliTimeoutMs,
+    "larkCliTimeoutMs",
+    DEFAULT_LARK_CLI_TIMEOUT_MS,
+    1_000,
   );
-  const groupMaxParallelOps = readPositiveInteger(
-    cfg.groupMaxParallelOps,
-    "groupMaxParallelOps",
-    DEFAULT_GROUP_MAX_PARALLEL_OPS,
+  const larkCliMaxPages = readPositiveInteger(
+    cfg.larkCliMaxPages,
+    "larkCliMaxPages",
+    DEFAULT_LARK_CLI_MAX_PAGES,
   );
-  const groupMaxGroupsScanned = readPositiveInteger(
-    cfg.groupMaxGroupsScanned,
-    "groupMaxGroupsScanned",
-    DEFAULT_GROUP_MAX_GROUPS_SCANNED,
+  const larkOfficialCliBinPath =
+    readOptionalString(cfg.larkOfficialCliBinPath, "larkOfficialCliBinPath") ??
+    DEFAULT_LARK_OFFICIAL_CLI_BIN_PATH;
+  const larkOfficialCliTimeoutMs = readBoundedInteger(
+    cfg.larkOfficialCliTimeoutMs,
+    "larkOfficialCliTimeoutMs",
+    DEFAULT_LARK_OFFICIAL_CLI_TIMEOUT_MS,
+    1_000,
   );
-  const groupOverallTimeoutMs = readBoundedInteger(
-    cfg.groupOverallTimeoutMs,
-    "groupOverallTimeoutMs",
-    DEFAULT_GROUP_OVERALL_TIMEOUT_MS,
-    5_000,
-  );
+
+  const docIdentity = readDocIdentity(cfg.docIdentity);
 
   return {
     targetDocToken: readOptionalString(cfg.targetDocToken, "targetDocToken"),
     recipientSessionKey,
     reminderAfterDays,
     failAfterDays,
-    notesDocToken: readOptionalString(cfg.notesDocToken, "notesDocToken"),
-    draftPromptOverride: readOptionalString(cfg.draftPromptOverride, "draftPromptOverride"),
     weekStartsOn: readWeekStartsOn(cfg.weekStartsOn),
     sweeperIntervalMs,
     gitRemotes,
@@ -422,11 +411,23 @@ export function parseWeeklyReportPluginConfig(raw: unknown): WeeklyReportPluginS
     userOpenId,
     botOpenId,
     groupDenylist,
-    groupStaleAfterDays,
-    topicGroups,
-    groupMaxMessagesPerGroup,
-    groupMaxParallelOps,
-    groupMaxGroupsScanned,
-    groupOverallTimeoutMs,
+    groupMaxMessagesPerPass,
+    larkCliBinPath,
+    larkCliAccountId,
+    larkCliTimeoutMs,
+    larkCliMaxPages,
+    larkOfficialCliBinPath,
+    larkOfficialCliTimeoutMs,
+    docIdentity,
   };
+}
+
+function readDocIdentity(value: unknown): "user" | "bot" {
+  if (value === undefined || value === null) {
+    return DEFAULT_DOC_IDENTITY;
+  }
+  if (value === "user" || value === "bot") {
+    return value;
+  }
+  throw new Error(`weekly-report.docIdentity must be "user" or "bot"`);
 }

@@ -1,28 +1,24 @@
 /**
- * Six agent-facing tools wiring the weekly-report flow.
+ * Agent-facing tools wiring the weekly-report flow.
  *
- *   submit_weekly_report_draft    : kickoff or revision (creates/supersedes flow, returns card spec)
- *   respond_to_weekly_report_card : handles synthetic card-action events (confirm | supplement)
- *   splice_weekly_report_doc      : pure server-side splice on a doc body the agent fetched
- *   finalize_weekly_report        : finalize success or failure after the agent writes the doc
- *   fetch_git_activity            : v2 fact source — clone-on-demand + `git log` for the week
- *   fetch_recent_group_messages   : v3 fact source — user's messages/mentions/threads across groups
+ *   begin_weekly_report           : kickoff — returns the first-person drafting contract + week hints
+ *   submit_weekly_report_draft    : kickoff or revision (creates/supersedes flow, sends the card)
+ *   respond_to_weekly_report_card : handles card-action events (confirm | supplement)
+ *   finalize_weekly_report        : finalize success or failure
+ *   fetch_git_activity            : fact source — clone-on-demand + `git log` for the week
+ *   fetch_recent_group_messages   : fact source — user's messages/mentions/threads across groups
  *
- * Each tool keeps its own error surface so failures are localized.
+ * The doc write itself is NOT an agent tool: on card confirm the interactive handler writes the doc
+ * non-destructively via `doc-writer.writeWeeklySection`. Each tool keeps its own error surface.
  */
 
 import { Type } from "typebox";
 import type { OpenClawPluginApi } from "../runtime-api.js";
-import { buildDraftPreview } from "./card.js";
+import { buildConfirmationCard, buildDraftPreview } from "./card.js";
 import { findActiveWeeklyReportFlow } from "./dedupe.js";
-import { buildSentinelEnd, buildSentinelStart, spliceWeeklySection } from "./doc-splicer.js";
+import { buildDraftingContract } from "./drafting-contract.js";
 import { runGitActivity, type RunCommandFn } from "./git-activity.js";
-import {
-  runGroupActivity,
-  type GetSessionMessagesFn,
-  type GroupMessageReason,
-  type ListSessionEntriesFn,
-} from "./group-activity.js";
+import { runGroupActivity, type GroupMessageReason } from "./group-activity.js";
 import { renderReport, type WeeklyReportInput } from "./report-renderer.js";
 import type { WeeklyReportPluginSettings } from "./settings.js";
 import {
@@ -32,6 +28,7 @@ import {
   type WeeklyReportCardAction,
   type WeeklyReportFlowState,
 } from "./types.js";
+import { weekKey as computeWeekKey, weekTitle as computeWeekTitle } from "./week-key.js";
 
 type BoundTaskFlow = ReturnType<
   NonNullable<OpenClawPluginApi["runtime"]>["tasks"]["managedFlows"]["fromToolContext"]
@@ -100,17 +97,53 @@ function requireWeeklyReportState(flow: { stateJson?: unknown }): WeeklyReportFl
   return flow.stateJson;
 }
 
+// ── begin_weekly_report ────────────────────────────────────────────
+
+export function createBeginWeeklyReportTool(deps: { settings: WeeklyReportPluginSettings }) {
+  const { settings } = deps;
+  return {
+    name: "begin_weekly_report",
+    label: "Begin Weekly Report",
+    description:
+      "Start the weekly-report flow. Returns the plugin-owned first-person drafting contract (voice + content rules + the exact tool sequence) plus this week's weekKey/weekTitle hints. Call this FIRST when nudged to draft the weekly report, then follow the returned `contract` verbatim. This is the single source of drafting guidance — the cron entry only needs to tell you to call this tool.",
+    parameters: Type.Object({}),
+    async execute(_id: string, _params: Record<string, unknown>): Promise<ToolContent> {
+      const now = new Date();
+      let weekKeyHint: string;
+      let weekTitleHint: string;
+      try {
+        weekKeyHint = computeWeekKey(now, settings.weekStartsOn);
+        weekTitleHint = computeWeekTitle(now, settings.weekStartsOn);
+      } catch {
+        // weekStartsOn="sunday" is reserved/unsupported in week-key v1; hints fall back to Monday.
+        weekKeyHint = computeWeekKey(now);
+        weekTitleHint = computeWeekTitle(now);
+      }
+      const contract = buildDraftingContract({ weekKeyHint, weekTitleHint });
+      return buildResponse({ ok: true, weekKeyHint, weekTitleHint, contract });
+    },
+  };
+}
+
 // ── submit_weekly_report_draft ─────────────────────────────────────
 
+export type LarkOfficialCliCardSender = (params: {
+  card: Record<string, unknown>;
+  toOpenId: string;
+}) => Promise<{ ok: true; messageId: string; chatId: string } | { ok: false; error: string }>;
+
 export function createSubmitWeeklyReportDraftTool(
-  deps: CommonToolDeps & { settings: WeeklyReportPluginSettings },
+  deps: CommonToolDeps & {
+    settings: WeeklyReportPluginSettings;
+    cardSender?: LarkOfficialCliCardSender;
+  },
 ) {
-  const { taskFlow, controllerId, settings } = deps;
+  const { taskFlow, controllerId, settings, cardSender } = deps;
   return {
     name: "submit_weekly_report_draft",
     label: "Submit Weekly Report Draft",
     description:
-      "Step 1 of the weekly-report flow. Submit a structured weekly-report draft. Creates a managed TaskFlow and returns `{flowId, weekKey, weekTitle, previewMarkdown, questionHeader, confirmLabel, supplementLabel, instructions}`. DO NOT reply to the user with the response — plain replies don't render as cards. Instead, after this returns, call `feishu_ask_user_question` with one question entry shaped { header: questionHeader, question: previewMarkdown, options: [confirmLabel, supplementLabel] } to deliver the interactive card. Use `supersedeFlowId` when revising after a 'supplement' answer.",
+      "Step 1 of the weekly-report flow. Submits a structured draft, creates a managed TaskFlow, AND SENDS THE CONFIRMATION CARD TO THE USER'S DM via lark-cli bot-mode. Returns `{ok, flowId, weekKey, weekTitle, cardDelivered, cardMessageId?, cardError?}`. **Do NOT call `feishu_ask_user_question` afterwards** — the card is already delivered by this tool. Your turn ends after this returns; the user will reply in DM with `confirm <flowId>` or `supplement <flowId>: <text>`. Use `supersedeFlowId` when revising after a 'supplement' answer.",
     parameters: Type.Object({
       weekKey: Type.String({ description: "ISO week key, e.g. 2026-W21" }),
       weekTitle: Type.String({
@@ -190,13 +223,32 @@ export function createSubmitWeeklyReportDraftTool(
       });
 
       const previewMarkdown = buildDraftPreview(draft);
-      const headerSuffix = revisionLabel ? ` (${revisionLabel})` : "";
+
+      const userOpenId = settings.userOpenId;
+      let cardResult:
+        | { ok: true; messageId: string; chatId: string }
+        | { ok: false; error: string }
+        | undefined;
+      if (cardSender && userOpenId) {
+        const card = buildConfirmationCard({
+          flowId: flow.flowId,
+          weekKey,
+          weekTitle,
+          draft,
+          ...(revisionLabel ? { revisionLabel } : {}),
+        });
+        cardResult = await cardSender({ card, toOpenId: userOpenId });
+      }
+      const stateWithCard: WeeklyReportFlowState =
+        cardResult && cardResult.ok
+          ? { ...initialState, cardMessageId: cardResult.messageId, cardChatId: cardResult.chatId }
+          : initialState;
 
       const setWaitResult = taskFlow.setWaiting({
         flowId: flow.flowId,
         expectedRevision: flow.revision,
         currentStep: WEEKLY_REPORT_STEPS.awaitUserReply,
-        stateJson: initialState as never,
+        stateJson: stateWithCard as never,
         waitJson: {
           kind: "weekly_report_card",
           weekKey,
@@ -204,29 +256,47 @@ export function createSubmitWeeklyReportDraftTool(
         } as never,
       });
 
+      if (!cardSender || !userOpenId) {
+        return buildResponse({
+          ok: true,
+          action: "waiting_card_delivery_unavailable",
+          flowId: flow.flowId,
+          revision: flow.revision,
+          weekKey,
+          weekTitle,
+          previewMarkdown,
+          waitingMutation: setWaitResult,
+          note: !cardSender
+            ? "Plugin runtime missing lark-cli runCommand binding; install @larksuite/cli and configure it on the host, then redeploy. No card was sent."
+            : "userOpenId not configured; cannot deliver card. Set plugins.entries.weekly-report.userOpenId (or recipientSessionKey ending in :direct:<open_id>) and retry.",
+        });
+      }
+      if (cardResult && !cardResult.ok) {
+        return buildResponse({
+          ok: false,
+          action: "card_send_failed",
+          flowId: flow.flowId,
+          revision: flow.revision,
+          weekKey,
+          weekTitle,
+          previewMarkdown,
+          error: cardResult.error,
+          instruction:
+            "Card delivery failed. The flow is now in waiting state but no card reached the user. Either retry submit_weekly_report_draft with supersedeFlowId, or escalate to the user via plain DM reply with the preview text.",
+        });
+      }
       return buildResponse({
         ok: true,
-        action: "ask_user",
+        action: "card_delivered",
         flowId: flow.flowId,
         revision: flow.revision,
         weekKey,
         weekTitle,
-        recipientSessionKey,
+        cardMessageId: cardResult && cardResult.ok ? cardResult.messageId : undefined,
+        cardChatId: cardResult && cardResult.ok ? cardResult.chatId : undefined,
         previewMarkdown,
-        questionHeader: `Weekly Report — ${weekTitle}${headerSuffix}`,
-        confirmLabel: "直接写入",
-        supplementLabel: "我要补充（在下方输入补充内容）",
         waitingMutation: setWaitResult,
-        instructions: [
-          "DO NOT reply with the raw preview text or any JSON to the user — replies are rendered as plain messages, not interactive cards.",
-          "Call `feishu_ask_user_question` with ONE question entry shaped like:",
-          "  { header: questionHeader, question: previewMarkdown, options: [confirmLabel, supplementLabel] }",
-          "That tool delivers an interactive Feishu card with the preview + an input field + selection buttons, and returns immediately.",
-          "When the user submits, you will receive a NEW message containing their selection and any supplement text.",
-          "Then call `respond_to_weekly_report_card` with:",
-          `  { flowId: "${flow.flowId}", weekKey: "${weekKey}", sessionKey: <current sessionKey>, action: "confirm" | "supplement", supplement?: <text if action=supplement> }`,
-          "Map the user's choice: if they picked `confirmLabel` → action='confirm'. If they picked `supplementLabel` or supplied free-text → action='supplement', supplement=<their text>.",
-        ].join("\n"),
+        note: "Card sent to user's DM via lark-cli bot-mode. Your turn ends now. The user's text reply (e.g. `confirm <flowId>` or `supplement <flowId>: <text>`) will arrive as a new DM message; when it does, call `respond_to_weekly_report_card` with the parsed action.",
       });
     },
   };
@@ -327,15 +397,12 @@ export function createRespondToWeeklyReportCardTool(deps: CommonToolDeps) {
           revision: transition.flow.revision,
           weekKey: state.weekKey,
           weekTitle: state.weekTitle,
-          targetDocToken: state.targetDocToken,
-          sentinelStart: buildSentinelStart(state.weekKey),
-          sentinelEnd: buildSentinelEnd(state.weekKey),
-          instructions: [
-            "Call `feishu_doc` with action=read on targetDocToken to obtain the current doc body.",
-            "Call `splice_weekly_report_doc` with the read body and this flowId to obtain the spliced body.",
-            "Call `feishu_doc` with action=write on targetDocToken with the spliced body.",
-            "Call `finalize_weekly_report` with `{ flowId, success: true }` when the write succeeds, or `{ flowId, success: false, error: '...' }` if it fails.",
-          ].join("\n"),
+          note:
+            "The plugin writes the doc itself when the user taps 「直接写入」 on the confirmation card — " +
+            "the interactive handler inserts this week's section at the TOP of the doc non-destructively " +
+            "(prior weeks, images, comments preserved) and finalizes the flow. Do NOT call any " +
+            "feishu_fetch_doc / feishu_update_doc tools. If the user confirmed by plain text instead of " +
+            "the card button, ask them to tap 「直接写入」 on the card so the write is triggered.",
         });
       }
 
@@ -414,52 +481,6 @@ function validateTrust(params: {
   return { ok: true, flow: flow as FlowRecord };
 }
 
-// ── splice_weekly_report_doc ───────────────────────────────────────
-
-export function createSpliceWeeklyReportDocTool(deps: CommonToolDeps) {
-  const { taskFlow, controllerId } = deps;
-  return {
-    name: "splice_weekly_report_doc",
-    label: "Splice Weekly Report Doc",
-    description:
-      "Pure server-side splice: given the current weekly-report doc body, return the body with this flow's section replaced (or prepended). Call between `feishu_doc read` and `feishu_doc write`.",
-    parameters: Type.Object({
-      flowId: Type.String({}),
-      currentDocBody: Type.String({
-        description: "The complete current body of the weekly-report doc (from `feishu_doc read`).",
-      }),
-    }),
-    async execute(_id: string, params: Record<string, unknown>): Promise<ToolContent> {
-      const flowId = readRequiredString(params.flowId, "flowId");
-      const currentDocBody = typeof params.currentDocBody === "string" ? params.currentDocBody : "";
-
-      const flow = taskFlow.get(flowId);
-      if (!flow) {
-        throw new Error(`flow not found: ${flowId}`);
-      }
-      if (flow.controllerId !== controllerId) {
-        throw new Error(`flow ${flowId} is not a weekly-report flow`);
-      }
-      const state = requireWeeklyReportState(flow);
-
-      const sectionBody = renderReport(state.draft);
-      const splicedBody = spliceWeeklySection({
-        existingDoc: currentDocBody,
-        weekKey: state.weekKey,
-        newSectionBody: sectionBody.trimEnd(),
-      });
-
-      return buildResponse({
-        ok: true,
-        flowId,
-        weekKey: state.weekKey,
-        sectionPreviewLength: sectionBody.length,
-        splicedBody,
-      });
-    },
-  };
-}
-
 // ── finalize_weekly_report ─────────────────────────────────────────
 
 export function createFinalizeWeeklyReportTool(deps: CommonToolDeps) {
@@ -468,7 +489,7 @@ export function createFinalizeWeeklyReportTool(deps: CommonToolDeps) {
     name: "finalize_weekly_report",
     label: "Finalize Weekly Report",
     description:
-      "Mark the weekly-report flow as completed (success=true) or failed (success=false, error). Call after the `feishu_doc write` step.",
+      "Mark the weekly-report flow as completed (success=true) or failed (success=false, error). Call after the `feishu_update_doc` step.",
     parameters: Type.Object({
       flowId: Type.String({}),
       success: Type.Boolean({}),
@@ -615,28 +636,29 @@ export function createFetchGitActivityTool(deps: FetchGitActivityDeps) {
 
 export type FetchRecentGroupMessagesDeps = {
   settings: WeeklyReportPluginSettings;
-  agentId: string;
-  listSessionEntries: ListSessionEntriesFn;
-  getSessionMessages: GetSessionMessagesFn;
+  runCommand: RunCommandFn;
 };
 
-const KNOWN_REASONS: GroupMessageReason[] = ["author", "mention", "thread"];
+const KNOWN_REASONS: GroupMessageReason[] = ["author", "mention"];
 
 export function createFetchRecentGroupMessagesTool(deps: FetchRecentGroupMessagesDeps) {
-  const { settings, agentId, listSessionEntries, getSessionMessages } = deps;
+  const { settings, runCommand } = deps;
   return {
     name: "fetch_recent_group_messages",
     label: "Fetch Recent Group Messages",
     description:
-      "v3 fact source. Returns the user's contributions across all Feishu group chats the agent is a member of (own messages + mentions + thread participation). Call this alongside `getSessionMessages` (DM) and `fetch_git_activity` (commits) during drafting. Returns {windowStart, windowEnd, scannedGroups, skippedGroups, userOpenId, threadFilterAvailable, groups: [{sessionKey, ok, messages|error}]}. Each kept message carries a `reason` field. Returns a single ok:false entry when userOpenId is not resolved.",
+      "v4 fact source. Searches Feishu group messages via lark-cli for messages you authored or were mentioned in during the configured window. Returns {windowStart, windowEnd, userOpenId, accountId, passes: [{kind, ok, messages|error, truncated?}], groupedByChat: {chatId: messages[]}}. Call this alongside `getSessionMessages` (DM) and `fetch_git_activity` (commits) during drafting. If any `passes[].ok: false`, any `passes[].truncated: true`, or top-level `ok: false` is set, mention the gap in the draft rather than hiding it. Requires lark-cli installed on the host and `larkCliAccountId` configured.",
     parameters: Type.Object({
       sinceTs: Type.Optional(
-        Type.Number({ description: "Unix ms. Default: Monday 00:00 UTC of the current ISO week." }),
+        Type.Number({
+          description:
+            "Unix ms. Default: Monday 00:00 UTC of the current ISO week (or Sunday if weekStartsOn=sunday).",
+        }),
       ),
       untilTs: Type.Optional(Type.Number({ description: "Unix ms. Default: now." })),
       includeReasons: Type.Optional(
         Type.String({
-          description: "Comma-separated subset of `author,mention,thread`. Default: all three.",
+          description: "Comma-separated subset of `author,mention`. Default: both.",
         }),
       ),
     }),
@@ -671,42 +693,30 @@ export function createFetchRecentGroupMessagesTool(deps: FetchRecentGroupMessage
         includeReasons = requested as GroupMessageReason[];
       }
 
-      try {
-        const result = await runGroupActivity({
-          settings,
-          agentId,
-          listSessionEntries,
-          getSessionMessages,
-          ...(sinceTs !== undefined ? { sinceTs } : {}),
-          ...(untilTs !== undefined ? { untilTs } : {}),
-          ...(includeReasons ? { includeReasons } : {}),
-        });
-        const failures = result.groups.filter((g) => !g.ok);
-        return buildResponse({
-          ok: true,
-          windowStart: result.windowStart,
-          windowEnd: result.windowEnd,
-          scannedGroups: result.scannedGroups,
-          skippedGroups: result.skippedGroups,
-          userOpenId: result.userOpenId,
-          threadFilterAvailable: result.threadFilterAvailable,
-          groups: result.groups,
-          partial: failures.length > 0,
-          partialNote:
-            failures.length > 0
-              ? "One or more groups returned ok=false. Mention them in the draft rather than hiding the gap."
-              : undefined,
-        });
-      } catch (err) {
-        return buildResponse({
-          ok: false,
-          action: "group_activity_failed",
-          reason: err instanceof Error ? err.message : String(err),
-          instruction:
-            "Continue drafting using chat-history + git-activity only. Mention in the draft that group data wasn't available because: " +
-            (err instanceof Error ? err.message : String(err)),
-        });
-      }
+      const result = await runGroupActivity({
+        settings,
+        runCommand,
+        ...(sinceTs !== undefined ? { sinceTs } : {}),
+        ...(untilTs !== undefined ? { untilTs } : {}),
+        ...(includeReasons ? { includeReasons } : {}),
+      });
+      const passFailures = result.passes.filter((p) => !p.ok);
+      const truncatedPasses = result.passes.filter((p) => p.ok && p.truncated);
+      return buildResponse({
+        ok: result.ok !== false,
+        ...(result.ok === false && result.error ? { error: result.error } : {}),
+        windowStart: result.windowStart,
+        windowEnd: result.windowEnd,
+        userOpenId: result.userOpenId,
+        accountId: result.accountId,
+        passes: result.passes,
+        groupedByChat: result.groupedByChat,
+        partial: passFailures.length > 0 || truncatedPasses.length > 0,
+        partialNote:
+          passFailures.length > 0 || truncatedPasses.length > 0
+            ? "One or more passes returned ok=false or truncated=true. Mention the gap in the draft rather than hiding it."
+            : undefined,
+      });
     },
   };
 }
