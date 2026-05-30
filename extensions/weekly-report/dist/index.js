@@ -413,6 +413,29 @@ function findWeekSectionHeadingId(headings, weekTitle2) {
   }
   return headings.find((h) => h.text === target)?.id;
 }
+function formatMMDD(date) {
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${mm}${dd}`;
+}
+var UPDATED_AT_MARKER = /([（(]\s*updated at\s*)(\d+)(\s*[）)])/iu;
+function nextDocTitle(currentTitle, todayMMDD) {
+  if (!UPDATED_AT_MARKER.test(currentTitle)) {
+    return void 0;
+  }
+  return currentTitle.replace(UPDATED_AT_MARKER, `$1${todayMMDD}$3`);
+}
+function parseInspectTitle(stdout) {
+  const envelope = parseCliJson(stdout);
+  const data = envelope?.data;
+  if (data && typeof data === "object") {
+    const title = data.title;
+    if (typeof title === "string" && title.length > 0) {
+      return title;
+    }
+  }
+  return void 0;
+}
 function fetchArgv(p) {
   const argv = [
     p.binPath,
@@ -462,6 +485,23 @@ function updateArgv(p) {
     argv.push("--doc-format", "markdown", "--content", p.content);
   }
   return argv;
+}
+function inspectArgv(binPath, docToken, asIdentity) {
+  return [binPath, "drive", "+inspect", "--url", docToken, "--type", "docx", "--as", asIdentity];
+}
+function patchTitleArgv(binPath, docToken, asIdentity, newTitle) {
+  return [
+    binPath,
+    "drive",
+    "files",
+    "patch",
+    "--params",
+    JSON.stringify({ file_token: docToken, type: "docx" }),
+    "--data",
+    JSON.stringify({ new_title: newTitle }),
+    "--as",
+    asIdentity
+  ];
 }
 function summarizeFailure(result) {
   const trailer = result.stderr.trim() || result.stdout.trim() || `code=${result.code}`;
@@ -581,7 +621,44 @@ async function writeWeeklySection(params) {
   if (!insertRes.ok) {
     return { ok: false, error: `block_insert_after: ${insertRes.error}` };
   }
-  return { ok: true };
+  const titleNote = await bumpDocTitleDate({
+    runCommand,
+    binPath,
+    asIdentity,
+    docToken,
+    todayMMDD: formatMMDD(params.now ?? /* @__PURE__ */ new Date()),
+    timeoutMs
+  });
+  return titleNote ? { ok: true, titleNote } : { ok: true };
+}
+async function bumpDocTitleDate(p) {
+  const inspectRes = await runCli(
+    p.runCommand,
+    inspectArgv(p.binPath, p.docToken, p.asIdentity),
+    p.timeoutMs,
+    p.asIdentity
+  );
+  if (!inspectRes.ok) {
+    return `\u6807\u9898\u65E5\u671F\u672A\u66F4\u65B0\uFF08\u8BFB\u53D6\u6807\u9898\u5931\u8D25\uFF1A${inspectRes.error}\uFF09`;
+  }
+  const currentTitle = parseInspectTitle(inspectRes.stdout);
+  if (!currentTitle) {
+    return void 0;
+  }
+  const newTitle = nextDocTitle(currentTitle, p.todayMMDD);
+  if (!newTitle || newTitle === currentTitle) {
+    return void 0;
+  }
+  const patchRes = await runCli(
+    p.runCommand,
+    patchTitleArgv(p.binPath, p.docToken, p.asIdentity, newTitle),
+    p.timeoutMs,
+    p.asIdentity
+  );
+  if (!patchRes.ok) {
+    return `\u6807\u9898\u65E5\u671F\u672A\u66F4\u65B0\uFF08${patchRes.error}\uFF09`;
+  }
+  return void 0;
 }
 function legacySentinelKeyword(weekKey2) {
   return `weekly-report:begin weekKey=${weekKey2}|weekly-report:end weekKey=${weekKey2}`;
@@ -2180,8 +2257,6 @@ function createWeeklyReportInteractiveHandler(deps) {
       };
     }
     const writingRevision = writingTransition.flow.revision;
-    await ctx.respond.reply({ text: "\u2705 \u5DF2\u6536\u5230\u786E\u8BA4\uFF0C\u6B63\u5728\u5199\u5165\u5468\u62A5\u6587\u6863\u2026" }).catch(() => {
-    });
     const docToken = state.targetDocToken;
     if (!docToken) {
       taskFlow.fail({
@@ -2194,54 +2269,58 @@ function createWeeklyReportInteractiveHandler(deps) {
         toast: { type: "error", content: "\u672A\u914D\u7F6E targetDocToken\uFF0C\u65E0\u6CD5\u5199\u5165\u6587\u6863\u3002" }
       };
     }
-    let renderedSection;
-    try {
-      renderedSection = renderReport(state.draft).trimEnd();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      taskFlow.fail({
-        flowId: flow.flowId,
-        expectedRevision: writingRevision,
-        stateJson: { ...state, lastError: `render failed: ${msg}` }
+    void (async () => {
+      await ctx.respond.reply({ text: "\u2705 \u5DF2\u6536\u5230\u786E\u8BA4\uFF0C\u6B63\u5728\u5199\u5165\u5468\u62A5\u6587\u6863\u2026" }).catch(() => {
       });
-      return {
-        handled: true,
-        toast: { type: "error", content: `\u6E32\u67D3\u8349\u7A3F\u5931\u8D25: ${msg.slice(0, 100)}` }
-      };
-    }
-    const writeRes = await writeWeeklySection({
-      runCommand,
-      binPath: settings.larkOfficialCliBinPath,
-      asIdentity: settings.docIdentity,
-      docToken,
-      weekKey: weekKey2,
-      weekTitle: state.weekTitle,
-      sectionMarkdown: renderedSection,
-      timeoutMs: settings.larkOfficialCliTimeoutMs
-    });
-    if (!writeRes.ok) {
-      taskFlow.fail({
-        flowId: flow.flowId,
-        expectedRevision: writingRevision,
-        stateJson: { ...state, lastError: writeRes.error }
-      });
-      return {
-        handled: true,
-        toast: { type: "error", content: `\u5199\u5165\u5468\u62A5\u6587\u6863\u5931\u8D25: ${writeRes.error.slice(0, 100)}` }
-      };
-    }
-    taskFlow.finish({
-      flowId: flow.flowId,
-      expectedRevision: writingRevision,
-      stateJson: {
-        ...state,
-        writeStartedAt: state.writeStartedAt ?? Date.now(),
-        writtenAt: Date.now()
+      let renderedSection;
+      try {
+        renderedSection = renderReport(state.draft).trimEnd();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        taskFlow.fail({
+          flowId: flow.flowId,
+          expectedRevision: writingRevision,
+          stateJson: { ...state, lastError: `render failed: ${msg}` }
+        });
+        await ctx.respond.reply({ text: `\u6E32\u67D3\u8349\u7A3F\u5931\u8D25: ${msg.slice(0, 100)}` }).catch(() => {
+        });
+        return;
       }
-    });
-    await ctx.respond.reply({ text: `\u2705 \u5468\u62A5\u5DF2\u5199\u5165\u6587\u6863\uFF08${state.weekTitle}\uFF09\u3002` }).catch(() => {
-    });
-    return { handled: true, toast: { type: "success", content: "Report written" } };
+      const writeRes = await writeWeeklySection({
+        runCommand,
+        binPath: settings.larkOfficialCliBinPath,
+        asIdentity: settings.docIdentity,
+        docToken,
+        weekKey: weekKey2,
+        weekTitle: state.weekTitle,
+        sectionMarkdown: renderedSection,
+        timeoutMs: settings.larkOfficialCliTimeoutMs
+      });
+      if (!writeRes.ok) {
+        taskFlow.fail({
+          flowId: flow.flowId,
+          expectedRevision: writingRevision,
+          stateJson: { ...state, lastError: writeRes.error }
+        });
+        await ctx.respond.reply({ text: `\u5199\u5165\u5468\u62A5\u6587\u6863\u5931\u8D25: ${writeRes.error.slice(0, 100)}` }).catch(() => {
+        });
+        return;
+      }
+      taskFlow.finish({
+        flowId: flow.flowId,
+        expectedRevision: writingRevision,
+        stateJson: {
+          ...state,
+          writeStartedAt: state.writeStartedAt ?? Date.now(),
+          writtenAt: Date.now()
+        }
+      });
+      const writtenText = writeRes.titleNote ? `\u2705 \u5468\u62A5\u5DF2\u5199\u5165\u6587\u6863\uFF08${state.weekTitle}\uFF09\u3002
+\u26A0\uFE0F ${writeRes.titleNote}` : `\u2705 \u5468\u62A5\u5DF2\u5199\u5165\u6587\u6863\uFF08${state.weekTitle}\uFF09\u3002`;
+      await ctx.respond.reply({ text: writtenText }).catch(() => {
+      });
+    })();
+    return { handled: true, toast: { type: "info", content: "\u5DF2\u6536\u5230\uFF0C\u6B63\u5728\u5199\u5165\u6587\u6863\u2026" } };
   };
 }
 

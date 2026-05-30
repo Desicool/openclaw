@@ -256,7 +256,10 @@ export function createWeeklyReportInteractiveHandler(deps: CreateInteractiveHand
       return { handled: true, toast: { type: "success", content: "Supplement queued" } };
     }
 
-    // confirm path — do the whole doc-write inline via lark-cli.
+    // confirm path. The doc write is ~6-7 sequential lark-cli calls (10-20s), but a Feishu card
+    // callback must be acked within ~3s or the client reports "callback timeout" (200530). So we
+    // only do the fast flow transition here, ACK the callback immediately, and run the write
+    // DETACHED — progress + result are delivered as DM follow-ups.
     const writingTransition = taskFlow.resume({
       flowId: flow.flowId,
       expectedRevision: flow.revision,
@@ -272,8 +275,6 @@ export function createWeeklyReportInteractiveHandler(deps: CreateInteractiveHand
     }
     const writingRevision = writingTransition.flow.revision;
 
-    await ctx.respond.reply({ text: "✅ 已收到确认，正在写入周报文档…" }).catch(() => {});
-
     const docToken = state.targetDocToken;
     if (!docToken) {
       taskFlow.fail({
@@ -287,59 +288,61 @@ export function createWeeklyReportInteractiveHandler(deps: CreateInteractiveHand
       };
     }
 
-    let renderedSection: string;
-    try {
-      renderedSection = renderReport(state.draft).trimEnd();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      taskFlow.fail({
+    void (async () => {
+      await ctx.respond.reply({ text: "✅ 已收到确认，正在写入周报文档…" }).catch(() => {});
+
+      let renderedSection: string;
+      try {
+        renderedSection = renderReport(state.draft).trimEnd();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        taskFlow.fail({
+          flowId: flow.flowId,
+          expectedRevision: writingRevision,
+          stateJson: { ...state, lastError: `render failed: ${msg}` } as never,
+        });
+        await ctx.respond.reply({ text: `渲染草稿失败: ${msg.slice(0, 100)}` }).catch(() => {});
+        return;
+      }
+
+      const writeRes = await writeWeeklySection({
+        runCommand,
+        binPath: settings.larkOfficialCliBinPath,
+        asIdentity: settings.docIdentity,
+        docToken,
+        weekKey,
+        weekTitle: state.weekTitle,
+        sectionMarkdown: renderedSection,
+        timeoutMs: settings.larkOfficialCliTimeoutMs,
+      });
+      if (!writeRes.ok) {
+        taskFlow.fail({
+          flowId: flow.flowId,
+          expectedRevision: writingRevision,
+          stateJson: { ...state, lastError: writeRes.error } as never,
+        });
+        await ctx.respond
+          .reply({ text: `写入周报文档失败: ${writeRes.error.slice(0, 100)}` })
+          .catch(() => {});
+        return;
+      }
+
+      taskFlow.finish({
         flowId: flow.flowId,
         expectedRevision: writingRevision,
-        stateJson: { ...state, lastError: `render failed: ${msg}` } as never,
+        stateJson: {
+          ...state,
+          writeStartedAt: state.writeStartedAt ?? Date.now(),
+          writtenAt: Date.now(),
+        } as never,
       });
-      return {
-        handled: true,
-        toast: { type: "error", content: `渲染草稿失败: ${msg.slice(0, 100)}` },
-      };
-    }
 
-    const writeRes = await writeWeeklySection({
-      runCommand,
-      binPath: settings.larkOfficialCliBinPath,
-      asIdentity: settings.docIdentity,
-      docToken,
-      weekKey,
-      weekTitle: state.weekTitle,
-      sectionMarkdown: renderedSection,
-      timeoutMs: settings.larkOfficialCliTimeoutMs,
-    });
-    if (!writeRes.ok) {
-      taskFlow.fail({
-        flowId: flow.flowId,
-        expectedRevision: writingRevision,
-        stateJson: { ...state, lastError: writeRes.error } as never,
-      });
-      return {
-        handled: true,
-        toast: { type: "error", content: `写入周报文档失败: ${writeRes.error.slice(0, 100)}` },
-      };
-    }
+      const writtenText = writeRes.titleNote
+        ? `✅ 周报已写入文档（${state.weekTitle}）。\n⚠️ ${writeRes.titleNote}`
+        : `✅ 周报已写入文档（${state.weekTitle}）。`;
+      await ctx.respond.reply({ text: writtenText }).catch(() => {});
+    })();
 
-    taskFlow.finish({
-      flowId: flow.flowId,
-      expectedRevision: writingRevision,
-      stateJson: {
-        ...state,
-        writeStartedAt: state.writeStartedAt ?? Date.now(),
-        writtenAt: Date.now(),
-      } as never,
-    });
-
-    const writtenText = writeRes.titleNote
-      ? `✅ 周报已写入文档（${state.weekTitle}）。\n⚠️ ${writeRes.titleNote}`
-      : `✅ 周报已写入文档（${state.weekTitle}）。`;
-    await ctx.respond.reply({ text: writtenText }).catch(() => {});
-
-    return { handled: true, toast: { type: "success", content: "Report written" } };
+    return { handled: true, toast: { type: "info", content: "已收到，正在写入文档…" } };
   };
 }

@@ -119,15 +119,27 @@ function routeOfficialCli(
 ): SpawnResult {
   const a = [...argv];
   const json = (v: unknown) => ok(`${JSON.stringify(v)}\n`);
+  if (a.includes("drive") && a.includes("+inspect")) {
+    return json({ ok: true, data: { title: "周报（updated at 0101）", type: "docx" } });
+  }
+  if (a.includes("drive") && a.includes("patch")) {
+    return json({ ok: true });
+  }
   if (a.includes("+fetch")) {
     const scope = a[a.indexOf("--scope") + 1];
-    if (scope === "outline") return json(docs.outline);
-    if (scope === "section") return json(docs.section);
+    if (scope === "outline") {
+      return json(docs.outline);
+    }
+    if (scope === "section") {
+      return json(docs.section);
+    }
     return json(docs.keyword);
   }
   if (a.includes("+update")) {
     const command = a[a.indexOf("--command") + 1];
-    if (command === "block_insert_after") return json(docs.insert);
+    if (command === "block_insert_after") {
+      return json(docs.insert);
+    }
     return json(docs.other);
   }
   return fail("unexpected cmd");
@@ -170,7 +182,9 @@ describe("createWeeklyReportInteractiveHandler (confirm → non-destructive bloc
     });
     const res = await handler(ctx);
     expect(res.handled).toBe(true);
-    expect(taskFlow.finish).toHaveBeenCalledOnce();
+    // Callback is acked immediately (Feishu's ~3s deadline); the write runs detached.
+    expect(res.toast?.type).toBe("info");
+    await vi.waitFor(() => expect(taskFlow.finish).toHaveBeenCalledOnce());
     expect(taskFlow.fail).not.toHaveBeenCalled();
     // Official CLI used; section inserted at the page head; never the destructive overwrite.
     expect(commands.every((c) => c[0] === "lark-cli")).toBe(true);
@@ -230,7 +244,7 @@ describe("createWeeklyReportInteractiveHandler (confirm → non-destructive bloc
       }),
     );
     expect(res.handled).toBe(true);
-    expect(taskFlow.finish).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(taskFlow.finish).toHaveBeenCalledOnce());
     const del = commands.find((c) => c.includes("block_delete"));
     expect(del).toBeDefined();
     const deletedIds = del![del!.indexOf("--block-id") + 1];
@@ -238,7 +252,7 @@ describe("createWeeklyReportInteractiveHandler (confirm → non-destructive bloc
     expect(deletedIds).toContain("blk-body");
   });
 
-  it("on confirm: doc access failure → flow failed, error toast", async () => {
+  it("on confirm: doc access failure → flow failed (detached), callback still acked", async () => {
     const taskFlow = fakeTaskFlow({
       flowId: "flow-1",
       weekKey: "2026-W22",
@@ -251,15 +265,20 @@ describe("createWeeklyReportInteractiveHandler (confirm → non-destructive bloc
       settings: settingsWithRecipient(),
       runCommand,
     });
-    const res = await handler(
-      makeCtx({
-        envelope: buildCardEnvelope({ flowId: "flow-1", weekKey: "2026-W22", action: "confirm" }),
-      }),
-    );
-    expect(res.toast?.type).toBe("error");
+    const ctx = makeCtx({
+      envelope: buildCardEnvelope({ flowId: "flow-1", weekKey: "2026-W22", action: "confirm" }),
+    });
+    const res = await handler(ctx);
+    // The callback is acked immediately (info toast), NOT blocked on the failing write.
+    expect(res.handled).toBe(true);
+    expect(res.toast?.type).toBe("info");
     expect(taskFlow.resume).toHaveBeenCalledOnce();
-    expect(taskFlow.fail).toHaveBeenCalledOnce();
+    // The failure is detected on the detached task and surfaced as a DM follow-up.
+    await vi.waitFor(() => expect(taskFlow.fail).toHaveBeenCalledOnce());
     expect(taskFlow.finish).not.toHaveBeenCalled();
+    expect(ctx.respond.reply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/写入周报文档失败/) }),
+    );
   });
 });
 
@@ -289,7 +308,7 @@ describe("createWeeklyReportInteractiveHandler v9 (supplement path)", () => {
     expect(taskFlow.resume).toHaveBeenCalledOnce();
     expect(taskFlow.finish).not.toHaveBeenCalled();
     expect(subagentRun).toHaveBeenCalledOnce();
-    const [params] = subagentRun.mock.calls[0]!;
+    const [params] = subagentRun.mock.calls[0];
     // The supplement re-draft runs in an isolated sub-session, NOT in the user's DM session,
     // so that the main silver-chariot loop isn't entangled in weekly-report meta-conversation.
     expect(params.sessionKey).not.toBe(RECIPIENT_SESSION_KEY);
