@@ -25,6 +25,7 @@ function createCronFromStorePath(storePath: string) {
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+    schedulerLockPath: null,
   });
 }
 
@@ -41,25 +42,32 @@ function requireEnqueueSystemEventCall(
 describe("#16156: cron.list() must not silently advance past-due recurring jobs", () => {
   it("does not skip a cron job when list() is called while the job is past-due", async () => {
     const store = await makeStorePath();
+    // Pre-write a legacy "main" session + systemEvent job to the store so we
+    // bypass cron.add() which no longer accepts sessionTarget "main".
+    // `* * * * *` fires at minute boundaries — timezone-agnostic.
+    const jobId = "issue-16156-test-1";
+    const firstDueAt = Date.parse("2025-12-13T00:01:00.000Z");
+    await writeJobsStore(store.storePath, [
+      {
+        id: jobId,
+        name: "every-minute",
+        enabled: true,
+        createdAtMs: Date.parse("2025-12-13T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2025-12-13T00:00:00.000Z"),
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "main",
+        wakeMode: "next-heartbeat",
+        payload: { kind: "systemEvent", text: "cron-tick" },
+        state: { nextRunAtMs: firstDueAt },
+      },
+    ]);
+
     const { cron, enqueueSystemEvent, finished } = createStartedCronServiceWithFinishedBarrier({
       storePath: store.storePath,
       logger: noopLogger,
     });
 
     await cron.start();
-
-    // Create a cron job that fires every minute.
-    const job = await cron.add({
-      name: "every-minute",
-      enabled: true,
-      schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "cron-tick" },
-    });
-
-    const firstDueAt = job.state.nextRunAtMs!;
-    expect(firstDueAt).toBe(Date.parse("2025-12-13T00:01:00.000Z"));
 
     // Advance time so the job is past-due but the timer hasn't fired yet.
     vi.setSystemTime(new Date(firstDueAt + 5));
@@ -69,7 +77,7 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
     // advances nextRunAtMs to the next occurrence (00:02:00) without
     // executing the job.
     const listedBefore = await cron.list({ includeDisabled: true });
-    const jobBeforeTimer = listedBefore.find((j) => j.id === job.id);
+    const jobBeforeTimer = listedBefore.find((j) => j.id === jobId);
 
     // The job should still show the past-due nextRunAtMs, NOT the advanced one.
     expect(jobBeforeTimer?.state.nextRunAtMs).toBe(firstDueAt);
@@ -77,10 +85,10 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
     // Now let the timer fire. The job should be found as due and execute.
     await vi.runOnlyPendingTimersAsync();
 
-    await finished.waitForOk(job.id);
+    await finished.waitForOk(jobId);
 
     const jobs = await cron.list({ includeDisabled: true });
-    const updated = jobs.find((j) => j.id === job.id);
+    const updated = jobs.find((j) => j.id === jobId);
 
     // Job must have actually executed.
     const [text, options] = requireEnqueueSystemEventCall(enqueueSystemEvent);
@@ -95,6 +103,24 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
 
   it("does not skip a cron job when status() is called while the job is past-due", async () => {
     const store = await makeStorePath();
+    // Pre-write a legacy "main" session + systemEvent job to the store so we
+    // bypass cron.add() which no longer accepts sessionTarget "main".
+    const jobId = "issue-16156-test-2";
+    await writeJobsStore(store.storePath, [
+      {
+        id: jobId,
+        name: "five-min-cron",
+        enabled: true,
+        createdAtMs: Date.parse("2025-12-13T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2025-12-13T00:00:00.000Z"),
+        schedule: { kind: "cron", expr: "*/5 * * * *" },
+        sessionTarget: "main",
+        wakeMode: "next-heartbeat",
+        payload: { kind: "systemEvent", text: "tick-5" },
+        state: {},
+      },
+    ]);
+
     const { cron, enqueueSystemEvent, finished } = createStartedCronServiceWithFinishedBarrier({
       storePath: store.storePath,
       logger: noopLogger,
@@ -102,16 +128,9 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
 
     await cron.start();
 
-    const job = await cron.add({
-      name: "five-min-cron",
-      enabled: true,
-      schedule: { kind: "cron", expr: "*/5 * * * *" },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "tick-5" },
-    });
-
-    const firstDueAt = job.state.nextRunAtMs!;
+    const listedAfterStart = await cron.list({ includeDisabled: true });
+    const job = listedAfterStart.find((j) => j.id === jobId);
+    const firstDueAt = job?.state.nextRunAtMs!;
 
     // Advance time past due.
     vi.setSystemTime(new Date(firstDueAt + 10));
@@ -122,10 +141,10 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
     // Timer fires.
     await vi.runOnlyPendingTimersAsync();
 
-    await finished.waitForOk(job.id);
+    await finished.waitForOk(jobId);
 
     const jobs = await cron.list({ includeDisabled: true });
-    const updated = jobs.find((j) => j.id === job.id);
+    const updated = jobs.find((j) => j.id === jobId);
 
     const [text, options] = requireEnqueueSystemEventCall(enqueueSystemEvent);
     expect(text).toBe("tick-5");
@@ -147,7 +166,7 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
         enabled: true,
         createdAtMs: nowMs,
         updatedAtMs: nowMs,
-        schedule: { kind: "cron", expr: "* * * * *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "main",
         wakeMode: "now",
         payload: { kind: "systemEvent", text: "fill-me" },

@@ -60,7 +60,7 @@ describe("runCronIsolatedAgentTurn model provider preflight", () => {
         enabled: true,
         createdAtMs: 0,
         updatedAtMs: 0,
-        schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "*/5 * * * *" },
         sessionTarget: "isolated",
         state: {},
         wakeMode: "next-heartbeat",

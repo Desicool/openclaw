@@ -34,7 +34,7 @@ function createStoreTestState(storePath: string) {
 }
 
 describe("cron service store load: missing sessionTarget", () => {
-  it("hydrates flat legacy cron rows before recomputing next runs", async () => {
+  it("hydrates flat legacy cron rows before recomputing next runs (strips legacy tz)", async () => {
     const { storePath } = await makeStorePath();
 
     await writeSingleJobStore(storePath, {
@@ -54,10 +54,10 @@ describe("cron service store load: missing sessionTarget", () => {
     await ensureLoaded(state);
 
     const job = findJobOrThrow(state, "legacy-flat-cron");
+    // tz is stripped during normalize (per-job tz was removed in P3.2)
     expect(job.schedule).toEqual({
       kind: "cron",
       expr: "*/10 * * * *",
-      tz: "UTC",
     });
     expect(job.sessionTarget).toBe("isolated");
     expect(job.payload).toEqual({
@@ -66,29 +66,6 @@ describe("cron service store load: missing sessionTarget", () => {
       toolsAllow: ["exec"],
     });
     expect(job.state.nextRunAtMs).toBeGreaterThan(STORE_TEST_NOW);
-    expect(assertSupportedJobSpec(job)).toBeUndefined();
-  });
-
-  it('defaults missing sessionTarget to "main" for systemEvent payloads', async () => {
-    const { storePath } = await makeStorePath();
-
-    await writeSingleJobStore(storePath, {
-      id: "missing-session-target-system-event",
-      name: "missing session target system event",
-      enabled: true,
-      createdAtMs: STORE_TEST_NOW - 60_000,
-      updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
-      wakeMode: "now",
-      payload: { kind: "systemEvent", text: "tick" },
-      state: {},
-    });
-
-    const state = createStoreTestState(storePath);
-    await ensureLoaded(state);
-
-    const job = findJobOrThrow(state, "missing-session-target-system-event");
-    expect(job.sessionTarget).toBe("main");
     expect(assertSupportedJobSpec(job)).toBeUndefined();
   });
 
@@ -101,7 +78,7 @@ describe("cron service store load: missing sessionTarget", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
       state: {},
@@ -113,6 +90,37 @@ describe("cron service store load: missing sessionTarget", () => {
     const job = findJobOrThrow(state, "missing-session-target-agent-turn");
     expect(job.sessionTarget).toBe("isolated");
     expect(assertSupportedJobSpec(job)).toBeUndefined();
+  });
+
+  it("warns about legacy non-isolated sessionTarget (e.g. main) and keeps job in memory", async () => {
+    const { storePath } = await makeStorePath();
+
+    await writeSingleJobStore(storePath, {
+      id: "legacy-main-job",
+      name: "legacy main job",
+      enabled: true,
+      createdAtMs: STORE_TEST_NOW - 60_000,
+      updatedAtMs: STORE_TEST_NOW - 60_000,
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "main",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "ping" },
+      state: {},
+    });
+
+    const warnSpy = vi.spyOn(logger, "warn");
+    const state = createStoreTestState(storePath);
+    await ensureLoaded(state);
+
+    const job = findJobOrThrow(state, "legacy-main-job");
+    // Legacy "main" jobs are kept in memory as-is with a warning
+    expect(job.sessionTarget).toBe("main");
+    expect(
+      warnSpy.mock.calls.some(
+        (call) => typeof call[1] === "string" && call[1].includes("legacy sessionTarget"),
+      ),
+    ).toBe(true);
+    warnSpy.mockRestore();
   });
 
   it("assertSupportedJobSpec throws a clear error when sessionTarget is missing", () => {
@@ -132,10 +140,10 @@ describe("cron service store load: missing sessionTarget", () => {
         enabled: true,
         createdAtMs: STORE_TEST_NOW - 60_000,
         updatedAtMs: STORE_TEST_NOW - 60_000,
-        schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "now",
-        payload: { kind: "systemEvent", text: "tick" },
+        payload: { kind: "agentTurn", message: "ping" },
         state: {},
       },
       {
@@ -144,10 +152,10 @@ describe("cron service store load: missing sessionTarget", () => {
         enabled: true,
         createdAtMs: STORE_TEST_NOW - 60_000,
         updatedAtMs: STORE_TEST_NOW - 60_000,
-        schedule: ["every", 60_000],
-        sessionTarget: "main",
+        schedule: ["cron", "* * * * *"],
+        sessionTarget: "isolated",
         wakeMode: "now",
-        payload: { kind: "systemEvent", text: "tick" },
+        payload: { kind: "agentTurn", message: "ping" },
         state: {},
       },
       {
@@ -156,10 +164,10 @@ describe("cron service store load: missing sessionTarget", () => {
         enabled: true,
         createdAtMs: STORE_TEST_NOW - 60_000,
         updatedAtMs: STORE_TEST_NOW - 60_000,
-        schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "now",
-        payload: ["systemEvent", "tick"],
+        payload: ["agentTurn", "tick"],
         state: {},
       },
       {
@@ -169,21 +177,21 @@ describe("cron service store load: missing sessionTarget", () => {
         createdAtMs: STORE_TEST_NOW - 60_000,
         updatedAtMs: STORE_TEST_NOW - 60_000,
         schedule: { kind: "cron", expr: [] },
-        sessionTarget: "main",
+        sessionTarget: "isolated",
         wakeMode: "now",
-        payload: { kind: "systemEvent", text: "tick" },
+        payload: { kind: "agentTurn", message: "ping" },
         state: {},
       },
       {
-        id: "bad-system-event-text",
-        name: "bad system event text",
+        id: "legacy-every-schedule",
+        name: "legacy every schedule",
         enabled: true,
         createdAtMs: STORE_TEST_NOW - 60_000,
         updatedAtMs: STORE_TEST_NOW - 60_000,
         schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        sessionTarget: "isolated",
         wakeMode: "now",
-        payload: { kind: "systemEvent", text: ["tick"] },
+        payload: { kind: "agentTurn", message: "ping" },
         state: {},
       },
       {
@@ -192,7 +200,7 @@ describe("cron service store load: missing sessionTarget", () => {
         enabled: true,
         createdAtMs: STORE_TEST_NOW - 60_000,
         updatedAtMs: STORE_TEST_NOW - 60_000,
-        schedule: { kind: "every", everyMs: 60_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "isolated",
         wakeMode: "now",
         payload: { kind: "agentTurn", message: { text: "tick" } },
@@ -207,7 +215,7 @@ describe("cron service store load: missing sessionTarget", () => {
     await ensureLoaded(state, { forceReload: true });
 
     expect(state.store?.jobs.map((job) => job.id)).toEqual(["valid-job"]);
-    expect(findJobOrThrow(state, "valid-job").state.nextRunAtMs).toBe(STORE_TEST_NOW);
+    expect(findJobOrThrow(state, "valid-job").state.nextRunAtMs).toBeGreaterThan(STORE_TEST_NOW);
     await expect(fs.readFile(storePath, "utf-8")).resolves.toBe(beforeRaw);
 
     const invalidShapeWarns = warnSpy.mock.calls.filter((call) => {
@@ -219,13 +227,13 @@ describe("cron service store load: missing sessionTarget", () => {
       "missing-schedule",
       "missing-payload",
       "invalid-schedule",
-      "invalid-payload",
+      "invalid-schedule",
       "invalid-payload",
     ]);
     warnSpy.mockRestore();
   });
 
-  it("warns once per jobId across repeated forceReload cycles", async () => {
+  it("warns once per jobId across repeated forceReload cycles (missing sessionTarget)", async () => {
     const { storePath } = await makeStorePath();
 
     await writeSingleJobStore(storePath, {
@@ -234,7 +242,7 @@ describe("cron service store load: missing sessionTarget", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
       state: {},

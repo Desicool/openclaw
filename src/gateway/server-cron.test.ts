@@ -213,8 +213,8 @@ describe("buildGatewayCronService", () => {
       const job = await state.cron.add({
         name: "scheduler-hook",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "sync external wake" },
       });
@@ -251,8 +251,8 @@ describe("buildGatewayCronService", () => {
       const job = await state.cron.add({
         name: "to-be-removed",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "will be removed" },
       });
@@ -291,8 +291,8 @@ describe("buildGatewayCronService", () => {
         name: "agent-scoped-job",
         enabled: true,
         agentId: "yinze",
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
-        sessionTarget: "session:project-alpha",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "session:project-alpha" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "agent check" },
       });
@@ -329,8 +329,8 @@ describe("buildGatewayCronService", () => {
       await state.cron.add({
         name: "runtime-cfg-check",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: 1_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "cfg check" },
       });
@@ -360,7 +360,7 @@ describe("buildGatewayCronService", () => {
         name: "canonicalize-session-key",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         sessionKey: "discord:channel:ops",
         payload: { kind: "systemEvent", text: "hello" },
@@ -401,7 +401,7 @@ describe("buildGatewayCronService", () => {
         name: "global-queued",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "hello global" },
       });
@@ -442,7 +442,7 @@ describe("buildGatewayCronService", () => {
         name: "global-now",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "now",
         payload: { kind: "systemEvent", text: "hello now" },
       });
@@ -609,7 +609,7 @@ describe("buildGatewayCronService", () => {
         name: "queued-heartbeat-route",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         sessionKey: "telegram:group:123:topic:456",
         payload: { kind: "systemEvent", text: "hello" },
@@ -997,7 +997,7 @@ describe("buildGatewayCronService", () => {
         name: "ssrf-webhook-blocked",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "main",
+        sessionTarget: "main" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "hello" },
         delivery: {
@@ -1046,7 +1046,7 @@ describe("buildGatewayCronService", () => {
         name: "custom-session",
         enabled: true,
         schedule: { kind: "at", at: new Date(1).toISOString() },
-        sessionTarget: "session:project-alpha-monitor",
+        sessionTarget: "session:project-alpha-monitor" as unknown as "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "hello" },
       });

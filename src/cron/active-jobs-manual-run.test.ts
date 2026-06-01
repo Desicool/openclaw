@@ -47,7 +47,7 @@ function createManualIsolatedJob(id: string): CronJob {
     enabled: true,
     createdAtMs: now - 3_600_000,
     updatedAtMs: now,
-    schedule: { kind: "cron", expr: "0 18 * * *", tz: "UTC" },
+    schedule: { kind: "cron", expr: "0 18 * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "hi" },
@@ -60,7 +60,10 @@ function createManualIsolatedJob(id: string): CronJob {
 
 async function createManualRunHarness(jobId: string) {
   const store = await makeStorePath();
-  await writeCronStoreSnapshot({ storePath: store.storePath, jobs: [createManualIsolatedJob(jobId)] });
+  await writeCronStoreSnapshot({
+    storePath: store.storePath,
+    jobs: [createManualIsolatedJob(jobId)],
+  });
 
   const entered = createDeferred<void>();
   const release = createDeferred<IsolatedRunResult>();
@@ -74,6 +77,7 @@ async function createManualRunHarness(jobId: string) {
       entered.resolve();
       return await release.promise;
     },
+    schedulerLockPath: null,
   });
   return { cron, entered, release, store };
 }
@@ -105,8 +109,7 @@ describe("cron activeJobIds — manual-run mark/clear", () => {
   });
 
   it("clears the active marker even when the inner agent run throws", async () => {
-    const { cron, entered, release, store } =
-      await createManualRunHarness("manual-isolated-throw");
+    const { cron, entered, release, store } = await createManualRunHarness("manual-isolated-throw");
 
     try {
       await cron.start();

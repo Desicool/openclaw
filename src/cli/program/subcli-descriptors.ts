@@ -173,6 +173,11 @@ const subCliCommandCatalog = defineCommandDescriptorCatalog([
     hasSubcommands: true,
   },
   {
+    name: "run-cron-job",
+    description: "Execute a single cron job in a subprocess (internal; used by the cron scheduler)",
+    hasSubcommands: false,
+  },
+  {
     name: "completion",
     description: "Generate shell completion script",
     hasSubcommands: false,

@@ -19,7 +19,7 @@ function createDueIsolatedAnnounceJob(params: {
     enabled: true,
     createdAtMs: params.now - 10_000,
     updatedAtMs: params.now - 10_000,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "agentTurn", message: params.message },
@@ -47,6 +47,7 @@ function createCronServiceForSummary(params: {
       delivered: false,
       deliveryAttempted: false,
     })),
+    schedulerLockPath: null,
   });
 }
 

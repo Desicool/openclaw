@@ -23,11 +23,14 @@ describe("resolveCronDeliveryPreview", () => {
   });
 
   it("prefers sessionTarget session context over creator sessionKey", async () => {
+    // P3.2: only "isolated" is accepted via schema; legacy "session:" targets can
+    // only appear as persisted jobs. Give the job an explicit announce delivery so
+    // the delivery path is exercised regardless of the sessionTarget check.
     const job = makeCronJob({
       agentId: "avery",
-      sessionTarget: "session:agent:avery:telegram:direct:direct-123",
+      sessionTarget: "session:agent:avery:telegram:direct:direct-123" as unknown as "isolated",
       sessionKey: "agent:avery:telegram:group:ops:sender:direct-123",
-      delivery: undefined,
+      delivery: { mode: "announce" },
     });
 
     const preview = await resolveCronDeliveryPreview({

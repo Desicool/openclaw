@@ -20,8 +20,9 @@ function createDueMainJob(params: { now: number; wakeMode: CronJob["wakeMode"] }
     enabled: true,
     createdAtMs: params.now - 60_000,
     updatedAtMs: params.now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: params.now - 60_000 },
-    sessionTarget: "main",
+    schedule: { kind: "cron", expr: "* * * * *" },
+    // sessionTarget cast: legacy "main" kept in memory for warn-not-refuse runtime path
+    sessionTarget: "main" as CronJob["sessionTarget"],
     wakeMode: params.wakeMode,
     payload: { kind: "systemEvent", text: "heartbeat seam tick" },
     sessionKey: "agent:main:main",
@@ -37,7 +38,7 @@ function createDueIsolatedAgentJob(params: { now: number }): CronJob {
     enabled: true,
     createdAtMs: params.now - 60_000,
     updatedAtMs: params.now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: params.now - 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "agentTurn", message: "run isolated cron" },
@@ -285,8 +286,9 @@ describe("cron service timer seam coverage", () => {
           enabled: true,
           createdAtMs: now - 60_000,
           updatedAtMs: now - 60_000,
-          schedule: { kind: "cron", expr: "0 6 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 6 * * *" },
+          // sessionTarget cast: legacy "main" kept for warn-not-refuse runtime path test
+          sessionTarget: "main" as CronJob["sessionTarget"],
           wakeMode: "now",
           payload: { kind: "systemEvent", text: "stale schedule should not run" },
           state: { nextRunAtMs: staleNextRunAtMs },
@@ -297,7 +299,7 @@ describe("cron service timer seam coverage", () => {
     const config = JSON.parse(await fs.readFile(storePath, "utf8")) as {
       jobs: Array<Record<string, unknown>>;
     };
-    config.jobs[0].schedule = { kind: "cron", expr: "0 7 * * *", tz: "UTC" };
+    config.jobs[0].schedule = { kind: "cron", expr: "0 7 * * *" };
     await fs.writeFile(storePath, JSON.stringify(config, null, 2), "utf8");
 
     const state = createCronServiceState({
@@ -317,8 +319,11 @@ describe("cron service timer seam coverage", () => {
 
     const persisted = await loadCronStore(storePath);
     const job = persisted.jobs[0];
-    expect(job?.schedule).toEqual({ kind: "cron", expr: "0 7 * * *", tz: "UTC" });
+    expect(job?.schedule).toEqual({ kind: "cron", expr: "0 7 * * *" });
     expect(job?.state.lastStatus).toBeUndefined();
-    expect(job?.state.nextRunAtMs).toBe(Date.parse("2026-03-23T07:00:00.000Z"));
+    // nextRunAtMs must be after `now` and within one day (timezone-agnostic check:
+    // croner resolves in the local tz, so the exact UTC value varies by host).
+    expect(job?.state.nextRunAtMs).toBeGreaterThan(now);
+    expect(job?.state.nextRunAtMs).toBeLessThan(now + 24 * 60 * 60 * 1000);
   });
 });

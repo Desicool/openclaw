@@ -16,6 +16,7 @@ import {
   waitForActiveTasks,
 } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
+import type { CronJob } from "../types.js";
 import { enqueueRun, run, start } from "./ops.js";
 import type { CronEvent } from "./state.js";
 import { createCronServiceState } from "./state.js";
@@ -67,6 +68,7 @@ describe("cron service ops regressions", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(),
+      schedulerLockPath: null,
     });
     state.store = {
       version: 1,
@@ -222,7 +224,7 @@ describe("cron service ops regressions", () => {
         id: "unrelated-due",
         name: "unrelated due",
         scheduledAt: nowMs,
-        schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "*/5 * * * *" },
         payload: { kind: "agentTurn", message: "unrelated due" },
         state: { nextRunAtMs: dueNextRunAtMs },
       }),
@@ -230,7 +232,7 @@ describe("cron service ops regressions", () => {
         id: "unrelated-stale-executed",
         name: "unrelated stale executed",
         scheduledAt: nowMs,
-        schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "*/5 * * * *" },
         payload: { kind: "agentTurn", message: "unrelated stale executed" },
         state: {
           nextRunAtMs: staleExecutedNextRunAtMs,
@@ -267,7 +269,7 @@ describe("cron service ops regressions", () => {
         id: "manual-timeout",
         name: "manual timeout",
         scheduledAt,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: scheduledAt },
+        schedule: { kind: "cron", expr: "* * * * *" },
         payload: { kind: "agentTurn", message: "work", timeoutSeconds: FAST_TIMEOUT_SECONDS },
         state: { nextRunAtMs: scheduledAt },
       });
@@ -321,7 +323,7 @@ describe("cron service ops regressions", () => {
           lastStatus: "ok",
           nextRunAtMs: now - 60_000,
         },
-      },
+      } as unknown as CronJob,
     ]);
 
     const enqueueSystemEvent = vi.fn();

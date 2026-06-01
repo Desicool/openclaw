@@ -11,10 +11,10 @@ import {
 
 const minimalAddParams = {
   name: "daily-summary",
-  schedule: { kind: "every", everyMs: 60_000 },
-  sessionTarget: "main",
-  wakeMode: "next-heartbeat",
-  payload: { kind: "systemEvent", text: "tick" },
+  schedule: { kind: "cron", expr: "* * * * *" },
+  sessionTarget: "isolated",
+  wakeMode: "now",
+  payload: { kind: "agentTurn", message: "tick" },
 } as const;
 
 describe("cron protocol validators", () => {
@@ -22,27 +22,31 @@ describe("cron protocol validators", () => {
     expect(validateCronAddParams(minimalAddParams)).toBe(true);
   });
 
-  it("accepts current and custom session targets", () => {
+  it("rejects non-isolated session targets on add and update", () => {
     expect(
       validateCronAddParams({
         ...minimalAddParams,
         sessionTarget: "current",
-        payload: { kind: "agentTurn", message: "tick" },
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       validateCronAddParams({
         ...minimalAddParams,
         sessionTarget: "session:project-alpha",
-        payload: { kind: "agentTurn", message: "tick" },
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       validateCronUpdateParams({
         id: "job-1",
         patch: { sessionTarget: "session:project-alpha" },
       }),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      validateCronUpdateParams({
+        id: "job-1",
+        patch: { sessionTarget: "main" },
+      }),
+    ).toBe(false);
   });
 
   it("rejects add params when required scheduling fields are missing", () => {

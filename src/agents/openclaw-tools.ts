@@ -382,6 +382,8 @@ export function createOpenClawTools(
             ...(options?.cronSelfRemoveOnlyJobId
               ? { selfRemoveOnlyJobId: options.cronSelfRemoveOnlyJobId }
               : {}),
+            ...(options?.requesterSenderId ? { userId: options.requesterSenderId } : {}),
+            ...(options?.sessionId ? { originSessionId: options.sessionId } : {}),
           }),
         ]),
     ...(messageTool && includeMessageTool ? [messageTool] : []),

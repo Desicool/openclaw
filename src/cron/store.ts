@@ -1,11 +1,14 @@
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { expandHomePrefix } from "../infra/home-dir.js";
+import { readProcessStartTimeMs } from "../infra/process-start-time.js";
 import { replaceFileAtomic } from "../infra/replace-file.js";
 import { resolveConfigDir } from "../utils.js";
 import { parseJsonWithJson5Fallback } from "../utils/parse-json-compat.js";
+import { buildResultFileRelativePath, validateCronRunnerResultFile } from "./runner-protocol.js";
 import { tryCronScheduleIdentity } from "./schedule-identity.js";
-import type { CronStoreFile } from "./types.js";
+import type { CronRunningState, CronStoreFile } from "./types.js";
 
 type SerializedStoreCacheEntry = {
   configJson?: string;
@@ -52,6 +55,10 @@ type CronStateFile = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isScheduleKindAt(job: { schedule?: unknown }): boolean {
+  return isRecord(job.schedule) && job.schedule.kind === "at";
 }
 
 function normalizeCronStoreFile(parsed: unknown): CronStoreFile {
@@ -213,6 +220,163 @@ function mergeStateFileEntry(job: CronStoreFile["jobs"][number], entry: unknown)
   }
 }
 
+// ---------------------------------------------------------------------------
+// Boot reconcile helpers — run once per loadCronStore call, on the job state
+// after merging the state file. Handles three cases:
+//   1. Legacy running marker (no runId): clear & orphan.
+//   2. running.runId present, result file exists: apply terminal state.
+//   3. running.runId present, pid alive (start time matches): leave alone.
+//   4. running.runId present, pid dead: clear & orphan.
+// ---------------------------------------------------------------------------
+
+function isRunningEntry(value: unknown): value is CronRunningState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return typeof obj.runId === "string" && obj.runId.length > 0;
+}
+
+async function tryReadResultFile(
+  runsDir: string,
+  jobId: string,
+  runId: string,
+): Promise<{ status: string; error?: string } | null> {
+  try {
+    const relPath = buildResultFileRelativePath(jobId, runId);
+    const fullPath = path.join(runsDir, relPath);
+    const raw = await fsPromises.readFile(fullPath, "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    if (validateCronRunnerResultFile(parsed)) {
+      return { status: parsed.status, error: parsed.error };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function reconcileJobRunningState(
+  job: CronStoreFile["jobs"][number],
+  runsDir: string,
+  log?: (msg: string, meta: Record<string, unknown>) => void,
+): Promise<void> {
+  ensureJobStateObject(job);
+  const runningRaw = job.state.running;
+
+  if (runningRaw === undefined || runningRaw === null) {
+    return;
+  }
+
+  if (!isRunningEntry(runningRaw)) {
+    // Legacy running marker without runId: clear and orphan.
+    job.state.running = undefined;
+    job.state.runningAtMs = undefined;
+    log?.("cron: boot reconcile — orphaned legacy running marker (no runId), cleared", {
+      jobId: job.id,
+    });
+    return;
+  }
+
+  const { runId, pid, startedAtMs } = runningRaw;
+
+  // Case: result file exists → apply terminal state, clear running.
+  const result = await tryReadResultFile(runsDir, job.id, runId);
+  if (result) {
+    job.state.running = undefined;
+    job.state.runningAtMs = undefined;
+    // Minimal terminal state application: set lastRunStatus and clear running.
+    // Full applyJobResult runs in the service layer; here we just unlock the job.
+    const validStatuses = ["ok", "error", "timeout", "skipped"] as const;
+    type ValidStatus = (typeof validStatuses)[number];
+    const validStatus = validStatuses.includes(result.status as ValidStatus)
+      ? (result.status as ValidStatus)
+      : "error";
+    job.state.lastRunStatus = validStatus === "timeout" ? "error" : validStatus;
+    if (result.error) {
+      job.state.lastError = result.error;
+    }
+    log?.("cron: boot reconcile — found result file, applied terminal state", {
+      jobId: job.id,
+      runId,
+      status: validStatus,
+    });
+    return;
+  }
+
+  // Case: no result file. Check if the child is still alive using pid/startedAtMs.
+  if (typeof pid === "number" && pid > 0 && typeof startedAtMs === "number") {
+    const startTimeResult = await readProcessStartTimeMs(pid);
+    if (startTimeResult.kind === "ok") {
+      const delta = Math.abs(startTimeResult.startedAtMs - startedAtMs);
+      if (delta <= 2_000) {
+        // Pid is alive and start time matches — child from a previous parent
+        // generation is still running. Leave the running block so the boot-reconcile
+        // signal is preserved; but clear runningAtMs — it is the legacy interrupted-run
+        // gate and must not trigger start()'s markInterruptedStartupRun sweep on a
+        // live subprocess we know about via running.runId.
+        job.state.runningAtMs = undefined;
+        log?.("cron: boot reconcile — child process still alive, leaving running marker", {
+          jobId: job.id,
+          runId,
+          pid,
+        });
+        return;
+      }
+    }
+  }
+
+  // Pid is dead or start time mismatches (recycled pid): clear and orphan.
+  job.state.running = undefined;
+  job.state.runningAtMs = undefined;
+  log?.("cron: boot reconcile — orphaned running marker (pid dead or recycled), cleared", {
+    jobId: job.id,
+    runId,
+    pid,
+  });
+}
+
+async function reconcileRunningJobStates(
+  store: CronStoreFile,
+  storePath: string,
+  log?: (msg: string, meta: Record<string, unknown>) => void,
+): Promise<void> {
+  const runsDir = path.join(resolveConfigDir(), "cron", "runs");
+
+  // §5 crash recovery pre-pass: identify kind:at jobs with removeRequested=true
+  // before reconcileJobRunningState clears the running field. These are jobs where
+  // the parent wrote removeRequested but crashed before removing the entry from jobs.json.
+  const pendingRemoveIds = new Set<string>();
+  for (const job of store.jobs) {
+    const running = job.state?.running;
+    if (running?.removeRequested === true && isScheduleKindAt(job)) {
+      pendingRemoveIds.add(job.id);
+    }
+  }
+
+  for (const job of store.jobs) {
+    try {
+      await reconcileJobRunningState(job, runsDir, log);
+    } catch (err) {
+      log?.("cron: boot reconcile — error reconciling job state, skipping", {
+        jobId: job.id,
+        storePath,
+        err: String(err),
+      });
+    }
+  }
+
+  // §5 crash recovery: finish atomic removal for jobs pre-identified above.
+  if (pendingRemoveIds.size > 0) {
+    for (const jobId of pendingRemoveIds) {
+      log?.("cron: boot reconcile — finishing atomic remove for kind:at job (removeRequested)", {
+        jobId,
+      });
+    }
+    store.jobs = store.jobs.filter((job) => !pendingRemoveIds.has(job.id));
+  }
+}
+
 export async function loadCronStore(storePath: string): Promise<CronStoreFile> {
   try {
     const raw = await fs.promises.readFile(storePath, "utf-8");
@@ -254,6 +418,11 @@ export async function loadCronStore(storePath: string): Promise<CronStoreFile> {
     for (const job of store.jobs) {
       ensureJobStateObject(job);
     }
+
+    // Boot reconcile: handle stale/orphaned running markers left by previous
+    // parent process crashes. Must run after state merge and before the cache
+    // snapshot so cleared running fields are reflected in the serialized state.
+    await reconcileRunningJobStates(store, storePath);
 
     const configJson = JSON.stringify(stripRuntimeOnlyCronFields(store), null, 2);
     const stateJson = JSON.stringify(extractStateFile(store), null, 2);

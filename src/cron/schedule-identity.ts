@@ -12,29 +12,20 @@ function readNumber(record: Record<string, unknown>, key: string): number | unde
 
 function schedulePayloadFromRecord(
   schedule: Record<string, unknown>,
-):
-  | { kind: "at"; at: string }
-  | { kind: "every"; everyMs: number; anchorMs?: number }
-  | { kind: "cron"; expr: string; tz?: string; staggerMs?: number }
-  | undefined {
+): { kind: "at"; at: string } | { kind: "cron"; expr: string; staggerMs?: number } | undefined {
   const rawKind = readString(schedule, "kind")?.toLowerCase();
   const expr = readString(schedule, "expr") ?? readString(schedule, "cron");
   const at = readString(schedule, "at");
   const atMs = readNumber(schedule, "atMs");
-  const everyMs = readNumber(schedule, "everyMs");
-  const anchorMs = readNumber(schedule, "anchorMs");
-  const tz = readString(schedule, "tz");
   const staggerMs = readNumber(schedule, "staggerMs");
   const kind =
-    rawKind === "at" || rawKind === "every" || rawKind === "cron"
+    rawKind === "at" || rawKind === "cron"
       ? rawKind
       : at || atMs !== undefined
         ? "at"
-        : everyMs !== undefined
-          ? "every"
-          : expr
-            ? "cron"
-            : undefined;
+        : expr
+          ? "cron"
+          : undefined;
 
   if (kind === "at") {
     return at
@@ -43,11 +34,8 @@ function schedulePayloadFromRecord(
         ? { kind: "at", at: String(atMs) }
         : undefined;
   }
-  if (kind === "every" && everyMs !== undefined) {
-    return { kind: "every", everyMs, anchorMs };
-  }
   if (kind === "cron" && expr) {
-    return { kind: "cron", expr, tz, staggerMs };
+    return { kind: "cron", expr, staggerMs };
   }
   return undefined;
 }

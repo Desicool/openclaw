@@ -127,10 +127,8 @@ export function registerCronAddCommand(cron: Command) {
           const schedule = resolveCronCreateSchedule({
             at: opts.at,
             cron: opts.cron,
-            every: opts.every,
             exact: opts.exact,
             stagger: opts.stagger,
-            tz: opts.tz,
           });
 
           const wakeMode = normalizeOptionalString(opts.wake) ?? "now";

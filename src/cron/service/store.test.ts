@@ -49,8 +49,8 @@ function createReloadCronJob(params?: Partial<CronJob>): CronJob {
     enabled: true,
     createdAtMs: STORE_TEST_NOW - 60_000,
     updatedAtMs: STORE_TEST_NOW - 60_000,
-    schedule: { kind: "cron", expr: "0 6 * * *", tz: "UTC" },
-    sessionTarget: "main",
+    schedule: { kind: "cron", expr: "0 6 * * *" },
+    sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "systemEvent", text: "tick" },
     state: {},
@@ -80,7 +80,9 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      // Use kind:"at" so the computed nextRunAtMs is exactly STORE_TEST_NOW
+      // regardless of the machine's local timezone.
+      schedule: { kind: "at", at: new Date(STORE_TEST_NOW).toISOString() },
       sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
@@ -139,8 +141,8 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
       state: {},
@@ -172,8 +174,8 @@ describe("cron service store seam coverage", () => {
       enabled: "false",
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
       state: {},
@@ -200,7 +202,7 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "session:../../outside",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
@@ -243,8 +245,8 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 30_000,
-      schedule: { kind: "cron", expr: "30 6 * * 0,6", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "30 6 * * 0,6" },
+      sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
       state: {},
@@ -253,7 +255,7 @@ describe("cron service store seam coverage", () => {
     await ensureLoaded(state, { forceReload: true, skipRecompute: true });
 
     const reloadedJob = findJobOrThrow(state, "reload-cron-expr-job");
-    expect(reloadedJob.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6", tz: "UTC" });
+    expect(reloadedJob.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6" });
     expect(reloadedJob.state.nextRunAtMs).toBeUndefined();
   });
 
@@ -279,8 +281,8 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 30_000,
-      schedule: { expr: "0 6 * * *", kind: "cron", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { expr: "0 6 * * *", kind: "cron" },
+      sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
       state: {},
@@ -371,15 +373,15 @@ describe("cron service store seam coverage", () => {
     expect(findJobOrThrow(state, "reload-cron-expr-job").state.nextRunAtMs).toBeUndefined();
   });
 
-  it("clears stale nextRunAtMs after force reload when every schedule anchor changes", async () => {
+  it("clears stale nextRunAtMs after force reload when cron schedule staggerMs changes", async () => {
     const { storePath } = await makeStorePath();
-    const jobId = "reload-every-anchor-job";
+    const jobId = "reload-cron-stagger-job";
     const staleNextRunAtMs = STORE_TEST_NOW + 3_600_000;
 
     await writeSingleJobStore(storePath, {
       ...createReloadCronJob({
         id: jobId,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: STORE_TEST_NOW - 60_000 },
+        schedule: { kind: "cron", expr: "0 6 * * *", staggerMs: 0 },
         state: { nextRunAtMs: staleNextRunAtMs },
       }),
     });
@@ -390,7 +392,7 @@ describe("cron service store seam coverage", () => {
       ...createReloadCronJob({
         id: jobId,
         updatedAtMs: STORE_TEST_NOW,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: STORE_TEST_NOW },
+        schedule: { kind: "cron", expr: "0 6 * * *", staggerMs: 60_000 },
         state: { nextRunAtMs: staleNextRunAtMs },
       }),
     });

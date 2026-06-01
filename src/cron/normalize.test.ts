@@ -8,11 +8,11 @@ function expectNormalizedAtSchedule(scheduleInput: Record<string, unknown>) {
     name: "iso schedule",
     enabled: true,
     schedule: scheduleInput,
-    sessionTarget: "main",
-    wakeMode: "next-heartbeat",
+    sessionTarget: "isolated",
+    wakeMode: "now",
     payload: {
-      kind: "systemEvent",
-      text: "hi",
+      kind: "agentTurn",
+      message: "hi",
     },
   }) as unknown as Record<string, unknown>;
 
@@ -59,7 +59,7 @@ function normalizeIsolatedAgentTurnCreateJob(params: {
   }) as unknown as Record<string, unknown>;
 }
 
-function normalizeMainSystemEventCreateJob(params: {
+function normalizeIsolatedAgentTurnCreateJobWithSchedule(params: {
   name: string;
   schedule: Record<string, unknown>;
 }): Record<string, unknown> {
@@ -67,11 +67,11 @@ function normalizeMainSystemEventCreateJob(params: {
     name: params.name,
     enabled: true,
     schedule: params.schedule,
-    sessionTarget: "main",
-    wakeMode: "next-heartbeat",
+    sessionTarget: "isolated",
+    wakeMode: "now",
     payload: {
-      kind: "systemEvent",
-      text: "tick",
+      kind: "agentTurn",
+      message: "tick",
     },
   }) as unknown as Record<string, unknown>;
 }
@@ -131,10 +131,10 @@ describe("normalizeCronJobCreate", () => {
       name: "session-key",
       enabled: true,
       schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
+      sessionTarget: "isolated",
+      wakeMode: "now",
       sessionKey: "  agent:main:discord:channel:ops  ",
-      payload: { kind: "systemEvent", text: "hi" },
+      payload: { kind: "agentTurn", message: "hi" },
     }) as unknown as Record<string, unknown>;
     expect(normalized.sessionKey).toBe("agent:main:discord:channel:ops");
 
@@ -142,10 +142,10 @@ describe("normalizeCronJobCreate", () => {
       name: "session-key-clear",
       enabled: true,
       schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
+      sessionTarget: "isolated",
+      wakeMode: "now",
       sessionKey: "   ",
-      payload: { kind: "systemEvent", text: "hi" },
+      payload: { kind: "agentTurn", message: "hi" },
     }) as unknown as Record<string, unknown>;
     expect("sessionKey" in cleared).toBe(false);
   });
@@ -208,8 +208,8 @@ describe("normalizeCronJobCreate", () => {
     expectNormalizedAtSchedule({ kind: "at", atMs: "2026-01-12T18:00:00" });
   });
 
-  it("migrates legacy schedule.cron into schedule.expr", () => {
-    const normalized = normalizeMainSystemEventCreateJob({
+  it("migrates legacy schedule.cron into schedule.expr and strips tz", () => {
+    const normalized = normalizeIsolatedAgentTurnCreateJobWithSchedule({
       name: "legacy-cron-field",
       schedule: { kind: "cron", cron: "*/10 * * * *", tz: "UTC" },
     });
@@ -218,12 +218,14 @@ describe("normalizeCronJobCreate", () => {
     expect(schedule.kind).toBe("cron");
     expect(schedule.expr).toBe("*/10 * * * *");
     expect(schedule.cron).toBeUndefined();
+    // tz is stripped (per-job timezone removed in P3.2)
+    expect(schedule.tz).toBeUndefined();
   });
 
   it("defaults cron stagger for recurring top-of-hour schedules", () => {
-    const normalized = normalizeMainSystemEventCreateJob({
+    const normalized = normalizeIsolatedAgentTurnCreateJobWithSchedule({
       name: "hourly",
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 * * * *" },
     });
 
     const schedule = normalized.schedule as Record<string, unknown>;
@@ -231,9 +233,9 @@ describe("normalizeCronJobCreate", () => {
   });
 
   it("preserves explicit exact cron schedule", () => {
-    const normalized = normalizeMainSystemEventCreateJob({
+    const normalized = normalizeIsolatedAgentTurnCreateJobWithSchedule({
       name: "exact",
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC", staggerMs: 0 },
+      schedule: { kind: "cron", expr: "0 * * * *", staggerMs: 0 },
     });
 
     const schedule = normalized.schedule as Record<string, unknown>;
@@ -245,11 +247,11 @@ describe("normalizeCronJobCreate", () => {
       name: "default delete",
       enabled: true,
       schedule: { at: "2026-01-12T18:00:00Z" },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
+      sessionTarget: "isolated",
+      wakeMode: "now",
       payload: {
-        kind: "systemEvent",
-        text: "hi",
+        kind: "agentTurn",
+        message: "hi",
       },
     }) as unknown as Record<string, unknown>;
 
@@ -329,10 +331,10 @@ describe("normalizeCronJobCreate", () => {
     const normalized = normalizeCronJobCreate({
       name: "webhook delivery",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "now",
-      payload: { kind: "systemEvent", text: "hello" },
+      payload: { kind: "agentTurn", message: "hello" },
       delivery: {
         mode: " WeBhOoK ",
         to: " https://example.invalid/cron ",
@@ -348,7 +350,7 @@ describe("normalizeCronJobCreate", () => {
     const normalized = normalizeCronJobCreate({
       name: "implicit announce",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "hello" },
@@ -393,7 +395,7 @@ describe("normalizeCronJobCreate", () => {
 
   it("infers payload kind/session target and name for message-only jobs", () => {
     const normalized = normalizeCronJobCreate({
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "0 2 * * *" },
       payload: { message: "Nightly backup" },
     }) as unknown as Record<string, unknown>;
 
@@ -405,7 +407,7 @@ describe("normalizeCronJobCreate", () => {
     expect(typeof normalized.name).toBe("string");
   });
 
-  it("normalizes flat legacy cron job rows", () => {
+  it("normalizes flat legacy cron job rows (strips legacy tz)", () => {
     const normalized = normalizeCronJobCreate({
       id: "dbus-watchdog-001",
       name: "dbus-watchdog",
@@ -422,7 +424,6 @@ describe("normalizeCronJobCreate", () => {
     expect(normalized.schedule).toEqual({
       kind: "cron",
       expr: "*/10 * * * *",
-      tz: "UTC",
     });
     expect(normalized.sessionTarget).toBe("isolated");
     expect(normalized.payload).toEqual({
@@ -440,7 +441,7 @@ describe("normalizeCronJobCreate", () => {
   it("maps top-level model/thinking/timeout into payload for legacy add params", () => {
     const normalized = normalizeCronJobCreate({
       name: "legacy root fields",
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       payload: { kind: "agentTurn", message: "hello" },
       model: " openrouter/deepseek/deepseek-r1 ",
       thinking: " high ",
@@ -461,7 +462,7 @@ describe("normalizeCronJobCreate", () => {
   it("promotes implicit text payloads with agentTurn hints for create jobs", () => {
     const normalized = normalizeCronJobCreate({
       name: "nested text model",
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       payload: {
         text: " summarize issue status ",
         model: " anthropic/claude-sonnet-4-6 ",
@@ -483,7 +484,7 @@ describe("normalizeCronJobCreate", () => {
   it("promotes legacy top-level text with agentTurn hints for create jobs", () => {
     const normalized = normalizeCronJobCreate({
       name: "legacy text model",
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       text: " summarize issue status ",
       model: " openrouter/deepseek/deepseek-r1 ",
       fallbacks: [],
@@ -506,7 +507,7 @@ describe("normalizeCronJobCreate", () => {
   it("preserves timeoutSeconds=0 for no-timeout agentTurn payloads", () => {
     const normalized = normalizeCronJobCreate({
       name: "legacy no-timeout",
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       payload: { kind: "agentTurn", message: "hello" },
       timeoutSeconds: 0,
     }) as unknown as Record<string, unknown>;
@@ -518,7 +519,7 @@ describe("normalizeCronJobCreate", () => {
   it("preserves fractional timeoutSeconds for short agentTurn deadlines", () => {
     const normalized = normalizeCronJobCreate({
       name: "fractional timeout",
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       payload: { kind: "agentTurn", message: "hello", timeoutSeconds: 0.03 },
     }) as unknown as Record<string, unknown>;
 
@@ -529,7 +530,7 @@ describe("normalizeCronJobCreate", () => {
   it("preserves empty toolsAllow lists for create jobs", () => {
     const normalized = normalizeCronJobCreate({
       name: "empty-tools",
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "now",
       payload: {
@@ -545,10 +546,12 @@ describe("normalizeCronJobCreate", () => {
   });
 
   it("prunes agentTurn-only payload fields from systemEvent create jobs", () => {
+    // Note: systemEvent + isolated is invalid for real jobs, but normalization
+    // does not enforce the session/payload combo — validation does.
     const normalized = normalizeCronJobCreate({
       name: "system-event-prune",
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "now",
       payload: {
         kind: "systemEvent",
@@ -580,11 +583,11 @@ describe("normalizeCronJobCreate", () => {
         tz: "UTC",
         staggerMs: 30_000,
       },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
+      sessionTarget: "isolated",
+      wakeMode: "now",
       payload: {
-        kind: "systemEvent",
-        text: "hi",
+        kind: "agentTurn",
+        message: "hi",
       },
     }) as unknown as Record<string, unknown>;
 
@@ -596,27 +599,34 @@ describe("normalizeCronJobCreate", () => {
     expect(validateCronAddParams(normalized)).toBe(true);
   });
 
-  it("prunes staggerMs from every schedules for create jobs", () => {
+  it("strips legacy everyMs/anchorMs/tz from cron schedules during normalize", () => {
     const normalized = normalizeCronJobCreate({
-      name: "every-prune",
+      name: "legacy-fields-prune",
       schedule: {
-        kind: "every",
+        kind: "cron",
+        expr: "*/10 * * * *",
         everyMs: 60_000,
+        anchorMs: 123,
+        tz: "UTC",
         staggerMs: 30_000,
       },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
+      sessionTarget: "isolated",
+      wakeMode: "now",
       payload: {
-        kind: "systemEvent",
-        text: "hi",
+        kind: "agentTurn",
+        message: "hi",
       },
     }) as unknown as Record<string, unknown>;
 
     const schedule = normalized.schedule as Record<string, unknown>;
     expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
+      kind: "cron",
+      expr: "*/10 * * * *",
+      staggerMs: 30_000,
     });
+    expect(schedule.everyMs).toBeUndefined();
+    expect(schedule.anchorMs).toBeUndefined();
+    expect(schedule.tz).toBeUndefined();
     expect(validateCronAddParams(normalized)).toBe(true);
   });
 
@@ -944,7 +954,7 @@ describe("normalizeCronJobPatch", () => {
     expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
   });
 
-  it("prunes schedule fields that do not belong to at schedules for patches", () => {
+  it("prunes schedule fields that do not belong to at schedules for patches (strips legacy fields)", () => {
     const normalized = normalizeCronJobPatch({
       schedule: {
         kind: "at",
@@ -965,20 +975,27 @@ describe("normalizeCronJobPatch", () => {
     expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
   });
 
-  it("prunes staggerMs from every schedules for patches", () => {
+  it("strips legacy everyMs/anchorMs/tz from cron schedule patches", () => {
     const normalized = normalizeCronJobPatch({
       schedule: {
-        kind: "every",
+        kind: "cron",
+        expr: "*/10 * * * *",
         everyMs: 60_000,
+        anchorMs: 123,
+        tz: "UTC",
         staggerMs: 30_000,
       },
     }) as unknown as Record<string, unknown>;
 
     const schedule = normalized.schedule as Record<string, unknown>;
     expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
+      kind: "cron",
+      expr: "*/10 * * * *",
+      staggerMs: 30_000,
     });
+    expect(schedule.everyMs).toBeUndefined();
+    expect(schedule.anchorMs).toBeUndefined();
+    expect(schedule.tz).toBeUndefined();
     expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
   });
 });

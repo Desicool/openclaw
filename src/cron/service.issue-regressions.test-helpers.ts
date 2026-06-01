@@ -53,6 +53,7 @@ export async function startCronForStore(params: {
     requestHeartbeat,
     runIsolatedAgentJob,
     ...(params.onEvent ? { onEvent: params.onEvent } : {}),
+    schedulerLockPath: null,
   });
   await cron.start();
   return cron;

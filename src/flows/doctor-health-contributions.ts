@@ -421,6 +421,44 @@ async function runLegacyCronHealth(ctx: DoctorHealthFlowContext): Promise<void> 
   });
 }
 
+async function runCronPurgeHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeRunCronPurgeSafeSubset } = await import("../commands/doctor-cron-purge.js");
+  await maybeRunCronPurgeSafeSubset({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
+async function runCronSessionTargetMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeMigrateLegacyCronSessionTargets } =
+    await import("../commands/doctor-cron-target-migration.js");
+  await maybeMigrateLegacyCronSessionTargets({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
+async function runCronEveryMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeMigrateLegacyCronEveryKind } =
+    await import("../commands/doctor-cron-every-migration.js");
+  await maybeMigrateLegacyCronEveryKind({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
+async function runCronTzMigrationHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  const { maybeMigrateLegacyCronTz } = await import("../commands/doctor-cron-tz-migration.js");
+  await maybeMigrateLegacyCronTz({
+    cfg: ctx.cfg,
+    options: ctx.options,
+    prompter: ctx.prompter,
+  });
+}
+
 async function runSandboxHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { maybeRepairSandboxImages, maybeRepairSandboxRegistryFiles, noteSandboxScopeWarnings } =
     await import("../commands/doctor-sandbox.js");
@@ -821,11 +859,37 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       label: "Config audit",
       run: runConfigAuditScrubHealth,
     }),
+    // Must run before doctor:legacy-cron: the legacy handler classifies
+    // kind:"every" as an invalid persisted schedule and deletes it before
+    // the every-migration has a chance to convert it to kind:"cron".
+    createDoctorHealthContribution({
+      id: "doctor:cron-every-migration",
+      label: "Cron every-kind migration",
+      healthCheckIds: [],
+      run: runCronEveryMigrationHealth,
+    }),
     createDoctorHealthContribution({
       id: "doctor:legacy-cron",
       label: "Legacy cron",
       healthCheckIds: ["core/doctor/legacy-whatsapp-crontab"],
       run: runLegacyCronHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-purge",
+      label: "Cron purge",
+      run: runCronPurgeHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-target-migration",
+      label: "Cron sessionTarget migration",
+      healthCheckIds: [],
+      run: runCronSessionTargetMigrationHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:cron-tz-migration",
+      label: "Cron tz migration",
+      healthCheckIds: [],
+      run: runCronTzMigrationHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:sandbox",

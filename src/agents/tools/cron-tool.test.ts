@@ -18,7 +18,7 @@ vi.mock("../../config/sessions/delivery-info.js", () => ({
 }));
 
 import { buildAgentPeerSessionKey } from "../../routing/session-key.js";
-import { createCronTool } from "./cron-tool.js";
+import { computeReminderIdempotencyKey, createCronTool } from "./cron-tool.js";
 
 describe("cron tool", () => {
   type SchemaLike = {
@@ -515,7 +515,6 @@ describe("cron tool", () => {
       enabled: true,
       deleteAfterRun: true,
       schedule: { kind: "at", at: new Date(123).toISOString() },
-      sessionTarget: "main",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "hello" },
     });
@@ -1423,6 +1422,294 @@ describe("cron tool", () => {
     expect(params?.patch?.payload).toEqual({
       kind: "agentTurn",
       toolsAllow: null,
+    });
+  });
+
+  // ── idempotencyKey for reminder-style add (P2.5-b) ─────────────────────────
+
+  describe("computeReminderIdempotencyKey", () => {
+    const BASE = {
+      userId: "user-42",
+      originSessionId: "sess-abc",
+      body: "Remind me about the standup",
+      deliveryTarget: "-1001234567890",
+      schedule: { kind: "at" as const, at: new Date(1_700_000_000_000).toISOString() },
+    };
+
+    it("returns a 64-char hex string for a valid at-kind schedule", () => {
+      const key = computeReminderIdempotencyKey(BASE);
+      expect(typeof key).toBe("string");
+      expect(key).toHaveLength(64);
+      expect(key).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("returns the same key for two calls with identical inputs", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({ ...BASE });
+      expect(key1).toBe(key2);
+    });
+
+    it("returns different keys for different sessionIds", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({ ...BASE, originSessionId: "sess-xyz" });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("returns different keys for different userIds", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({ ...BASE, userId: "user-99" });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("buckets fireAt within the same second to the same key", () => {
+      const t = 1_700_000_000_000;
+      const key1 = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "at", at: new Date(t).toISOString() },
+      });
+      // 999 ms later — still same second bucket
+      const key2 = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "at", at: new Date(t + 999).toISOString() },
+      });
+      expect(key1).toBe(key2);
+    });
+
+    it("returns different keys for fireAt values in different seconds", () => {
+      const t = 1_700_000_000_000;
+      const key1 = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "at", at: new Date(t).toISOString() },
+      });
+      const key2 = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "at", at: new Date(t + 1_000).toISOString() },
+      });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("returns undefined for an every-kind schedule", () => {
+      const key = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "every" as unknown as "at" },
+      });
+      expect(key).toBeUndefined();
+    });
+
+    it("returns undefined for an at-kind schedule with an invalid at value", () => {
+      const key = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "at", at: "not-a-date" },
+      });
+      expect(key).toBeUndefined();
+    });
+
+    // ── Gap 1: body and deliveryTarget sensitivity ──────────────────────
+
+    it("returns different keys for different body values (same other inputs)", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({
+        ...BASE,
+        body: "Remind me about the retrospective",
+      });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("returns different keys for different deliveryTarget values (same other inputs)", () => {
+      const key1 = computeReminderIdempotencyKey(BASE);
+      const key2 = computeReminderIdempotencyKey({
+        ...BASE,
+        deliveryTarget: "-9999999999",
+      });
+      expect(key1).not.toBe(key2);
+    });
+
+    it("returns a 64-char hex string for kind:cron with a valid expr (cron branch is exported)", () => {
+      // The injection site only calls computeReminderIdempotencyKey for kind:at
+      // jobs, but the cron branch is live in the exported function. Verify it
+      // returns a deterministic hash key rather than undefined.
+      const key = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "cron", expr: "0 9 * * *" } as unknown as {
+          kind: "at";
+          at: string;
+        },
+      });
+      expect(typeof key).toBe("string");
+      expect(key).toHaveLength(64);
+      expect(key).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("returns undefined for kind:cron with an empty expr", () => {
+      const key = computeReminderIdempotencyKey({
+        ...BASE,
+        schedule: { kind: "cron", expr: "" } as unknown as {
+          kind: "at";
+          at: string;
+        },
+      });
+      expect(key).toBeUndefined();
+    });
+  });
+
+  describe("cron.add idempotencyKey injection", () => {
+    const AT_ISO = new Date(1_700_000_000_000).toISOString();
+
+    function buildReminderWithDelivery(overrides: Record<string, unknown> = {}) {
+      return {
+        name: "reminder",
+        schedule: { kind: "at", at: AT_ISO },
+        payload: { kind: "agentTurn", message: "ping me" },
+        delivery: { mode: "announce", channel: "telegram", to: "-1001234" },
+        ...overrides,
+      };
+    }
+
+    it("attaches idempotencyKey when userId and originSessionId are present", async () => {
+      const tool = createTestCronTool({
+        userId: "user-42",
+        originSessionId: "sess-abc",
+        agentSessionKey: "agent:main:telegram:group:-1001234",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      });
+      await tool.execute("call-idem-key", {
+        action: "add",
+        job: buildReminderWithDelivery(),
+      });
+
+      const params = expectSingleGatewayCallMethod("cron.add") as
+        | { idempotencyKey?: unknown }
+        | undefined;
+      expect(typeof params?.idempotencyKey).toBe("string");
+      expect(String(params?.idempotencyKey)).toHaveLength(64);
+      expect(String(params?.idempotencyKey)).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("does not attach idempotencyKey when userId is missing", async () => {
+      const tool = createTestCronTool({
+        originSessionId: "sess-abc",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      });
+      await tool.execute("call-no-userid", {
+        action: "add",
+        job: buildReminderWithDelivery(),
+      });
+
+      const params = expectSingleGatewayCallMethod("cron.add") as
+        | { idempotencyKey?: unknown }
+        | undefined;
+      expect(params?.idempotencyKey).toBeUndefined();
+    });
+
+    it("does not attach idempotencyKey when originSessionId is missing", async () => {
+      const tool = createTestCronTool({
+        userId: "user-42",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      });
+      await tool.execute("call-no-sessid", {
+        action: "add",
+        job: buildReminderWithDelivery(),
+      });
+
+      const params = expectSingleGatewayCallMethod("cron.add") as
+        | { idempotencyKey?: unknown }
+        | undefined;
+      expect(params?.idempotencyKey).toBeUndefined();
+    });
+
+    it("does not attach idempotencyKey for at-kind job without delivery target", async () => {
+      const tool = createTestCronTool({
+        userId: "user-42",
+        originSessionId: "sess-abc",
+      });
+      await tool.execute("call-no-target", {
+        action: "add",
+        job: {
+          name: "no-delivery",
+          schedule: { kind: "at", at: AT_ISO },
+          payload: { kind: "systemEvent", text: "wake up" },
+        },
+      });
+
+      const params = expectSingleGatewayCallMethod("cron.add") as
+        | { idempotencyKey?: unknown }
+        | undefined;
+      expect(params?.idempotencyKey).toBeUndefined();
+    });
+
+    it("produces the same key for two adds with identical {userId,sessionId,body,target,fireAt}", async () => {
+      const opts = {
+        userId: "user-42",
+        originSessionId: "sess-abc",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      };
+      const job = buildReminderWithDelivery();
+
+      const tool1 = createTestCronTool(opts);
+      await tool1.execute("call-dedup-1", { action: "add", job });
+      const key1 = (readGatewayCall(0).params as { idempotencyKey?: string } | undefined)
+        ?.idempotencyKey;
+
+      callGatewayMock.mockClear();
+      callGatewayMock.mockResolvedValue({ ok: true });
+
+      const tool2 = createTestCronTool(opts);
+      await tool2.execute("call-dedup-2", { action: "add", job });
+      const key2 = (readGatewayCall(0).params as { idempotencyKey?: string } | undefined)
+        ?.idempotencyKey;
+
+      expect(key1).toBeDefined();
+      expect(key1).toBe(key2);
+    });
+
+    it("produces different keys for different sessionIds with same job", async () => {
+      const job = buildReminderWithDelivery();
+
+      const tool1 = createTestCronTool({
+        userId: "user-42",
+        originSessionId: "sess-abc",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      });
+      await tool1.execute("call-diff-sess-1", { action: "add", job });
+      const key1 = (readGatewayCall(0).params as { idempotencyKey?: string } | undefined)
+        ?.idempotencyKey;
+
+      callGatewayMock.mockClear();
+      callGatewayMock.mockResolvedValue({ ok: true });
+
+      const tool2 = createTestCronTool({
+        userId: "user-42",
+        originSessionId: "sess-xyz",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      });
+      await tool2.execute("call-diff-sess-2", { action: "add", job });
+      const key2 = (readGatewayCall(0).params as { idempotencyKey?: string } | undefined)
+        ?.idempotencyKey;
+
+      expect(key1).toBeDefined();
+      expect(key2).toBeDefined();
+      expect(key1).not.toBe(key2);
+    });
+
+    it("propagates dedup-rejection error from gateway back to caller", async () => {
+      const existingId = "job-existing-99";
+      const dupKey = "a".repeat(64);
+      callGatewayMock.mockRejectedValueOnce(
+        new Error(`cron job with idempotencyKey ${dupKey} already exists (jobId=${existingId})`),
+      );
+
+      const tool = createTestCronTool({
+        userId: "user-42",
+        originSessionId: "sess-abc",
+        currentDeliveryContext: { channel: "telegram", to: "-1001234" },
+      });
+
+      await expect(
+        tool.execute("call-dup-reject", {
+          action: "add",
+          job: buildReminderWithDelivery(),
+        }),
+      ).rejects.toThrow(`cron job with idempotencyKey ${dupKey} already exists`);
     });
   });
 });

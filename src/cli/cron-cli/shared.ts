@@ -253,13 +253,10 @@ const formatSchedule = (schedule: CronSchedule | undefined) => {
   if (schedule?.kind === "at") {
     return `at ${formatIsoMinute(schedule.at)}`;
   }
-  if (schedule?.kind === "every") {
-    return `every ${formatDurationHuman(schedule.everyMs)}`;
-  }
   if (schedule?.kind !== "cron") {
     return "-";
   }
-  const base = schedule.tz ? `cron ${schedule.expr} @ ${schedule.tz}` : `cron ${schedule.expr}`;
+  const base = `cron ${schedule.expr}`;
   const staggerMs = resolveCronStaggerMs(schedule);
   if (staggerMs <= 0) {
     return `${base} (exact)`;
@@ -373,10 +370,7 @@ export function printCronList(
       return colorize(rich, theme.muted, statusLabel);
     })();
 
-    const coloredTarget =
-      job.sessionTarget === "main"
-        ? colorize(rich, theme.accent, targetLabel)
-        : colorize(rich, theme.accentBright, targetLabel);
+    const coloredTarget = colorize(rich, theme.accentBright, targetLabel);
     const coloredAgent = job.agentId
       ? colorize(rich, theme.info, agentLabel)
       : colorize(rich, theme.muted, agentLabel);

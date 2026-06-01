@@ -6,16 +6,14 @@ import type { CronJobBase } from "./types-shared.js";
 
 export type CronSchedule =
   | { kind: "at"; at: string }
-  | { kind: "every"; everyMs: number; anchorMs?: number }
   | {
       kind: "cron";
       expr: string;
-      tz?: string;
       /** Optional deterministic stagger window in milliseconds (0 keeps exact schedule). */
       staggerMs?: number;
     };
 
-export type CronSessionTarget = "main" | "isolated" | "current" | `session:${string}`;
+export type CronSessionTarget = "isolated";
 export type CronWakeMode = "next-heartbeat" | "now";
 
 export type CronMessageChannel = ChannelId;
@@ -199,9 +197,19 @@ type CronAgentTurnPayloadPatch = {
 } & Partial<Omit<CronAgentTurnPayloadFields, "toolsAllow">> & {
     toolsAllow?: string[] | null;
   };
+export type CronRunningState = {
+  runId: string;
+  pid?: number;
+  startedAtMs?: number;
+  /** Set to true after a kind:at subprocess exits ok to signal atomic removal is pending. */
+  removeRequested?: boolean;
+};
+
 export type CronJobState = {
   nextRunAtMs?: number;
   runningAtMs?: number;
+  /** In-flight subprocess/run tracking. Cleared by boot reconcile or after child exits. */
+  running?: CronRunningState;
   lastRunAtMs?: number;
   /** Preferred execution outcome field. */
   lastRunStatus?: CronRunStatus;
@@ -221,6 +229,10 @@ export type CronJobState = {
   lastFailureAlertAtMs?: number;
   /** Number of consecutive schedule computation errors. Auto-disables job after threshold. */
   scheduleErrorCount?: number;
+  /** Number of runs skipped due to subprocess collision (previous run still alive). */
+  missedCount?: number;
+  /** Timestamp (ms) of the most recent skip-on-collision event. */
+  lastMissedAtMs?: number;
   /** Explicit delivery outcome, separate from execution outcome. */
   lastDeliveryStatus?: CronDeliveryStatus;
   /** Delivery-specific error text when available. */
@@ -233,6 +245,8 @@ export type CronJobState = {
   lastFailureNotificationDeliveryStatus?: CronDeliveryStatus;
   /** Delivery-specific error for the last failed run's failure notification. */
   lastFailureNotificationDeliveryError?: string;
+  /** Timestamp (ms) when the job was atomically removed after a successful kind:at run. */
+  removedAtMs?: number;
 };
 
 export type CronJob = CronJobBase<
@@ -243,6 +257,8 @@ export type CronJob = CronJobBase<
   CronDelivery,
   CronFailureAlert | false
 > & {
+  // Caller-supplied dedup key. ops.add() rejects duplicates within the unexpired job set.
+  idempotencyKey?: string;
   state: CronJobState;
 };
 

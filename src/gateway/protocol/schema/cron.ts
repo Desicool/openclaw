@@ -18,12 +18,7 @@ function cronAgentTurnPayloadSchema(params: { message: TSchema; toolsAllow: TSch
   );
 }
 
-const CronSessionTargetSchema = Type.Union([
-  Type.Literal("main"),
-  Type.Literal("isolated"),
-  Type.Literal("current"),
-  Type.String({ pattern: "^session:.+" }),
-]);
+const CronSessionTargetSchema = Type.Literal("isolated");
 const CronWakeModeSchema = Type.Union([Type.Literal("next-heartbeat"), Type.Literal("now")]);
 function cronRunStatusSchema(options: Record<string, unknown> = {}) {
   return Type.Union([Type.Literal("ok"), Type.Literal("error"), Type.Literal("skipped")], options);
@@ -114,6 +109,7 @@ const CronCommonOptionalFields = {
   description: Type.Optional(Type.String()),
   enabled: Type.Optional(Type.Boolean()),
   deleteAfterRun: Type.Optional(Type.Boolean()),
+  idempotencyKey: Type.Optional(NonEmptyString),
 };
 
 function cronIdOrJobIdParams(extraFields: Record<string, TSchema>) {
@@ -151,17 +147,8 @@ export const CronScheduleSchema = Type.Union([
   ),
   Type.Object(
     {
-      kind: Type.Literal("every"),
-      everyMs: Type.Integer({ minimum: 1 }),
-      anchorMs: Type.Optional(Type.Integer({ minimum: 0 })),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
       kind: Type.Literal("cron"),
       expr: NonEmptyString,
-      tz: Type.Optional(Type.String()),
       staggerMs: Type.Optional(Type.Integer({ minimum: 0 })),
     },
     { additionalProperties: false },
@@ -280,10 +267,21 @@ const CronFailureNotificationDeliverySchema = Type.Object(
   { additionalProperties: false },
 );
 
+const CronRunningStateSchema = Type.Object(
+  {
+    runId: NonEmptyString,
+    pid: Type.Optional(Type.Integer({ minimum: 1 })),
+    startedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    removeRequested: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
 export const CronJobStateSchema = Type.Object(
   {
     nextRunAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
     runningAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    running: Type.Optional(CronRunningStateSchema),
     lastRunAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
     lastRunStatus: Type.Optional(CronRunStatusSchema),
     lastStatus: Type.Optional(DeprecatedCronRunStatusSchema),
@@ -294,6 +292,8 @@ export const CronJobStateSchema = Type.Object(
     lastDurationMs: Type.Optional(Type.Integer({ minimum: 0 })),
     consecutiveErrors: Type.Optional(Type.Integer({ minimum: 0 })),
     consecutiveSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
+    missedCount: Type.Optional(Type.Integer({ minimum: 0 })),
+    lastMissedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
     lastDelivered: Type.Optional(Type.Boolean()),
     lastDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
     lastDeliveryError: Type.Optional(Type.String()),
@@ -301,6 +301,7 @@ export const CronJobStateSchema = Type.Object(
     lastFailureNotificationDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
     lastFailureNotificationDeliveryError: Type.Optional(Type.String()),
     lastFailureAlertAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    removedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   { additionalProperties: false },
 );
@@ -337,6 +338,7 @@ export const CronJobSchema = Type.Object(
     description: Type.Optional(Type.String()),
     enabled: Type.Boolean(),
     deleteAfterRun: Type.Optional(Type.Boolean()),
+    idempotencyKey: Type.Optional(NonEmptyString),
     createdAtMs: Type.Integer({ minimum: 0 }),
     updatedAtMs: Type.Integer({ minimum: 0 }),
     schedule: CronScheduleSchema,

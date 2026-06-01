@@ -38,6 +38,9 @@ describe("CronService store load", () => {
     const enqueueSystemEvent = vi.fn();
     const requestHeartbeat = vi.fn();
 
+    // Intentionally a legacy "main" session job with an agentTurn payload —
+    // this is an invalid combination that should be skipped at execution time.
+    // Use a type cast since CronJob no longer admits sessionTarget "main".
     const job = {
       id: "job-1",
       enabled: true,
@@ -49,7 +52,7 @@ describe("CronService store load", () => {
       payload: { kind: "agentTurn", message: "bad" },
       state: {},
       name: "bad",
-    } satisfies CronJob;
+    } as unknown as CronJob;
 
     await writeCronStoreSnapshot({ storePath, jobs: [job] });
 
@@ -60,6 +63,7 @@ describe("CronService store load", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      schedulerLockPath: null,
     });
 
     await cron.start();
@@ -71,7 +75,7 @@ describe("CronService store load", () => {
 
     const jobs = await cron.list({ includeDisabled: true });
     expect(jobs[0]?.state.lastStatus).toBe("skipped");
-    expect(jobs[0]?.state.lastError).toMatch(/main cron jobs require payload\.kind/i);
+    expect(jobs[0]?.state.lastError).toMatch(/main.*job.*require.*payload\.kind/i);
 
     cron.stop();
   });

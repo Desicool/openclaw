@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { resolveFailoverReasonFromError } from "../../agents/failover-error.js";
 import { formatEmbeddedAgentExecutionPhase } from "../../agents/pi-embedded-runner/execution-phase.js";
 import { readSessionEntry } from "../../config/sessions/store-load.js";
@@ -20,6 +24,7 @@ import {
   createRunningTaskRun,
   failTaskRunByRunId,
 } from "../../tasks/detached-task-runtime.js";
+import { resolveConfigDir } from "../../utils.js";
 import { deliveryContextFromSession } from "../../utils/delivery-context.shared.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
 import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
@@ -32,7 +37,13 @@ import {
   summarizeCronRunDiagnostics,
 } from "../run-diagnostics.js";
 import { createCronExecutionId } from "../run-id.js";
-import { sweepCronRunSessions } from "../session-reaper.js";
+import {
+  buildResultFileRelativePath,
+  tryParseStdoutMarkerLine,
+  validateCronRunnerResultFile,
+  type CronRunnerResultStatus,
+} from "../runner-protocol.js";
+import { sweepCronRunsArtifacts } from "../session-reaper.js";
 import type {
   CronAgentExecutionPhase,
   CronAgentExecutionPhaseUpdate,
@@ -59,6 +70,7 @@ import {
   resolveJobPayloadTextForMain,
 } from "./jobs.js";
 import { locked } from "./locked.js";
+import type { CronSubprocessEntry } from "./state.js";
 import type { CronEvent, CronServiceState } from "./state.js";
 import { ensureLoaded, persist } from "./store.js";
 import { resolveCronJobTimeoutMs } from "./timeout-policy.js";
@@ -173,8 +185,10 @@ export async function executeJobCoreWithTimeout(
     resolveTimeout = resolve;
   });
 
+  // Legacy "main" jobs (warn-not-refuse) have a systemEvent payload; only
+  // agentTurn jobs need the execution-start watchdog deferral.
   const deferTimeoutUntilExecutionStart =
-    job.sessionTarget !== "main" && job.payload.kind === "agentTurn";
+    (job.sessionTarget as string) !== "main" && job.payload.kind === "agentTurn";
   const triggerTimeout = (reason: string) => {
     if (runAbortController.signal.aborted) {
       return;
@@ -475,15 +489,13 @@ function resolveCronTaskChildSessionKey(params: {
   job: CronJob;
   startedAt: number;
 }): string | undefined {
-  if (params.job.sessionTarget === "main") {
+  // Legacy "main" jobs (warn-not-refuse) still resolve the main session key.
+  if ((params.job.sessionTarget as string) === "main") {
     return resolveMainSessionCronRunSessionKey(params.job, params.startedAt);
   }
   const explicitSessionKey = params.job.sessionKey?.trim();
   if (explicitSessionKey) {
     return explicitSessionKey;
-  }
-  if (params.job.sessionTarget !== "isolated") {
-    return undefined;
   }
   return resolveCronAgentSessionKey({
     sessionKey: `cron:${params.job.id}`,
@@ -849,21 +861,7 @@ export function applyJobResult(
     startedAt: number;
     endedAt: number;
   },
-  opts?: {
-    // Preserve recurring "every" anchors for manual force runs.
-    preserveSchedule?: boolean;
-  },
 ): boolean {
-  const prevLastRunAtMs = job.state.lastRunAtMs;
-  const computeNextWithPreservedLastRun = (nowMs: number) => {
-    const saved = job.state.lastRunAtMs;
-    job.state.lastRunAtMs = prevLastRunAtMs;
-    try {
-      return computeJobNextRunAtMs(job, nowMs);
-    } finally {
-      job.state.lastRunAtMs = saved;
-    }
-  };
   job.state.runningAtMs = undefined;
   job.state.lastRunAtMs = result.startedAt;
   job.state.lastRunStatus = result.status;
@@ -995,10 +993,7 @@ export function applyJobResult(
       const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
       let normalNext: number | undefined;
       try {
-        normalNext =
-          opts?.preserveSchedule && job.schedule.kind === "every"
-            ? computeNextWithPreservedLastRun(result.endedAt)
-            : computeJobNextRunAtMs(job, result.endedAt);
+        normalNext = computeJobNextRunAtMs(job, result.endedAt);
       } catch (err) {
         // If the schedule expression/timezone throws (croner edge cases),
         // record the schedule error (auto-disables after repeated failures)
@@ -1031,10 +1026,7 @@ export function applyJobResult(
     } else if (isJobEnabled(job)) {
       let naturalNext: number | undefined;
       try {
-        naturalNext =
-          opts?.preserveSchedule && job.schedule.kind === "every"
-            ? computeNextWithPreservedLastRun(result.endedAt)
-            : computeJobNextRunAtMs(job, result.endedAt);
+        naturalNext = computeJobNextRunAtMs(job, result.endedAt);
       } catch (err) {
         // If the schedule expression/timezone throws (croner edge cases),
         // record the schedule error (auto-disables after repeated failures)
@@ -1185,6 +1177,10 @@ function armRunningRecheckTimer(state: CronServiceState) {
 }
 
 export async function onTimer(state: CronServiceState) {
+  // Stopping flag: skip future ticks when graceful shutdown is in progress.
+  if (state.stopping) {
+    return;
+  }
   if (state.running) {
     // Re-arm the timer so the scheduler keeps ticking even when a job is
     // still executing.  Without this, a long-running job (e.g. an agentTurn
@@ -1318,44 +1314,17 @@ export async function onTimer(state: CronServiceState) {
       });
     }
   } finally {
-    // Piggyback session reaper on timer tick (self-throttled to every 5 min).
-    // Placed in `finally` so the reaper runs even when a long-running job keeps
-    // `state.running` true across multiple timer ticks — the early return at the
-    // top of onTimer would otherwise skip the reaper indefinitely.
-    const storePaths = new Set<string>();
-    if (state.deps.resolveSessionStorePath) {
-      const defaultAgentId = state.deps.defaultAgentId ?? DEFAULT_AGENT_ID;
-      if (state.store?.jobs?.length) {
-        for (const job of state.store.jobs) {
-          const agentId =
-            typeof job.agentId === "string" && job.agentId.trim() ? job.agentId : defaultAgentId;
-          storePaths.add(state.deps.resolveSessionStorePath(agentId));
-        }
-      } else {
-        storePaths.add(state.deps.resolveSessionStorePath(defaultAgentId));
-      }
-    } else if (state.deps.sessionStorePath) {
-      storePaths.add(state.deps.sessionStorePath);
-    }
-
-    if (storePaths.size > 0) {
-      const nowMs = state.deps.nowMs();
-      for (const storePath of storePaths) {
-        try {
-          await sweepCronRunSessions({
-            cronConfig: state.deps.cronConfig,
-            sessionStorePath: storePath,
-            nowMs,
-            log: state.deps.log,
-          });
-        } catch (err) {
-          state.deps.log.warn({ err: String(err), storePath }, "cron: session reaper sweep failed");
-        }
-      }
-    }
-
+    // Reset running flag and re-arm before the reaper sweep so callers
+    // waiting on state.running see the scheduler back online immediately.
     state.running = false;
     armTimer(state);
+    // Phase 3.2: subprocess execution — artifacts-only sweep; fire-and-forget
+    // so the scheduler restart is not delayed by async filesystem cleanup.
+    // Placed in `finally` so the reaper runs even when a long-running job keeps
+    // `state.running` true across multiple timer ticks.
+    sweepCronRunsArtifacts({ nowMs: state.deps.nowMs() }).catch((err) => {
+      state.deps.log.warn({ err: String(err) }, "cron: session reaper sweep failed");
+    });
   }
 }
 
@@ -1365,6 +1334,7 @@ function isRunnableJob(params: {
   skipJobIds?: ReadonlySet<string>;
   skipAtIfAlreadyRan?: boolean;
   allowCronMissedRunByLastRun?: boolean;
+  pidTable?: ReadonlyMap<string, CronSubprocessEntry>;
 }): boolean {
   const { job, nowMs } = params;
   if (!job.state) {
@@ -1377,6 +1347,13 @@ function isRunnableJob(params: {
     return false;
   }
   if (typeof job.state.runningAtMs === "number") {
+    return false;
+  }
+  // Subprocess collision guard: if a child is still alive for this jobId, skip and record miss.
+  const pidEntry = params.pidTable?.get(job.id);
+  if (pidEntry && pidEntry.child.exitCode === null) {
+    job.state.missedCount = (job.state.missedCount ?? 0) + 1;
+    job.state.lastMissedAtMs = params.nowMs;
     return false;
   }
   if (params.skipAtIfAlreadyRan && job.schedule.kind === "at" && job.state.lastStatus) {
@@ -1460,6 +1437,7 @@ function collectRunnableJobs(
       skipJobIds: opts?.skipJobIds,
       skipAtIfAlreadyRan: opts?.skipAtIfAlreadyRan,
       allowCronMissedRunByLastRun: opts?.allowCronMissedRunByLastRun,
+      pidTable: state.pidTable,
     }),
   );
 }
@@ -1712,7 +1690,9 @@ export async function executeJobCore(
   if (abortSignal?.aborted) {
     return resolveAbortError();
   }
-  if (job.sessionTarget === "main") {
+  // Legacy "main" jobs (warn-not-refuse) are still executed via the main session
+  // path. Run `openclaw doctor --fix` to migrate to isolated execution.
+  if ((job.sessionTarget as string) === "main") {
     return await executeMainSessionCronJob(state, job, abortSignal, waitWithAbort);
   }
 
@@ -1843,6 +1823,243 @@ async function executeMainSessionCronJob(
   return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
 }
 
+const SUBPROCESS_SIGKILL_GRACE_MS = 10_000;
+
+/**
+ * Result-resolution discriminant for the subprocess exit path.
+ */
+type SubprocessOutcome =
+  | { kind: "file"; status: CronRunnerResultStatus; error?: string }
+  | { kind: "marker"; status: CronRunnerResultStatus }
+  | { kind: "no-terminal" };
+
+/**
+ * Execute a detached-agent cron job in a subprocess. Spawns
+ * `openclaw run-cron-job <jobId> --run-id <runId>` and reads the result file
+ * on exit. Returns the same shape as the inline path so downstream code is
+ * unchanged.
+ */
+async function executeJobInSubprocess(
+  state: CronServiceState,
+  job: CronJob,
+  abortSignal: AbortSignal | undefined,
+): Promise<
+  CronRunOutcome &
+    CronRunTelemetry & {
+      delivered?: boolean;
+      deliveryAttempted?: boolean;
+      delivery?: CronDeliveryTrace;
+    }
+> {
+  const openClawNode = state.openClawNode;
+  const openClawBin = state.openClawBin;
+  // Caller guarantees both are set before routing here.
+  if (!openClawNode || !openClawBin) {
+    return {
+      status: "error",
+      error: "cron: subprocess mode not configured (openClawNode/openClawBin missing)",
+    };
+  }
+
+  const runId = crypto.randomUUID();
+  const jobId = job.id;
+  const startedAtMs = state.deps.nowMs();
+
+  // Persist running state BEFORE spawn so a parent crash leaves an orphaned
+  // marker that boot-reconcile can detect and clean up.
+  const runningState: { runId: string; pid?: number; startedAtMs: number } = {
+    runId,
+    startedAtMs,
+  };
+  job.state.running = runningState;
+  // Flush the pre-spawn running record to disk.
+  await persist(state, { stateOnly: true });
+
+  // Spawn the child process.
+  const child = spawn(openClawNode, [openClawBin, "run-cron-job", jobId, "--run-id", runId], {
+    env: {
+      ...process.env,
+      OPENCLAW_CRON_RUNNER: "1",
+      OPENCLAW_CRON_RUN_ID: runId,
+      OPENCLAW_CRON_JOB_ID: jobId,
+    },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+
+  // Update running state with PID now that we have it.
+  if (typeof child.pid === "number") {
+    runningState.pid = child.pid;
+    job.state.running = runningState;
+    await persist(state, { stateOnly: true }).catch(() => undefined);
+  }
+
+  // Register in pidTable for collision detection and signal propagation.
+  const entry: CronSubprocessEntry = {
+    pid: child.pid ?? 0,
+    runId,
+    startedAtMs,
+    child,
+  };
+  state.pidTable.set(jobId, entry);
+
+  // Collect stdout lines to find the marker (best-effort live optimization).
+  let lastMarker: ReturnType<typeof tryParseStdoutMarkerLine> = null;
+  const stdoutChunks: Buffer[] = [];
+  if (child.stdout) {
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+    });
+  }
+
+  // Wire up AbortSignal → SIGTERM → SIGKILL with grace.
+  let killGraceTimer: NodeJS.Timeout | undefined;
+  const onAbort = () => {
+    if (child.exitCode !== null) {
+      return;
+    }
+    child.kill("SIGTERM");
+    killGraceTimer = setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, SUBPROCESS_SIGKILL_GRACE_MS);
+  };
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      onAbort();
+    } else {
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  // Wait for child exit.
+  await new Promise<void>((resolve) => {
+    child.once("close", () => resolve());
+  });
+
+  // Cleanup abort listener and grace timer.
+  if (abortSignal) {
+    abortSignal.removeEventListener("abort", onAbort);
+  }
+  if (killGraceTimer) {
+    clearTimeout(killGraceTimer);
+  }
+
+  // Remove from pidTable.
+  state.pidTable.delete(jobId);
+
+  // Parse the last stdout marker line.
+  const stdoutText = Buffer.concat(stdoutChunks).toString("utf8");
+  for (const line of stdoutText.split("\n")) {
+    const parsed = tryParseStdoutMarkerLine(line);
+    if (parsed) {
+      lastMarker = parsed;
+    }
+  }
+
+  // Resolve outcome: result file is authoritative.
+  const runsDir = path.join(resolveConfigDir(), "cron", "runs");
+  const resultRelPath = buildResultFileRelativePath(jobId, runId);
+  const resultFilePath = path.join(runsDir, resultRelPath);
+
+  let outcome: SubprocessOutcome;
+  try {
+    const raw = await fs.readFile(resultFilePath, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (validateCronRunnerResultFile(parsed)) {
+      outcome = { kind: "file", status: parsed.status, error: parsed.error };
+    } else if (lastMarker) {
+      outcome = { kind: "marker", status: lastMarker.status };
+    } else {
+      outcome = { kind: "no-terminal" };
+    }
+  } catch {
+    if (lastMarker) {
+      outcome = { kind: "marker", status: lastMarker.status };
+    } else {
+      outcome = { kind: "no-terminal" };
+    }
+  }
+
+  // Translate outcome to CronRunStatus. "timeout" from the runner protocol
+  // maps to "error" in the parent's CronRunStatus (which has no "timeout" variant).
+  function toRunStatus(s: CronRunnerResultStatus): CronRunStatus {
+    return s === "timeout" ? "error" : s;
+  }
+
+  let finalStatus: CronRunStatus;
+  let finalError: string | undefined;
+  if (outcome.kind === "file") {
+    finalStatus = toRunStatus(outcome.status);
+    finalError = outcome.error;
+  } else if (outcome.kind === "marker") {
+    finalStatus = toRunStatus(outcome.status);
+  } else {
+    finalStatus = "error";
+    finalError = "cron: subprocess exited without a terminal record";
+  }
+
+  // §5 commit protocol: for kind:at jobs that succeeded, atomically remove the
+  // job entry instead of leaving a disabled tombstone.
+  if (finalStatus === "ok" && job.schedule.kind === "at") {
+    // Crash-safe: mark removeRequested on the running record and flush to
+    // jobs-state.json BEFORE touching jobs.json. If the parent crashes here,
+    // boot reconcile will re-enter commitAtomicRemoveAt on next restart.
+    if (job.state.running) {
+      job.state.running = { ...job.state.running, removeRequested: true };
+    }
+    await persist(state, { stateOnly: true }).catch(() => undefined);
+    // STEP A + B: remove from jobs.json (and clear state entry) atomically.
+    await commitAtomicRemoveAt(state, jobId);
+    return { status: finalStatus, error: finalError };
+  }
+
+  // Clear the running marker from job state and persist the terminal record.
+  job.state.running = undefined;
+  await persist(state, { stateOnly: true }).catch(() => undefined);
+
+  return { status: finalStatus, error: finalError };
+}
+
+/**
+ * Commit the atomic-remove protocol for a kind:at job that exited ok.
+ *
+ * §5 protocol — STEP A + B:
+ *   STEP A: write jobs.json without the entry (and jobs-state.json without the state entry).
+ *   STEP B: running is cleared implicitly because the job's state entry is removed entirely.
+ *
+ * Idempotent: if the job is already absent from jobs.json this is a no-op.
+ * Protected by the store lock so concurrent callers (timer tick, boot reconcile) are safe.
+ */
+export async function commitAtomicRemoveAt(state: CronServiceState, jobId: string): Promise<void> {
+  await locked(state, async () => {
+    // Use the current in-memory store: the caller has already set
+    // running.removeRequested = true and persisted it (stateOnly) so the
+    // flag is durable on disk. We do NOT force-reload here because
+    // loadCronStore runs boot-reconcile which would clear running (and
+    // removeRequested) before we can check it.
+    await ensureLoaded(state, { skipRecompute: true });
+    if (!state.store) {
+      return;
+    }
+    const job = state.store.jobs.find((j) => j.id === jobId);
+    // Already removed (e.g. idempotent retry or concurrent explicit removal) — no-op.
+    if (!job) {
+      return;
+    }
+    // Guard: only proceed if removeRequested is still signalled. A concurrent
+    // removal (e.g. explicit cron.remove call) may have already cleaned up.
+    if (!job.state.running?.removeRequested) {
+      return;
+    }
+    // STEP A: remove job from both jobs.json and jobs-state.json in one persist.
+    state.store.jobs = state.store.jobs.filter((j) => j.id !== jobId);
+    await persist(state);
+    emit(state, { jobId, action: "removed", job });
+    armTimer(state);
+  });
+}
+
 async function executeDetachedCronJob(
   state: CronServiceState,
   job: CronJob,
@@ -1881,6 +2098,14 @@ async function executeDetachedCronJob(
     };
   }
 
+  // Subprocess mode: when both openClawNode and openClawBin are set on state,
+  // execute the job in a child process instead of inline. The subprocess writes
+  // a result file that this parent reads back on exit.
+  if (state.openClawNode && state.openClawBin) {
+    return await executeJobInSubprocess(state, job, abortSignal);
+  }
+
+  // Inline fallback: used in tests and when subprocess paths are not configured.
   const res = await state.deps.runIsolatedAgentJob({
     job,
     message: job.payload.message,
