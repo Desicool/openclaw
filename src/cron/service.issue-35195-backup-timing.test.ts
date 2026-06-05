@@ -33,10 +33,10 @@ describe("cron backup timing for edit", () => {
           enabled: true,
           createdAtMs: base,
           updatedAtMs: base,
-          schedule: { kind: "every", everyMs: 60_000, anchorMs: base },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "* * * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "hello" },
+          payload: { kind: "agentTurn", message: "hello" },
           state: {},
         },
       ],
@@ -55,14 +55,14 @@ describe("cron backup timing for edit", () => {
       await service.start();
 
       await service.update("job-35195", {
-        payload: { kind: "systemEvent", text: "edited" },
+        payload: { kind: "agentTurn", message: "edited" },
       });
 
       expect(await pathExists(`${store.storePath}.migrated`)).toBe(false);
       const persistedAfterEdit = await loadCronStore(store.storePath);
       expect(persistedAfterEdit.jobs[0]?.payload).toEqual({
-        kind: "systemEvent",
-        text: "edited",
+        kind: "agentTurn",
+        message: "edited",
       });
     } finally {
       service.stop();

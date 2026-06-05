@@ -436,7 +436,6 @@ describe("normalizeCronJobCreate", () => {
     expect(normalized.schedule).toEqual({
       kind: "cron",
       expr: "*/10 * * * *",
-      tz: "UTC",
     });
     expect(normalized.sessionTarget).toBe("isolated");
     expect(normalized.payload).toEqual({
@@ -627,72 +626,6 @@ describe("normalizeCronJobCreate", () => {
     expect(validateCronAddParams(normalized)).toBe(true);
   });
 
-  it("prunes staggerMs from every schedules for create jobs", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "every-prune",
-      schedule: {
-        kind: "every",
-        everyMs: 60_000,
-        staggerMs: 30_000,
-      },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: {
-        kind: "systemEvent",
-        text: "hi",
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-    });
-    expect(validateCronAddParams(normalized)).toBe(true);
-  });
-
-  it("normalizes string every schedule numbers for create jobs", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "every-string",
-      schedule: {
-        everyMs: "60000",
-        anchorMs: "123.9",
-      },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: {
-        kind: "systemEvent",
-        text: "hi",
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-      anchorMs: 123,
-    });
-    expect(validateCronAddParams(normalized)).toBe(true);
-  });
-
-  it("normalizes string every schedule numbers for patches", () => {
-    const normalized = normalizeCronJobPatch({
-      schedule: {
-        kind: "every",
-        everyMs: "60000",
-        anchorMs: "123.9",
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-      anchorMs: 123,
-    });
-    expect(validateCronUpdateParams({ id: "job", patch: normalized })).toBe(true);
-  });
-
   it("keeps invalid every schedule numbers invalid for validation", () => {
     const zeroEvery = normalizeCronJobCreate({
       name: "every-zero",
@@ -745,69 +678,24 @@ describe("normalizeCronJobCreate", () => {
     expect(delivery.to).toBe("123");
   });
 
-  it("resolves current sessionTarget to a persistent session when context is available", () => {
-    const normalized = normalizeCronJobCreate(
-      {
-        name: "current-session",
-        schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "current",
-        payload: { kind: "agentTurn", message: "hello" },
-      },
-      { sessionContext: { sessionKey: "agent:main:discord:group:ops" } },
-    ) as unknown as Record<string, unknown>;
-
-    expect(normalized.sessionTarget).toBe("session:agent:main:discord:group:ops");
-  });
-
-  it("falls back current sessionTarget to isolated without context", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "current-without-context",
+  it("falls back current and unknown sessionTargets to isolated", () => {
+    const current = normalizeCronJobCreate({
+      name: "current-session",
       schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "current",
       payload: { kind: "agentTurn", message: "hello" },
     }) as unknown as Record<string, unknown>;
 
-    expect(normalized.sessionTarget).toBe("isolated");
-  });
+    expect(current.sessionTarget).toBe("isolated");
 
-  it("preserves custom session ids with a session: prefix", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "custom-session",
+    const main = normalizeCronJobCreate({
+      name: "main-session",
       schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "session:MySessionID",
+      sessionTarget: "main",
       payload: { kind: "agentTurn", message: "hello" },
     }) as unknown as Record<string, unknown>;
 
-    expect(normalized.sessionTarget).toBe("session:MySessionID");
-  });
-
-  it("preserves custom session ids with channel-native separators", () => {
-    const created = normalizeCronJobCreate({
-      name: "dingtalk-group",
-      schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "session:agent:main:dingtalk:group:cid3tmd4xb19xjfk/wogxwy2a==",
-      payload: { kind: "agentTurn", message: "hello" },
-    }) as unknown as Record<string, unknown>;
-
-    expect(created.sessionTarget).toBe(
-      "session:agent:main:dingtalk:group:cid3tmd4xb19xjfk/wogxwy2a==",
-    );
-
-    const patched = normalizeCronJobPatch({
-      sessionTarget: "session:..\\outside",
-    }) as unknown as Record<string, unknown>;
-    expect(patched.sessionTarget).toBe("session:..\\outside");
-  });
-
-  it("rejects null bytes in custom session ids", () => {
-    expect(() =>
-      normalizeCronJobCreate({
-        name: "null-byte-session",
-        schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "session:bad\0id",
-        payload: { kind: "agentTurn", message: "hello" },
-      }),
-    ).toThrow("invalid cron sessionTarget session id");
+    expect(main.sessionTarget).toBe("isolated");
   });
 });
 
@@ -1084,22 +972,5 @@ describe("normalizeCronJobPatch", () => {
     const schedule = normalized.schedule as Record<string, unknown>;
     expect(schedule).toEqual({ kind: "at" });
     expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(false);
-  });
-
-  it("prunes staggerMs from every schedules for patches", () => {
-    const normalized = normalizeCronJobPatch({
-      schedule: {
-        kind: "every",
-        everyMs: 60_000,
-        staggerMs: 30_000,
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-    });
-    expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
   });
 });

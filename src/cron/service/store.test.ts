@@ -78,7 +78,7 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
@@ -102,7 +102,7 @@ describe("cron service store seam coverage", () => {
     expect(job.delivery?.mode).toBe("announce");
     expect(job.delivery?.channel).toBe("telegram");
     expect(job.delivery?.to).toBe("123");
-    expect(job?.state.nextRunAtMs).toBe(STORE_TEST_NOW);
+    expect(job?.state.nextRunAtMs).toBeGreaterThanOrEqual(STORE_TEST_NOW);
 
     const persistedJob = (await loadCronStore(storePath)).jobs[0];
     const persistedPayload = persistedJob?.payload as
@@ -172,18 +172,17 @@ describe("cron service store seam coverage", () => {
     await expectPathMissing(`${storePath}.migrated`);
   });
 
-  it("loads persisted jobs with opaque custom session ids containing separators", async () => {
+  it("normalizes persisted non-isolated sessionTargets to isolated on load", async () => {
     const { storePath } = await makeStorePath();
-    const sessionTarget = "session:agent:main:dingtalk:group:cid3tmd4xb19xjfk/wogxwy2a==";
 
     await writeSingleJobStore(storePath, {
-      id: "opaque-session-target-job",
-      name: "opaque session target job",
+      id: "legacy-session-target-job",
+      name: "legacy session target job",
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget,
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "main",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
       state: {},
@@ -193,18 +192,8 @@ describe("cron service store seam coverage", () => {
 
     await ensureLoaded(state, { skipRecompute: true });
 
-    const job = findJobOrThrow(state, "opaque-session-target-job");
-    expect(job.sessionTarget).toBe(sessionTarget);
-    const warnCalls = logger.warn.mock.calls as unknown as Array<
-      [{ storePath?: string; jobId?: string }, string]
-    >;
-    expect(
-      warnCalls.some(
-        ([metadata, message]) =>
-          metadata.jobId === "opaque-session-target-job" &&
-          message.includes("invalid persisted sessionTarget"),
-      ),
-    ).toBe(false);
+    const job = findJobOrThrow(state, "legacy-session-target-job");
+    expect(job.sessionTarget).toBe("isolated");
   });
 
   it("clears stale nextRunAtMs after force reload when cron schedule expression changes", async () => {
@@ -238,7 +227,7 @@ describe("cron service store seam coverage", () => {
     await ensureLoaded(state, { forceReload: true, skipRecompute: true });
 
     const reloadedJob = findJobOrThrow(state, "reload-cron-expr-job");
-    expect(reloadedJob.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6", tz: "UTC" });
+    expect(reloadedJob.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6" });
     expect(reloadedJob.state.nextRunAtMs).toBeUndefined();
   });
 

@@ -152,9 +152,7 @@ function assertValidCronUpdateDelivery(params: {
   }
 
   const nextJob = structuredClone(params.currentJob);
-  applyJobPatch(nextJob, params.patch, {
-    defaultAgentId: params.defaultAgentId,
-  });
+  applyJobPatch(nextJob, params.patch);
   assertValidCronAnnounceDelivery({
     cfg: params.cfg,
     delivery: nextJob.delivery,

@@ -1,19 +1,6 @@
 import { resolveFailoverReasonFromError } from "../../agents/failover-error.js";
-import { readSessionEntry } from "../../config/sessions/store-load.js";
-import type { SessionEntry } from "../../config/sessions/types.js";
 import type { CronConfig, CronRetryOn } from "../../config/types.cron.js";
-import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
-import {
-  HEARTBEAT_SKIP_CRON_IN_PROGRESS,
-  isRetryableHeartbeatBusySkipReason,
-} from "../../infra/heartbeat-wake.js";
-import {
-  DEFAULT_AGENT_ID,
-  normalizeAgentId,
-  resolveAgentIdFromSessionKey,
-} from "../../routing/session-key.js";
-import { deliveryContextFromSession } from "../../utils/delivery-context.shared.js";
-import type { DeliveryContext } from "../../utils/delivery-context.types.js";
+import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
 import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
 import { resolveCronExecutionRetryHint } from "../retry-hint.js";
@@ -22,7 +9,6 @@ import {
   normalizeCronRunDiagnostics,
   summarizeCronRunDiagnostics,
 } from "../run-diagnostics.js";
-import { computeNextRunAtMs } from "../schedule.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
 import type {
   CronAgentExecutionPhaseUpdate,
@@ -57,16 +43,11 @@ import {
   recomputeNextRunsForMaintenance,
   recordScheduleComputeError,
   resolveJobErrorBackoffUntilMs,
-  resolveJobPayloadTextForMain,
 } from "./jobs.js";
 import { locked } from "./locked.js";
 import type { CronEvent, CronServiceState } from "./state.js";
 import { ensureLoaded, persist } from "./store.js";
-import {
-  resolveMainSessionCronRunSessionKey,
-  tryCreateCronTaskRun,
-  tryFinishCronTaskRun,
-} from "./task-runs.js";
+import { tryCreateCronTaskRun, tryFinishCronTaskRun } from "./task-runs.js";
 import { resolveCronJobTimeoutMs } from "./timeout-policy.js";
 
 export { DEFAULT_JOB_TIMEOUT_MS } from "./timeout-policy.js";
@@ -132,8 +113,7 @@ export async function executeJobCoreWithTimeout(
     resolveTimeout = resolve;
   });
 
-  const deferTimeoutUntilExecutionStart =
-    job.sessionTarget !== "main" && job.payload.kind === "agentTurn";
+  const deferTimeoutUntilExecutionStart = job.payload.kind === "agentTurn";
   const triggerTimeout = (reason: string) => {
     if (runAbortController.signal.aborted) {
       return;
@@ -186,30 +166,6 @@ function resolveRunConcurrency(state: CronServiceState): number {
     return 1;
   }
   return Math.max(1, Math.floor(raw));
-}
-
-function resolveMainSessionCronDeliveryContext(
-  state: CronServiceState,
-  job: CronJob,
-): DeliveryContext | undefined {
-  const targetSessionKey = job.sessionKey?.trim();
-  if (!targetSessionKey) {
-    return undefined;
-  }
-  const explicitAgentId = job.agentId?.trim();
-  const agentId = normalizeAgentId(
-    explicitAgentId || resolveAgentIdFromSessionKey(targetSessionKey),
-  );
-  const storePath = state.deps.resolveSessionStorePath?.(agentId) ?? state.deps.sessionStorePath;
-  if (!storePath) {
-    return undefined;
-  }
-  try {
-    const sessionEntry = readSessionEntry(storePath, targetSessionKey) as SessionEntry | undefined;
-    return deliveryContextFromSession(sessionEntry);
-  } catch {
-    return undefined;
-  }
 }
 
 /** Default max retries for cron jobs on transient errors (#24355). */
@@ -389,20 +345,9 @@ export function applyJobResult(
     endedAt: number;
   },
   opts?: {
-    // Preserve recurring "every" anchors for manual force runs.
     preserveSchedule?: boolean;
   },
 ): boolean {
-  const prevLastRunAtMs = job.state.lastRunAtMs;
-  const computeNextWithPreservedLastRun = (nowMs: number) => {
-    const saved = job.state.lastRunAtMs;
-    job.state.lastRunAtMs = prevLastRunAtMs;
-    try {
-      return computeJobNextRunAtMs(job, nowMs);
-    } finally {
-      job.state.lastRunAtMs = saved;
-    }
-  };
   job.state.runningAtMs = undefined;
   job.state.lastRunAtMs = result.startedAt;
   job.state.lastRunStatus = result.status;
@@ -446,7 +391,6 @@ export function applyJobResult(
 
   // Track consecutive errors for backoff / auto-disable; skipped runs use a
   // separate counter so opt-in skip alerts do not affect retry behavior.
-  const previousConsecutiveErrors = job.state.consecutiveErrors ?? 0;
   const alertConfig = resolveFailureAlert(state, job);
   if (result.status === "error") {
     job.state.consecutiveErrors = (job.state.consecutiveErrors ?? 0) + 1;
@@ -542,13 +486,7 @@ export function applyJobResult(
       const computeNormalNext = () => {
         if (!normalNextComputed) {
           try {
-            normalNext =
-              opts?.preserveSchedule && job.schedule.kind === "every"
-                ? computeNextWithPreservedLastRun(result.endedAt)
-                : (retryDecision.retryable || previousConsecutiveErrors > 0) &&
-                    job.schedule.kind === "every"
-                  ? computeNextRunAtMs(job.schedule, result.endedAt)
-                  : computeJobNextRunAtMs(job, result.endedAt);
+            normalNext = computeJobNextRunAtMs(job, result.endedAt);
           } catch (err) {
             // If the schedule expression/timezone throws (croner edge cases),
             // record the schedule error (auto-disables after repeated failures)
@@ -615,12 +553,7 @@ export function applyJobResult(
     } else if (isJobEnabled(job)) {
       let naturalNext: number | undefined;
       try {
-        naturalNext =
-          opts?.preserveSchedule && job.schedule.kind === "every"
-            ? computeNextWithPreservedLastRun(result.endedAt)
-            : previousConsecutiveErrors > 0 && job.schedule.kind === "every"
-              ? computeNextRunAtMs(job.schedule, result.endedAt)
-              : computeJobNextRunAtMs(job, result.endedAt);
+        naturalNext = computeJobNextRunAtMs(job, result.endedAt);
       } catch (err) {
         // If the schedule expression/timezone throws (croner edge cases),
         // record the schedule error (auto-disables after repeated failures)
@@ -1327,160 +1260,12 @@ export async function executeJobCore(
     status: "error" as const,
     error: abortErrorMessage(abortSignal),
   });
-  const waitWithAbort = async (ms: number) => {
-    if (!abortSignal) {
-      await new Promise<void>((resolve) => setTimeout(resolve, ms));
-      return;
-    }
-    if (abortSignal.aborted) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        abortSignal.removeEventListener("abort", onAbort);
-        resolve();
-      }, ms);
-      const onAbort = () => {
-        clearTimeout(timer);
-        abortSignal.removeEventListener("abort", onAbort);
-        resolve();
-      };
-      abortSignal.addEventListener("abort", onAbort, { once: true });
-    });
-  };
 
   if (abortSignal?.aborted) {
     return resolveAbortError();
   }
-  if (job.sessionTarget === "main") {
-    return await executeMainSessionCronJob(state, job, abortSignal, waitWithAbort);
-  }
 
   return await executeDetachedCronJob(state, job, abortSignal, resolveAbortError, options);
-}
-
-async function executeMainSessionCronJob(
-  state: CronServiceState,
-  job: CronJob,
-  abortSignal: AbortSignal | undefined,
-  waitWithAbort: (ms: number) => Promise<void>,
-): Promise<
-  CronRunOutcome &
-    CronRunTelemetry & {
-      delivered?: boolean;
-      deliveryAttempted?: boolean;
-      delivery?: CronDeliveryTrace;
-    }
-> {
-  const text = resolveJobPayloadTextForMain(job);
-  if (!text) {
-    const kind = job.payload.kind;
-    return {
-      status: "skipped",
-      error:
-        kind === "systemEvent"
-          ? "main job requires non-empty systemEvent text"
-          : 'main job requires payload.kind="systemEvent"',
-    };
-  }
-  const cronStartedAt =
-    typeof job.state.runningAtMs === "number" ? job.state.runningAtMs : state.deps.nowMs();
-  const cronRunSessionKey = resolveMainSessionCronRunSessionKey(job, cronStartedAt);
-  const deliveryContext = resolveMainSessionCronDeliveryContext(state, job);
-  state.deps.enqueueSystemEvent(text, {
-    agentId: job.agentId,
-    sessionKey: cronRunSessionKey,
-    contextKey: `cron:${job.id}`,
-    ...(deliveryContext ? { deliveryContext } : {}),
-  });
-  if (job.wakeMode === "now" && state.deps.runHeartbeatOnce) {
-    const reason = `cron:${job.id}`;
-    const maxWaitMs = state.deps.wakeNowHeartbeatBusyMaxWaitMs ?? 2 * 60_000;
-    const retryDelayMs = state.deps.wakeNowHeartbeatBusyRetryDelayMs ?? 250;
-    const waitStartedAt = state.deps.nowMs();
-
-    let heartbeatResult: HeartbeatRunResult;
-    for (;;) {
-      if (abortSignal?.aborted) {
-        return { status: "error", error: timeoutErrorMessage() };
-      }
-      heartbeatResult = await state.deps.runHeartbeatOnce({
-        source: "cron",
-        intent: "immediate",
-        reason,
-        agentId: job.agentId,
-        sessionKey: cronRunSessionKey,
-        heartbeat: { target: "last" },
-      });
-      if (
-        heartbeatResult.status !== "skipped" ||
-        !isRetryableHeartbeatBusySkipReason(heartbeatResult.reason)
-      ) {
-        break;
-      }
-      if (heartbeatResult.reason === HEARTBEAT_SKIP_CRON_IN_PROGRESS) {
-        // The active cron marker blocks direct wake-now until this job returns.
-        state.deps.requestHeartbeat({
-          source: "cron",
-          intent: "immediate",
-          reason,
-          agentId: job.agentId,
-          sessionKey: cronRunSessionKey,
-          heartbeat: { target: "last" },
-        });
-        return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
-      }
-      if (abortSignal?.aborted) {
-        return { status: "error", error: timeoutErrorMessage() };
-      }
-      if (state.deps.nowMs() - waitStartedAt > maxWaitMs) {
-        if (abortSignal?.aborted) {
-          return { status: "error", error: timeoutErrorMessage() };
-        }
-        state.deps.requestHeartbeat({
-          source: "cron",
-          intent: "immediate",
-          reason,
-          agentId: job.agentId,
-          sessionKey: cronRunSessionKey,
-          heartbeat: { target: "last" },
-        });
-        return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
-      }
-      await waitWithAbort(retryDelayMs);
-    }
-
-    if (heartbeatResult.status === "ran") {
-      return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
-    }
-    if (heartbeatResult.status === "skipped") {
-      return {
-        status: "skipped",
-        error: heartbeatResult.reason,
-        summary: text,
-        sessionKey: cronRunSessionKey,
-      };
-    }
-    return {
-      status: "error",
-      error: heartbeatResult.reason,
-      summary: text,
-      sessionKey: cronRunSessionKey,
-    };
-  }
-
-  if (abortSignal?.aborted) {
-    return { status: "error", error: timeoutErrorMessage() };
-  }
-  state.deps.requestHeartbeat({
-    source: "cron",
-    intent: job.wakeMode === "now" ? "immediate" : "event",
-    reason: `cron:${job.id}`,
-    agentId: job.agentId,
-    sessionKey: cronRunSessionKey,
-    heartbeat: { target: "last" },
-  });
-  return { status: "ok", summary: text, sessionKey: cronRunSessionKey };
 }
 
 async function executeDetachedCronJob(

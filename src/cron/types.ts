@@ -6,16 +6,14 @@ import type { CronJobBase } from "./types-shared.js";
 
 export type CronSchedule =
   | { kind: "at"; at: string }
-  | { kind: "every"; everyMs: number; anchorMs?: number }
   | {
       kind: "cron";
       expr: string;
-      tz?: string;
       /** Optional deterministic stagger window in milliseconds (0 keeps exact schedule). */
       staggerMs?: number;
     };
 
-export type CronSessionTarget = "main" | "isolated" | "current" | `session:${string}`;
+export type CronSessionTarget = "isolated";
 export type CronWakeMode = "next-heartbeat" | "now";
 
 export type CronMessageChannel = ChannelId;

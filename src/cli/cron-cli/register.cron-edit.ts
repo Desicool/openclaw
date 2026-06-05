@@ -225,7 +225,6 @@ export function registerCronEditCommand(cron: Command) {
             every: opts.every,
             exact: opts.exact,
             stagger: opts.stagger,
-            tz: opts.tz,
           });
           if (scheduleRequest.kind === "direct") {
             patch.schedule = scheduleRequest.schedule;

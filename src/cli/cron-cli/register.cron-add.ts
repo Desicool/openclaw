@@ -145,7 +145,6 @@ export function registerCronAddCommand(cron: Command) {
               exact: opts.exact,
               positionalSchedule,
               stagger: opts.stagger,
-              tz: opts.tz,
             });
 
             const wakeMode = normalizeOptionalString(opts.wake) ?? "now";

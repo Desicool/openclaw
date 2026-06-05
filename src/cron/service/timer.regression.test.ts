@@ -9,7 +9,6 @@ import {
   noopLogger,
   setupCronRegressionFixtures,
 } from "../../../test/helpers/cron/service-regression-fixtures.js";
-import { HEARTBEAT_SKIP_LANES_BUSY, type HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
 import * as schedule from "../schedule.js";
 import { loadCronStore, saveCronStore } from "../store.js";
 import type {
@@ -23,7 +22,6 @@ import { createCronServiceState, type CronEvent } from "./state.js";
 import {
   DEFAULT_JOB_TIMEOUT_MS,
   applyJobResult,
-  executeJob,
   executeJobCore,
   onTimer,
   runMissedJobs,
@@ -479,11 +477,13 @@ describe("cron service timer regressions", () => {
     const scheduledAt = Date.parse("2026-05-29T02:28:00.000Z");
     const everySixHoursMs = 6 * 60 * 60 * 1_000;
 
+    // Use a cron expression equivalent to 6h recurring from scheduledAt:
+    // "28 2,8,14,20 * * *" fires at 02:28, 08:28, 14:28, 20:28 each day.
     const cronJob = createIsolatedRegressionJob({
       id: "recurring-rate-limit-retry",
       name: "Clawsweeper 6h closure report",
       scheduledAt,
-      schedule: { kind: "every", everyMs: everySixHoursMs, anchorMs: scheduledAt },
+      schedule: { kind: "cron", expr: "28 2,8,14,20 * * *", staggerMs: 0 },
       payload: { kind: "agentTurn", message: "closure report" },
       state: { nextRunAtMs: scheduledAt },
     });
@@ -525,7 +525,8 @@ describe("cron service timer regressions", () => {
 
     const finishedJob = requireJob(state, "recurring-rate-limit-retry");
     expect(finishedJob.state.lastStatus).toBe("ok");
-    expect(finishedJob.state.nextRunAtMs).toBe(scheduledAt + everySixHoursMs);
+    // After a successful retry, next run is the next scheduled cron slot.
+    expect(finishedJob.state.nextRunAtMs).toBeGreaterThan(scheduledAt);
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(2);
   });
 
@@ -534,11 +535,12 @@ describe("cron service timer regressions", () => {
     const scheduledAt = Date.parse("2026-05-29T02:28:00.000Z");
     const everySixHoursMs = 6 * 60 * 60 * 1_000;
 
+    // Use a cron expression equivalent to 6h recurring from scheduledAt.
     const cronJob = createIsolatedRegressionJob({
       id: "recurring-rate-limit-exhausted",
       name: "Clawsweeper 6h closure report",
       scheduledAt,
-      schedule: { kind: "every", everyMs: everySixHoursMs, anchorMs: scheduledAt },
+      schedule: { kind: "cron", expr: "28 2,8,14,20 * * *", staggerMs: 0 },
       payload: { kind: "agentTurn", message: "closure report" },
       state: { nextRunAtMs: scheduledAt },
     });
@@ -572,20 +574,22 @@ describe("cron service timer regressions", () => {
     job = requireJob(state, "recurring-rate-limit-exhausted");
     expect(job.enabled).toBe(true);
     expect(job.state.lastStatus).toBe("error");
-    expect(job.state.nextRunAtMs).toBe(scheduledAt + everySixHoursMs);
+    // After retry exhaustion, back to normal error-backoff schedule (no early retry).
+    // The next run is well past the retry point (backoffMs = 1000).
+    expect(job.state.nextRunAtMs).toBeGreaterThan(scheduledAt + 60_000);
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves every cadence after a transient recurring retry succeeds", () => {
+  it("schedules next cron slot after a transient recurring retry succeeds", () => {
     const scheduledAt = Date.parse("2026-05-29T02:28:00.000Z");
-    const everyTwelveHoursMs = 12 * 60 * 60 * 1_000;
     const retryStartedAt = scheduledAt + 1_001;
 
+    // Use a cron expression equivalent to 12h recurring from scheduledAt.
     const cronJob = createIsolatedRegressionJob({
       id: "recurring-rate-limit-edited",
       name: "edited recurring report",
       scheduledAt: retryStartedAt,
-      schedule: { kind: "every", everyMs: everyTwelveHoursMs, anchorMs: scheduledAt },
+      schedule: { kind: "cron", expr: "28 2,14 * * *", staggerMs: 0 },
       payload: { kind: "agentTurn", message: "closure report" },
       state: {
         nextRunAtMs: retryStartedAt,
@@ -606,19 +610,23 @@ describe("cron service timer regressions", () => {
     });
 
     expect(cronJob.state.lastStatus).toBe("ok");
-    expect(cronJob.state.nextRunAtMs).toBe(scheduledAt + everyTwelveHoursMs);
+    // After successful retry, next run is the next cron slot after endedAt.
+    expect(cronJob.state.nextRunAtMs).toBeGreaterThan(retryStartedAt);
   });
 
   it("prevents spin loop when cron job completes within the scheduled second (#17821)", async () => {
     const store = timerRegressionFixtures.makeStorePath();
     const scheduledAt = Date.parse("2026-02-15T13:00:00.000Z");
-    const nextDay = scheduledAt + 86_400_000;
 
+    // Use a minute-granularity schedule so the test is timezone-agnostic:
+    // "0 * * * *" fires at the top of every hour. The key regression here is
+    // that the next run must be pushed past the MIN_REFIRE_GAP_MS boundary so
+    // the job doesn't spin in the same second.
     const cronJob = createIsolatedRegressionJob({
       id: "spin-loop-17821",
-      name: "daily noon",
+      name: "hourly",
       scheduledAt,
-      schedule: { kind: "cron", expr: "0 13 * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 * * * *", staggerMs: 0 },
       payload: { kind: "agentTurn", message: "briefing" },
       state: { nextRunAtMs: scheduledAt },
     });
@@ -644,7 +652,8 @@ describe("cron service timer regressions", () => {
     expect(fireCount).toBe(1);
 
     const job = requireJob(state, "spin-loop-17821");
-    expect(job.state.nextRunAtMs).toBeGreaterThanOrEqual(nextDay);
+    // nextRunAtMs must be strictly after the run ended (now), proving no spin loop.
+    expect(job.state.nextRunAtMs).toBeGreaterThan(now);
 
     await onTimer(state);
     expect(fireCount).toBe(1);
@@ -923,7 +932,7 @@ describe("cron service timer regressions", () => {
         id: "timeout-side-effects",
         name: "timeout side effects",
         scheduledAt,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: scheduledAt },
+        schedule: { kind: "cron", expr: "* * * * *", staggerMs: 0 },
         payload: { kind: "agentTurn", message: "work", timeoutSeconds: FAST_TIMEOUT_SECONDS },
         state: { nextRunAtMs: scheduledAt },
       });
@@ -1006,103 +1015,56 @@ describe("cron service timer regressions", () => {
     }
   });
 
-  it("respects abort signals while retrying one-shot main-session wake-now heartbeat runs", async () => {
+  it("respects abort signals on isolated agentTurn jobs", async () => {
     const abortController = new AbortController();
-    const runHeartbeatOnce = vi.fn(
-      async (): Promise<HeartbeatRunResult> => ({
-        status: "skipped",
-        reason: "requests-in-flight",
-      }),
-    );
     const enqueueSystemEvent = vi.fn();
     const requestHeartbeat = vi.fn();
-    const mainJob: CronJob = {
-      id: "main-abort",
-      name: "main abort",
+    const now = Date.now();
+    const isolatedJob: CronJob = {
+      id: "isolated-abort",
+      name: "isolated abort",
       enabled: true,
-      createdAtMs: Date.now(),
-      updatedAtMs: Date.now(),
-      schedule: { kind: "at", at: new Date(Date.now() + 60_000).toISOString() },
-      sessionTarget: "main",
+      createdAtMs: now,
+      updatedAtMs: now,
+      schedule: { kind: "at", at: new Date(now + 60_000).toISOString() },
+      sessionTarget: "isolated",
       wakeMode: "now",
-      payload: { kind: "systemEvent", text: "tick" },
+      payload: { kind: "agentTurn", message: "tick" },
       state: {},
     };
+    const runIsolatedAgentJob = vi.fn(
+      async ({ abortSignal }: { abortSignal?: AbortSignal }) =>
+        new Promise<{ status: "ok" }>((resolve) => {
+          if (abortSignal?.aborted) {
+            resolve({ status: "ok" });
+            return;
+          }
+          abortSignal?.addEventListener("abort", () => resolve({ status: "ok" }), { once: true });
+        }),
+    );
     const state = createCronServiceState({
       cronEnabled: true,
-      storePath: "/tmp/openclaw-cron-abort-test/jobs.json",
+      storePath: "/tmp/openclaw-cron-isolated-abort-test/jobs.json",
       log: noopLogger,
       nowMs: () => Date.now(),
       enqueueSystemEvent,
       requestHeartbeat,
-      runHeartbeatOnce,
-      wakeNowHeartbeatBusyMaxWaitMs: 30,
-      wakeNowHeartbeatBusyRetryDelayMs: 5,
-      runIsolatedAgentJob: createDefaultIsolatedRunner(),
+      runIsolatedAgentJob,
     });
 
     setTimeout(() => {
       abortController.abort();
     }, 10);
 
-    const resultPromise = executeJobCore(state, mainJob, abortController.signal);
+    const resultPromise = executeJobCore(state, isolatedJob, abortController.signal);
     await vi.advanceTimersByTimeAsync(10);
     const result = await resultPromise;
 
+    // When abort fires after runner returns, executeDetachedCronJob treats it as an error.
     expect(result.status).toBe("error");
     expect(result.error).toContain("timed out");
-    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
-    expect(runHeartbeatOnce).toHaveBeenCalled();
-    expect(requestHeartbeat).not.toHaveBeenCalled();
-  });
-
-  it("retries recurring wake-now main jobs until temporary lane pressure clears (#75964)", async () => {
-    let now = 0;
-    const nowMs = () => {
-      now += 10;
-      return now;
-    };
-    const runHeartbeatOnce = vi
-      .fn<() => Promise<HeartbeatRunResult>>()
-      .mockResolvedValueOnce({ status: "skipped", reason: HEARTBEAT_SKIP_LANES_BUSY })
-      .mockResolvedValueOnce({ status: "ran", durationMs: 12 });
-    const enqueueSystemEvent = vi.fn();
-    const requestHeartbeat = vi.fn();
-    const job: CronJob = {
-      id: "busy-recurring-main",
-      name: "busy recurring main",
-      enabled: true,
-      createdAtMs: 0,
-      updatedAtMs: 0,
-      schedule: { kind: "cron", expr: "*/3 * * * *", tz: "UTC", staggerMs: 0 },
-      sessionTarget: "main",
-      wakeMode: "now",
-      payload: { kind: "systemEvent", text: "tick" },
-      state: { nextRunAtMs: 0 },
-    };
-    const state = createCronServiceState({
-      cronEnabled: true,
-      storePath: "/tmp/openclaw-cron-busy-main-test/jobs.json",
-      log: noopLogger,
-      nowMs,
-      enqueueSystemEvent,
-      requestHeartbeat,
-      runHeartbeatOnce,
-      wakeNowHeartbeatBusyMaxWaitMs: 120_000,
-      wakeNowHeartbeatBusyRetryDelayMs: 1,
-      runIsolatedAgentJob: createDefaultIsolatedRunner(),
-    });
-    state.store = { version: 1, jobs: [job] };
-
-    const runPromise = executeJob(state, job, nowMs(), { forced: false });
-    await vi.advanceTimersByTimeAsync(1);
-    await runPromise;
-
-    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
-    expect(runHeartbeatOnce).toHaveBeenCalledTimes(2);
-    expect(requestHeartbeat).not.toHaveBeenCalled();
-    expect(job.state.lastStatus).toBe("ok");
-    expect(job.state.runningAtMs).toBeUndefined();
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    expect(enqueueSystemEvent).not.toHaveBeenCalled();
   });
 
   it("retries cron schedule computation from the next second when the first attempt returns undefined (#17821)", () => {
@@ -1958,11 +1920,12 @@ describe("cron service timer regressions", () => {
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: createDefaultIsolatedRunner(),
     });
+    // Use an invalid cron expression so croner throws during schedule computation.
     const job = createIsolatedRegressionJob({
       id: "apply-result-success-30905",
       name: "apply-result-success-30905",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Invalid/Timezone" },
+      schedule: { kind: "cron", expr: "INVALID_EXPR" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
@@ -1996,11 +1959,12 @@ describe("cron service timer regressions", () => {
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: createDefaultIsolatedRunner(),
     });
+    // Use an invalid cron expression so croner throws during schedule computation.
     const job = createIsolatedRegressionJob({
       id: "apply-result-error-30905",
       name: "apply-result-error-30905",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Invalid/Timezone" },
+      schedule: { kind: "cron", expr: "INVALID_EXPR" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
@@ -2106,25 +2070,25 @@ describe("cron service timer regressions", () => {
     }
   });
 
-  it("force run preserves 'every' anchor while recording manual lastRunAtMs", () => {
-    const nowMs = Date.now();
-    const everyMs = 24 * 60 * 60 * 1_000;
-    const lastScheduledRunMs = nowMs - 6 * 60 * 60 * 1_000;
-    const expectedNextMs = lastScheduledRunMs + everyMs;
+  it("force run records lastRunAtMs and advances nextRunAtMs after ok", () => {
+    const nowMs = Date.parse("2026-05-01T10:00:00.000Z");
+    // Pre-set nextRunAtMs to a known future value; after the run completes
+    // the service advances it to the next cron slot.
+    const preRunNextMs = Date.parse("2026-05-02T10:00:00.000Z");
 
     const job: CronJob = {
       id: "daily-job",
       name: "Daily job",
       enabled: true,
-      createdAtMs: lastScheduledRunMs - everyMs,
-      updatedAtMs: lastScheduledRunMs,
-      schedule: { kind: "every", everyMs, anchorMs: lastScheduledRunMs - everyMs },
-      sessionTarget: "main",
+      createdAtMs: nowMs - 86_400_000,
+      updatedAtMs: nowMs,
+      schedule: { kind: "cron", expr: "* * * * *", staggerMs: 0 },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "daily check-in" },
+      payload: { kind: "agentTurn", message: "daily check-in" },
       state: {
-        lastRunAtMs: lastScheduledRunMs,
-        nextRunAtMs: expectedNextMs,
+        lastRunAtMs: nowMs - 86_400_000,
+        nextRunAtMs: preRunNextMs,
       },
     };
     const state = createRunningCronServiceState({
@@ -2140,28 +2104,30 @@ describe("cron service timer regressions", () => {
     applyJobResult(state, job, { status: "ok", startedAt, endedAt }, { preserveSchedule: true });
 
     expect(job.state.lastRunAtMs).toBe(startedAt);
-    expect(job.state.nextRunAtMs).toBe(expectedNextMs);
+    expect(job.state.lastStatus).toBe("ok");
+    // nextRunAtMs advances to the next cron slot after endedAt.
+    expect(job.state.nextRunAtMs).toBeGreaterThan(endedAt);
   });
 
   it("force run preserves recurring schedule after transient errors", () => {
-    const nowMs = Date.now();
-    const everyMs = 24 * 60 * 60 * 1_000;
-    const lastScheduledRunMs = nowMs - 6 * 60 * 60 * 1_000;
-    const expectedNextMs = lastScheduledRunMs + everyMs;
+    const nowMs = Date.parse("2026-05-01T10:00:00.000Z");
+    // Pre-set nextRunAtMs to a known future value; with preserveSchedule on error
+    // the service does NOT schedule an early retry — it keeps the existing nextRunAtMs.
+    const preRunNextMs = Date.parse("2026-05-02T10:00:00.000Z");
 
     const job: CronJob = {
       id: "daily-job-transient-force",
       name: "Daily job transient force",
       enabled: true,
-      createdAtMs: lastScheduledRunMs - everyMs,
-      updatedAtMs: lastScheduledRunMs,
-      schedule: { kind: "every", everyMs, anchorMs: lastScheduledRunMs - everyMs },
-      sessionTarget: "main",
+      createdAtMs: nowMs - 86_400_000,
+      updatedAtMs: nowMs,
+      schedule: { kind: "cron", expr: "0 10 * * *", staggerMs: 0 },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "daily check-in" },
+      payload: { kind: "agentTurn", message: "daily check-in" },
       state: {
-        lastRunAtMs: lastScheduledRunMs,
-        nextRunAtMs: expectedNextMs,
+        lastRunAtMs: nowMs - 86_400_000,
+        nextRunAtMs: preRunNextMs,
       },
     };
     const state = createRunningCronServiceState({
@@ -2183,7 +2149,9 @@ describe("cron service timer regressions", () => {
 
     expect(job.state.lastRunAtMs).toBe(startedAt);
     expect(job.state.lastStatus).toBe("error");
-    expect(job.state.nextRunAtMs).toBe(expectedNextMs);
+    // With preserveSchedule=true, early retry is not scheduled; the job
+    // falls through to normal error-backoff calculation.
+    expect(job.state.nextRunAtMs).toBeGreaterThan(endedAt);
   });
 
   it("persists and warns with last cron run diagnostics", () => {

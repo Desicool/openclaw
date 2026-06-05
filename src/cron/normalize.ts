@@ -14,12 +14,7 @@ import {
   parseOptionalField,
 } from "./delivery-field-schemas.js";
 import { parseAbsoluteTimeMs } from "./parse.js";
-import { coerceFiniteScheduleNumber } from "./schedule-number.js";
 import { inferLegacyName } from "./service/normalize.js";
-import {
-  assertSafeCronSessionTargetId,
-  resolveCronCurrentSessionTarget,
-} from "./session-target.js";
 import { normalizeCronStaggerMs, resolveDefaultCronStaggerMs } from "./stagger.js";
 import type { CronJobCreate, CronJobPatch } from "./types.js";
 
@@ -27,7 +22,7 @@ type UnknownRecord = Record<string, unknown>;
 
 type NormalizeOptions = {
   applyDefaults?: boolean;
-  /** Session context for resolving "current" sessionTarget or auto-binding when not specified */
+  /** @deprecated No longer used; kept for API compatibility. */
   sessionContext?: { sessionKey?: string };
 };
 
@@ -71,12 +66,10 @@ function normalizeTrimmedStringArray(
 function coerceSchedule(schedule: UnknownRecord) {
   const next: UnknownRecord = { ...schedule };
   const rawKind = normalizeLowercaseStringOrEmpty(schedule.kind);
-  const kind = rawKind === "at" || rawKind === "every" || rawKind === "cron" ? rawKind : undefined;
+  const kind = rawKind === "at" || rawKind === "cron" ? rawKind : undefined;
   const exprRaw = normalizeOptionalString(schedule.expr) ?? "";
   const legacyCronRaw = normalizeOptionalString(schedule.cron) ?? "";
   const normalizedExpr = exprRaw || legacyCronRaw;
-  const everyMs = coerceFiniteScheduleNumber(schedule.everyMs);
-  const anchorMs = coerceFiniteScheduleNumber(schedule.anchorMs);
   const atMsRaw = schedule.atMs;
   const atRaw = schedule.at;
   const atString = normalizeOptionalString(atRaw) ?? "";
@@ -98,8 +91,6 @@ function coerceSchedule(schedule: UnknownRecord) {
       typeof schedule.atMs === "string"
     ) {
       next.kind = "at";
-    } else if (everyMs !== undefined) {
-      next.kind = "every";
     } else if (normalizedExpr) {
       next.kind = "cron";
     }
@@ -121,12 +112,6 @@ function coerceSchedule(schedule: UnknownRecord) {
     delete next.expr;
   }
 
-  if (everyMs !== undefined && everyMs >= 1) {
-    next.everyMs = Math.floor(everyMs);
-  }
-  if (anchorMs !== undefined && anchorMs >= 0) {
-    next.anchorMs = Math.floor(anchorMs);
-  }
   if ("cron" in next) {
     delete next.cron;
   }
@@ -144,15 +129,11 @@ function coerceSchedule(schedule: UnknownRecord) {
     delete next.expr;
     delete next.tz;
     delete next.staggerMs;
-  } else if (next.kind === "every") {
-    delete next.at;
-    delete next.expr;
-    delete next.tz;
-    delete next.staggerMs;
   } else if (next.kind === "cron") {
     delete next.at;
     delete next.everyMs;
     delete next.anchorMs;
+    delete next.tz;
   }
 
   return next;
@@ -160,12 +141,12 @@ function coerceSchedule(schedule: UnknownRecord) {
 
 function inferTopLevelSchedule(next: UnknownRecord): UnknownRecord | null {
   const kindRaw = normalizeLowercaseStringOrEmpty(next.kind);
-  const kind = kindRaw === "at" || kindRaw === "every" || kindRaw === "cron" ? kindRaw : undefined;
+  const kind = kindRaw === "at" || kindRaw === "cron" ? kindRaw : undefined;
   const schedule: UnknownRecord = {};
   if (kind) {
     schedule.kind = kind;
   }
-  for (const field of ["at", "atMs", "everyMs", "anchorMs", "expr", "cron", "tz", "staggerMs"]) {
+  for (const field of ["at", "atMs", "expr", "cron", "staggerMs"]) {
     if (field in next) {
       schedule[field] = next[field];
     }
@@ -358,12 +339,8 @@ function normalizeSessionTarget(raw: unknown) {
   }
   const trimmed = raw.trim();
   const lower = normalizeLowercaseStringOrEmpty(trimmed);
-  if (lower === "main" || lower === "isolated" || lower === "current") {
+  if (lower === "isolated") {
     return lower;
-  }
-  // Support custom session IDs with "session:" prefix
-  if (lower.startsWith("session:")) {
-    return `session:${assertSafeCronSessionTargetId(trimmed.slice(8))}`;
   }
   return undefined;
 }
@@ -585,28 +562,10 @@ export function normalizeCronJobInput(
         next.name = trimmed;
       }
     }
-    if (!next.sessionTarget && isRecord(next.payload)) {
-      const kind = typeof next.payload.kind === "string" ? next.payload.kind : "";
-      // Keep default behavior unchanged for backward compatibility:
-      // - systemEvent defaults to "main"
-      // - agentTurn defaults to "isolated" (NOT "current", to avoid token accumulation)
-      // Users must explicitly specify "current" or "session:xxx" for custom session binding
-      if (kind === "systemEvent") {
-        next.sessionTarget = "main";
-      } else if (kind === "agentTurn") {
-        next.sessionTarget = "isolated";
-      }
+    if (!next.sessionTarget) {
+      next.sessionTarget = "isolated";
     }
 
-    const resolvedSessionTarget = resolveCronCurrentSessionTarget({
-      sessionTarget: typeof next.sessionTarget === "string" ? next.sessionTarget : undefined,
-      sessionKey: options.sessionContext?.sessionKey,
-    });
-    if (resolvedSessionTarget !== undefined) {
-      next.sessionTarget = resolvedSessionTarget;
-    } else {
-      delete next.sessionTarget;
-    }
     if (
       "schedule" in next &&
       isRecord(next.schedule) &&
@@ -630,15 +589,8 @@ export function normalizeCronJobInput(
     }
     const payload = isRecord(next.payload) ? next.payload : null;
     const payloadKind = payload && typeof payload.kind === "string" ? payload.kind : "";
-    const sessionTarget = typeof next.sessionTarget === "string" ? next.sessionTarget : "";
-    // Support "isolated", custom session IDs (session:xxx), and resolved "current" as isolated-like targets
-    const isIsolatedAgentTurn =
-      sessionTarget === "isolated" ||
-      sessionTarget === "current" ||
-      sessionTarget.startsWith("session:") ||
-      (sessionTarget === "" && payloadKind === "agentTurn");
     const hasDelivery = "delivery" in next && next.delivery !== undefined;
-    if (!hasDelivery && isIsolatedAgentTurn && payloadKind === "agentTurn") {
+    if (!hasDelivery && payloadKind === "agentTurn") {
       next.delivery = { mode: "announce" };
     }
   }
