@@ -1,0 +1,36 @@
+{
+  "name": "@openclaw/weekly-report",
+  "version": "2026.5.27",
+  "description": "Weekly report TaskFlow plugin (cron-triggered draft, Feishu card confirmation, doc write, optional git-activity fact source).",
+  "type": "module",
+  "files": [
+    "index.ts",
+    "runtime-api.ts",
+    "openclaw.plugin.json",
+    "README.md",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "fixtures/sample.input.json",
+    "dist/index.js"
+  ],
+  "scripts": {
+    "build": "esbuild index.ts --bundle --format=esm --platform=node --target=node22 --outfile=dist/index.js --external:openclaw/* --external:typebox --external:node:*",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "esbuild": "0.28.0"
+  },
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "install": {
+      "defaultChoice": "local",
+      "minHostVersion": ">=2026.5.22"
+    }
+  }
+}
