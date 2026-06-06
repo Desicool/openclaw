@@ -59,7 +59,7 @@ export function makeJob(payload: CronJob["payload"]): CronJob {
     enabled: true,
     createdAtMs: now,
     updatedAtMs: now,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "now",
     payload,

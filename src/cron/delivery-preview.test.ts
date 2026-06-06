@@ -23,36 +23,6 @@ describe("resolveCronDeliveryPreview", () => {
     });
   });
 
-  it("prefers sessionTarget session context over creator sessionKey", async () => {
-    const job = makeCronJob({
-      agentId: "avery",
-      sessionTarget: "session:agent:avery:telegram:direct:direct-123",
-      sessionKey: "agent:avery:telegram:group:ops:sender:direct-123",
-      delivery: undefined,
-    });
-
-    const preview = await resolveCronDeliveryPreview({
-      cfg: {} as never,
-      job,
-    });
-
-    expect(mocks.resolveDeliveryTarget).toHaveBeenCalledWith(
-      {},
-      "avery",
-      {
-        channel: "last",
-        to: undefined,
-        threadId: undefined,
-        accountId: undefined,
-        sessionKey: "agent:avery:telegram:direct:direct-123",
-      },
-      { dryRun: true },
-    );
-    expect(preview.detail).toBe(
-      "resolved from last, session agent:avery:telegram:direct:direct-123",
-    );
-  });
-
   it("does not resolve routes for explicit no-delivery jobs", async () => {
     const job = makeCronJob({
       delivery: { mode: "none" },

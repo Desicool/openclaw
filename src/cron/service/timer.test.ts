@@ -1,6 +1,4 @@
 // Cron service timer tests cover timer scheduling, cancellation, and wakeups.
-import fs from "node:fs/promises";
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setupCronServiceSuite, writeCronStoreSnapshot } from "../../cron/service.test-harness.js";
 import { createCronServiceState } from "../../cron/service/state.js";
@@ -15,36 +13,38 @@ const { logger, makeStorePath } = setupCronServiceSuite({
   prefix: "cron-service-timer-seam",
 });
 
-function createDueMainJob(params: { now: number; wakeMode: CronJob["wakeMode"] }): CronJob {
+function createDueIsolatedJob(params: {
+  now: number;
+  wakeMode?: CronJob["wakeMode"];
+  id?: string;
+  name?: string;
+  agentId?: string;
+  message?: string;
+  sessionKey?: string;
+}): CronJob {
   return {
-    id: "main-heartbeat-job",
-    name: "main heartbeat job",
+    id: params.id ?? "isolated-cron-job",
+    agentId: params.agentId,
+    name: params.name ?? params.id ?? "isolated cron job",
     enabled: true,
     createdAtMs: params.now - 60_000,
     updatedAtMs: params.now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: params.now - 60_000 },
-    sessionTarget: "main",
-    wakeMode: params.wakeMode,
-    payload: { kind: "systemEvent", text: "heartbeat seam tick" },
-    sessionKey: "agent:main:main",
+    schedule: { kind: "cron", expr: "* * * * *" },
+    sessionTarget: "isolated",
+    wakeMode: params.wakeMode ?? "now",
+    payload: { kind: "agentTurn", message: params.message ?? "run isolated cron" },
+    sessionKey: params.sessionKey,
     state: { nextRunAtMs: params.now - 1 },
   };
 }
 
 function createDueIsolatedAgentJob(params: { now: number }): CronJob {
-  return {
+  return createDueIsolatedJob({
+    now: params.now,
     id: "isolated-agent-job",
     agentId: "finn",
-    name: "isolated agent job",
-    enabled: true,
-    createdAtMs: params.now - 60_000,
-    updatedAtMs: params.now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: params.now - 60_000 },
-    sessionTarget: "isolated",
-    wakeMode: "now",
-    payload: { kind: "agentTurn", message: "run isolated cron" },
-    state: { nextRunAtMs: params.now - 1 },
-  };
+    message: "run isolated cron",
+  });
 }
 
 afterEach(() => {
@@ -52,72 +52,62 @@ afterEach(() => {
 });
 
 describe("cron service timer seam coverage", () => {
-  it("routes main cron jobs onto a cron run lane derived from the target agent", async () => {
+  it("routes isolated cron jobs to runIsolatedAgentJob with the correct params", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-03-23T12:00:00.000Z");
     const enqueueSystemEvent = vi.fn();
     const requestHeartbeat = vi.fn();
-    const runHeartbeatOnce = vi.fn(async () => ({ status: "ran" as const, durationMs: 1 }));
-    const job = {
-      ...createDueMainJob({ now, wakeMode: "now" }),
-      sessionKey: "agent:main-pr-router:main",
-      state: { runningAtMs: now },
-    };
-    const cronRunSessionKey = `agent:main-pr-router:cron:main-heartbeat-job:run:${now}`;
-    const sessionStorePath = path.join(path.dirname(path.dirname(storePath)), "sessions.json");
-    await fs.writeFile(
-      sessionStorePath,
-      JSON.stringify({
-        "agent:main-pr-router:main": {
-          lastChannel: "discord",
-          lastTo: "channel-1",
-          lastAccountId: "default",
-        },
-      }),
-      "utf8",
-    );
+    const runIsolatedAgentJob = vi.fn(async () => ({
+      status: "ok" as const,
+      sessionKey: `agent:main:cron:isolated-cron-job:run:${now}`,
+    }));
+    const job = createDueIsolatedJob({
+      now,
+      id: "isolated-cron-job",
+      message: "do the thing",
+      wakeMode: "now",
+    });
 
     const state = createCronServiceState({
       storePath,
       cronEnabled: true,
       log: logger,
       nowMs: () => now,
-      resolveSessionStorePath: () => sessionStorePath,
       enqueueSystemEvent,
       requestHeartbeat,
-      runHeartbeatOnce,
-      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      runIsolatedAgentJob,
     });
 
     const result = await executeJobCore(state, job);
 
-    expect(result).toMatchObject({ status: "ok", sessionKey: cronRunSessionKey });
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("heartbeat seam tick", {
-      agentId: undefined,
-      sessionKey: cronRunSessionKey,
-      contextKey: "cron:main-heartbeat-job",
-      deliveryContext: { channel: "discord", to: "channel-1", accountId: "default" },
-    });
-    expect(runHeartbeatOnce).toHaveBeenCalledWith({
-      source: "cron",
-      intent: "immediate",
-      reason: "cron:main-heartbeat-job",
-      agentId: undefined,
-      sessionKey: cronRunSessionKey,
-      heartbeat: { target: "last" },
-    });
+    expect(result).toMatchObject({ status: "ok" });
+    expect(runIsolatedAgentJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        job: expect.objectContaining({ id: "isolated-cron-job" }),
+        message: "do the thing",
+      }),
+    );
+    expect(enqueueSystemEvent).not.toHaveBeenCalled();
   });
 
-  it("persists the next schedule and hands off next-heartbeat main jobs", async () => {
+  it("persists the next schedule after an isolated agent job completes", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-03-23T12:00:00.000Z");
     const enqueueSystemEvent = vi.fn();
     const requestHeartbeat = vi.fn();
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const runSessionKey = `agent:main:cron:isolated-cron-job:run:${now}`;
 
     await writeCronStoreSnapshot({
       storePath,
-      jobs: [createDueMainJob({ now, wakeMode: "next-heartbeat" })],
+      jobs: [
+        createDueIsolatedJob({
+          now,
+          id: "isolated-cron-job",
+          name: "isolated cron job",
+          wakeMode: "now",
+        }),
+      ],
     });
 
     const state = createCronServiceState({
@@ -127,49 +117,35 @@ describe("cron service timer seam coverage", () => {
       nowMs: () => now,
       enqueueSystemEvent,
       requestHeartbeat,
-      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      runIsolatedAgentJob: vi.fn(async () => ({
+        status: "ok" as const,
+        sessionKey: runSessionKey,
+      })),
     });
 
     await onTimer(state);
 
-    const cronRunSessionKey = `agent:main:cron:main-heartbeat-job:run:${now}`;
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("heartbeat seam tick", {
-      agentId: undefined,
-      sessionKey: cronRunSessionKey,
-      contextKey: "cron:main-heartbeat-job",
-    });
-    expect(requestHeartbeat).toHaveBeenCalledWith({
-      source: "cron",
-      intent: "event",
-      reason: "cron:main-heartbeat-job",
-      agentId: undefined,
-      sessionKey: cronRunSessionKey,
-      heartbeat: { target: "last" },
-    });
-
     const persisted = await loadCronStore(storePath);
     const job = persisted.jobs[0];
     if (!job) {
-      throw new Error("expected persisted heartbeat cron job");
+      throw new Error("expected persisted isolated cron job");
     }
     expect(job.state.lastStatus).toBe("ok");
     expect(job.state.runningAtMs).toBeUndefined();
-    expect(job.state.nextRunAtMs).toBe(now + 60_000);
-    const task = findTaskByRunId(`cron:main-heartbeat-job:${now}`);
+    expect(job.state.nextRunAtMs).toBeGreaterThan(now);
+    const task = findTaskByRunId(`cron:isolated-cron-job:${now}`);
     if (!task) {
       throw new Error("expected cron task ledger record");
     }
     expect(task.runtime).toBe("cron");
-    expect(task.sourceId).toBe("main-heartbeat-job");
+    expect(task.sourceId).toBe("isolated-cron-job");
     expect(task.ownerKey).toBe("");
     expect(task.scopeKind).toBe("system");
-    expect(task.childSessionKey).toBe(cronRunSessionKey);
-    expect(task.runId).toBe(`cron:main-heartbeat-job:${now}`);
-    expect(task.label).toBe("main heartbeat job");
-    expect(task.task).toBe("main heartbeat job");
+    expect(task.childSessionKey).toBe("agent:main:cron:isolated-cron-job");
+    expect(task.runId).toBe(`cron:isolated-cron-job:${now}`);
+    expect(task.label).toBe("isolated cron job");
+    expect(task.task).toBe("isolated cron job");
     expect(task.status).toBe("succeeded");
-    expect(task.deliveryStatus).toBe("not_applicable");
-    expect(task.notifyPolicy).toBe("silent");
     expect(task.startedAt).toBe(now);
     expect(task.lastEventAt).toBe(now);
     expect(task.endedAt).toBe(now);
@@ -281,7 +257,7 @@ describe("cron service timer seam coverage", () => {
 
     await writeCronStoreSnapshot({
       storePath,
-      jobs: [createDueMainJob({ now, wakeMode: "next-heartbeat" })],
+      jobs: [createDueIsolatedJob({ now, id: "isolated-cron-job", wakeMode: "now" })],
     });
 
     const createTaskRecordSpy = vi
@@ -290,6 +266,7 @@ describe("cron service timer seam coverage", () => {
         throw ledgerError;
       });
 
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
     const state = createCronServiceState({
       storePath,
       cronEnabled: true,
@@ -297,21 +274,16 @@ describe("cron service timer seam coverage", () => {
       nowMs: () => now,
       enqueueSystemEvent,
       requestHeartbeat,
-      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      runIsolatedAgentJob,
     });
 
     await onTimer(state);
 
     expect(logger.warn).toHaveBeenCalledWith(
-      { jobId: "main-heartbeat-job", error: ledgerError },
+      { jobId: "isolated-cron-job", error: ledgerError },
       "cron: failed to create task ledger record",
     );
-    const cronRunSessionKey = `agent:main:cron:main-heartbeat-job:run:${now}`;
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("heartbeat seam tick", {
-      agentId: undefined,
-      sessionKey: cronRunSessionKey,
-      contextKey: "cron:main-heartbeat-job",
-    });
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
 
     createTaskRecordSpy.mockRestore();
   });

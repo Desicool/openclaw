@@ -51,13 +51,13 @@ async function addIsolatedAgentTurnJob(
   return cron.add({
     name: params.name,
     enabled: true,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: Date.now() },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: params.wakeMode,
     payload: {
       kind: "agentTurn",
       message: "hello",
-    } as unknown as { kind: "agentTurn"; message: string },
+    },
     ...(params.delivery
       ? {
           delivery: params.delivery as unknown as {

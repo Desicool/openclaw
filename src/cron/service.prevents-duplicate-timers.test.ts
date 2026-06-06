@@ -25,6 +25,7 @@ describe("CronService", () => {
       storePath: store.storePath,
       cronEnabled: true,
       log: noopLogger,
+      schedulerLockPath: null,
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob,
@@ -36,15 +37,16 @@ describe("CronService", () => {
       name: "shared store job",
       enabled: true,
       schedule: { kind: "at", at: new Date(atMs).toISOString() },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "hello" },
+      payload: { kind: "agentTurn", message: "hello" },
     });
 
     const cronB = new CronService({
       storePath: store.storePath,
       cronEnabled: true,
       log: noopLogger,
+      schedulerLockPath: null,
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob,
@@ -57,8 +59,9 @@ describe("CronService", () => {
     await cronA.status();
     await cronB.status();
 
-    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
-    expect(requestHeartbeat).toHaveBeenCalledTimes(1);
+    // Exactly one of the two services should have executed the job.
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    expect(enqueueSystemEvent).not.toHaveBeenCalled();
 
     cronA.stop();
     cronB.stop();

@@ -361,6 +361,134 @@ describe("normalizeCronJobCreate", () => {
     expect(delivery.mode).toBe("announce");
   });
 
+  it("migrates legacy isolation settings to announce delivery", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "legacy isolation",
+      enabled: true,
+      schedule: { kind: "cron", expr: "* * * * *" },
+      payload: {
+        kind: "agentTurn",
+        message: "hi",
+      },
+      isolation: { postToMainPrefix: "Cron" },
+    }) as unknown as Record<string, unknown>;
+
+    const delivery = normalized.delivery as Record<string, unknown>;
+    expect(delivery.mode).toBe("announce");
+    expect((normalized as { isolation?: unknown }).isolation).toBeUndefined();
+  });
+
+  it("infers payload kind/session target and name for message-only jobs", () => {
+    const normalized = normalizeCronJobCreate({
+      schedule: { kind: "every", everyMs: 60_000 },
+      payload: { message: "Nightly backup" },
+    }) as unknown as Record<string, unknown>;
+
+    const payload = normalized.payload as Record<string, unknown>;
+    expect(payload.kind).toBe("agentTurn");
+    expect(payload.message).toBe("Nightly backup");
+    expect(normalized.sessionTarget).toBe("isolated");
+    expect(normalized.wakeMode).toBe("now");
+    expect(typeof normalized.name).toBe("string");
+  });
+
+  it("normalizes flat legacy cron job rows", () => {
+    const normalized = normalizeCronJobCreate({
+      id: "dbus-watchdog-001",
+      name: "dbus-watchdog",
+      kind: "cron",
+      cron: "*/10 * * * *",
+      tz: "UTC",
+      session: "isolated",
+      message: "watch dbus",
+      tools: [" exec "],
+      enabled: true,
+      created_at: "2026-04-17T20:09:00Z",
+    }) as unknown as Record<string, unknown>;
+
+    expect(normalized.schedule).toEqual({
+      kind: "cron",
+      expr: "*/10 * * * *",
+    });
+    expect(normalized.sessionTarget).toBe("isolated");
+    expect(normalized.payload).toEqual({
+      kind: "agentTurn",
+      message: "watch dbus",
+      toolsAllow: ["exec"],
+    });
+    expect(normalized.kind).toBeUndefined();
+    expect(normalized.cron).toBeUndefined();
+    expect(normalized.tz).toBeUndefined();
+    expect(normalized.session).toBeUndefined();
+    expect(normalized.tools).toBeUndefined();
+  });
+
+  it("maps top-level model/thinking/timeout into payload for legacy add params", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "legacy root fields",
+      schedule: { kind: "every", everyMs: 60_000 },
+      payload: { kind: "agentTurn", message: "hello" },
+      model: " openrouter/deepseek/deepseek-r1 ",
+      thinking: " high ",
+      timeoutSeconds: 45,
+      toolsAllow: [" exec ", " read "],
+      allowUnsafeExternalContent: true,
+    }) as unknown as Record<string, unknown>;
+
+    const payload = normalized.payload as Record<string, unknown>;
+    expect(payload.model).toBe("openrouter/deepseek/deepseek-r1");
+    expect(payload.thinking).toBe("high");
+    expect(payload.timeoutSeconds).toBe(45);
+    expect(payload.toolsAllow).toEqual(["exec", "read"]);
+    expect(payload.allowUnsafeExternalContent).toBe(true);
+    expect(validateCronAddParams(normalized)).toBe(true);
+  });
+
+  it("promotes implicit text payloads with agentTurn hints for create jobs", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "nested text model",
+      schedule: { kind: "every", everyMs: 60_000 },
+      payload: {
+        text: " summarize issue status ",
+        model: " anthropic/claude-sonnet-4-6 ",
+        thinking: " high ",
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const payload = normalized.payload as Record<string, unknown>;
+    expect(payload).toEqual({
+      kind: "agentTurn",
+      message: "summarize issue status",
+      model: "anthropic/claude-sonnet-4-6",
+      thinking: "high",
+    });
+    expect(normalized.sessionTarget).toBe("isolated");
+    expect(validateCronAddParams(normalized)).toBe(true);
+  });
+
+  it("promotes legacy top-level text with agentTurn hints for create jobs", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "legacy text model",
+      schedule: { kind: "every", everyMs: 60_000 },
+      text: " summarize issue status ",
+      model: " openrouter/deepseek/deepseek-r1 ",
+      fallbacks: [],
+      toolsAllow: [" read "],
+    }) as unknown as Record<string, unknown>;
+
+    const payload = normalized.payload as Record<string, unknown>;
+    expect(payload).toEqual({
+      kind: "agentTurn",
+      message: "summarize issue status",
+      model: "openrouter/deepseek/deepseek-r1",
+      fallbacks: [],
+      toolsAllow: ["read"],
+    });
+    expect(normalized.text).toBeUndefined();
+    expect(normalized.model).toBeUndefined();
+    expect(validateCronAddParams(normalized)).toBe(true);
+  });
+
   it("preserves timeoutSeconds=0 for no-timeout agentTurn payloads", () => {
     const normalized = normalizeCronJobCreate({
       name: "no-timeout",
@@ -470,94 +598,6 @@ describe("normalizeCronJobCreate", () => {
     expect(validateCronAddParams(normalized)).toBe(true);
   });
 
-  it("prunes staggerMs from every schedules for create jobs", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "every-prune",
-      schedule: {
-        kind: "every",
-        everyMs: 60_000,
-        staggerMs: 30_000,
-      },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: {
-        kind: "systemEvent",
-        text: "hi",
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-    });
-    expect(validateCronAddParams(normalized)).toBe(true);
-  });
-
-  it("normalizes string every schedule numbers for create jobs", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "every-string",
-      schedule: {
-        kind: "every",
-        everyMs: "60000",
-        anchorMs: "123.9",
-      },
-      sessionTarget: "main",
-      wakeMode: "next-heartbeat",
-      payload: {
-        kind: "systemEvent",
-        text: "hi",
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-      anchorMs: 123,
-    });
-    expect(validateCronAddParams(normalized)).toBe(true);
-  });
-
-  it("normalizes string every schedule numbers for patches", () => {
-    const normalized = normalizeCronJobPatch({
-      schedule: {
-        kind: "every",
-        everyMs: "60000",
-        anchorMs: "123.9",
-      },
-    }) as unknown as Record<string, unknown>;
-
-    const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-      anchorMs: 123,
-    });
-    expect(validateCronUpdateParams({ id: "job", patch: normalized })).toBe(true);
-
-    const nested = normalizeCronJobPatch({
-      delivery: {
-        failureDestination: {
-          channel: null,
-          to: null,
-          accountId: null,
-          mode: null,
-        },
-      },
-    }) as unknown as Record<string, unknown>;
-
-    expect(nested.delivery).toEqual({
-      failureDestination: {
-        channel: null,
-        to: null,
-        accountId: null,
-        mode: null,
-      },
-    });
-    expect(validateCronUpdateParams({ id: "job", patch: nested })).toBe(true);
-  });
-
   it("keeps invalid every schedule numbers invalid for validation", () => {
     const zeroEvery = normalizeCronJobCreate({
       name: "every-zero",
@@ -610,69 +650,24 @@ describe("normalizeCronJobCreate", () => {
     expect(delivery.to).toBe("123");
   });
 
-  it("resolves current sessionTarget to a persistent session when context is available", () => {
-    const normalized = normalizeCronJobCreate(
-      {
-        name: "current-session",
-        schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "current",
-        payload: { kind: "agentTurn", message: "hello" },
-      },
-      { sessionContext: { sessionKey: "agent:main:discord:group:ops" } },
-    ) as unknown as Record<string, unknown>;
-
-    expect(normalized.sessionTarget).toBe("session:agent:main:discord:group:ops");
-  });
-
-  it("falls back current sessionTarget to isolated without context", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "current-without-context",
+  it("falls back current and unknown sessionTargets to isolated", () => {
+    const current = normalizeCronJobCreate({
+      name: "current-session",
       schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "current",
       payload: { kind: "agentTurn", message: "hello" },
     }) as unknown as Record<string, unknown>;
 
-    expect(normalized.sessionTarget).toBe("isolated");
-  });
+    expect(current.sessionTarget).toBe("isolated");
 
-  it("preserves custom session ids with a session: prefix", () => {
-    const normalized = normalizeCronJobCreate({
-      name: "custom-session",
+    const main = normalizeCronJobCreate({
+      name: "main-session",
       schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "session:MySessionID",
+      sessionTarget: "main",
       payload: { kind: "agentTurn", message: "hello" },
     }) as unknown as Record<string, unknown>;
 
-    expect(normalized.sessionTarget).toBe("session:MySessionID");
-  });
-
-  it("preserves custom session ids with channel-native separators", () => {
-    const created = normalizeCronJobCreate({
-      name: "dingtalk-group",
-      schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "session:agent:main:dingtalk:group:cid3tmd4xb19xjfk/wogxwy2a==",
-      payload: { kind: "agentTurn", message: "hello" },
-    }) as unknown as Record<string, unknown>;
-
-    expect(created.sessionTarget).toBe(
-      "session:agent:main:dingtalk:group:cid3tmd4xb19xjfk/wogxwy2a==",
-    );
-
-    const patched = normalizeCronJobPatch({
-      sessionTarget: "session:..\\outside",
-    }) as unknown as Record<string, unknown>;
-    expect(patched.sessionTarget).toBe("session:..\\outside");
-  });
-
-  it("rejects null bytes in custom session ids", () => {
-    expect(() =>
-      normalizeCronJobCreate({
-        name: "null-byte-session",
-        schedule: { kind: "cron", expr: "* * * * *" },
-        sessionTarget: "session:bad\0id",
-        payload: { kind: "agentTurn", message: "hello" },
-      }),
-    ).toThrow("invalid cron sessionTarget session id");
+    expect(main.sessionTarget).toBe("isolated");
   });
 });
 
@@ -888,20 +883,13 @@ describe("normalizeCronJobPatch", () => {
     expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
   });
 
-  it("prunes staggerMs from every schedules for patches", () => {
+  it("keeps out-of-range numeric schedule.atMs invalid instead of throwing for patches", () => {
     const normalized = normalizeCronJobPatch({
-      schedule: {
-        kind: "every",
-        everyMs: 60_000,
-        staggerMs: 30_000,
-      },
+      schedule: { kind: "at", atMs: 8_640_000_000_000_001 },
     }) as unknown as Record<string, unknown>;
 
     const schedule = normalized.schedule as Record<string, unknown>;
-    expect(schedule).toEqual({
-      kind: "every",
-      everyMs: 60_000,
-    });
-    expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
+    expect(schedule).toEqual({ kind: "at" });
+    expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(false);
   });
 });

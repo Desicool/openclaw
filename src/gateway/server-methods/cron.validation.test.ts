@@ -158,7 +158,7 @@ function createCronJob(overrides: Partial<CronJob> = {}): CronJob {
     enabled: true,
     createdAtMs: 1,
     updatedAtMs: 1,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "hello" },
@@ -954,7 +954,7 @@ describe("cron method validation", () => {
     expect(context.cron.update).not.toHaveBeenCalled();
     expectResponseError(respond, {
       code: "INVALID_REQUEST",
-      messageIncludes: 'isolated/current/session cron jobs require payload.kind="agentTurn"',
+      messageIncludes: 'isolated cron jobs require payload.kind="agentTurn"',
     });
   });
 

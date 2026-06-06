@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { CronService } from "./service.js";
 import {
   createFinishedBarrier,
-  createStartedCronServiceWithFinishedBarrier,
   createCronStoreHarness,
   createNoopLogger,
   installCronTestHooks,
@@ -19,7 +18,7 @@ function buildIsolatedAgentTurnJob(name: string): CronAddInput {
   return {
     name,
     enabled: true,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "test" },
@@ -76,17 +75,6 @@ function buildBestEffortFailureDestinationOnlyJob(name: string): CronAddInput {
   };
 }
 
-function buildMainSessionSystemEventJob(name: string): CronAddInput {
-  return {
-    name,
-    enabled: true,
-    schedule: { kind: "every", everyMs: 60_000 },
-    sessionTarget: "main",
-    wakeMode: "next-heartbeat",
-    payload: { kind: "systemEvent", text: "tick" },
-  };
-}
-
 function createIsolatedCronWithFinishedBarrier(params: {
   storePath: string;
   status?: "ok" | "error";
@@ -108,6 +96,7 @@ function createIsolatedCronWithFinishedBarrier(params: {
     storePath: params.storePath,
     cronEnabled: true,
     log: noopLogger,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({
@@ -422,26 +411,6 @@ describe("CronService persists delivered status", () => {
     expect(updated?.state.lastDelivered).toBeUndefined();
     expect(updated?.state.lastDeliveryStatus).toBe("unknown");
     expect(updated?.state.lastDeliveryError).toBeUndefined();
-  });
-
-  it("does not set lastDelivered for main session jobs", async () => {
-    const store = await makeStorePath();
-    const { cron, enqueueSystemEvent, finished } = createStartedCronServiceWithFinishedBarrier({
-      storePath: store.storePath,
-      logger: noopLogger,
-    });
-
-    await cron.start();
-    const { updated } = await runSingleJobAndReadState({
-      cron,
-      finished,
-      job: buildMainSessionSystemEventJob("main-session"),
-    });
-
-    expectDeliveryNotRequested(updated);
-    expect(enqueueSystemEvent).toHaveBeenCalled();
-
-    cron.stop();
   });
 
   it("emits delivered in the finished event", async () => {

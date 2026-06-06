@@ -35,6 +35,7 @@ function createFailureAlertCron(params: {
     cronEnabled: true,
     cronConfig: params.cronConfig,
     log: noopLogger,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: params.runIsolatedAgentJob,
@@ -117,7 +118,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "daily report",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },
@@ -171,7 +172,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "job with override",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },
@@ -218,7 +219,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "disabled alert job",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },
@@ -257,7 +258,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "updated skipped alert job",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },
@@ -322,7 +323,7 @@ describe("CronService failure alerts", () => {
     const normalJob = await cron.add({
       name: "normal alert job",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },
@@ -331,7 +332,7 @@ describe("CronService failure alerts", () => {
     const bestEffortJob = await cron.add({
       name: "best effort alert job",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },
@@ -384,7 +385,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "gateway restart",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "restart gateway if needed" },
@@ -439,7 +440,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "timeout cause alert",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "ping" },
@@ -484,7 +485,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "provider limit alert",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "ping" },
@@ -529,7 +530,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "skipped timeout",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "ping" },
@@ -571,7 +572,7 @@ describe("CronService failure alerts", () => {
     const job = await cron.add({
       name: "busy heartbeat",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "run report" },

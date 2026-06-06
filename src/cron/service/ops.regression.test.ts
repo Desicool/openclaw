@@ -227,7 +227,7 @@ describe("cron service ops regressions", () => {
           id: "unrelated-due",
           name: "unrelated due",
           scheduledAt: nowMs,
-          schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+          schedule: { kind: "cron", expr: "*/5 * * * *" },
           payload: { kind: "agentTurn", message: "unrelated due" },
           state: { nextRunAtMs: dueNextRunAtMs },
         }),
@@ -235,7 +235,7 @@ describe("cron service ops regressions", () => {
           id: "unrelated-stale-executed",
           name: "unrelated stale executed",
           scheduledAt: nowMs,
-          schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+          schedule: { kind: "cron", expr: "*/5 * * * *" },
           payload: { kind: "agentTurn", message: "unrelated stale executed" },
           state: {
             nextRunAtMs: staleExecutedNextRunAtMs,
@@ -273,7 +273,7 @@ describe("cron service ops regressions", () => {
         id: "manual-timeout",
         name: "manual timeout",
         scheduledAt,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: scheduledAt },
+        schedule: { kind: "cron", expr: "* * * * *" },
         payload: { kind: "agentTurn", message: "work", timeoutSeconds: FAST_TIMEOUT_SECONDS },
         state: { nextRunAtMs: scheduledAt },
       });
@@ -310,6 +310,7 @@ describe("cron service ops regressions", () => {
     const now = Date.parse("2026-02-06T10:05:00.000Z");
     const staleRunningAtMs = now - 2 * 60 * 60 * 1000 - 1;
 
+    const runIsolatedAgentJob = vi.fn().mockResolvedValue({ status: "ok", summary: "ok" });
     await saveCronStore(store.storePath, {
       version: 1,
       jobs: [
@@ -320,9 +321,9 @@ describe("cron service ops regressions", () => {
           createdAtMs: now - 3_600_000,
           updatedAtMs: now - 3_600_000,
           schedule: { kind: "at", at: new Date(now - 60_000).toISOString() },
-          sessionTarget: "main",
+          sessionTarget: "isolated",
           wakeMode: "now",
-          payload: { kind: "systemEvent", text: "stale-running" },
+          payload: { kind: "agentTurn", message: "stale-running" },
           state: {
             runningAtMs: staleRunningAtMs,
             lastRunAtMs: now - 3_600_000,
@@ -333,26 +334,23 @@ describe("cron service ops regressions", () => {
       ],
     });
 
-    const enqueueSystemEvent = vi.fn();
     const state = createCronServiceState({
       cronEnabled: true,
       storePath: store.storePath,
       log: noopLogger,
       nowMs: () => now,
-      enqueueSystemEvent,
+      enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
-      runIsolatedAgentJob: vi.fn().mockResolvedValue({ status: "ok", summary: "ok" }),
+      runIsolatedAgentJob,
     });
 
     const result = await run(state, "stale-running", "force");
     expect(result).toEqual({ ok: true, ran: true });
-    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
-    const [text, options] = requireMockCall(enqueueSystemEvent, 0, "enqueueSystemEvent") as [
-      string,
-      { agentId?: unknown }?,
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    const [params] = requireMockCall(runIsolatedAgentJob, 0, "runIsolatedAgentJob") as [
+      { job?: { id?: string } }?,
     ];
-    expect(text).toBe("stale-running");
-    expect(options?.agentId).toBeUndefined();
+    expect(params?.job?.id).toBe("stale-running");
   });
 
   it("queues manual cron.run requests behind the cron execution lane", async () => {

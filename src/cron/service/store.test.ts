@@ -41,7 +41,16 @@ function createStoreTestState(storePath: string) {
   });
 }
 
-function createReloadCronJob(params?: Partial<CronJob>): CronJob {
+// Legacy-shaped overrides: these store-migration tests intentionally persist
+// pre-isolated fixtures (sessionTarget:"main", schedule {kind:"every"}, cron tz)
+// and assert the load/normalize path repairs them. Keep the legacy shape via a
+// narrow cast instead of converting to the modern isolated-only types.
+type LegacyCronJobInput = Omit<Partial<CronJob>, "schedule" | "sessionTarget"> & {
+  schedule?: Record<string, unknown> | string;
+  sessionTarget?: string;
+};
+
+function createReloadCronJob(params?: LegacyCronJobInput): CronJob {
   return {
     id: "reload-cron-expr-job",
     name: "reload cron expr job",
@@ -54,7 +63,7 @@ function createReloadCronJob(params?: Partial<CronJob>): CronJob {
     payload: { kind: "systemEvent", text: "tick" },
     state: {},
     ...params,
-  };
+  } as unknown as CronJob;
 }
 describe("cron service store seam coverage", () => {
   it("loads stored jobs, recomputes next runs, and does not rewrite the store on load", async () => {
@@ -66,7 +75,7 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
@@ -118,7 +127,7 @@ describe("cron service store seam coverage", () => {
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "main",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
@@ -144,7 +153,7 @@ describe("cron service store seam coverage", () => {
       enabled: "false",
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "main",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "tick" },
@@ -160,18 +169,17 @@ describe("cron service store seam coverage", () => {
     await expectPathMissing(`${storePath}.migrated`);
   });
 
-  it("loads persisted jobs with opaque custom session ids containing separators", async () => {
+  it("normalizes persisted non-isolated sessionTargets to isolated on load", async () => {
     const { storePath } = await makeStorePath();
-    const sessionTarget = "session:agent:main:dingtalk:group:cid3tmd4xb19xjfk/wogxwy2a==";
 
     await writeSingleJobStore(storePath, {
-      id: "opaque-session-target-job",
-      name: "opaque session target job",
+      id: "legacy-session-target-job",
+      name: "legacy session target job",
       enabled: true,
       createdAtMs: STORE_TEST_NOW - 60_000,
       updatedAtMs: STORE_TEST_NOW - 60_000,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget,
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "main",
       wakeMode: "now",
       payload: { kind: "agentTurn", message: "ping" },
       state: {},
@@ -181,18 +189,8 @@ describe("cron service store seam coverage", () => {
 
     await ensureLoaded(state, { skipRecompute: true });
 
-    const job = findJobOrThrow(state, "opaque-session-target-job");
-    expect(job.sessionTarget).toBe(sessionTarget);
-    const warnCalls = logger.warn.mock.calls as unknown as Array<
-      [{ storePath?: string; jobId?: string }, string]
-    >;
-    expect(
-      warnCalls.some(
-        ([metadata, message]) =>
-          metadata.jobId === "opaque-session-target-job" &&
-          message.includes("invalid persisted sessionTarget"),
-      ),
-    ).toBe(false);
+    const job = findJobOrThrow(state, "legacy-session-target-job");
+    expect(job.sessionTarget).toBe("isolated");
   });
 
   it("clears stale nextRunAtMs after force reload when cron schedule expression changes", async () => {
@@ -226,7 +224,7 @@ describe("cron service store seam coverage", () => {
     await ensureLoaded(state, { forceReload: true, skipRecompute: true });
 
     const reloadedJob = findJobOrThrow(state, "reload-cron-expr-job");
-    expect(reloadedJob.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6", tz: "UTC" });
+    expect(reloadedJob.schedule).toEqual({ kind: "cron", expr: "30 6 * * 0,6" });
     expect(reloadedJob.state.nextRunAtMs).toBeUndefined();
   });
 
@@ -316,38 +314,6 @@ describe("cron service store seam coverage", () => {
     await ensureLoaded(state, { forceReload: true, skipRecompute: true });
 
     expect(findJobOrThrow(state, "reload-cron-expr-job").state.nextRunAtMs).toBeUndefined();
-  });
-
-  it("clears stale nextRunAtMs after force reload when every schedule anchor changes", async () => {
-    const { storePath } = await makeStorePath();
-    const jobId = "reload-every-anchor-job";
-    const staleNextRunAtMs = STORE_TEST_NOW + 3_600_000;
-
-    await writeSingleJobStore(storePath, {
-      ...createReloadCronJob({
-        id: jobId,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: STORE_TEST_NOW - 60_000 },
-        state: { nextRunAtMs: staleNextRunAtMs },
-      }),
-    });
-
-    const state = createStoreTestState(storePath);
-    await ensureLoaded(state, { skipRecompute: true });
-    await saveCronStore(storePath, {
-      version: 1,
-      jobs: [
-        createReloadCronJob({
-          id: jobId,
-          updatedAtMs: STORE_TEST_NOW,
-          schedule: { kind: "every", everyMs: 60_000, anchorMs: STORE_TEST_NOW },
-          state: { nextRunAtMs: staleNextRunAtMs },
-        }),
-      ],
-    });
-
-    await ensureLoaded(state, { forceReload: true, skipRecompute: true });
-
-    expect(findJobOrThrow(state, jobId).state.nextRunAtMs).toBeUndefined();
   });
 
   it("clears stale nextRunAtMs after force reload when at schedule target changes", async () => {

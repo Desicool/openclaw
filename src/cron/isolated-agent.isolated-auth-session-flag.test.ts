@@ -37,7 +37,7 @@ function makeParams(
       enabled: true,
       createdAtMs: 0,
       updatedAtMs: 0,
-      schedule: { kind: "cron" as const, expr: "0 * * * *", tz: "UTC" },
+      schedule: { kind: "cron" as const, expr: "0 * * * *" },
       sessionTarget: "isolated" as const,
       state: {},
       wakeMode: "next-heartbeat" as const,

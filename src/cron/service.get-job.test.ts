@@ -16,6 +16,7 @@ function createCronService(storePath: string, cronEnabled = true) {
     storePath,
     cronEnabled,
     log: logger,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
@@ -32,10 +33,10 @@ describe("CronService.getJob", () => {
       const added = await cron.add({
         name: "lookup-test",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
-        payload: { kind: "systemEvent", text: "ping" },
+        payload: { kind: "agentTurn", message: "ping" },
       });
 
       expect(cron.getJob(added.id)?.id).toBe(added.id);
@@ -55,10 +56,10 @@ describe("CronService.getJob", () => {
       const webhookJob = await cron.add({
         name: "webhook-job",
         enabled: true,
-        schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
-        payload: { kind: "systemEvent", text: "ping" },
+        payload: { kind: "agentTurn", message: "ping" },
         delivery: { mode: "webhook", to: "https://example.invalid/cron" },
       });
       await expect(cron.readJob(webhookJob.id)).resolves.toEqual(webhookJob);
@@ -78,10 +79,10 @@ describe("CronService.getJob", () => {
     const persisted = await writer.add({
       name: "persisted-job",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "ping" },
+      payload: { kind: "agentTurn", message: "ping" },
     });
     writer.stop();
 

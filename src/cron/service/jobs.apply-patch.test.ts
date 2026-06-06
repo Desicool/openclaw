@@ -12,7 +12,7 @@ function makeJob(overrides: Partial<CronJob> = {}): CronJob {
     enabled: true,
     createdAtMs: now,
     updatedAtMs: now,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "agentTurn", message: "hello" },
@@ -168,40 +168,5 @@ describe("applyJobPatch delivery merge", () => {
       to: "C123",
       accountId: undefined,
     });
-  });
-
-  it("preserves main-job clear-only failure destinations as global opt-outs", () => {
-    const job = makeJob({
-      sessionTarget: "main",
-      payload: { kind: "systemEvent", text: "tick" },
-      delivery: undefined,
-    });
-
-    applyJobPatch(job, {
-      delivery: {
-        failureDestination: {
-          channel: null,
-          to: null,
-          accountId: null,
-          mode: null,
-        },
-      },
-    });
-
-    const failureDestination = job.delivery?.failureDestination;
-    expect(job.delivery?.mode).toBe("none");
-    expect(failureDestination).toEqual({
-      channel: undefined,
-      to: undefined,
-      accountId: undefined,
-      mode: undefined,
-    });
-    expect(
-      resolveFailureDestination(job, {
-        channel: "slack",
-        to: "C123",
-        accountId: "bot-a",
-      }),
-    ).toBeNull();
   });
 });

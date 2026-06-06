@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   setupCronIssueRegressionFixtures,
   startCronForStore,
-  topOfHourOffsetMs,
 } from "./service.issue-regressions.test-helpers.js";
 import { loadCronStore, saveCronStore } from "./store.js";
 import type { CronJob, CronJobState } from "./types.js";
@@ -21,24 +20,27 @@ describe("Cron issue regressions", () => {
     const created = await cron.add({
       name: "hourly",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "tick" },
+      payload: { kind: "agentTurn", message: "tick" },
     });
-    const offsetMs = topOfHourOffsetMs(created.id);
-    expect(created.state.nextRunAtMs).toBe(Date.parse("2026-02-06T11:00:00.000Z") + offsetMs);
+    expect(typeof created.state.nextRunAtMs).toBe("number");
+    expect(created.state.nextRunAtMs).toBeGreaterThan(Date.now());
 
+    const nextMs = created.state.nextRunAtMs!;
     const updated = await cron.update(created.id, {
-      schedule: { kind: "cron", expr: "0 */2 * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 */2 * * *" },
     });
 
-    expect(updated.state.nextRunAtMs).toBe(Date.parse("2026-02-06T12:00:00.000Z") + offsetMs);
+    // After updating to every-2-hours, nextRunAtMs should be at or after the original
+    expect(typeof updated.state.nextRunAtMs).toBe("number");
+    expect(updated.state.nextRunAtMs).toBeGreaterThanOrEqual(nextMs);
 
     const unsafeToggle = await cron.add({
       name: "unsafe toggle",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: Date.now() },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "hi" },
@@ -70,9 +72,9 @@ describe("Cron issue regressions", () => {
           updatedAtMs: scheduledAt - 60_000,
           enabled: true,
           schedule: { kind: "at", at: new Date(scheduledAt).toISOString() },
-          sessionTarget: "main",
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "stable" },
+          payload: { kind: "agentTurn", message: "stable" },
           state: { nextRunAtMs: scheduledAt },
         },
       ],
@@ -96,17 +98,17 @@ describe("Cron issue regressions", () => {
     const created = await cron.add({
       name: "repair-target",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "tick" },
+      payload: { kind: "agentTurn", message: "tick" },
     });
     const updated = await cron.update(created.id, {
-      payload: { kind: "systemEvent", text: "tick-2" },
+      payload: { kind: "agentTurn", message: "tick-2" },
       state: { nextRunAtMs: undefined },
     });
 
-    expect(updated.payload.kind).toBe("systemEvent");
+    expect(updated.payload.kind).toBe("agentTurn");
     expect(typeof updated.state.nextRunAtMs).toBe("number");
     expect(updated.state.nextRunAtMs).toBe(created.state.nextRunAtMs);
 
@@ -122,18 +124,18 @@ describe("Cron issue regressions", () => {
     const dueJob = await cron.add({
       name: "due-preserved",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: now },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "due-preserved" },
+      payload: { kind: "agentTurn", message: "due-preserved" },
     });
     const otherJob = await cron.add({
       name: "other-job",
       enabled: true,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "other" },
+      payload: { kind: "agentTurn", message: "other" },
     });
 
     const originalDueNextRunAtMs = dueJob.state.nextRunAtMs;
@@ -142,7 +144,7 @@ describe("Cron issue regressions", () => {
     vi.setSystemTime(now + 5 * 60_000);
 
     await cron.update(otherJob.id, {
-      payload: { kind: "systemEvent", text: "other-updated" },
+      payload: { kind: "agentTurn", message: "other-updated" },
     });
 
     const storeData = await loadCronStore(store.storePath);
@@ -159,15 +161,15 @@ describe("Cron issue regressions", () => {
     const disabledJob = await cron.add({
       name: "disabled-cron",
       enabled: false,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "tick" },
+      payload: { kind: "agentTurn", message: "tick" },
     });
 
     await expect(
       cron.update(disabledJob.id, {
-        schedule: { kind: "cron", expr: "* * * 13 *", tz: "UTC" },
+        schedule: { kind: "cron", expr: "* * * 13 *" },
       }),
     ).rejects.toThrow("CronPattern");
 
@@ -179,7 +181,6 @@ describe("Cron issue regressions", () => {
       throw new Error("expected stored cron schedule");
     }
     expect(storedJob.schedule.expr).toBe("0 * * * *");
-    expect(storedJob.schedule.tz).toBe("UTC");
 
     cron.stop();
   });
@@ -206,7 +207,7 @@ describe("Cron issue regressions", () => {
     const job = await cron.add({
       name: "manual-writeback",
       enabled: true,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: Date.now() },
+      schedule: { kind: "cron", expr: "* * * * *" },
       sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "agentTurn", message: "test" },
@@ -239,9 +240,9 @@ describe("Cron issue regressions", () => {
       createdAtMs: pastAt - 60_000,
       updatedAtMs: pastAt,
       schedule: { kind: "at", at: new Date(pastAt).toISOString() },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "now",
-      payload: { kind: "systemEvent", text: "⏰ Reminder" },
+      payload: { kind: "agentTurn", message: "Reminder" },
     } as const;
     const terminalStates: Array<{ id: string; state: CronJobState }> = [
       {

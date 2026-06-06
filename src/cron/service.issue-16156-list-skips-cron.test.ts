@@ -22,26 +22,17 @@ function createCronFromStorePath(storePath: string) {
     storePath,
     cronEnabled: true,
     log: noopLogger,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
   });
 }
 
-function requireEnqueueSystemEventCall(
-  enqueueSystemEvent: ReturnType<typeof vi.fn>,
-): [string, { agentId?: string } | undefined] {
-  const call = enqueueSystemEvent.mock.calls[0];
-  if (!call) {
-    throw new Error("Expected enqueueSystemEvent call");
-  }
-  return call as [string, { agentId?: string } | undefined];
-}
-
 describe("#16156: cron.list() must not silently advance past-due recurring jobs", () => {
   it("does not skip a cron job when list() is called while the job is past-due", async () => {
     const store = await makeStorePath();
-    const { cron, enqueueSystemEvent, finished } = createStartedCronServiceWithFinishedBarrier({
+    const { cron, finished } = createStartedCronServiceWithFinishedBarrier({
       storePath: store.storePath,
       logger: noopLogger,
     });
@@ -53,9 +44,9 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
       name: "every-minute",
       enabled: true,
       schedule: { kind: "cron", expr: "* * * * *" },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "cron-tick" },
+      payload: { kind: "agentTurn", message: "cron-tick" },
     });
 
     const firstDueAt = job.state.nextRunAtMs!;
@@ -82,10 +73,7 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
     const jobs = await cron.list({ includeDisabled: true });
     const updated = jobs.find((j) => j.id === job.id);
 
-    // Job must have actually executed.
-    const [text, options] = requireEnqueueSystemEventCall(enqueueSystemEvent);
-    expect(text).toBe("cron-tick");
-    expect(options?.agentId).toBeUndefined();
+    // Job must have actually executed via isolated agent path.
     expect(updated?.state.lastStatus).toBe("ok");
     // nextRunAtMs must advance to a future minute boundary after execution.
     expect(updated?.state.nextRunAtMs).toBeGreaterThan(firstDueAt);
@@ -95,7 +83,7 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
 
   it("does not skip a cron job when status() is called while the job is past-due", async () => {
     const store = await makeStorePath();
-    const { cron, enqueueSystemEvent, finished } = createStartedCronServiceWithFinishedBarrier({
+    const { cron, finished } = createStartedCronServiceWithFinishedBarrier({
       storePath: store.storePath,
       logger: noopLogger,
     });
@@ -106,9 +94,9 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
       name: "five-min-cron",
       enabled: true,
       schedule: { kind: "cron", expr: "*/5 * * * *" },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "tick-5" },
+      payload: { kind: "agentTurn", message: "tick-5" },
     });
 
     const firstDueAt = job.state.nextRunAtMs!;
@@ -127,9 +115,6 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
     const jobs = await cron.list({ includeDisabled: true });
     const updated = jobs.find((j) => j.id === job.id);
 
-    const [text, options] = requireEnqueueSystemEventCall(enqueueSystemEvent);
-    expect(text).toBe("tick-5");
-    expect(options?.agentId).toBeUndefined();
     expect(updated?.state.lastStatus).toBe("ok");
 
     cron.stop();
@@ -147,10 +132,10 @@ describe("#16156: cron.list() must not silently advance past-due recurring jobs"
         enabled: true,
         createdAtMs: nowMs,
         updatedAtMs: nowMs,
-        schedule: { kind: "cron", expr: "* * * * *", tz: "UTC" },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "now",
-        payload: { kind: "systemEvent", text: "fill-me" },
+        payload: { kind: "agentTurn", message: "fill-me" },
         state: {},
       },
     ]);

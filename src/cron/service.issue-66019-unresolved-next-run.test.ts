@@ -18,7 +18,7 @@ function createIssue66019Job(params: { id: string; scheduledAt: number }) {
     id: params.id,
     name: params.id,
     scheduledAt: params.scheduledAt,
-    schedule: { kind: "cron", expr: "0 7 * * *", tz: "Asia/Shanghai" },
+    schedule: { kind: "cron", expr: "0 7 * * *" },
     payload: { kind: "agentTurn", message: "ping" },
     state: { nextRunAtMs: params.scheduledAt - 1_000 },
   });

@@ -1,6 +1,10 @@
 // Cron protocol schema tests cover runtime validation for cron protocol payloads.
 import { describe, expect, it } from "vitest";
-import { CronJobStateSchema } from "../../packages/gateway-protocol/src/schema.js";
+import {
+  CronAddParamsSchema,
+  CronJobSchema,
+  CronJobStateSchema,
+} from "../../packages/gateway-protocol/src/schema.js";
 
 type SchemaLike = {
   properties?: Record<string, unknown>;
@@ -22,5 +26,17 @@ describe("cron protocol schema", () => {
     expect(properties.lastFailureNotificationDelivered).toBeDefined();
     expect(properties.lastFailureNotificationDeliveryStatus).toBeDefined();
     expect(properties.lastFailureNotificationDeliveryError).toBeDefined();
+  });
+});
+
+describe("cron protocol schema: idempotencyKey", () => {
+  it("CronJobSchema carries idempotencyKey", () => {
+    const properties = (CronJobSchema as SchemaLike).properties ?? {};
+    expect(properties.idempotencyKey).toBeDefined();
+  });
+
+  it("CronAddParamsSchema carries idempotencyKey", () => {
+    const properties = (CronAddParamsSchema as SchemaLike).properties ?? {};
+    expect(properties.idempotencyKey).toBeDefined();
   });
 });

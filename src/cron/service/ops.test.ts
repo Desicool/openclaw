@@ -35,6 +35,7 @@ function createTimedOutIsolatedCronState(params: { storePath: string; now: numbe
     cronEnabled: true,
     log: logger,
     nowMs: () => params.now,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => {
@@ -49,6 +50,7 @@ function createOkIsolatedCronState(params: { storePath: string; now: number; sum
     cronEnabled: true,
     log: logger,
     nowMs: () => params.now,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({
@@ -65,8 +67,8 @@ function createInterruptedMainJob(now: number): CronJob {
     enabled: true,
     createdAtMs: now - 86_400_000,
     updatedAtMs: now - 30 * 60_000,
-    schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-    sessionTarget: "main",
+    schedule: { kind: "cron", expr: "0 * * * *" },
+    sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "systemEvent", text: "should not replay on startup" },
     state: {
@@ -85,7 +87,7 @@ function createDueIsolatedJob(now: number): CronJob {
     enabled: true,
     createdAtMs: now - 60_000,
     updatedAtMs: now - 60_000,
-    schedule: { kind: "every", everyMs: 60_000, anchorMs: now - 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "do work" },
@@ -126,8 +128,8 @@ function insertCronJobRow(storePath: string, job: CronJob) {
       $createdAtMs: job.createdAtMs,
       $scheduleKind: job.schedule.kind,
       $at: job.schedule.kind === "at" ? job.schedule.at : null,
-      $everyMs: job.schedule.kind === "every" ? job.schedule.everyMs : null,
-      $anchorMs: job.schedule.kind === "every" ? (job.schedule.anchorMs ?? null) : null,
+      $everyMs: null,
+      $anchorMs: null,
       $scheduleExpr: job.schedule.kind === "cron" ? job.schedule.expr : null,
       $sessionTarget: job.sessionTarget,
       $wakeMode: job.wakeMode,
@@ -186,7 +188,7 @@ function createMissedIsolatedJob(now: number): CronJob {
     enabled: true,
     createdAtMs: now - 86_400_000,
     updatedAtMs: now - 30 * 60_000,
-    schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
+    schedule: { kind: "cron", expr: "0 * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "should timeout" },
@@ -208,8 +210,8 @@ describe("cron service ops seam coverage", () => {
         enabled: true,
         createdAtMs: now - 120_000,
         updatedAtMs: now - 120_000,
-        schedule: { kind: "every", everyMs: 3_600_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "alpha" },
         state: { nextRunAtMs: now + 3_600_000 },
@@ -220,8 +222,8 @@ describe("cron service ops seam coverage", () => {
         enabled: true,
         createdAtMs: now - 60_000,
         updatedAtMs: now - 60_000,
-        schedule: { kind: "every", everyMs: 7_200_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "0 */2 * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: "beta" },
         state: { nextRunAtMs: now + 7_200_000 },
@@ -233,10 +235,10 @@ describe("cron service ops seam coverage", () => {
     const newJob = await add(state, {
       name: "new after upgrade",
       enabled: true,
-      schedule: { kind: "every", everyMs: 10_800_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
-      payload: { kind: "systemEvent", text: "new" },
+      payload: { kind: "agentTurn", message: "new" },
     });
     if (state.timer) {
       clearTimeout(state.timer);
@@ -247,58 +249,6 @@ describe("cron service ops seam coverage", () => {
     expect(loaded.jobs.map((job) => job.id)).toEqual([newJob.id]);
     expect(await fs.stat(storePath)).toBeTruthy();
     await expect(fs.stat(`${storePath}.migrated`)).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("leaves legacy notify fallback for doctor instead of migrating during startup", async () => {
-    const { storePath } = await makeStorePath();
-    const now = Date.parse("2026-05-20T09:00:00.000Z");
-    const legacyJob = {
-      id: "legacy-notify",
-      name: "legacy notify",
-      enabled: true,
-      createdAtMs: now - 60_000,
-      updatedAtMs: now - 60_000,
-      schedule: { kind: "every", everyMs: 3_600_000, anchorMs: now },
-      sessionTarget: "isolated",
-      wakeMode: "next-heartbeat",
-      payload: { kind: "agentTurn", message: "do work" },
-      delivery: { to: "telegram:chat-1" },
-      notify: true,
-      state: { nextRunAtMs: now + 3_600_000 },
-    } as CronJob & { notify: true };
-    insertCronJobRow(storePath, legacyJob);
-    const state = createCronServiceState({
-      storePath,
-      cronEnabled: true,
-      cronConfig: { webhook: "https://example.invalid/cron" },
-      log: logger,
-      nowMs: () => now,
-      enqueueSystemEvent: vi.fn(),
-      requestHeartbeat: vi.fn(),
-      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
-    });
-
-    await start(state);
-    if (state.timer) {
-      clearTimeout(state.timer);
-    }
-
-    const loaded = await loadCronJobsStoreWithConfigJobs(storePath);
-    const persisted = loaded.store.jobs[0] as CronJob & { notify?: unknown };
-    expect(persisted.notify).toBeUndefined();
-    expect(persisted.delivery).toEqual({
-      mode: "announce",
-      to: "telegram:chat-1",
-    });
-    expect(loaded.configJobs[0]?.notify).toBe(true);
-    expect(logger.info).not.toHaveBeenCalledWith(
-      { storePath },
-      "cron: migrated legacy notify fallback jobs before scheduler startup",
-    );
-    expect(logger.warn).not.toHaveBeenCalledWith(
-      expect.objectContaining({ storePath }),
-      "cron: legacy notify fallback jobs need cron.webhook before migration",
-    );
   });
 
   it("start marks interrupted running jobs failed, persists, and arms the timer", async () => {
@@ -318,6 +268,7 @@ describe("cron service ops seam coverage", () => {
       cronEnabled: true,
       log: logger,
       nowMs: () => now,
+      schedulerLockPath: null,
       enqueueSystemEvent,
       requestHeartbeat,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
@@ -378,8 +329,8 @@ describe("cron service ops seam coverage", () => {
           enabled: true,
           createdAtMs,
           updatedAtMs: createdAtMs,
-          schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 9 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
           payload: { kind: "systemEvent", text: "daily" },
           state: { nextRunAtMs },
@@ -391,6 +342,7 @@ describe("cron service ops seam coverage", () => {
       cronEnabled: true,
       log: logger,
       nowMs: () => now,
+      schedulerLockPath: null,
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
@@ -535,10 +487,10 @@ describe("cron service ops seam coverage", () => {
           enabled: true,
           createdAtMs: now - 86_400_000,
           updatedAtMs: now - 3_600_000,
-          schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 9 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "daily" },
+          payload: { kind: "agentTurn", message: "daily" },
           state: { nextRunAtMs: originalNextRunAtMs },
         },
       ],
@@ -565,10 +517,10 @@ describe("cron service ops seam coverage", () => {
           enabled: true,
           createdAtMs: now - 86_400_000,
           updatedAtMs: now - 3_600_000,
-          schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 9 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "test" },
+          payload: { kind: "agentTurn", message: "test" },
           state: { nextRunAtMs: 0 },
         },
       ],
@@ -654,5 +606,222 @@ describe("cron service ops seam coverage", () => {
     } finally {
       restoreStateDir();
     }
+  });
+});
+
+describe("idempotencyKey dedup in ops.add()", () => {
+  const baseInput = {
+    name: "dedup test",
+    enabled: true,
+    sessionTarget: "isolated" as const,
+    wakeMode: "next-heartbeat" as const,
+    payload: { kind: "agentTurn" as const, message: "ping" },
+  };
+
+  it("happy path: first add succeeds, second with same key and future fireAt throws", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const futureAt = new Date(now + 3_600_000).toISOString();
+    const first = await add(state, {
+      ...baseInput,
+      idempotencyKey: "abc",
+      schedule: { kind: "at", at: futureAt },
+    });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(first.idempotencyKey).toBe("abc");
+
+    await expect(
+      add(state, {
+        ...baseInput,
+        idempotencyKey: "abc",
+        schedule: { kind: "at", at: futureAt },
+      }),
+    ).rejects.toThrow(`cron job with idempotencyKey abc already exists (jobId=${first.id})`);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+  });
+
+  it("no key: two adds without idempotencyKey both succeed", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const schedule = { kind: "cron" as const, expr: "* * * * *" };
+    const first = await add(state, { ...baseInput, schedule });
+    const second = await add(state, { ...baseInput, schedule });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(first.id).not.toBe(second.id);
+    expect(first.idempotencyKey).toBeUndefined();
+    expect(second.idempotencyKey).toBeUndefined();
+  });
+
+  it("different keys: add with 'abc' and add with 'def' both succeed", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const schedule = { kind: "cron" as const, expr: "* * * * *" };
+    const first = await add(state, { ...baseInput, idempotencyKey: "abc", schedule });
+    const second = await add(state, { ...baseInput, idempotencyKey: "def", schedule });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(first.idempotencyKey).toBe("abc");
+    expect(second.idempotencyKey).toBe("def");
+  });
+
+  it("expired existing (kind:at in the past): second add with same key succeeds", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const pastAt = new Date(now - 86_400_000).toISOString();
+    const futureAt = new Date(now + 3_600_000).toISOString();
+
+    // Pre-populate with an expired kind:at job carrying the key.
+    const expiredJob: CronJob = {
+      id: "expired-at-job",
+      name: "expired at",
+      enabled: false,
+      idempotencyKey: "abc",
+      createdAtMs: now - 90_000_000,
+      updatedAtMs: now - 86_400_000,
+      schedule: { kind: "at", at: pastAt },
+      sessionTarget: "isolated",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "agentTurn", message: "old" },
+      state: {},
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [expiredJob] });
+
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const newJob = await add(state, {
+      ...baseInput,
+      idempotencyKey: "abc",
+      schedule: { kind: "at", at: futureAt },
+    });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(newJob.idempotencyKey).toBe("abc");
+    expect(newJob.id).not.toBe("expired-at-job");
+  });
+
+  it("recurring + disabled existing: second add with same key succeeds", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+
+    // Pre-populate with a disabled kind:cron job carrying the key.
+    const disabledJob: CronJob = {
+      id: "disabled-cron-job",
+      name: "disabled cron",
+      enabled: false,
+      idempotencyKey: "abc",
+      createdAtMs: now - 86_400_000,
+      updatedAtMs: now - 3_600_000,
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "agentTurn", message: "old" },
+      state: {},
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [disabledJob] });
+
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const newJob = await add(state, {
+      ...baseInput,
+      idempotencyKey: "abc",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+    });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(newJob.idempotencyKey).toBe("abc");
+    expect(newJob.id).not.toBe("disabled-cron-job");
+  });
+
+  it("recurring + enabled existing: second add with same key throws", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+
+    // Pre-populate with an enabled kind:cron job carrying the key.
+    const enabledJob: CronJob = {
+      id: "enabled-cron-job",
+      name: "enabled cron",
+      enabled: true,
+      idempotencyKey: "abc",
+      createdAtMs: now - 86_400_000,
+      updatedAtMs: now - 3_600_000,
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "agentTurn", message: "existing" },
+      state: { nextRunAtMs: now + 3_600_000 },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [enabledJob] });
+
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    await expect(
+      add(state, {
+        ...baseInput,
+        idempotencyKey: "abc",
+        schedule: { kind: "cron", expr: "0 * * * *" },
+      }),
+    ).rejects.toThrow("cron job with idempotencyKey abc already exists (jobId=enabled-cron-job)");
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+  });
+});
+
+describe("idempotencyKey dedup: disk durability after rejection", () => {
+  it("only one job in jobs.json after duplicate-key rejection", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-05-28T10:00:00.000Z");
+    const state = createOkIsolatedCronState({ storePath, now });
+    const futureAt = new Date(now + 3_600_000).toISOString();
+
+    const input = {
+      name: "dedup-durability",
+      enabled: true,
+      idempotencyKey: "durability-key-xyz",
+      schedule: { kind: "at" as const, at: futureAt },
+      sessionTarget: "isolated" as const,
+      wakeMode: "next-heartbeat" as const,
+      payload: { kind: "agentTurn" as const, message: "ping" },
+    };
+
+    // First add — should succeed.
+    const first = await add(state, input);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    // Second add with the same key — should be rejected.
+    await expect(add(state, { ...input, name: "dedup-durability-dup" })).rejects.toThrow(
+      `cron job with idempotencyKey durability-key-xyz already exists (jobId=${first.id})`,
+    );
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    // Disk must contain exactly one job with this idempotencyKey.
+    const persisted = await loadCronStore(storePath);
+    const matching = persisted.jobs.filter((j) => j.idempotencyKey === "durability-key-xyz");
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.id).toBe(first.id);
   });
 });

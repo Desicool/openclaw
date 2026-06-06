@@ -31,6 +31,7 @@ describe("CronService restart catch-up", () => {
       storePath: params.storePath,
       cronEnabled: true,
       log: noopLogger,
+      schedulerLockPath: null,
       ...(params.nowMs ? { nowMs: params.nowMs } : {}),
       enqueueSystemEvent: params.enqueueSystemEvent as never,
       requestHeartbeat: params.requestHeartbeat as never,
@@ -51,8 +52,8 @@ describe("CronService restart catch-up", () => {
       enabled: true,
       createdAtMs: nextRunAtMs - 60_000,
       updatedAtMs: nextRunAtMs - 60_000,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: nextRunAtMs - 60_000 },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: `tick-${id}` },
       state: { nextRunAtMs },
@@ -66,8 +67,8 @@ describe("CronService restart catch-up", () => {
       enabled: true,
       createdAtMs: nextRunAtMs - 60_000,
       updatedAtMs: nextRunAtMs - 60_000,
-      schedule: { kind: "cron", expr: "0 * * * *", tz: "UTC" },
-      sessionTarget: "main",
+      schedule: { kind: "cron", expr: "0 * * * *" },
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: `tick-${id}` },
       state: { nextRunAtMs },
@@ -102,12 +103,14 @@ describe("CronService restart catch-up", () => {
       cron: CronService;
       enqueueSystemEvent: ReturnType<typeof vi.fn>;
       requestHeartbeat: ReturnType<typeof vi.fn>;
+      runIsolatedAgentJob: ReturnType<typeof vi.fn>;
       onEvent: ReturnType<typeof vi.fn>;
     }) => Promise<void>,
   ) {
     const store = await makeStorePath();
     const enqueueSystemEvent = vi.fn();
     const requestHeartbeat = vi.fn();
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
     const onEvent = vi.fn();
 
     await writeStoreJobs(store.storePath, jobs);
@@ -116,21 +119,23 @@ describe("CronService restart catch-up", () => {
       storePath: store.storePath,
       enqueueSystemEvent,
       requestHeartbeat,
+      runIsolatedAgentJob,
       onEvent,
     });
 
     try {
       await cron.start();
-      await run({ cron, enqueueSystemEvent, requestHeartbeat, onEvent });
+      await run({ cron, enqueueSystemEvent, requestHeartbeat, runIsolatedAgentJob, onEvent });
     } finally {
       cron.stop();
       await store.cleanup();
     }
   }
 
-  it("executes an overdue recurring job immediately on start", async () => {
+  it("defers overdue recurring isolated agentTurn jobs for post-startup execution", async () => {
     const dueAt = Date.parse("2025-12-13T15:00:00.000Z");
     const lastRunAt = Date.parse("2025-12-12T15:00:00.000Z");
+    const startNow = Date.parse("2025-12-13T17:00:00.000Z");
 
     await withRestartedCron(
       [
@@ -140,10 +145,10 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-12T15:00:00.000Z"),
-          schedule: { kind: "cron", expr: "0 15 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 15 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "digest now" },
+          payload: { kind: "agentTurn", message: "digest now" },
           state: {
             nextRunAtMs: dueAt,
             lastRunAtMs: lastRunAt,
@@ -151,15 +156,18 @@ describe("CronService restart catch-up", () => {
           },
         },
       ],
-      async ({ cron, enqueueSystemEvent, requestHeartbeat }) => {
-        expectQueuedSystemEvent(enqueueSystemEvent, "digest now");
-        expect(requestHeartbeat).toHaveBeenCalled();
+      async ({ cron, runIsolatedAgentJob, requestHeartbeat }) => {
+        // Isolated agentTurn jobs are deferred on startup to avoid blocking
+        // gateway bootstrap; they are NOT run immediately.
+        expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+        expect(requestHeartbeat).not.toHaveBeenCalled();
 
         const listedJobs = await cron.list({ includeDisabled: true });
         const updated = listedJobs.find((job) => job.id === "restart-overdue-job");
         expect(updated?.state.lastStatus).toBe("ok");
-        expect(updated?.state.lastRunAtMs).toBe(Date.parse("2025-12-13T17:00:00.000Z"));
-        expect(updated?.state.nextRunAtMs).toBeGreaterThan(Date.parse("2025-12-13T17:00:00.000Z"));
+        expect(updated?.state.lastRunAtMs).toBe(lastRunAt);
+        // nextRunAtMs should be advanced to a near-future time for deferred execution.
+        expect(updated?.state.nextRunAtMs).toBeGreaterThan(startNow);
       },
     );
   });
@@ -176,9 +184,9 @@ describe("CronService restart catch-up", () => {
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: dueAt,
           schedule: { kind: "at", at: "2025-12-13T16:00:00.000Z" },
-          sessionTarget: "main",
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "do not replay one shot" },
+          payload: { kind: "agentTurn", message: "do not replay one shot" },
           state: {
             nextRunAtMs: dueAt,
             lastRunAtMs: dueAt,
@@ -213,7 +221,7 @@ describe("CronService restart catch-up", () => {
         enabled: true,
         createdAtMs: startNow - 120_000,
         updatedAtMs: startNow - 120_000,
-        schedule: { kind: "every", everyMs: 60_000, anchorMs: startNow - 120_000 },
+        schedule: { kind: "cron", expr: "* * * * *" },
         sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "agentTurn", message: "do work" },
@@ -260,8 +268,8 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T16:30:00.000Z"),
-          schedule: { kind: "cron", expr: "0 16 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "0 16 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
           payload: { kind: "systemEvent", text: "resume stale marker" },
           state: {
@@ -298,8 +306,9 @@ describe("CronService restart catch-up", () => {
       },
     );
   });
-  it("replays the most recent missed cron slot after restart when nextRunAtMs already advanced", async () => {
-    vi.setSystemTime(new Date("2025-12-13T04:02:00.000Z"));
+  it("defers detected missed cron slot for isolated agentTurn job for post-startup execution", async () => {
+    const restartNow = Date.parse("2025-12-13T04:02:00.000Z");
+    vi.setSystemTime(new Date(restartNow));
     await withRestartedCron(
       [
         {
@@ -308,10 +317,10 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T04:01:00.000Z"),
-          schedule: { kind: "cron", expr: "1,11,21,31,41,51 4-20 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "1,11,21,31,41,51 4-20 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "catch missed slot" },
+          payload: { kind: "agentTurn", message: "catch missed slot" },
           state: {
             // Persisted state may already be recomputed from restart time and
             // point to the future slot, even though 04:01 was missed.
@@ -321,13 +330,17 @@ describe("CronService restart catch-up", () => {
           },
         },
       ],
-      async ({ cron, enqueueSystemEvent, requestHeartbeat }) => {
-        expectQueuedSystemEvent(enqueueSystemEvent, "catch missed slot");
-        expect(requestHeartbeat).toHaveBeenCalled();
+      async ({ cron, runIsolatedAgentJob, requestHeartbeat }) => {
+        // Isolated agentTurn jobs are deferred on startup; not immediately run.
+        expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+        expect(requestHeartbeat).not.toHaveBeenCalled();
 
         const listedJobs = await cron.list({ includeDisabled: true });
         const updated = listedJobs.find((job) => job.id === "restart-missed-slot");
-        expect(updated?.state.lastRunAtMs).toBe(Date.parse("2025-12-13T04:02:00.000Z"));
+        // lastRunAtMs unchanged (job not run yet)
+        expect(updated?.state.lastRunAtMs).toBe(Date.parse("2025-12-13T03:51:00.000Z"));
+        // nextRunAtMs should be advanced to a near-future deferred slot
+        expect(updated?.state.nextRunAtMs).toBeGreaterThan(restartNow);
       },
     );
   });
@@ -345,7 +358,7 @@ describe("CronService restart catch-up", () => {
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T16:30:00.000Z"),
           schedule: { kind: "at", at: "2025-12-13T16:00:00.000Z" },
-          sessionTarget: "main",
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
           payload: { kind: "systemEvent", text: "one-shot stale marker" },
           state: {
@@ -385,8 +398,8 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T04:01:00.000Z"),
-          schedule: { kind: "cron", expr: "1,11,21,31,41,51 4-20 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "1,11,21,31,41,51 4-20 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
           payload: { kind: "systemEvent", text: "already ran" },
           state: {
@@ -413,8 +426,8 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T04:01:10.000Z"),
-          schedule: { kind: "cron", expr: "* * * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "* * * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
           payload: { kind: "systemEvent", text: "do not run during backoff" },
           state: {
@@ -443,8 +456,8 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T04:01:30.000Z"),
-          schedule: { kind: "cron", expr: "* * * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "* * * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
           payload: { kind: "systemEvent", text: "do not replay long failed run" },
           state: {
@@ -477,14 +490,10 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T04:00:30.000Z"),
-          schedule: {
-            kind: "every",
-            everyMs: 60_000,
-            anchorMs: Date.parse("2025-12-13T04:00:00.000Z"),
-          },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "* * * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "do not run early retry" },
+          payload: { kind: "agentTurn", message: "do not run early retry" },
           state: {
             nextRunAtMs: Date.parse("2025-12-13T04:00:30.000Z"),
             lastRunAtMs: Date.parse("2025-12-13T04:00:00.000Z"),
@@ -494,8 +503,8 @@ describe("CronService restart catch-up", () => {
           },
         },
       ],
-      async ({ cron, enqueueSystemEvent, requestHeartbeat }) => {
-        expect(enqueueSystemEvent).not.toHaveBeenCalled();
+      async ({ cron, runIsolatedAgentJob, requestHeartbeat }) => {
+        expect(runIsolatedAgentJob).not.toHaveBeenCalled();
         expect(requestHeartbeat).not.toHaveBeenCalled();
 
         const listedJobs = await cron.list({ includeDisabled: true });
@@ -505,48 +514,9 @@ describe("CronService restart catch-up", () => {
     );
   });
 
-  it("keeps past-due retries paused when restored with lastRunStatus only", async () => {
-    vi.setSystemTime(new Date("2025-12-13T17:00:00.000Z"));
-    await withRestartedCron(
-      [
-        {
-          id: "restart-backoff-last-run-status",
-          name: "lastRunStatus backoff pending",
-          enabled: true,
-          createdAtMs: Date.parse("2025-12-13T16:50:00.000Z"),
-          updatedAtMs: Date.parse("2025-12-13T16:59:45.000Z"),
-          schedule: {
-            kind: "every",
-            everyMs: 60_000,
-            anchorMs: Date.parse("2025-12-13T16:50:00.000Z"),
-          },
-          sessionTarget: "main",
-          wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "do not run during lastRunStatus backoff" },
-          state: {
-            nextRunAtMs: Date.parse("2025-12-13T16:59:50.000Z"),
-            lastRunAtMs: Date.parse("2025-12-13T16:59:45.000Z"),
-            lastDurationMs: 0,
-            lastRunStatus: "error",
-            consecutiveErrors: 1,
-          },
-        },
-      ],
-      async ({ cron, enqueueSystemEvent, requestHeartbeat }) => {
-        expect(enqueueSystemEvent).not.toHaveBeenCalled();
-        expect(requestHeartbeat).not.toHaveBeenCalled();
-
-        const listedJobs = await cron.list({ includeDisabled: true });
-        const updated = listedJobs.find((job) => job.id === "restart-backoff-last-run-status");
-        expect(updated?.state.nextRunAtMs).toBeGreaterThan(Date.parse("2025-12-13T17:00:00.000Z"));
-        expect(updated?.state.lastRunStatus).toBe("error");
-        expect(updated?.state.lastStatus).toBeUndefined();
-      },
-    );
-  });
-
-  it("replays missed cron slot after restart when error backoff has already elapsed", async () => {
-    vi.setSystemTime(new Date("2025-12-13T04:02:00.000Z"));
+  it("defers isolated agentTurn missed cron slot for post-startup execution even when backoff has elapsed", async () => {
+    const restartNow = Date.parse("2025-12-13T04:02:00.000Z");
+    vi.setSystemTime(new Date(restartNow));
     await withRestartedCron(
       [
         {
@@ -555,10 +525,10 @@ describe("CronService restart catch-up", () => {
           enabled: true,
           createdAtMs: Date.parse("2025-12-10T12:00:00.000Z"),
           updatedAtMs: Date.parse("2025-12-13T04:01:10.000Z"),
-          schedule: { kind: "cron", expr: "1,11,21,31,41,51 4-20 * * *", tz: "UTC" },
-          sessionTarget: "main",
+          schedule: { kind: "cron", expr: "1,11,21,31,41,51 4-20 * * *" },
+          sessionTarget: "isolated",
           wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "replay after backoff elapsed" },
+          payload: { kind: "agentTurn", message: "replay after backoff elapsed" },
           state: {
             // Startup maintenance may already point to a future slot (04:11) even
             // though 04:01 was missed and the 30s error backoff has elapsed.
@@ -569,9 +539,14 @@ describe("CronService restart catch-up", () => {
           },
         },
       ],
-      async ({ enqueueSystemEvent, requestHeartbeat }) => {
-        expectQueuedSystemEvent(enqueueSystemEvent, "replay after backoff elapsed");
-        expect(requestHeartbeat).toHaveBeenCalled();
+      async ({ cron, runIsolatedAgentJob, requestHeartbeat }) => {
+        // Isolated agentTurn jobs are deferred on startup; not immediately run.
+        expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+        expect(requestHeartbeat).not.toHaveBeenCalled();
+
+        const listedJobs = await cron.list({ includeDisabled: true });
+        const updated = listedJobs.find((job) => job.id === "restart-backoff-elapsed-replay");
+        expect(updated?.state.nextRunAtMs).toBeGreaterThan(restartNow);
       },
     );
   });

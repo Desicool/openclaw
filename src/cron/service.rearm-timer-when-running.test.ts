@@ -26,7 +26,7 @@ function createDueRecurringJob(params: {
     deleteAfterRun: false,
     createdAtMs: params.nowMs,
     updatedAtMs: params.nowMs,
-    schedule: { kind: "every", everyMs: 5 * 60_000 },
+    schedule: { kind: "cron", expr: "*/5 * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "test" },
