@@ -1,0 +1,78 @@
+{
+  "id": "weekly-report",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Weekly Report",
+  "description": "Cron-triggered weekly report flow with Feishu card confirmation, supplement loop, and doc write. v2 adds git-activity fact source.",
+  "contracts": {
+    "tools": [
+      "submit_weekly_report_draft",
+      "respond_to_weekly_report_card",
+      "splice_weekly_report_doc",
+      "finalize_weekly_report",
+      "fetch_git_activity"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "targetDocToken": {
+        "type": "string",
+        "description": "Feishu doc token where the weekly report is written."
+      },
+      "recipientSessionKey": {
+        "type": "string",
+        "description": "Session key where the confirmation card is delivered."
+      },
+      "reminderAfterDays": { "type": "integer", "minimum": 1 },
+      "failAfterDays": { "type": "integer", "minimum": 1 },
+      "notesDocToken": {
+        "type": "string",
+        "description": "Optional supplementary notes doc the agent may consult."
+      },
+      "draftPromptOverride": {
+        "type": "string",
+        "description": "Optional override for the drafting prompt."
+      },
+      "weekStartsOn": { "type": "string", "enum": ["monday", "sunday"] },
+      "sweeperIntervalMs": {
+        "type": "integer",
+        "minimum": 60000,
+        "description": "Override for the timeout sweeper tick interval (defaults to 1h)."
+      },
+      "gitRemotes": {
+        "type": "array",
+        "description": "Repos to track for the git-activity fact source. Empty = git phase disabled.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "sshUrl"],
+          "properties": {
+            "name": { "type": "string", "description": "Slug for the workspace clone dir (lowercase, hyphens, underscores)." },
+            "sshUrl": { "type": "string", "description": "scp-style ssh URL: git@host:path.git" }
+          }
+        }
+      },
+      "gitAuthor": {
+        "type": "string",
+        "description": "Author pattern passed to `git log --author=`. Required when gitRemotes is non-empty."
+      },
+      "gitWorkspaceDir": {
+        "type": "string",
+        "description": "Override for the clone workspace. Default: {state}/weekly-report/repos/."
+      },
+      "gitFetchTimeoutMs": { "type": "integer", "minimum": 1000 },
+      "gitMaxCommitsPerRepo": { "type": "integer", "minimum": 1 },
+      "gitHostAllowlist": {
+        "type": "array",
+        "description": "Allowed hostnames for sshUrls. Default: gitlab.com, github.com.",
+        "items": { "type": "string" }
+      },
+      "gitMaxParallelOps": { "type": "integer", "minimum": 1 },
+      "gitMaxRepoCount": { "type": "integer", "minimum": 1 },
+      "gitOverallTimeoutMs": { "type": "integer", "minimum": 5000 }
+    }
+  }
+}

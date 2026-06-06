@@ -1681,6 +1681,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/weekly-report:
+    dependencies:
+      typebox:
+        specifier: 1.1.39
+        version: 1.1.39
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
+
   extensions/whatsapp:
     dependencies:
       audio-decode:
