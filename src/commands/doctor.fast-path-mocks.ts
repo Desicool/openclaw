@@ -54,6 +54,10 @@ vi.mock("./doctor-cron.js", () => ({
   noteLegacyWhatsAppCrontabHealthCheck: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("./doctor-cron-purge.js", () => ({
+  maybeRunCronPurgeSafeSubset: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("./doctor-device-pairing.js", () => ({
   noteDevicePairingHealth: vi.fn().mockResolvedValue(undefined),
 }));

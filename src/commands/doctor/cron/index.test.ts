@@ -126,12 +126,12 @@ function insertEarlySQLiteCronRow(
     db.prepare(
       `INSERT INTO cron_jobs (
         store_key, job_id, name, enabled, created_at_ms, updated_at,
-        schedule_kind, every_ms, session_target, wake_mode, payload_kind, payload_message,
-        job_json, state_json
+        schedule_kind, every_ms, schedule_expr, at, session_target, wake_mode,
+        payload_kind, payload_message, job_json, state_json
       ) VALUES (
         $storeKey, $jobId, $name, $enabled, $createdAtMs, $updatedAt,
-        $scheduleKind, $everyMs, $sessionTarget, $wakeMode, $payloadKind, $payloadMessage,
-        $jobJson, $stateJson
+        $scheduleKind, $everyMs, $scheduleExpr, $at, $sessionTarget, $wakeMode,
+        $payloadKind, $payloadMessage, $jobJson, $stateJson
       )`,
     ).run({
       $storeKey: path.resolve(storePath),
@@ -141,7 +141,9 @@ function insertEarlySQLiteCronRow(
       $createdAtMs: Number(job.createdAtMs),
       $updatedAt: Number(job.updatedAtMs),
       $scheduleKind: String(schedule.kind),
-      $everyMs: Number(schedule.everyMs),
+      $everyMs: schedule.kind === "every" ? Number(schedule.everyMs) : null,
+      $scheduleExpr: schedule.kind === "cron" ? String(schedule.expr) : null,
+      $at: schedule.kind === "at" ? String(schedule.at) : null,
       $sessionTarget: String(job.sessionTarget),
       $wakeMode: String(job.wakeMode),
       $payloadKind: String(payload.kind),
@@ -395,7 +397,8 @@ describe("maybeRepairLegacyCronStore", () => {
     const schedule = requireRecord(job.schedule, "cron schedule");
     expect(schedule.kind).toBe("cron");
     expect(schedule.expr).toBe("0 7 * * *");
-    expect(schedule.tz).toBe("UTC");
+    // tz is stripped by detectTzFieldMigration — kind:cron no longer carries tz.
+    expect(schedule.tz).toBeUndefined();
     const delivery = requireRecord(job.delivery, "cron delivery");
     expect(delivery.mode).toBe("webhook");
     expect(delivery.to).toBe("https://example.invalid/cron-finished");
@@ -499,7 +502,7 @@ describe("maybeRepairLegacyCronStore", () => {
         enabled: true,
         createdAtMs: Date.parse("2026-02-03T00:00:00.000Z"),
         updatedAtMs: Date.parse("2026-02-03T00:00:00.000Z"),
-        schedule: { kind: "every", everyMs: 3_600_000, anchorMs: 0 },
+        schedule: { kind: "cron", expr: "0 * * * *" },
         sessionTarget: "isolated",
         wakeMode: "now",
         payload: { kind: "agentTurn", message: "use split text", model: "openai/gpt-5.5" },
@@ -934,6 +937,253 @@ describe("maybeRepairLegacyCronStore", () => {
     expect(prompter.confirm).not.toHaveBeenCalled();
     expectNoteContaining("Unable to read cron job store at", "Cron");
     expectNoteContaining("later health checks will continue", "Cron");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Schema migrations: every→cron, tz strip, sessionTarget→isolated
+  // ---------------------------------------------------------------------------
+
+  it("converts kind:every job to kind:cron with auto-computed expression", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      {
+        id: "every-15min",
+        name: "Every 15 min",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "every", everyMs: 15 * 60_000 },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "ping" },
+        state: {},
+      },
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+    const job = requirePersistedJob(jobs, 0);
+    const schedule = requireRecord(job.schedule, "cron schedule");
+    expect(schedule.kind).toBe("cron");
+    expect(schedule.expr).toBe("*/15 * * * *");
+    expect(schedule.everyMs).toBeUndefined();
+    expect(schedule.anchorMs).toBeUndefined();
+    expectNoteContaining("Legacy cron job storage detected", "Cron");
+    expectNoteContaining("Cron store", "Doctor changes");
+  });
+
+  it("converts every-1min to * * * * * with apply() through the full repair path", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      {
+        id: "every-1min",
+        name: "Every minute",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "every", everyMs: 60_000 },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "tick" },
+        state: {},
+      },
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+    const job = requirePersistedJob(jobs, 0);
+    const schedule = requireRecord(job.schedule, "cron schedule");
+    expect(schedule.kind).toBe("cron");
+    expect(schedule.expr).toBe("* * * * *");
+  });
+
+  it("strips tz from kind:cron schedules through the full repair path", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      {
+        id: "cron-with-tz",
+        name: "Cron with tz",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Tokyo" },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "morning" },
+        state: {},
+      },
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+    const job = requirePersistedJob(jobs, 0);
+    const schedule = requireRecord(job.schedule, "cron schedule");
+    expect(schedule.kind).toBe("cron");
+    expect(schedule.expr).toBe("0 9 * * *");
+    expect(schedule.tz).toBeUndefined();
+    expectNoteContaining("Legacy cron job storage detected", "Cron");
+    expectNoteContaining("Cron store", "Doctor changes");
+  });
+
+  it("converts kind:at + tz to UTC through the full repair path", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      {
+        id: "at-with-tz",
+        name: "At with tz",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        // 09:00 local Asia/Tokyo (UTC+9) → 00:00 UTC
+        schedule: { kind: "at", at: "2026-06-10T09:00:00", tz: "Asia/Tokyo" },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "once" },
+        state: {},
+      },
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+    const job = requirePersistedJob(jobs, 0);
+    const schedule = requireRecord(job.schedule, "cron schedule");
+    expect(schedule.kind).toBe("at");
+    expect(schedule.tz).toBeUndefined();
+    const utcMs = new Date(schedule.at as string).getTime();
+    const expectedMs = new Date("2026-06-10T00:00:00.000Z").getTime();
+    expect(Math.abs(utcMs - expectedMs)).toBeLessThan(60_000);
+  });
+
+  it("migrates non-isolated sessionTarget to isolated through the full repair path", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      {
+        id: "main-target",
+        name: "Main target",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "cron", expr: "0 8 * * *" },
+        sessionTarget: "main",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "brief" },
+        state: {},
+      },
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+    const job = requirePersistedJob(jobs, 0);
+    expect(job.sessionTarget).toBe("isolated");
+    expectNoteContaining("Legacy cron job storage detected", "Cron");
+    expectNoteContaining("Cron store", "Doctor changes");
+  });
+
+  it("applies all three schema migrations together in one repair pass", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      {
+        id: "job-every",
+        name: "Every job",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "every", everyMs: 30 * 60_000 },
+        sessionTarget: "main",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "a" },
+        state: {},
+      },
+      {
+        id: "job-cron-tz",
+        name: "Cron with tz",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "cron", expr: "0 10 * * *", tz: "America/New_York" },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "b" },
+        state: {},
+      },
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+
+    const everyJob = jobs.find((j) => j.id === "job-every");
+    const cronTzJob = jobs.find((j) => j.id === "job-cron-tz");
+
+    if (!everyJob || !cronTzJob) throw new Error("expected both jobs to be persisted");
+
+    const everySched = requireRecord(everyJob.schedule, "every schedule");
+    expect(everySched.kind).toBe("cron");
+    expect(everySched.expr).toBe("*/30 * * * *");
+    expect(everySched.everyMs).toBeUndefined();
+    expect(everyJob.sessionTarget).toBe("isolated");
+
+    const cronSched = requireRecord(cronTzJob.schedule, "cron schedule");
+    expect(cronSched.kind).toBe("cron");
+    expect(cronSched.tz).toBeUndefined();
+    expect(cronSched.expr).toBe("0 10 * * *");
+  });
+
+  it("does not write the store when no schema migrations are needed and jobs are already canonical", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCurrentCronStore(storePath, [
+      {
+        id: "canonical-job",
+        name: "Canonical",
+        enabled: true,
+        createdAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-05-01T00:00:00.000Z"),
+        schedule: { kind: "cron", expr: "0 9 * * *" },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "agentTurn", message: "already fine" },
+        state: {},
+      },
+    ]);
+    const prompter = makePrompter(true);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter,
+    });
+
+    expect(prompter.confirm).not.toHaveBeenCalled();
+    expectNoNoteContaining("Legacy cron job storage detected", "Cron");
   });
 });
 

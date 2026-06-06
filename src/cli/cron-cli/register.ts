@@ -9,6 +9,7 @@ import {
   registerCronStatusCommand,
 } from "./register.cron-add.js";
 import { registerCronEditCommand } from "./register.cron-edit.js";
+import { registerCronPurgeCommand } from "./register.cron-purge.js";
 import { registerCronSimpleCommands } from "./register.cron-simple.js";
 
 export function registerCronCli(program: Command) {
@@ -26,6 +27,7 @@ export function registerCronCli(program: Command) {
   registerCronAddCommand(cron);
   registerCronSimpleCommands(cron);
   registerCronEditCommand(cron);
+  registerCronPurgeCommand(cron);
 
   applyParentDefaultHelpAction(cron);
 }
