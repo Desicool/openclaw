@@ -17,7 +17,7 @@ import {
   saveCronQuarantineFile,
   saveCronStore,
 } from "./store.js";
-import type { CronStoreFile } from "./types.js";
+import type { CronSchedule, CronStoreFile } from "./types.js";
 
 let fixtureRoot = "";
 let caseId = 0;
@@ -51,8 +51,8 @@ function makeStore(jobId: string, enabled: boolean): CronStoreFile {
         enabled,
         createdAtMs: now,
         updatedAtMs: now,
-        schedule: { kind: "every", everyMs: 60_000 },
-        sessionTarget: "main",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "isolated",
         wakeMode: "next-heartbeat",
         payload: { kind: "systemEvent", text: `tick-${jobId}` },
         state: {},
@@ -559,7 +559,9 @@ describe("cron store", () => {
     const { storePath } = await makeStorePath();
     const payload = makeStore("job-restart-drift", true);
     const staleNextRunAtMs = payload.jobs[0].createdAtMs + 3_600_000;
-    payload.jobs[0].schedule = { kind: "cron", expr: "30 6 * * 0,6", tz: "UTC" };
+    // Legacy migration test: feed a pre-narrowing schedule shape (with tz) so the
+    // doctor migration path is exercised; cast preserves the exact runtime value.
+    payload.jobs[0].schedule = { kind: "cron", expr: "30 6 * * 0,6", tz: "UTC" } as unknown as CronSchedule;
     await fs.mkdir(path.dirname(storePath), { recursive: true });
     await fs.writeFile(storePath, JSON.stringify(payload, null, 2), "utf-8");
     await fs.writeFile(
@@ -591,7 +593,9 @@ describe("cron store", () => {
     const { storePath } = await makeStorePath();
     const payload = makeStore("job-sync-restart-drift", true);
     const staleNextRunAtMs = payload.jobs[0].createdAtMs + 3_600_000;
-    payload.jobs[0].schedule = { kind: "every", everyMs: 60_000, anchorMs: 2 };
+    // Legacy migration test: feed a pre-narrowing "every" schedule so the doctor
+    // migration path is exercised; cast preserves the exact runtime value.
+    payload.jobs[0].schedule = { kind: "every", everyMs: 60_000, anchorMs: 2 } as unknown as CronSchedule;
     await fs.mkdir(path.dirname(storePath), { recursive: true });
     await fs.writeFile(storePath, JSON.stringify(payload, null, 2), "utf-8");
     await fs.writeFile(

@@ -86,7 +86,7 @@ describe("cron service timer regressions", () => {
       createdAtMs: Date.now(),
       updatedAtMs: Date.now(),
       schedule: { kind: "at", at: "2035-01-01T00:00:00.000Z" },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: "future" },
       state: { nextRunAtMs: Date.parse("2035-01-01T00:00:00.000Z") },
@@ -667,7 +667,7 @@ describe("cron service timer regressions", () => {
       id: "spin-gap-17821",
       name: "second-granularity",
       scheduledAt,
-      schedule: { kind: "cron", expr: "* * * * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "* * * * * *" },
       payload: { kind: "agentTurn", message: "pulse" },
       state: { nextRunAtMs: scheduledAt },
     });
@@ -1073,7 +1073,7 @@ describe("cron service timer regressions", () => {
       id: "retry-next-second-17821",
       name: "retry",
       scheduledAt,
-      schedule: { kind: "cron", expr: "0 13 * * *", tz: "UTC" },
+      schedule: { kind: "cron", expr: "0 13 * * *" },
       payload: { kind: "agentTurn", message: "briefing" },
     });
 
@@ -2003,7 +2003,7 @@ describe("cron service timer regressions", () => {
       id: "cron-66019-success",
       name: "cron-66019-success",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Asia/Shanghai" },
+      schedule: { kind: "cron", expr: "0 7 * * *" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
@@ -2044,7 +2044,7 @@ describe("cron service timer regressions", () => {
       id: "cron-66019-error",
       name: "cron-66019-error",
       scheduledAt: startedAt,
-      schedule: { kind: "cron", expr: "0 7 * * *", tz: "Asia/Shanghai" },
+      schedule: { kind: "cron", expr: "0 7 * * *" },
       payload: { kind: "agentTurn", message: "ping" },
       state: { nextRunAtMs: startedAt - 1_000, runningAtMs: startedAt - 500 },
     });
@@ -2161,7 +2161,7 @@ describe("cron service timer regressions", () => {
       id: "diagnostics-job",
       name: "diagnostics-job",
       scheduledAt: startedAt,
-      schedule: { kind: "every", everyMs: 60_000, anchorMs: startedAt },
+      schedule: { kind: "cron", expr: "* * * * *" },
       payload: { kind: "agentTurn", message: "diagnose" },
       state: { runningAtMs: startedAt },
     });

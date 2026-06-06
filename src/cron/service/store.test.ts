@@ -40,7 +40,16 @@ function createStoreTestState(storePath: string) {
   });
 }
 
-function createReloadCronJob(params?: Partial<CronJob>): CronJob {
+// Legacy-shaped overrides: these store-migration tests intentionally persist
+// pre-isolated fixtures (sessionTarget:"main", schedule {kind:"every"}, cron tz)
+// and assert the load/normalize path repairs them. Keep the legacy shape via a
+// narrow cast instead of converting to the modern isolated-only types.
+type LegacyCronJobInput = Omit<Partial<CronJob>, "schedule" | "sessionTarget"> & {
+  schedule?: Record<string, unknown> | string;
+  sessionTarget?: string;
+};
+
+function createReloadCronJob(params?: LegacyCronJobInput): CronJob {
   return {
     id: "reload-cron-expr-job",
     name: "reload cron expr job",
@@ -53,7 +62,7 @@ function createReloadCronJob(params?: Partial<CronJob>): CronJob {
     payload: { kind: "systemEvent", text: "tick" },
     state: {},
     ...params,
-  };
+  } as unknown as CronJob;
 }
 
 function expectWarnedJob(params: { storePath: string; jobId: string; message: string }) {

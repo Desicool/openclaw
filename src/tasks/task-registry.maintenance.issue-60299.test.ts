@@ -469,7 +469,7 @@ describe("task-registry maintenance issue #60299", () => {
             enabled: true,
             createdAtMs: startedAt - 60_000,
             updatedAtMs: startedAt,
-            schedule: { kind: "every", everyMs: 60_000, anchorMs: startedAt - 60_000 },
+            schedule: { kind: "cron", expr: "* * * * *" },
             sessionTarget: "isolated",
             wakeMode: "next-heartbeat",
             payload: { kind: "agentTurn", message: "work" },

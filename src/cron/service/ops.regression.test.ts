@@ -226,7 +226,7 @@ describe("cron service ops regressions", () => {
           id: "unrelated-due",
           name: "unrelated due",
           scheduledAt: nowMs,
-          schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+          schedule: { kind: "cron", expr: "*/5 * * * *" },
           payload: { kind: "agentTurn", message: "unrelated due" },
           state: { nextRunAtMs: dueNextRunAtMs },
         }),
@@ -234,7 +234,7 @@ describe("cron service ops regressions", () => {
           id: "unrelated-stale-executed",
           name: "unrelated stale executed",
           scheduledAt: nowMs,
-          schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+          schedule: { kind: "cron", expr: "*/5 * * * *" },
           payload: { kind: "agentTurn", message: "unrelated stale executed" },
           state: {
             nextRunAtMs: staleExecutedNextRunAtMs,

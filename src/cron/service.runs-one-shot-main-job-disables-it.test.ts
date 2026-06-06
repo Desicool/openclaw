@@ -63,6 +63,7 @@ async function createCronHarness(options: CronHarnessOptions = {}) {
     log: noopLogger,
     enqueueSystemEvent,
     requestHeartbeat,
+    schedulerLockPath: null,
     runIsolatedAgentJob:
       options.runIsolatedAgentJob ??
       (vi.fn(async (_params: { job: unknown; message: string }) => ({
@@ -168,6 +169,7 @@ function createStartedCronService(
     log: noopLogger,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
+    schedulerLockPath: null,
     runIsolatedAgentJob: runIsolatedAgentJob ?? vi.fn(async () => ({ status: "ok" as const })),
   });
 }

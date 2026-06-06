@@ -21,6 +21,7 @@ function createCronFromStorePath(storePath: string) {
     storePath,
     cronEnabled: true,
     log: noopLogger,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),

@@ -34,6 +34,7 @@ function createFailureAlertCron(params: {
     cronEnabled: true,
     cronConfig: params.cronConfig,
     log: noopLogger,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: params.runIsolatedAgentJob,

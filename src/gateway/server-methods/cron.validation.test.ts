@@ -157,7 +157,7 @@ function createCronJob(overrides: Partial<CronJob> = {}): CronJob {
     enabled: true,
     createdAtMs: 1,
     updatedAtMs: 1,
-    schedule: { kind: "every", everyMs: 60_000 },
+    schedule: { kind: "cron", expr: "* * * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "hello" },

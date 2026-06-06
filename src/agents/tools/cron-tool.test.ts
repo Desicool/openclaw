@@ -532,7 +532,7 @@ describe("cron tool", () => {
       enabled: true,
       deleteAfterRun: true,
       schedule: { kind: "at", at: new Date(123).toISOString() },
-      sessionTarget: "main",
+      sessionTarget: "isolated",
       wakeMode: "now",
       payload: { kind: "systemEvent", text: "hello" },
     });
@@ -623,17 +623,6 @@ describe("cron tool", () => {
       toolsAllow: ["exec", "read"],
     });
     expect(params?.failureAlert).toEqual({ after: 3, cooldownMs: 60_000 });
-  });
-
-  it("stamps cron.add with caller sessionKey when missing", async () => {
-    callGatewayMock.mockResolvedValueOnce({ ok: true });
-
-    const callerSessionKey = "agent:main:discord:channel:ops";
-    const sessionKey = await executeAddAndReadSessionKey({
-      callId: "call-session-key",
-      agentSessionKey: callerSessionKey,
-    });
-    expect(sessionKey).toBe(callerSessionKey);
   });
 
   it("preserves explicit job.sessionKey on add", async () => {
@@ -1106,7 +1095,9 @@ describe("cron tool", () => {
       | { name?: string; sessionTarget?: string; payload?: { text?: string } }
       | undefined;
     expect(params?.name).toBe("empty-job");
-    expect(params?.sessionTarget).toBe("main");
+    // Legacy "main" is normalized away; add-time defaults fill in "isolated"
+    // (the only supported target under the isolated-only cron runner).
+    expect(params?.sessionTarget).toBe("isolated");
     expect(params?.payload?.text).toBe("wake up");
   });
 
@@ -1266,7 +1257,9 @@ describe("cron tool", () => {
         }
       | undefined;
     expect(params?.id).toBe("job-2");
-    expect(params?.patch?.sessionTarget).toBe("main");
+    // Legacy non-isolated "main" is dropped on update; only "isolated" survives
+    // normalization, so the patch carries no sessionTarget override.
+    expect(params?.patch?.sessionTarget).toBeUndefined();
     expect(params?.patch?.failureAlert).toEqual({ after: 3, cooldownMs: 60_000 });
   });
   it("passes through failureAlert=false for update", async () => {

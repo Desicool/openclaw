@@ -131,6 +131,7 @@ export function createStartedCronServiceWithFinishedBarrier(params: {
     log: params.logger,
     enqueueSystemEvent,
     requestHeartbeat,
+    schedulerLockPath: null,
     runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
     onEvent: finished.onEvent,
   });
@@ -159,6 +160,7 @@ export async function withCronServiceForTest(
     log: params.logger,
     enqueueSystemEvent,
     requestHeartbeat,
+    schedulerLockPath: null,
     runIsolatedAgentJob:
       params.runIsolatedAgentJob ??
       (vi.fn(async () => ({ status: "ok" as const, summary: "done" })) as never),
@@ -184,6 +186,7 @@ export function createRunningCronServiceState(params: {
     storePath: params.storePath,
     log: params.log,
     nowMs: params.nowMs,
+    schedulerLockPath: null,
     enqueueSystemEvent: vi.fn(),
     requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn().mockResolvedValue({ status: "ok", summary: "ok" }),
@@ -239,6 +242,8 @@ export function createMockCronStateForJobs(params: {
     warnedInvalidPersistedJobKeys: new Set<string>(),
     pendingQuarantineConfigJobs: [],
     lastQuarantineFailureWarnKey: null,
+    schedulerLockHeld: false,
+    pidTable: new Map(),
     deps: {
       storePath: "/mock/path",
       cronEnabled: true,

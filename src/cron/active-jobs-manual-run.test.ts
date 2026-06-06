@@ -47,7 +47,7 @@ function createManualIsolatedJob(id: string): CronJob {
     enabled: true,
     createdAtMs: now - 3_600_000,
     updatedAtMs: now,
-    schedule: { kind: "cron", expr: "0 18 * * *", tz: "UTC" },
+    schedule: { kind: "cron", expr: "0 18 * * *" },
     sessionTarget: "isolated",
     wakeMode: "next-heartbeat",
     payload: { kind: "agentTurn", message: "hi" },
@@ -68,6 +68,7 @@ async function createManualRunHarness(jobId: string) {
     storePath: store.storePath,
     cronEnabled: true,
     log: logger,
+    schedulerLockPath: null,
     enqueueSystemEvent: () => {},
     requestHeartbeat: () => {},
     runIsolatedAgentJob: async () => {
