@@ -31,6 +31,12 @@ import {
   legacyCronStoreFilesExist,
   loadLegacyCronStoreForMigration,
 } from "./legacy-store-migration.js";
+import {
+  detectEveryKindMigration,
+  detectSessionTargetMigration,
+  detectSystemEventPayloadMigration,
+  detectTzFieldMigration,
+} from "./schema-migrations.js";
 import { normalizeStoredCronJobs } from "./store-migration.js";
 
 type CronDoctorOutcome = {
@@ -486,6 +492,13 @@ export async function maybeRepairLegacyCronStore(params: {
   }
   noteCronModelOverrides({ cfg: params.cfg, jobs: rawJobs, storePath });
 
+  // Detect schema-level migrations that must be applied before
+  // normalizeStoredCronJobs (which does not convert kind:"every" or strip tz).
+  const everyMigration = detectEveryKindMigration(rawJobs);
+  const tzMigration = detectTzFieldMigration(rawJobs);
+  const sessionTargetMigration = detectSessionTargetMigration(rawJobs);
+  const systemEventMigration = detectSystemEventPayloadMigration(rawJobs);
+
   const normalized = normalizeStoredCronJobs(rawJobs);
   const legacyWebhook = normalizeOptionalString(params.cfg.cron?.webhook);
   const notifyCount = rawJobs.filter((job) => job.notify === true).length;
@@ -511,6 +524,11 @@ export async function maybeRepairLegacyCronStore(params: {
       `- ${pluralize(dreamingStaleCount, "managed dreaming job")} still has the legacy heartbeat-coupled shape`,
     );
   }
+  previewLines.push(...everyMigration.previewLines);
+  previewLines.push(...tzMigration.previewLines);
+  previewLines.push(...sessionTargetMigration.previewLines);
+  previewLines.push(...systemEventMigration.previewLines);
+
   if (previewLines.length === 0 && !legacyStoreDetected) {
     return;
   }
@@ -532,15 +550,29 @@ export async function maybeRepairLegacyCronStore(params: {
     return;
   }
 
+  // Apply schema migrations before the notify/dreaming passes so subsequent
+  // normalizers see the corrected schedules and session targets.
+  everyMigration.apply();
+  tzMigration.apply();
+  sessionTargetMigration.apply();
+  systemEventMigration.apply();
+
   const notifyMigration = migrateLegacyNotifyFallback({
     jobs: rawJobs,
     legacyWebhook,
   });
   const dreamingMigration = migrateLegacyDreamingPayloadShape(rawJobs);
+  const schemaMigrationChanged =
+    everyMigration.convertible > 0 ||
+    tzMigration.cronTzFound > 0 ||
+    tzMigration.atTzConvertible > 0 ||
+    sessionTargetMigration.found > 0 ||
+    systemEventMigration.found > 0;
   const changed =
     legacyStoreDetected ||
     legacyRunLogDetected ||
     normalized.mutated ||
+    schemaMigrationChanged ||
     notifyMigration.changed ||
     dreamingMigration.changed;
   if (!changed && notifyMigration.warnings.length === 0) {
