@@ -1,20 +1,12 @@
-/** Computes at/every/cron schedule timestamps with bounded Croner caching. */
-import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+/** Computes at/cron schedule timestamps with bounded Croner caching. */
 import { Cron } from "croner";
 import { parseAbsoluteTimeMs } from "./parse.js";
-import { coerceFiniteScheduleNumber } from "./schedule-number.js";
 import type { CronSchedule } from "./types.js";
-
-export { coerceFiniteScheduleNumber } from "./schedule-number.js";
 
 const CRON_EVAL_CACHE_MAX = 512;
 const cronEvalCache = new Map<string, Cron>();
 
-function resolveCronTimezone(tz?: string) {
-  const trimmed = normalizeOptionalString(tz) ?? "";
-  if (trimmed) {
-    return trimmed;
-  }
+function resolveCronTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
@@ -40,18 +32,21 @@ function resolveCachedCron(expr: string, timezone: string): Cron {
   return next;
 }
 
-function resolveCronFromSchedule(schedule: { tz?: string; expr?: unknown }): Cron | undefined {
-  if (typeof schedule.expr !== "string") {
+function resolveCronFromSchedule(schedule: { expr?: unknown; cron?: unknown }): Cron | undefined {
+  // Accept the legacy top-level `cron` field as a fallback for stored jobs that
+  // predate the `expr` canonicalization in coerceSchedule.
+  const exprSource = typeof schedule.expr === "string" ? schedule.expr : schedule.cron;
+  if (typeof exprSource !== "string") {
     throw new Error("invalid cron schedule: expr is required");
   }
-  const expr = schedule.expr.trim();
+  const expr = exprSource.trim();
   if (!expr) {
     return undefined;
   }
-  return resolveCachedCron(expr, resolveCronTimezone(schedule.tz));
+  return resolveCachedCron(expr, resolveCronTimezone());
 }
 
-/** Computes the next scheduled run timestamp after now for at/every/cron schedules. */
+/** Computes the next scheduled run timestamp after now for at/cron schedules. */
 export function computeNextRunAtMs(schedule: CronSchedule, nowMs: number): number | undefined {
   if (schedule.kind === "at") {
     const atMs = parseAbsoluteTimeMs(schedule.at);
@@ -59,22 +54,6 @@ export function computeNextRunAtMs(schedule: CronSchedule, nowMs: number): numbe
       return undefined;
     }
     return atMs > nowMs ? atMs : undefined;
-  }
-
-  if (schedule.kind === "every") {
-    const everyMsRaw = coerceFiniteScheduleNumber(schedule.everyMs);
-    if (everyMsRaw === undefined) {
-      return undefined;
-    }
-    const everyMs = Math.max(1, Math.floor(everyMsRaw));
-    const anchorRaw = coerceFiniteScheduleNumber(schedule.anchorMs);
-    const anchor = Math.max(0, Math.floor(anchorRaw ?? nowMs));
-    if (nowMs < anchor) {
-      return anchor;
-    }
-    const elapsed = nowMs - anchor;
-    const steps = Math.floor(elapsed / everyMs) + 1;
-    return anchor + steps * everyMs;
   }
 
   const cron = resolveCronFromSchedule(schedule);

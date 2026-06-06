@@ -34,7 +34,7 @@ export function normalizeOptionalAgentId(raw: unknown) {
 
 /** Infers a compact cron job name from payload text first, then schedule shape. */
 export function inferCronJobName(job: {
-  schedule?: { kind?: unknown; everyMs?: unknown; expr?: unknown };
+  schedule?: { kind?: unknown; expr?: unknown };
   payload?: { kind?: unknown; text?: unknown; message?: unknown };
 }) {
   const text =
@@ -57,9 +57,6 @@ export function inferCronJobName(job: {
   const kind = typeof job?.schedule?.kind === "string" ? job.schedule.kind : "";
   if (kind === "cron" && typeof job?.schedule?.expr === "string") {
     return `Cron: ${truncateText(job.schedule.expr, 52)}`;
-  }
-  if (kind === "every" && typeof job?.schedule?.everyMs === "number") {
-    return `Every: ${job.schedule.everyMs}ms`;
   }
   if (kind === "at") {
     return "One-shot";

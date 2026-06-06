@@ -4,14 +4,8 @@ import {
   normalizeOptionalString,
   normalizeOptionalThreadValue,
 } from "@openclaw/normalization-core/string-coerce";
-import { normalizeAgentId } from "../../routing/session-key.js";
 import { parseAbsoluteTimeMs } from "../parse.js";
-import {
-  coerceFiniteScheduleNumber,
-  computeNextRunAtMs,
-  computePreviousRunAtMs,
-} from "../schedule.js";
-import { assertSafeCronSessionTargetId } from "../session-target.js";
+import { computeNextRunAtMs, computePreviousRunAtMs } from "../schedule.js";
 import {
   normalizeCronStaggerMs,
   resolveCronStaggerMs,
@@ -29,11 +23,7 @@ import type {
 } from "../types.js";
 import { normalizeHttpWebhookUrl } from "../webhook-url.js";
 import { resolveInitialCronDelivery } from "./initial-delivery.js";
-import {
-  normalizeOptionalAgentId,
-  normalizePayloadToSystemText,
-  normalizeRequiredName,
-} from "./normalize.js";
+import { normalizeOptionalAgentId, normalizeRequiredName } from "./normalize.js";
 import type { CronServiceState } from "./state.js";
 
 const STUCK_RUN_MS = 2 * 60 * 60 * 1000;
@@ -255,58 +245,13 @@ function shouldRepairFutureCronNextRunAtMs(params: {
   return naturalIntervalMs > 0 && nextRun >= followingNaturalNext + naturalIntervalMs;
 }
 
-function resolveEveryAnchorMs(params: {
-  schedule: { everyMs: number; anchorMs?: number };
-  fallbackAnchorMs: number;
-}) {
-  const coerced = coerceFiniteScheduleNumber(params.schedule.anchorMs);
-  if (coerced !== undefined) {
-    return Math.max(0, Math.floor(coerced));
-  }
-  if (isFiniteTimestamp(params.fallbackAnchorMs)) {
-    return Math.max(0, Math.floor(params.fallbackAnchorMs));
-  }
-  return 0;
-}
-
 /** Validates that session target and payload kind form a supported cron job shape. */
 export function assertSupportedJobSpec(job: Pick<CronJob, "sessionTarget" | "payload">) {
-  if (typeof job.sessionTarget !== "string") {
-    throw new Error(
-      'cron job is missing sessionTarget; expected "main", "isolated", "current", or "session:<id>"',
-    );
+  if (job.sessionTarget !== "isolated") {
+    throw new Error('cron job is missing sessionTarget; expected "isolated"');
   }
-  const isIsolatedLike =
-    job.sessionTarget === "isolated" ||
-    job.sessionTarget === "current" ||
-    job.sessionTarget.startsWith("session:");
-  if (job.sessionTarget.startsWith("session:")) {
-    assertSafeCronSessionTargetId(job.sessionTarget.slice(8));
-  }
-  if (job.sessionTarget === "main" && job.payload.kind !== "systemEvent") {
-    throw new Error('main cron jobs require payload.kind="systemEvent"');
-  }
-  if (isIsolatedLike && job.payload.kind !== "agentTurn") {
-    throw new Error('isolated/current/session cron jobs require payload.kind="agentTurn"');
-  }
-}
-
-function assertMainSessionAgentId(
-  job: Pick<CronJob, "sessionTarget" | "agentId">,
-  defaultAgentId: string | undefined,
-) {
-  if (job.sessionTarget !== "main") {
-    return;
-  }
-  if (!job.agentId) {
-    return;
-  }
-  const normalized = normalizeAgentId(job.agentId);
-  const normalizedDefault = normalizeAgentId(defaultAgentId);
-  if (normalized !== normalizedDefault) {
-    throw new Error(
-      `cron: sessionTarget "main" is only valid for the default agent. Use sessionTarget "isolated" with payload.kind "agentTurn" for non-default agents (agentId: ${job.agentId})`,
-    );
+  if (job.payload.kind !== "agentTurn") {
+    throw new Error('isolated cron jobs require payload.kind="agentTurn"');
   }
 }
 
@@ -347,39 +292,12 @@ function assertDeliverySupport(job: Pick<CronJob, "sessionTarget" | "delivery">)
     // Webhook delivery is standalone and does not need an isolated chat target.
     return;
   }
-  const isIsolatedLike =
-    job.sessionTarget === "isolated" ||
-    job.sessionTarget === "current" ||
-    job.sessionTarget.startsWith("session:");
-  if (!isIsolatedLike) {
-    throw new Error('cron channel delivery config is only supported for sessionTarget="isolated"');
-  }
 }
 
-function hasConcreteFailureDestination(
-  destination: CronDelivery["failureDestination"] | undefined,
-): boolean {
-  return Boolean(
-    destination &&
-    (destination.channel !== undefined ||
-      destination.to !== undefined ||
-      destination.accountId !== undefined ||
-      destination.mode !== undefined),
-  );
-}
-
-function assertFailureDestinationSupport(job: Pick<CronJob, "sessionTarget" | "delivery">) {
+function assertFailureDestinationSupport(job: Pick<CronJob, "delivery">) {
   const failureDestination = job.delivery?.failureDestination;
   if (!failureDestination) {
     return;
-  }
-  if (!hasConcreteFailureDestination(failureDestination)) {
-    return;
-  }
-  if (job.sessionTarget === "main" && job.delivery?.mode !== "webhook") {
-    throw new Error(
-      'cron delivery.failureDestination is only supported for sessionTarget="isolated" unless delivery.mode="webhook"',
-    );
   }
   if (failureDestination.mode === "webhook") {
     const target = normalizeHttpWebhookUrl(failureDestination.to);
@@ -410,27 +328,6 @@ export function isJobEnabled(job: Pick<CronJob, "enabled">): boolean {
 export function computeJobNextRunAtMs(job: CronJob, nowMs: number): number | undefined {
   if (!isJobEnabled(job)) {
     return undefined;
-  }
-  if (job.schedule.kind === "every") {
-    const everyMsRaw = coerceFiniteScheduleNumber(job.schedule.everyMs);
-    if (everyMsRaw === undefined) {
-      return undefined;
-    }
-    const everyMs = Math.max(1, Math.floor(everyMsRaw));
-    const lastRunAtMs = job.state.lastRunAtMs;
-    if (typeof lastRunAtMs === "number" && Number.isFinite(lastRunAtMs)) {
-      const nextFromLastRun = Math.floor(lastRunAtMs) + everyMs;
-      if (nextFromLastRun > nowMs) {
-        return nextFromLastRun;
-      }
-    }
-    const fallbackAnchorMs = isFiniteTimestamp(job.createdAtMs) ? job.createdAtMs : nowMs;
-    const anchorMs = resolveEveryAnchorMs({
-      schedule: job.schedule,
-      fallbackAnchorMs,
-    });
-    const next = computeNextRunAtMs({ ...job.schedule, everyMs, anchorMs }, nowMs);
-    return isFiniteTimestamp(next) ? next : undefined;
   }
   if (job.schedule.kind === "at") {
     const atMs = parseAbsoluteTimeMs(job.schedule.at);
@@ -519,20 +416,6 @@ function normalizeJobTickState(params: { state: CronServiceState; job: CronJob; 
   if (!job.state) {
     job.state = {};
     changed = true;
-  }
-
-  if (job.schedule.kind === "every") {
-    const normalizedAnchorMs = resolveEveryAnchorMs({
-      schedule: job.schedule,
-      fallbackAnchorMs: isFiniteTimestamp(job.createdAtMs) ? job.createdAtMs : nowMs,
-    });
-    if (job.schedule.anchorMs !== normalizedAnchorMs) {
-      job.schedule = {
-        ...job.schedule,
-        anchorMs: normalizedAnchorMs,
-      };
-      changed = true;
-    }
   }
 
   if (!isJobEnabled(job)) {
@@ -728,26 +611,18 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
   const now = state.deps.nowMs();
   const id = crypto.randomUUID();
   const schedule =
-    input.schedule.kind === "every"
-      ? {
-          ...input.schedule,
-          anchorMs: resolveEveryAnchorMs({
-            schedule: input.schedule,
-            fallbackAnchorMs: now,
-          }),
-        }
-      : input.schedule.kind === "cron"
-        ? (() => {
-            const explicitStaggerMs = normalizeCronStaggerMs(input.schedule.staggerMs);
-            if (explicitStaggerMs !== undefined) {
-              return { ...input.schedule, staggerMs: explicitStaggerMs };
-            }
-            const defaultStaggerMs = resolveDefaultCronStaggerMs(input.schedule.expr);
-            return defaultStaggerMs !== undefined
-              ? { ...input.schedule, staggerMs: defaultStaggerMs }
-              : input.schedule;
-          })()
-        : input.schedule;
+    input.schedule.kind === "cron"
+      ? (() => {
+          const explicitStaggerMs = normalizeCronStaggerMs(input.schedule.staggerMs);
+          if (explicitStaggerMs !== undefined) {
+            return { ...input.schedule, staggerMs: explicitStaggerMs };
+          }
+          const defaultStaggerMs = resolveDefaultCronStaggerMs(input.schedule.expr);
+          return defaultStaggerMs !== undefined
+            ? { ...input.schedule, staggerMs: defaultStaggerMs }
+            : input.schedule;
+        })()
+      : input.schedule;
   const deleteAfterRun =
     typeof input.deleteAfterRun === "boolean"
       ? input.deleteAfterRun
@@ -763,6 +638,7 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     description: normalizeOptionalString(input.description),
     enabled,
     deleteAfterRun,
+    ...(typeof input.idempotencyKey === "string" ? { idempotencyKey: input.idempotencyKey } : {}),
     createdAtMs: now,
     updatedAtMs: now,
     schedule,
@@ -776,7 +652,6 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     },
   };
   assertSupportedJobSpec(job);
-  assertMainSessionAgentId(job, state.deps.defaultAgentId);
   assertDeliverySupport(job);
   assertFailureDestinationSupport(job);
   job.state.nextRunAtMs = computeJobNextRunAtMs(job, now);
@@ -784,11 +659,7 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
 }
 
 /** Applies a public cron patch in-place, preserving omitted nested fields and validating the result. */
-export function applyJobPatch(
-  job: CronJob,
-  patch: CronJobPatch,
-  opts?: { defaultAgentId?: string },
-) {
+export function applyJobPatch(job: CronJob, patch: CronJobPatch) {
   if ("name" in patch) {
     job.name = normalizeRequiredName(patch.name);
   }
@@ -836,24 +707,6 @@ export function applyJobPatch(
   if ("failureAlert" in patch) {
     job.failureAlert = mergeCronFailureAlert(job.failureAlert, patch.failureAlert);
   }
-  if (
-    job.sessionTarget === "main" &&
-    job.delivery?.mode !== "webhook" &&
-    hasConcreteFailureDestination(job.delivery?.failureDestination)
-  ) {
-    throw new Error(
-      'cron delivery.failureDestination is only supported for sessionTarget="isolated" unless delivery.mode="webhook"',
-    );
-  }
-  if (job.sessionTarget === "main" && job.delivery?.mode !== "webhook") {
-    // Main-session jobs cannot auto-announce; keep only an empty failure
-    // destination object when the patch is clearing nested fields.
-    const failureDestination = job.delivery?.failureDestination;
-    job.delivery =
-      failureDestination && !hasConcreteFailureDestination(failureDestination)
-        ? { mode: "none", failureDestination }
-        : undefined;
-  }
   if (patch.state) {
     job.state = { ...job.state, ...patch.state };
   }
@@ -864,7 +717,6 @@ export function applyJobPatch(
     job.sessionKey = normalizeOptionalString((patch as { sessionKey?: unknown }).sessionKey);
   }
   assertSupportedJobSpec(job);
-  assertMainSessionAgentId(job, opts?.defaultAgentId);
   assertDeliverySupport(job);
   assertFailureDestinationSupport(job);
 }
@@ -1113,13 +965,4 @@ export function isJobDue(job: CronJob, nowMs: number, opts: { forced: boolean })
     hasScheduledNextRunAtMs(job.state.nextRunAtMs) &&
     nowMs >= job.state.nextRunAtMs
   );
-}
-
-/** Returns main-session queue text for system-event jobs, or undefined when empty/unsupported. */
-export function resolveJobPayloadTextForMain(job: CronJob): string | undefined {
-  if (job.payload.kind !== "systemEvent") {
-    return undefined;
-  }
-  const text = normalizePayloadToSystemText(job.payload);
-  return text.trim() ? text : undefined;
 }

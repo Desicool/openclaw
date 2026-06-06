@@ -179,6 +179,11 @@ const subCliCommandCatalog = defineCommandDescriptorCatalog([
     description: "Generate shell completion script",
     hasSubcommands: false,
   },
+  {
+    name: "run-cron-job",
+    description: "Execute a single cron job in a subprocess (internal use)",
+    hasSubcommands: false,
+  },
 ] as const satisfies ReadonlyArray<SubCliDescriptor>);
 
 function filterPrivateQaItems<T>(

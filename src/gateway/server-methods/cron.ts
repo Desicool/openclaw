@@ -180,9 +180,7 @@ function assertValidCronUpdatePatch(params: {
   // checked before mutation; configured-channel checks stay delivery-scoped so
   // stale existing delivery does not block unrelated updates like disabling.
   const nextJob = structuredClone(params.currentJob);
-  applyJobPatch(nextJob, params.patch, {
-    defaultAgentId: params.defaultAgentId,
-  });
+  applyJobPatch(nextJob, params.patch);
   if ("delivery" in params.patch) {
     assertValidCronAnnounceDelivery({
       cfg: params.cfg,

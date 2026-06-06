@@ -1,7 +1,9 @@
 /** Cron service dependency, event, state, and public result types. */
+import type { ChildProcess } from "node:child_process";
 import type { CronConfig } from "../../config/types.cron.js";
 import type { HeartbeatRunResult, HeartbeatWakeRequest } from "../../infra/heartbeat-wake.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
+import type { SchedulerLockHandle } from "../scheduler-lock.js";
 import type { QuarantinedCronConfigJob } from "../store.js";
 import type {
   CronAgentExecutionPhaseUpdate,
@@ -59,6 +61,13 @@ export type CronServiceDeps = {
   cronEnabled: boolean;
   /** CronConfig for session retention settings. */
   cronConfig?: CronConfig;
+  /**
+   * Override path for the scheduler lock file.
+   * - Omit or pass `undefined` to use the default path (~/.openclaw/cron/scheduler.lock).
+   * - Pass `null` to disable lock acquisition entirely (for tests that don't
+   *   need the single-writer guarantee and should not compete for the global lock).
+   */
+  schedulerLockPath?: string | null;
   /** Default agent id for jobs without an agent id. */
   defaultAgentId?: string;
   /** Resolve session store path for a given agent id. */
@@ -156,6 +165,17 @@ export type CronServiceDepsInternal = Omit<CronServiceDeps, "nowMs"> & {
   nowMs: () => number;
 };
 
+/**
+ * Active subprocess entry for a running cron job. The parent spawns one child
+ * per isolated-agent job and tracks it here until exit.
+ */
+export type CronSubprocessEntry = {
+  pid: number;
+  runId: string;
+  startedAtMs: number;
+  child: ChildProcess;
+};
+
 /** Mutable cron service state shared across store, job, timer, and ops helpers. */
 export type CronServiceState = {
   deps: CronServiceDepsInternal;
@@ -173,6 +193,34 @@ export type CronServiceState = {
   pendingQuarantineConfigJobs: QuarantinedCronConfigJob[];
   lastQuarantineFailureWarnKey: string | null;
   storeLoadedAtMs: number | null;
+  /**
+   * Path to the Node.js executable used to spawn cron job subprocesses.
+   * Captured at scheduler start time from process.execPath. Immutable for
+   * the gateway's lifetime.
+   */
+  openClawNode?: string;
+  /**
+   * Path to the OpenClaw CLI entry point used to spawn cron job subprocesses.
+   * Captured at scheduler start time from process.argv[1]. Immutable for
+   * the gateway's lifetime.
+   */
+  openClawBin?: string;
+  /**
+   * Tracks live child processes by jobId. Used by isRunnableJob for skip-on-collision
+   * and by the SIGTERM/SIGKILL escalation in executeJobInSubprocess. Not iterated on
+   * stop(): per design, children finish naturally.
+   */
+  pidTable: Map<string, CronSubprocessEntry>;
+  /**
+   * Lock handle held for the duration of this scheduler instance. Released on stop.
+   * Absent when the lock was not acquired (e.g. another scheduler instance holds it).
+   */
+  schedulerLockHandle?: SchedulerLockHandle;
+  /**
+   * True when the scheduler is running in held-lock mode (another instance has the lock).
+   * Jobs will not be scheduled, but other gateway functionality is unaffected.
+   */
+  schedulerLockHeld: boolean;
 };
 
 /** Creates mutable cron service state with a concrete clock dependency. */
@@ -188,6 +236,8 @@ export function createCronServiceState(deps: CronServiceDeps): CronServiceState 
     pendingQuarantineConfigJobs: [],
     lastQuarantineFailureWarnKey: null,
     storeLoadedAtMs: null,
+    pidTable: new Map<string, CronSubprocessEntry>(),
+    schedulerLockHeld: false,
   };
 }
 

@@ -1,10 +1,5 @@
 /** Detached task-ledger integration for cron runs. */
-import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
-import {
-  DEFAULT_AGENT_ID,
-  normalizeAgentId,
-  resolveAgentIdFromSessionKey,
-} from "../../routing/session-key.js";
+import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import {
   completeTaskRunByRunId,
   createRunningTaskRun,
@@ -17,40 +12,16 @@ import { normalizeCronRunErrorText, timeoutErrorMessage } from "./execution-erro
 import type { CronServiceState } from "./state.js";
 import { CRON_TASK_RUNNING_PROGRESS_SUMMARY } from "./task-ledger.js";
 
-/** Converts cron ids into bounded session-key path segments with a fallback for empty input. */
-export function normalizeCronLaneSegment(value: string | undefined, fallback: string): string {
-  const normalized = normalizeOptionalLowercaseString(value)
-    ?.replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return normalized || fallback;
-}
-
-/** Builds the main-session child key used to isolate one cron run's task transcript. */
-export function resolveMainSessionCronRunSessionKey(job: CronJob, startedAt: number): string {
-  const explicitAgentId = job.agentId?.trim();
-  const agentId = normalizeAgentId(explicitAgentId || resolveAgentIdFromSessionKey(job.sessionKey));
-  const jobSegment = normalizeCronLaneSegment(job.id, "job");
-  const runSegment = normalizeCronLaneSegment(String(Math.max(0, Math.floor(startedAt))), "run");
-  return `agent:${agentId}:cron:${jobSegment}:run:${runSegment}`;
-}
-
 function resolveCronTaskChildSessionKey(params: {
   state: CronServiceState;
   job: CronJob;
   startedAt: number;
 }): string | undefined {
-  if (params.job.sessionTarget === "main") {
-    return resolveMainSessionCronRunSessionKey(params.job, params.startedAt);
-  }
   const explicitSessionKey = params.job.sessionKey?.trim();
   if (explicitSessionKey) {
     // Explicit session bindings must win over generated cron session keys so
     // task drill-down opens the same transcript the cron run actually used.
     return explicitSessionKey;
-  }
-  if (params.job.sessionTarget !== "isolated") {
-    return undefined;
   }
   return resolveCronAgentSessionKey({
     sessionKey: `cron:${params.job.id}`,

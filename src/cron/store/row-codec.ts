@@ -38,24 +38,13 @@ function bindScheduleColumns(
       stagger_ms: null,
     };
   }
-  if (schedule.kind === "every") {
-    return {
-      schedule_kind: "every",
-      at: null,
-      every_ms: schedule.everyMs,
-      anchor_ms: schedule.anchorMs ?? null,
-      schedule_expr: null,
-      schedule_tz: null,
-      stagger_ms: null,
-    };
-  }
   return {
     schedule_kind: "cron",
     at: null,
     every_ms: null,
     anchor_ms: null,
     schedule_expr: schedule.expr,
-    schedule_tz: schedule.tz ?? null,
+    schedule_tz: null,
     stagger_ms: schedule.staggerMs ?? null,
   };
 }
@@ -193,18 +182,10 @@ function scheduleFromRow(row: CronJobRow): CronSchedule | null {
   if (row.schedule_kind === "at" && row.at) {
     return { kind: "at", at: row.at };
   }
-  if (row.schedule_kind === "every" && row.every_ms != null) {
-    return {
-      kind: "every",
-      everyMs: normalizeNumber(row.every_ms) ?? 0,
-      ...(row.anchor_ms != null ? { anchorMs: normalizeNumber(row.anchor_ms) } : {}),
-    };
-  }
   if (row.schedule_kind === "cron" && row.schedule_expr) {
     return {
       kind: "cron",
       expr: row.schedule_expr,
-      ...(row.schedule_tz ? { tz: row.schedule_tz } : {}),
       ...(row.stagger_ms != null ? { staggerMs: normalizeNumber(row.stagger_ms) } : {}),
     };
   }
@@ -220,10 +201,16 @@ function rowToCronJob(row: CronJobRow): CronJob | null {
     return null;
   }
   const createdAtMs = normalizeNumber(row.created_at_ms) ?? Date.now();
+  // idempotencyKey has no dedicated column; it lives in the job_json config blob,
+  // so recover it here to keep the runtime dedup contract in ops.add() working.
+  const configBlob = parseJsonObject<Record<string, unknown>>(row.job_json, {});
+  const idempotencyKey =
+    typeof configBlob.idempotencyKey === "string" ? configBlob.idempotencyKey : undefined;
   return {
     id: row.job_id,
     name: row.name,
     ...(row.description ? { description: row.description } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
     enabled: row.enabled !== 0,
     ...(row.delete_after_run != null
       ? { deleteAfterRun: integerToBoolean(row.delete_after_run) }
