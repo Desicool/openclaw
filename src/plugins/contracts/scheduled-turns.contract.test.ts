@@ -5,7 +5,7 @@ import {
 } from "openclaw/plugin-sdk/plugin-test-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CronServiceContract } from "../../cron/service-contract.js";
-import type { CronJob, CronJobCreate } from "../../cron/types.js";
+import type { CronJob, CronJobCreate, CronSessionTarget } from "../../cron/types.js";
 import type {
   GatewayRequestHandler,
   GatewayRequestHandlerOptions,
@@ -109,18 +109,29 @@ function createMockCronService(): CronServiceContract {
 }
 
 function makeCronJob(input: Partial<CronJob> & { id: string }): CronJob {
+  // Real scheduled turns are isolated cron jobs; the session binding lives in
+  // sessionKey (the name prefix also embeds it). Callers still express the target
+  // session via the legacy `sessionTarget:"session:<key>"` shorthand, so derive the
+  // sessionKey from it here and persist the isolated target the runtime produces.
+  const { sessionTarget: legacyTarget, sessionKey: inputKey, ...rest } = input;
+  const sessionKey =
+    inputKey ??
+    (typeof legacyTarget === "string" && legacyTarget.startsWith("session:")
+      ? legacyTarget.slice("session:".length)
+      : MAIN_SESSION_KEY);
   return {
-    name: input.name ?? input.id,
+    name: input.id,
     enabled: true,
     schedule: { kind: "at", at: "2026-05-01T00:00:00.000Z" },
-    sessionTarget: input.sessionTarget ?? `session:${MAIN_SESSION_KEY}`,
+    sessionTarget: "isolated",
+    sessionKey,
     wakeMode: "now",
     payload: { kind: "agentTurn", message: "wake" },
     delivery: { mode: "announce", channel: "last" },
     state: {},
     createdAtMs: 0,
     updatedAtMs: 0,
-    ...input,
+    ...rest,
   };
 }
 
@@ -244,7 +255,8 @@ describe("plugin scheduled turns", () => {
     });
     const job = getCronAddBody();
     expect(job.name).toBe("plugin:workflow-plugin:tag:nudge:agent:main:main:custom-nudge-name");
-    expect(job.sessionTarget).toBe("session:agent:main:main");
+    expect(job.sessionTarget).toBe("isolated");
+    expect(job.sessionKey).toBe("agent:main:main");
     expect(job.deleteAfterRun).toBe(true);
     expect(job.delivery).toEqual({ mode: "announce", channel: "last" });
     expect(job.payload).toEqual({ kind: "agentTurn", message: "wake" });
@@ -296,7 +308,7 @@ describe("plugin scheduled turns", () => {
             makeCronJob({
               id: "job-page-1",
               name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-              sessionTarget: "session:agent:main:main",
+              sessionTarget: "session:agent:main:main" as CronSessionTarget,
             }),
           ],
           total: 2,
@@ -311,7 +323,7 @@ describe("plugin scheduled turns", () => {
           makeCronJob({
             id: "job-page-2",
             name: "plugin:workflow-plugin:tag:nudge:agent:main:main:2",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as CronSessionTarget,
           }),
         ],
         total: 2,
@@ -557,7 +569,8 @@ describe("plugin scheduled turns", () => {
     expect(typeof schedule.at).toBe("string");
     expect(stableCronAddBody).toEqual({
       enabled: true,
-      sessionTarget: "session:agent:main:main",
+      sessionTarget: "isolated",
+      sessionKey: "agent:main:main",
       payload: { kind: "agentTurn", message: "wake" },
       deleteAfterRun: true,
       wakeMode: "now",
@@ -891,22 +904,22 @@ describe("plugin scheduled turns", () => {
           makeCronJob({
             id: "job-a",
             name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as CronSessionTarget,
           }),
           makeCronJob({
             id: "job-b",
             name: "plugin:workflow-plugin:tag:nudge:agent:main:main:2",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as CronSessionTarget,
           }),
           makeCronJob({
             id: "job-c",
             name: "plugin:other-plugin:tag:nudge:agent:main:main:1",
-            sessionTarget: "session:agent:main:main",
+            sessionTarget: "session:agent:main:main" as CronSessionTarget,
           }),
           makeCronJob({
             id: "job-d",
             name: "plugin:workflow-plugin:tag:nudge:agent:other:main:1",
-            sessionTarget: "session:agent:other:main",
+            sessionTarget: "session:agent:other:main" as CronSessionTarget,
           }),
         ],
         total: 4,
@@ -937,12 +950,12 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "job-1",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:first",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as CronSessionTarget,
         }),
         makeCronJob({
           id: "job-2",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:second",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as CronSessionTarget,
         }),
       ],
       total: 2,
@@ -986,12 +999,12 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "job-ok",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as CronSessionTarget,
         }),
         makeCronJob({
           id: "job-fail",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:2",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as CronSessionTarget,
         }),
       ],
       total: 2,
@@ -1015,7 +1028,7 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "job-missing",
           name: "plugin:workflow-plugin:tag:nudge:agent:main:main:1",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as CronSessionTarget,
         }),
       ],
       total: 1,
@@ -1110,7 +1123,7 @@ describe("plugin scheduled turns", () => {
         makeCronJob({
           id: "second-cron-existing-job",
           name: "plugin:scheduler-plugin:tag:nudge:agent:main:main:1",
-          sessionTarget: "session:agent:main:main",
+          sessionTarget: "session:agent:main:main" as CronSessionTarget,
         }),
       ],
       total: 1,

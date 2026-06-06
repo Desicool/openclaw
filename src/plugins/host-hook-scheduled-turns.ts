@@ -385,7 +385,10 @@ export async function unschedulePluginSessionTurnsByTag(params: {
     return { removed: 0, failed: 1 };
   }
   const candidates = jobs.filter((job) => {
-    return job.name.startsWith(namePrefix) && job.sessionTarget === `session:${sessionKey}`;
+    // Scheduled session turns are isolated cron jobs whose session binding lives
+    // in sessionKey (the name prefix also embeds it). The legacy form encoded the
+    // binding in sessionTarget ("session:<key>"), which no longer exists.
+    return job.name.startsWith(namePrefix) && job.sessionKey === sessionKey;
   });
   let removed = 0;
   let failed = 0;
