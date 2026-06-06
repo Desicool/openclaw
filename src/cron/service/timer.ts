@@ -1,6 +1,11 @@
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { resolveFailoverReasonFromError } from "../../agents/failover-error.js";
 import type { CronConfig, CronRetryOn } from "../../config/types.cron.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
+import { resolveConfigDir } from "../../utils.js";
 import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
 import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
 import { resolveCronExecutionRetryHint } from "../retry-hint.js";
@@ -9,6 +14,12 @@ import {
   normalizeCronRunDiagnostics,
   summarizeCronRunDiagnostics,
 } from "../run-diagnostics.js";
+import {
+  buildResultFileRelativePath,
+  tryParseStdoutMarkerLine,
+  validateCronRunnerResultFile,
+  type CronRunnerResultStatus,
+} from "../runner-protocol.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
 import type {
   CronAgentExecutionPhaseUpdate,
@@ -45,7 +56,7 @@ import {
   resolveJobErrorBackoffUntilMs,
 } from "./jobs.js";
 import { locked } from "./locked.js";
-import type { CronEvent, CronServiceState } from "./state.js";
+import type { CronEvent, CronServiceState, CronSubprocessEntry } from "./state.js";
 import { ensureLoaded, persist } from "./store.js";
 import { tryCreateCronTaskRun, tryFinishCronTaskRun } from "./task-runs.js";
 import { resolveCronJobTimeoutMs } from "./timeout-policy.js";
@@ -706,6 +717,10 @@ function armRunningRecheckTimer(state: CronServiceState) {
 }
 
 export async function onTimer(state: CronServiceState) {
+  // If another process holds the scheduler lock, skip silently.
+  if (state.schedulerLockHeld) {
+    return;
+  }
   if (state.running) {
     // Re-arm the timer so the scheduler keeps ticking even when a job is
     // still executing.  Without this, a long-running job (e.g. an agentTurn
@@ -887,6 +902,7 @@ function isRunnableJob(params: {
   skipJobIds?: ReadonlySet<string>;
   skipAtIfAlreadyRan?: boolean;
   allowCronMissedRunByLastRun?: boolean;
+  pidTable?: ReadonlyMap<string, CronSubprocessEntry>;
 }): boolean {
   const { job, nowMs } = params;
   if (!job.state) {
@@ -899,6 +915,13 @@ function isRunnableJob(params: {
     return false;
   }
   if (typeof job.state.runningAtMs === "number") {
+    return false;
+  }
+  // Subprocess collision guard: if a child is still alive for this jobId, skip and record miss.
+  const pidEntry = params.pidTable?.get(job.id);
+  if (pidEntry && pidEntry.child.exitCode === null) {
+    job.state.missedCount = (job.state.missedCount ?? 0) + 1;
+    job.state.lastMissedAtMs = params.nowMs;
     return false;
   }
   if (params.skipAtIfAlreadyRan && job.schedule.kind === "at" && job.state.lastStatus) {
@@ -978,6 +1001,7 @@ function collectRunnableJobs(
       skipJobIds: opts?.skipJobIds,
       skipAtIfAlreadyRan: opts?.skipAtIfAlreadyRan,
       allowCronMissedRunByLastRun: opts?.allowCronMissedRunByLastRun,
+      pidTable: state.pidTable,
     }),
   );
 }
@@ -1268,6 +1292,189 @@ export async function executeJobCore(
   return await executeDetachedCronJob(state, job, abortSignal, resolveAbortError, options);
 }
 
+const SUBPROCESS_SIGKILL_GRACE_MS = 10_000;
+
+/**
+ * Result-resolution discriminant for the subprocess exit path.
+ */
+type SubprocessOutcome =
+  | { kind: "file"; status: CronRunnerResultStatus; error?: string }
+  | { kind: "marker"; status: CronRunnerResultStatus }
+  | { kind: "no-terminal" };
+
+/**
+ * Execute a detached-agent cron job in a subprocess. Spawns
+ * `openclaw run-cron-job <jobId> --run-id <runId>` and reads the result file
+ * on exit. Returns the same shape as the inline path so downstream code is
+ * unchanged.
+ */
+async function executeJobInSubprocess(
+  state: CronServiceState,
+  job: CronJob,
+  abortSignal: AbortSignal | undefined,
+): Promise<
+  CronRunOutcome &
+    CronRunTelemetry & {
+      delivered?: boolean;
+      deliveryAttempted?: boolean;
+      delivery?: CronDeliveryTrace;
+    }
+> {
+  const openClawNode = state.openClawNode;
+  const openClawBin = state.openClawBin;
+  // Caller guarantees both are set before routing here.
+  if (!openClawNode || !openClawBin) {
+    return {
+      status: "error",
+      error: "cron: subprocess mode not configured (openClawNode/openClawBin missing)",
+    };
+  }
+
+  const runId = crypto.randomUUID();
+  const jobId = job.id;
+  const startedAtMs = state.deps.nowMs();
+
+  // Persist running state BEFORE spawn so a parent crash leaves an orphaned
+  // marker that boot-reconcile can detect and clean up.
+  const runningState: { runId: string; pid?: number; startedAtMs: number } = {
+    runId,
+    startedAtMs,
+  };
+  job.state.running = runningState;
+  // Flush the pre-spawn running record to disk.
+  await persist(state, { stateOnly: true });
+
+  // Spawn the child process.
+  const child = spawn(openClawNode, [openClawBin, "run-cron-job", jobId, "--run-id", runId], {
+    env: {
+      ...process.env,
+      OPENCLAW_CRON_RUNNER: "1",
+      OPENCLAW_CRON_RUN_ID: runId,
+      OPENCLAW_CRON_JOB_ID: jobId,
+    },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+
+  // Update running state with PID now that we have it.
+  if (typeof child.pid === "number") {
+    runningState.pid = child.pid;
+    job.state.running = runningState;
+    await persist(state, { stateOnly: true }).catch(() => undefined);
+  }
+
+  // Register in pidTable for collision detection and signal propagation.
+  const entry: CronSubprocessEntry = {
+    pid: child.pid ?? 0,
+    runId,
+    startedAtMs,
+    child,
+  };
+  state.pidTable.set(jobId, entry);
+
+  // Collect stdout lines to find the marker (best-effort live optimization).
+  let lastMarker: ReturnType<typeof tryParseStdoutMarkerLine> = null;
+  const stdoutChunks: Buffer[] = [];
+  if (child.stdout) {
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+    });
+  }
+
+  // Wire up AbortSignal → SIGTERM → SIGKILL with grace.
+  let killGraceTimer: NodeJS.Timeout | undefined;
+  const onAbort = () => {
+    if (child.exitCode !== null) {
+      return;
+    }
+    child.kill("SIGTERM");
+    killGraceTimer = setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, SUBPROCESS_SIGKILL_GRACE_MS);
+  };
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      onAbort();
+    } else {
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  // Wait for child exit.
+  await new Promise<void>((resolve) => {
+    child.once("close", () => resolve());
+  });
+
+  // Cleanup abort listener and grace timer.
+  if (abortSignal) {
+    abortSignal.removeEventListener("abort", onAbort);
+  }
+  if (killGraceTimer) {
+    clearTimeout(killGraceTimer);
+  }
+
+  // Remove from pidTable.
+  state.pidTable.delete(jobId);
+
+  // Parse the last stdout marker line.
+  const stdoutText = Buffer.concat(stdoutChunks).toString("utf8");
+  for (const line of stdoutText.split("\n")) {
+    const parsed = tryParseStdoutMarkerLine(line);
+    if (parsed) {
+      lastMarker = parsed;
+    }
+  }
+
+  // Resolve outcome: result file is authoritative.
+  const runsDir = path.join(resolveConfigDir(), "cron", "runs");
+  const resultRelPath = buildResultFileRelativePath(jobId, runId);
+  const resultFilePath = path.join(runsDir, resultRelPath);
+
+  let outcome: SubprocessOutcome;
+  try {
+    const raw = await fs.readFile(resultFilePath, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (validateCronRunnerResultFile(parsed)) {
+      outcome = { kind: "file", status: parsed.status, error: parsed.error };
+    } else if (lastMarker) {
+      outcome = { kind: "marker", status: lastMarker.status };
+    } else {
+      outcome = { kind: "no-terminal" };
+    }
+  } catch {
+    if (lastMarker) {
+      outcome = { kind: "marker", status: lastMarker.status };
+    } else {
+      outcome = { kind: "no-terminal" };
+    }
+  }
+
+  // Translate outcome to CronRunStatus. "timeout" from the runner protocol
+  // maps to "error" in the parent's CronRunStatus (which has no "timeout" variant).
+  function toRunStatus(s: CronRunnerResultStatus): CronRunStatus {
+    return s === "timeout" ? "error" : s;
+  }
+
+  let finalStatus: CronRunStatus;
+  let finalError: string | undefined;
+  if (outcome.kind === "file") {
+    finalStatus = toRunStatus(outcome.status);
+    finalError = outcome.error;
+  } else if (outcome.kind === "marker") {
+    finalStatus = toRunStatus(outcome.status);
+  } else {
+    finalStatus = "error";
+    finalError = "cron: subprocess exited without a terminal record";
+  }
+
+  // Clear the running marker from job state and persist the terminal record.
+  job.state.running = undefined;
+  await persist(state, { stateOnly: true }).catch(() => undefined);
+
+  return { status: finalStatus, error: finalError };
+}
+
 async function executeDetachedCronJob(
   state: CronServiceState,
   job: CronJob,
@@ -1306,6 +1513,14 @@ async function executeDetachedCronJob(
     };
   }
 
+  // Subprocess mode: when both openClawNode and openClawBin are set on state,
+  // execute the job in a child process instead of inline. The subprocess writes
+  // a result file that this parent reads back on exit.
+  if (state.openClawNode && state.openClawBin) {
+    return await executeJobInSubprocess(state, job, abortSignal);
+  }
+
+  // Inline fallback: used in tests and when subprocess paths are not configured.
   const res = await state.deps.runIsolatedAgentJob({
     job,
     message: job.payload.message,

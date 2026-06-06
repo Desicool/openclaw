@@ -1,5 +1,8 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
+import { acquireSchedulerLock } from "../scheduler-lock.js";
 import { CommandLane } from "../../process/lanes.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import {
@@ -36,6 +39,7 @@ import type {
   CronListPageResult,
   CronSortDir,
 } from "./list-page-types.js";
+import { reconcileSubprocessJobs } from "./boot-reconcile.js";
 import { locked } from "./locked.js";
 import { normalizeOptionalAgentId } from "./normalize.js";
 import type { CronServiceState, CronWakeMode } from "./state.js";
@@ -163,20 +167,99 @@ async function ensureLoadedForRead(state: CronServiceState) {
   }
 }
 
+/**
+ * Resolve the paths to the Node.js executable and the OpenClaw CLI binary
+ * for spawning cron job subprocesses. These are captured at scheduler-start
+ * time and are immutable for the gateway's lifetime.
+ *
+ * If process.argv[1] cannot be resolved as a real file (e.g. running via
+ * `node --eval`), we fall back to the OPENCLAW_BIN env var if set.
+ */
+async function resolveSubprocessBinPaths(): Promise<{
+  openClawNode: string;
+  openClawBin: string | undefined;
+}> {
+  const openClawNode = process.execPath;
+  const rawBin = process.argv[1];
+  if (typeof rawBin === "string" && rawBin.trim()) {
+    // Only treat argv[1] as the openclaw CLI if it looks like the real binary:
+    // its basename must contain "openclaw" (not a test runner like vitest.mjs).
+    const base = path.basename(rawBin);
+    if (base.includes("openclaw")) {
+      try {
+        const resolved = path.resolve(rawBin);
+        await fs.access(resolved);
+        return { openClawNode, openClawBin: resolved };
+      } catch {
+        // Falls through to env-var fallback below.
+      }
+    }
+  }
+  // Fallback: use OPENCLAW_BIN env var if set (e.g. node --eval invocations,
+  // or when the gateway is launched via a wrapper that sets this variable).
+  const envBin = process.env.OPENCLAW_BIN?.trim();
+  return { openClawNode, openClawBin: envBin || undefined };
+}
+
 export async function start(state: CronServiceState) {
   if (!state.deps.cronEnabled) {
     state.deps.log.info({ enabled: false }, "cron: disabled");
     return;
   }
 
+  // Acquire the scheduler lock before doing any work. If another instance
+  // holds the lock, log loudly and mark the state as held — jobs will not
+  // be scheduled, but other gateway functionality is unaffected.
+  //
+  // schedulerLockPath=null disables locking (used in tests so they do not
+  // compete for the global ~/.openclaw/cron/scheduler.lock).
+  // schedulerLockPath=undefined uses the default path (production).
+  // schedulerLockPath=<string> uses a custom path.
+  const lockPathDep = state.deps.schedulerLockPath;
+  if (lockPathDep !== null) {
+    const lockParams = typeof lockPathDep === "string" ? { path: lockPathDep } : {};
+    const lockResult = await acquireSchedulerLock(lockParams);
+    if (lockResult.kind === "acquired") {
+      state.schedulerLockHandle = lockResult.handle;
+      state.schedulerLockHeld = false;
+    } else {
+      const holderPid = lockResult.holderPid;
+      state.schedulerLockHeld = true;
+      state.deps.log.warn(
+        { holderPid: holderPid ?? "null" },
+        "cron: scheduler lock held by another process — this instance will not schedule jobs",
+      );
+      return;
+    }
+  }
+
+  // Capture subprocess bin paths at startup (immutable for the lifetime of this gateway).
+  const { openClawNode, openClawBin } = await resolveSubprocessBinPaths();
+  state.openClawNode = openClawNode;
+  if (openClawBin) {
+    state.openClawBin = openClawBin;
+  }
+
   const interruptedJobIds = new Set<string>();
   const interruptedRuns: InterruptedStartupRun[] = [];
   let markedAnyInterruptedRun = false;
+  // Reconcile subprocess jobs first (outside the lock — needs async I/O for
+  // pid/result-file checks).  Jobs found alive have runningAtMs cleared so
+  // the interrupt sweep below ignores them.
+  let reconciledLiveJobIds = new Set<string>();
   await locked(state, async () => {
     await ensureLoaded(state, { skipRecompute: true });
+  });
+  reconciledLiveJobIds = await reconcileSubprocessJobs(state);
+  await locked(state, async () => {
     const jobs = state.store?.jobs ?? [];
     for (const job of jobs) {
       job.state ??= {};
+      // Skip jobs that boot-reconcile found alive: they have runningAtMs cleared
+      // and a live subprocess; they must not be marked as interrupted.
+      if (reconciledLiveJobIds.has(job.id)) {
+        continue;
+      }
       if (typeof job.state.runningAtMs === "number") {
         const nowMs = state.deps.nowMs();
         const interrupted = markInterruptedStartupRun({
@@ -190,7 +273,10 @@ export async function start(state: CronServiceState) {
         markedAnyInterruptedRun = true;
       }
     }
-    if (markedAnyInterruptedRun || jobs.length > 0) {
+    // Interrupted runs may have flipped job.enabled (for at-jobs), requiring a
+    // full persist.  Reconcile-only changes are purely state fields — stateOnly.
+    const reconciledAny = reconciledLiveJobIds.size > 0;
+    if (markedAnyInterruptedRun || reconciledAny || jobs.length > 0) {
       await persist(state, markedAnyInterruptedRun ? undefined : { stateOnly: true });
     }
   });
@@ -240,6 +326,12 @@ export async function start(state: CronServiceState) {
 
 export function stop(state: CronServiceState) {
   stopTimer(state);
+  // Release the scheduler lock if we hold it. Best-effort; never throw.
+  if (state.schedulerLockHandle) {
+    const handle = state.schedulerLockHandle;
+    state.schedulerLockHandle = undefined;
+    handle.release().catch(() => undefined);
+  }
 }
 
 export async function status(state: CronServiceState) {
@@ -402,10 +494,35 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
   });
 }
 
+function isJobUnexpired(job: CronJob, nowMs: number): boolean {
+  if (job.schedule.kind === "at") {
+    const fireAt = job.schedule.at;
+    const fireAtMs = typeof fireAt === "string" ? Date.parse(fireAt) : Number.NaN;
+    return Number.isFinite(fireAtMs) && fireAtMs > nowMs;
+  }
+  // For recurring schedules, the job is unexpired when it is enabled.
+  return job.enabled;
+}
+
 export async function add(state: CronServiceState, input: CronJobCreate) {
   return await locked(state, async () => {
     warnIfDisabled(state, "add");
     await ensureLoaded(state);
+
+    // Dedup: reject if an unexpired job already carries the same idempotencyKey.
+    const idempotencyKey = input.idempotencyKey;
+    if (typeof idempotencyKey === "string") {
+      const nowMs = state.deps.nowMs();
+      const existing = (state.store?.jobs ?? []).find(
+        (job) => job.idempotencyKey === idempotencyKey && isJobUnexpired(job, nowMs),
+      );
+      if (existing) {
+        throw new Error(
+          `cron job with idempotencyKey ${idempotencyKey} already exists (jobId=${existing.id})`,
+        );
+      }
+    }
+
     const job = createJob(state, input);
     state.store?.jobs.push(job);
 
