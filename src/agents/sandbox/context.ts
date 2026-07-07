@@ -225,6 +225,7 @@ async function resolveProvisionedSandboxContext(
   });
 
   const docker = await resolveSandboxDockerUser({
+    backend: cfg.backend,
     docker: cfg.docker,
     workspaceDir,
   });
