@@ -67,11 +67,10 @@ function parseTelegramMiniAppUser(raw: string): { id: string } | null {
   }
 }
 
+// Attacker-controlled input never short-circuits on length: both sides are
+// reduced to fixed-length SHA-256 digests before the constant-time compare.
 function timingSafeHexEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left, "hex");
-  const rightBuffer = Buffer.from(right, "hex");
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false;
-  }
-  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+  const leftDigest = crypto.createHash("sha256").update(left).digest();
+  const rightDigest = crypto.createHash("sha256").update(right).digest();
+  return crypto.timingSafeEqual(leftDigest, rightDigest);
 }

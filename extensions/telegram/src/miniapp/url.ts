@@ -43,7 +43,10 @@ export async function resolveTelegramMiniAppUrls(params: {
   return {
     pageUrl: `https://${publishedHost}${TELEGRAM_MINIAPP_PATH_PREFIX}`,
     controlUiUrl,
-    gatewayUrl: `wss://${publishedHost}`,
+    // The Control UI serves its WebSocket endpoint under the same base path as
+    // the HTTP app (ui/src/app/settings.ts deriveDefaultGatewayUrl); a bare
+    // host URL breaks gateway.controlUi.basePath installs.
+    gatewayUrl: `wss://${publishedHost}${controlUiPath}`,
   };
 }
 
