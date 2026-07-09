@@ -131,6 +131,7 @@ async function resolveProvidersAndCaptureDiscoveryEnv(cfg: OpenClawConfig) {
 
 let unauthenticatedProviderWritePlan: Awaited<ReturnType<typeof planOpenClawModelsJsonWithDeps>>;
 let unauthenticatedProviderParsed: { providers?: Record<string, unknown> };
+let googleVertexProfileCatalogPlan: Awaited<ReturnType<typeof planGoogleVertexProfileCatalog>>;
 
 async function planGoogleVertexProfileCatalog() {
   const agentDir = "/tmp/openclaw-google-vertex-models-profile";
@@ -213,7 +214,9 @@ beforeAll(async () => {
   unauthenticatedProviderParsed = JSON.parse(unauthenticatedProviderWritePlan.contents) as {
     providers?: Record<string, unknown>;
   };
-  await planGoogleVertexProfileCatalog();
+  // Retain this expensive plan so the assertion test does not repeat the same
+  // auth-profile and catalog planning pass.
+  googleVertexProfileCatalogPlan = await planGoogleVertexProfileCatalog();
 });
 
 describe("models-config", () => {
@@ -525,8 +528,8 @@ describe("models-config", () => {
     ]);
   });
 
-  it("keeps google-vertex static catalog rows when an auth profile supplies the API key", async () => {
-    const plan = await planGoogleVertexProfileCatalog();
+  it("keeps google-vertex static catalog rows when an auth profile supplies the API key", () => {
+    const plan = googleVertexProfileCatalogPlan;
 
     expect(plan.action).toBe("write");
     if (plan.action !== "write") {
