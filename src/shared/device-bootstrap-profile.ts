@@ -1,18 +1,21 @@
 // Device bootstrap profile helpers build profile claims for device onboarding.
 import { normalizeDeviceAuthRole, normalizeDeviceAuthScopes } from "./device-auth.js";
 
+/** Closed purpose codes carried by specialized bootstrap tokens. */
+export type DeviceBootstrapPurpose = "control-ui";
+
 /** Normalized roles/scopes carried by a bootstrap token during device handoff. */
 export type DeviceBootstrapProfile = {
   roles: string[];
   scopes: string[];
-  purpose?: string;
+  purpose?: DeviceBootstrapPurpose;
 };
 
 /** Caller-provided bootstrap profile before role/scope normalization and bounding. */
 export type DeviceBootstrapProfileInput = {
   roles?: readonly string[];
   scopes?: readonly string[];
-  purpose?: string;
+  purpose?: DeviceBootstrapPurpose;
 };
 
 /** Operator scopes allowed to cross the short-lived bootstrap handoff boundary. */
@@ -121,7 +124,7 @@ function normalizeBootstrapRoles(roles: readonly string[] | undefined): string[]
 export function normalizeDeviceBootstrapProfile(
   input: DeviceBootstrapProfileInput | undefined,
 ): DeviceBootstrapProfile {
-  const purpose = typeof input?.purpose === "string" ? input.purpose.trim() : "";
+  const purpose = input?.purpose === "control-ui" ? input.purpose : undefined;
   return {
     roles: normalizeBootstrapRoles(input?.roles),
     scopes: normalizeDeviceAuthScopes(input?.scopes ? [...input.scopes] : []),

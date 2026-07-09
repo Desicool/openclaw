@@ -12,4 +12,5 @@ export {
   PAIRING_SETUP_BOOTSTRAP_PROFILE,
   type DeviceBootstrapProfile,
   type DeviceBootstrapProfileInput,
+  type DeviceBootstrapPurpose,
 } from "../shared/device-bootstrap-profile.js";
