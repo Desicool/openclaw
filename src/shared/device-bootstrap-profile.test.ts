@@ -64,10 +64,12 @@ describe("device bootstrap profile", () => {
           "operator.talk.secrets",
           "operator.write",
         ],
+        purpose: " control-ui ",
       }),
     ).toEqual({
       roles: ["node", "operator"],
       scopes: ["operator.approvals", "operator.read", "operator.talk.secrets", "operator.write"],
+      purpose: "control-ui",
     });
   });
 

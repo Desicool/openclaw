@@ -5,12 +5,14 @@ import { normalizeDeviceAuthRole, normalizeDeviceAuthScopes } from "./device-aut
 export type DeviceBootstrapProfile = {
   roles: string[];
   scopes: string[];
+  purpose?: string;
 };
 
 /** Caller-provided bootstrap profile before role/scope normalization and bounding. */
 export type DeviceBootstrapProfileInput = {
   roles?: readonly string[];
   scopes?: readonly string[];
+  purpose?: string;
 };
 
 /** Operator scopes allowed to cross the short-lived bootstrap handoff boundary. */
@@ -97,6 +99,7 @@ export function normalizeDeviceBootstrapHandoffProfile(
   return {
     roles: profile.roles,
     scopes: resolveBootstrapProfileScopesForRoles(profile.roles, profile.scopes),
+    ...(profile.purpose ? { purpose: profile.purpose } : {}),
   };
 }
 
@@ -118,8 +121,10 @@ function normalizeBootstrapRoles(roles: readonly string[] | undefined): string[]
 export function normalizeDeviceBootstrapProfile(
   input: DeviceBootstrapProfileInput | undefined,
 ): DeviceBootstrapProfile {
+  const purpose = typeof input?.purpose === "string" ? input.purpose.trim() : "";
   return {
     roles: normalizeBootstrapRoles(input?.roles),
     scopes: normalizeDeviceAuthScopes(input?.scopes ? [...input.scopes] : []),
+    ...(purpose ? { purpose } : {}),
   };
 }
