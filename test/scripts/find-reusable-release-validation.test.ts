@@ -98,15 +98,12 @@ fi
 exec cat "\${fixture}.json"
 `;
 
-const WORKFLOW_SHA = "f".repeat(40);
-const CANDIDATE_HEAD_SHA = "e".repeat(40);
-
 interface FixtureOptions {
   runId?: string;
+  headSha: string;
   manifest?: Record<string, unknown>;
   compare?: { base: string; head: string; status: string; files: string[] } | undefined;
   childRunStates?: Record<string, string>;
-  candidateWorkflowsTree?: { path: string; sha: string }[];
 }
 
 function setUpFixtures(options: FixtureOptions): { fixtures: string; binDir: string } {
@@ -129,22 +126,10 @@ function setUpFixtures(options: FixtureOptions): { fixtures: string; binDir: str
         {
           id: Number(runId),
           html_url: `https://example.test/runs/${runId}`,
-          head_sha: CANDIDATE_HEAD_SHA,
+          head_sha: options.headSha,
         },
       ],
     }),
-  );
-  const workflowsTree = [{ path: ".github/workflows/full-release-validation.yml", sha: "aa11" }];
-  writeFileSync(
-    join(fixtures, `repos_openclaw_openclaw_contents_.github_workflows_ref=${WORKFLOW_SHA}.json`),
-    JSON.stringify(workflowsTree),
-  );
-  writeFileSync(
-    join(
-      fixtures,
-      `repos_openclaw_openclaw_contents_.github_workflows_ref=${CANDIDATE_HEAD_SHA}.json`,
-    ),
-    JSON.stringify(options.candidateWorkflowsTree ?? workflowsTree),
   );
   if (options.manifest) {
     writeFileSync(
@@ -211,6 +196,7 @@ const DEFAULT_INPUTS = {
 function runResolver(args: {
   repoDir: string;
   targetSha: string;
+  workflowSha: string;
   releaseProfile: string;
   runReleaseSoak?: string;
   inputs?: Record<string, string>;
@@ -224,7 +210,7 @@ function runResolver(args: {
       "--target-sha",
       args.targetSha,
       "--workflow-sha",
-      WORKFLOW_SHA,
+      args.workflowSha,
       "--release-profile",
       args.releaseProfile,
       "--run-release-soak",
@@ -289,7 +275,10 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
       "docs(changelog): refresh",
     );
     const clone = cloneHead(origin);
+    // The candidate ran when the branch was at priorSha; the current dispatch
+    // runs from the branch tip, so the harness delta equals the target delta.
     const { fixtures, binDir } = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha),
       compare: { base: priorSha, head: targetSha, status: "ahead", files: ["CHANGELOG.md"] },
       childRunStates: HEALTHY_CHILDREN,
@@ -298,6 +287,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const result = runResolver({
       repoDir: clone,
       targetSha,
+      workflowSha: targetSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -320,6 +310,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const clone = cloneHead(origin);
     // No compare fixture: an identical target must not hit the compare API.
     const { fixtures, binDir } = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha, { evidenceReuse: { runId: "42" } }),
       childRunStates: HEALTHY_CHILDREN,
     });
@@ -327,6 +318,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const result = runResolver({
       repoDir: clone,
       targetSha: priorSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -350,13 +342,17 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     );
     const clone = cloneHead(origin);
     const { fixtures, binDir } = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha),
       compare: { base: priorSha, head: targetSha, status: "ahead", files: ["index.ts"] },
     });
 
+    // The candidate harness matches the pinned workflow SHA; only the target
+    // delta is non-metadata here.
     const result = runResolver({
       repoDir: clone,
       targetSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -375,10 +371,14 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     );
     const clone = cloneHead(origin);
 
-    const beta = setUpFixtures({ manifest: manifestFor(priorSha, { releaseProfile: "beta" }) });
+    const beta = setUpFixtures({
+      headSha: priorSha,
+      manifest: manifestFor(priorSha, { releaseProfile: "beta" }),
+    });
     const betaResult = runResolver({
       repoDir: clone,
       targetSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures: beta.fixtures,
       binDir: beta.binDir,
@@ -387,12 +387,14 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     expect(parseOutput(betaResult.stdout)).toMatchObject({ reuse: "false" });
 
     const diverged = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha),
       compare: { base: priorSha, head: targetSha, status: "diverged", files: ["CHANGELOG.md"] },
     });
     const divergedResult = runResolver({
       repoDir: clone,
       targetSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures: diverged.fixtures,
       binDir: diverged.binDir,
@@ -405,6 +407,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const { origin, priorSha } = createRepoPair();
     const clone = cloneHead(origin);
     const { fixtures, binDir } = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha, {
         validationInputs: { ...DEFAULT_INPUTS, provider: "anthropic" },
       }),
@@ -414,6 +417,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const result = runResolver({
       repoDir: clone,
       targetSha: priorSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -426,6 +430,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const { origin, priorSha } = createRepoPair();
     const clone = cloneHead(origin);
     const { fixtures, binDir } = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha),
       childRunStates: { "201": "completed/failure", "202": "completed/success" },
     });
@@ -433,6 +438,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const result = runResolver({
       repoDir: clone,
       targetSha: priorSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -441,20 +447,27 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     expect(parseOutput(result.stdout)).toMatchObject({ reuse: "false" });
   });
 
-  it("rejects evidence from a run with a different workflow harness", () => {
+  it("rejects evidence whose harness differs beyond release metadata", () => {
     const { origin, priorSha } = createRepoPair();
+    git(origin, ["checkout", "-q", "-b", "harness-drift"]);
+    const driftSha = commitFile(
+      origin,
+      "index.ts",
+      "export const value = 3;\n",
+      "ci: change harness logic",
+    );
+    git(origin, ["checkout", "-q", "main"]);
     const clone = cloneHead(origin);
     const { fixtures, binDir } = setUpFixtures({
+      headSha: driftSha,
       manifest: manifestFor(priorSha),
       childRunStates: HEALTHY_CHILDREN,
-      candidateWorkflowsTree: [
-        { path: ".github/workflows/full-release-validation.yml", sha: "bb22" },
-      ],
     });
 
     const result = runResolver({
       repoDir: clone,
       targetSha: priorSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -467,6 +480,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const { origin, priorSha } = createRepoPair({ plistBuildVersion: "2026061000" });
     const clone = cloneHead(origin);
     const { fixtures, binDir } = setUpFixtures({
+      headSha: priorSha,
       manifest: manifestFor(priorSha),
       childRunStates: HEALTHY_CHILDREN,
     });
@@ -474,6 +488,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const result = runResolver({
       repoDir: clone,
       targetSha: priorSha,
+      workflowSha: priorSha,
       releaseProfile: "stable",
       fixtures,
       binDir,
@@ -487,11 +502,12 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
   it("reports no reuse when no prior runs or manifests exist", () => {
     const { origin, priorSha } = createRepoPair();
     const clone = cloneHead(origin);
-    const { fixtures, binDir } = setUpFixtures({});
+    const { fixtures, binDir } = setUpFixtures({ headSha: priorSha });
 
     const result = runResolver({
       repoDir: clone,
       targetSha: priorSha,
+      workflowSha: priorSha,
       releaseProfile: "beta",
       fixtures,
       binDir,

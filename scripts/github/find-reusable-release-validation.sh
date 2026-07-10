@@ -145,17 +145,30 @@ if ! (cd "$REPO_DIR" && node "$PREFLIGHT" --macos-versions-only >&2); then
   no_reuse "target version metadata is inconsistent"
 fi
 
-# Evidence must come from an identical harness: prior runs may have executed
-# with different lane definitions. Compare the .github/workflows tree of the
-# candidate run's head SHA against the current workflow ref's tree.
-workflows_tree_for() {
-  gh api "repos/${REPO}/contents/.github/workflows?ref=$1" \
-    --jq '[.[] | {path, sha}] | sort_by(.path) | tostring'
+# Evidence must come from an equivalent harness: workflows and their helper
+# scripts run from the workflow ref, so the tree diff between the candidate
+# run's head SHA and the current workflow SHA must itself be metadata-only.
+harness_matches() {
+  local candidate_sha="$1"
+  if [[ "$candidate_sha" == "$WORKFLOW_SHA" ]]; then
+    return 0
+  fi
+  if ! git -C "$REPO_DIR" fetch --quiet --depth=1 origin "$candidate_sha" "$WORKFLOW_SHA"; then
+    return 1
+  fi
+  local harness_paths
+  if ! harness_paths="$(git -C "$REPO_DIR" diff --name-only "$candidate_sha" "$WORKFLOW_SHA")"; then
+    return 1
+  fi
+  if [[ -z "$harness_paths" ]]; then
+    return 0
+  fi
+  local -a harness_path_list=()
+  while IFS= read -r harness_path; do
+    [[ -n "$harness_path" ]] && harness_path_list+=("$harness_path")
+  done <<< "$harness_paths"
+  (cd "$REPO_DIR" && node "$CLASSIFIER" --base "$candidate_sha" --head "$WORKFLOW_SHA" -- "${harness_path_list[@]}")
 }
-current_workflows_tree=""
-if ! current_workflows_tree="$(workflows_tree_for "$WORKFLOW_SHA")" || [[ -z "$current_workflows_tree" ]]; then
-  no_reuse "could not resolve the current workflow tree"
-fi
 
 runs_json=""
 if ! runs_json="$(
@@ -179,13 +192,9 @@ for ((index = 0; index < run_count; index += 1)); do
   run_url="$(jq -r ".[${index}].html_url" <<< "$runs_json")"
   run_head_sha="$(jq -r ".[${index}].head_sha // \"\"" <<< "$runs_json")"
 
-  if [[ "$run_head_sha" != "$WORKFLOW_SHA" ]]; then
-    candidate_workflows_tree=""
-    if ! candidate_workflows_tree="$(workflows_tree_for "$run_head_sha")" \
-      || [[ -z "$candidate_workflows_tree" || "$candidate_workflows_tree" != "$current_workflows_tree" ]]; then
-      echo "[evidence-reuse] run ${run_id}: harness workflows differ from the current workflow ref; skipping" >&2
-      continue
-    fi
+  if [[ ! "$run_head_sha" =~ ^[0-9a-f]{40}$ ]] || ! harness_matches "$run_head_sha"; then
+    echo "[evidence-reuse] run ${run_id}: harness differs from the current workflow ref beyond release metadata; skipping" >&2
+    continue
   fi
 
   artifact_id=""
