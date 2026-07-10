@@ -917,7 +917,7 @@ jobs:
           }
 
           resolve_openclaw_npm_publish_state() {
-            local release_version
+            local artifact_name manifest_dir manifest_path manifest_sha manifest_tarball_sha published_sha published_tarball_path published_tarball_url release_version
 
             openclaw_npm_already_published="false"
             if [[ "${PUBLISH_OPENCLAW_NPM}" != "true" ]]; then
@@ -930,11 +930,40 @@ jobs:
             fi
 
             # A published core package means a prior publish run already got
-            # that far; resume the remaining stages instead of refusing.
-            # verify_published_release still proves the published artifact
-            # matches this tag before the release page leaves draft.
+            # that far. Resume is only safe when the registry serves the exact
+            # tarball this tag's preflight built; the same version from any
+            # other artifact is immutable on npm and needs a correction tag.
+            artifact_name="${PREFLIGHT_ARTIFACT_NAME:-openclaw-npm-preflight-${RELEASE_TAG}}"
+            manifest_dir="${RUNNER_TEMP}/openclaw-npm-resume-preflight"
+            rm -rf "${manifest_dir}"
+            mkdir -p "${manifest_dir}"
+            gh run download "${PREFLIGHT_RUN_ID}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --name "${artifact_name}" \
+              --dir "${manifest_dir}"
+            manifest_path="${manifest_dir}/preflight-manifest.json"
+            manifest_sha="$(jq -er '.releaseSha' "${manifest_path}")"
+            manifest_tarball_sha="$(jq -er '.tarballSha256' "${manifest_path}")"
+            if [[ "${manifest_sha}" != "${TARGET_SHA}" ]]; then
+              echo "openclaw@${release_version} is already on npm but preflight ${PREFLIGHT_RUN_ID} was built from ${manifest_sha}, not ${TARGET_SHA}; refusing to resume." >&2
+              exit 1
+            fi
+            published_tarball_url="$(npm view "openclaw@${release_version}" dist.tarball)"
+            published_tarball_path="${manifest_dir}/published.tgz"
+            curl -fsSL --retry 3 -o "${published_tarball_path}" "${published_tarball_url}"
+            published_sha="$(sha256sum "${published_tarball_path}" | awk '{print $1}')"
+            if [[ "${published_sha}" != "${manifest_tarball_sha}" ]]; then
+              {
+                echo "openclaw@${release_version} is already published on npm but its tarball does not match this tag's preflight artifact."
+                echo "Published sha256: ${published_sha}"
+                echo "Preflight tarballSha256: ${manifest_tarball_sha}"
+                echo "Cut a correction tag instead of resuming this publish."
+              } >&2
+              exit 1
+            fi
+
             openclaw_npm_already_published="true"
-            echo "openclaw@${release_version} is already published on npm; skipping the core npm dispatch and resuming the remaining publish stages."
+            echo "openclaw@${release_version} is already published on npm with this tag's preflight tarball; skipping the core npm dispatch and resuming the remaining publish stages."
           }
 
           resolve_clawhub_release_plan() {
