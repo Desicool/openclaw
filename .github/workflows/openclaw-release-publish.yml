@@ -1105,7 +1105,7 @@ jobs:
           }
 
           create_or_update_github_release() {
-            local release_version title latest_arg prerelease_arg
+            local existing_body_file existing_state release_version title latest_arg prerelease_arg
             verify_release_tag_target
             release_version="${RELEASE_TAG#v}"
             title="openclaw ${release_version}"
@@ -1118,7 +1118,19 @@ jobs:
               latest_arg="--latest"
             fi
 
-            if gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if existing_state="$(gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" --json isDraft,body 2>/dev/null)"; then
+              # A public page only reaches this call after
+              # guard_existing_public_release accepted it as canonical; leave
+              # it untouched so a failed resume cannot strip its verification
+              # proof before the proof append re-runs.
+              if [[ "$(printf '%s' "${existing_state}" | jq -r '.isDraft')" != "true" ]]; then
+                existing_body_file="${RUNNER_TEMP}/existing-public-release-notes.md"
+                printf '%s' "$(printf '%s' "${existing_state}" | jq -r '.body')" > "${existing_body_file}"
+                if canonical_release_body_matches "${existing_body_file}"; then
+                  echo "- GitHub release: existing public page left untouched until proof append" >> "$GITHUB_STEP_SUMMARY"
+                  return 0
+                fi
+              fi
               gh release edit "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" \
                 --title "${title}" \
                 --notes-file "${prepared_release_notes_file}" \
