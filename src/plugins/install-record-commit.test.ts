@@ -1,15 +1,15 @@
-// Plugin install record commit tests cover install record persistence after CLI installs.
+// Plugin install record commit tests cover install record persistence.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
+import { withEnvAsync } from "../test-utils/env.js";
 import {
   hasRetainedManagedNpmInstallMarker,
   markRetainedManagedNpmInstall,
-} from "../plugins/managed-npm-retention.js";
-import { withEnvAsync } from "../test-utils/env.js";
+} from "./managed-npm-retention.js";
 
 const mocks = vi.hoisted(() => ({
   loadInstalledPluginIndexInstallRecords: vi.fn(),
@@ -24,9 +24,8 @@ vi.mock("../config/config.js", () => ({
   transformConfigFileWithRetry: mocks.transformConfigFileWithRetry,
 }));
 
-vi.mock("../plugins/installed-plugin-index-records.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../plugins/installed-plugin-index-records.js")>();
+vi.mock("./installed-plugin-index-records.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./installed-plugin-index-records.js")>();
   return {
     ...actual,
     loadInstalledPluginIndexInstallRecords: mocks.loadInstalledPluginIndexInstallRecords,
@@ -42,7 +41,7 @@ import {
   stripPendingPluginInstallRecords,
   transformConfigWithPendingPluginInstalls,
   unchangedPendingPluginInstallRecordIds,
-} from "./plugins-install-record-commit.js";
+} from "./install-record-commit.js";
 
 describe("commitConfigWithPendingPluginInstalls", () => {
   beforeEach(() => {
