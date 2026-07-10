@@ -1137,7 +1137,7 @@ jobs:
               "OpenClaw-Android-SHA256SUMS.txt"
             )
 
-            release_json="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets,url)"
+            release_json="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets,url)" || return 1
             expected_android_assets="$(printf '%s\n' "${required_assets[@]}" | jq -R . | jq -sc 'sort')"
             actual_android_assets="$(printf '%s' "${release_json}" | jq -c '
               [.assets[]? | select(.name | startswith("OpenClaw-Android")) | .name] | sort
@@ -1154,11 +1154,11 @@ jobs:
               --repo "${GITHUB_REPOSITORY}" \
               --pattern "OpenClaw-Android.apk" \
               --pattern "OpenClaw-Android-SHA256SUMS.txt" \
-              --dir "${verify_dir}"
+              --dir "${verify_dir}" || return 1
             (
               cd "${verify_dir}"
               sha256sum --strict --check OpenClaw-Android-SHA256SUMS.txt
-            )
+            ) || return 1
             expected_hash="$(awk '$2 == "OpenClaw-Android.apk" { print $1 }' "${verify_dir}/OpenClaw-Android-SHA256SUMS.txt")"
             if [[ ! "${expected_hash}" =~ ^[a-f0-9]{64}$ ]]; then
               echo "Android checksum manifest does not contain the canonical APK entry." >&2
@@ -1170,11 +1170,14 @@ jobs:
               echo "Android release APK digest does not match its checksum manifest." >&2
               return 1
             fi
+            # Explicit guard: this function doubles as an `if` predicate, where
+            # bash suppresses errexit, so a failed attestation must not fall
+            # through to the summary echo.
             gh attestation verify "${verify_dir}/OpenClaw-Android.apk" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/android-release.yml" \
               --source-ref "refs/tags/${RELEASE_TAG}" \
-              --deny-self-hosted-runners
+              --deny-self-hosted-runners || return 1
             echo "- Android APK asset contract: verified" >> "${GITHUB_STEP_SUMMARY}"
           }
 
@@ -1190,7 +1193,7 @@ jobs:
               "OpenClawCompanion-SHA256SUMS.txt"
             )
 
-            release_json="$(gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" --json assets,url)"
+            release_json="$(gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" --json assets,url)" || return 1
             expected_companion_assets="$(printf '%s\n' "${required_assets[@]}" | jq -R . | jq -sc 'sort')"
             actual_companion_assets="$(printf '%s' "${release_json}" | jq -c '
               [.assets[]? | select(.name | startswith("OpenClawCompanion-")) | .name] | sort
@@ -1213,7 +1216,7 @@ jobs:
             gh release download "${RELEASE_TAG}" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern "OpenClawCompanion-SHA256SUMS.txt" \
-              --dir "${manifest_dir}"
+              --dir "${manifest_dir}" || return 1
             if ! manifest_json="$(jq -Rsc '
               split("\n") as $lines |
               (if $lines[-1] == "" then $lines[0:-1] else $lines end) |
