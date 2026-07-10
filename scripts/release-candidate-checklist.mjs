@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { stripLeadingPackageManagerSeparator } from "./lib/arg-utils.mjs";
 import { readBoundedResponseText } from "./lib/bounded-response.mjs";
 import {
-  correctionVersionForTag,
+  dedicatedSectionVersionForTag,
   extractChangelogReleaseSections,
   extractChangelogSection,
   formatShippedBaselineExclusions,
@@ -489,18 +489,19 @@ export function validateCandidateChangelogProvenance({
   isAncestor = gitIsAncestor,
   loadShippedBaseline = loadCandidateShippedBaseline,
 }) {
-  // Validate the same section the renderer publishes: correction tags may
-  // carry their own heading, and alpha tags may fall back to Unreleased.
+  // Validate the same section the renderer publishes: alpha and correction
+  // tags may carry their own heading, and alpha tags may fall back to
+  // Unreleased.
   let section;
   let sectionVersion = version;
   let usesAlphaUnreleasedFallback = false;
-  const correctionVersion = correctionVersionForTag(tag);
-  if (correctionVersion && correctionVersion !== version) {
+  const dedicatedVersion = dedicatedSectionVersionForTag(tag);
+  if (dedicatedVersion && dedicatedVersion !== version) {
     try {
-      section = extractChangelogSection(changelog, correctionVersion);
-      sectionVersion = correctionVersion;
+      section = extractChangelogSection(changelog, dedicatedVersion);
+      sectionVersion = dedicatedVersion;
     } catch {
-      // The correction has no dedicated section; validate the base section.
+      // No dedicated section; validate the base section.
     }
   }
   if (section === undefined) {
