@@ -143,8 +143,12 @@ describe("release-note verification", () => {
 
     const filtered = withoutExcludedContributionRecords(record, new Set([2, 10]));
 
-    expect([...filtered.pullRequests]).toEqual([[1, { references: [], thanks: [] }]]);
-    expect([...filtered.legacyIssues]).toEqual([[11, { references: [], thanks: [] }]]);
+    expect([...filtered.pullRequests]).toEqual([
+      [1, { externalReferences: [], references: [], thanks: [] }],
+    ]);
+    expect([...filtered.legacyIssues]).toEqual([
+      [11, { externalReferences: [], references: [], thanks: [] }],
+    ]);
   });
 
   it("does not treat the shipped baseline inventory as current release-note references", () => {

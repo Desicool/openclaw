@@ -1,5 +1,5 @@
 // Package Acceptance Workflow tests cover package acceptance workflow script behavior.
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -2639,9 +2639,12 @@ describe("package artifact reuse", () => {
     expect(clawHubMetadataIndex).toBeGreaterThan(clawHubSetupIndex);
     expect(releaseWorkflow).toContain("Plugin npm run ID");
     expect(releaseWorkflow).toContain("Plugin ClawHub run ID");
-    expect(releaseWorkflow).toContain(
+    expect(releaseWorkflow).not.toContain(
       "did not return an Actions run URL; refusing to guess from recent workflow_dispatch runs",
     );
+    expect(releaseWorkflow).not.toContain("return_run_details: true");
+    expect(releaseWorkflow).toContain("'.workflow_run_id'");
+    expect(releaseWorkflow).toContain("'.html_url'");
     expect(releaseWorkflow).not.toContain("BEFORE_IDS=");
     expect(releaseWorkflow).not.toContain("before_json");
     expect(releaseWorkflow).toContain("plugin-clawhub-new.yml");

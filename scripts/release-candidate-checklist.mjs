@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { stripLeadingPackageManagerSeparator } from "./lib/arg-utils.mjs";
 import { readBoundedResponseText } from "./lib/bounded-response.mjs";
 import {
+  correctionVersionForTag,
   extractChangelogReleaseSections,
   extractChangelogSection,
   formatShippedBaselineExclusions,
@@ -488,16 +489,30 @@ export function validateCandidateChangelogProvenance({
   isAncestor = gitIsAncestor,
   loadShippedBaseline = loadCandidateShippedBaseline,
 }) {
+  // Validate the same section the renderer publishes: correction tags may
+  // carry their own heading, and alpha tags may fall back to Unreleased.
   let section;
+  let sectionVersion = version;
   let usesAlphaUnreleasedFallback = false;
-  try {
-    section = extractChangelogSection(changelog, version);
-  } catch (error) {
-    if (!/-alpha\.[1-9][0-9]*$/u.test(tag)) {
-      throw error;
+  const correctionVersion = correctionVersionForTag(tag);
+  if (correctionVersion && correctionVersion !== version) {
+    try {
+      section = extractChangelogSection(changelog, correctionVersion);
+      sectionVersion = correctionVersion;
+    } catch {
+      // The correction has no dedicated section; validate the base section.
     }
-    section = releaseNotesSectionForTag(changelog, version, tag);
-    usesAlphaUnreleasedFallback = true;
+  }
+  if (section === undefined) {
+    try {
+      section = extractChangelogSection(changelog, version);
+    } catch (error) {
+      if (!/-alpha\.[1-9][0-9]*$/u.test(tag)) {
+        throw error;
+      }
+      section = releaseNotesSectionForTag(changelog, version, tag);
+      usesAlphaUnreleasedFallback = true;
+    }
   }
   const recordStart = section.search(/\n### Complete contribution record\r?$/m);
   if (recordStart < 0) {
@@ -508,12 +523,14 @@ export function validateCandidateChangelogProvenance({
         shippedBaselines: [],
       };
     }
-    throw new Error(`CHANGELOG.md ## ${version} is missing ### Complete contribution record`);
+    throw new Error(
+      `CHANGELOG.md ## ${sectionVersion} is missing ### Complete contribution record`,
+    );
   }
   const record = section.slice(recordStart);
   const recordedPullRequests = candidateContributionRecordPullRequests(
     section,
-    `CHANGELOG.md ## ${version}`,
+    `CHANGELOG.md ## ${sectionVersion}`,
   );
   const provenance = record.match(
     /^This audited record covers the complete (?<base>\S+)\.\.(?<target>[0-9a-f]{40}) history:/mu,
@@ -522,7 +539,7 @@ export function validateCandidateChangelogProvenance({
   const recordedTarget = provenance?.groups?.target;
   if (!base || !recordedTarget) {
     throw new Error(
-      `CHANGELOG.md ## ${version} is missing exact complete contribution record provenance`,
+      `CHANGELOG.md ## ${sectionVersion} is missing exact complete contribution record provenance`,
     );
   }
   const shippedBaselines = parseShippedBaselineExclusions(record);

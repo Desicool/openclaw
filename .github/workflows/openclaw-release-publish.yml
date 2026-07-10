@@ -898,6 +898,16 @@ jobs:
               return 0
             fi
 
+            # The renderer omits the verification tail when the canonical body
+            # already reaches GitHub's limit. A canonical proofless body with
+            # intact dependency evidence is retry-safe: postpublish re-attempts
+            # the proof append on this run.
+            if [[ "${has_asset}" == "true" &&
+              "${has_canonical_body}" == "true" &&
+              "${has_proof}" != "true" ]]; then
+              return 0
+            fi
+
             {
               echo "Release ${RELEASE_TAG} already has a public GitHub release page without complete postpublish evidence for ${TARGET_SHA}."
               echo "Refusing to reuse a public prerelease tag after publication started: ${release_url}"

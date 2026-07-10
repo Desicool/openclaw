@@ -1357,6 +1357,7 @@ export function ledgerFor(
   priorRecord,
   sourcePullRequests,
   sourceReferences,
+  noteReferences,
   legacyIssuePullRequests,
   revertedReferences,
   shippedBaselines,
@@ -1381,6 +1382,7 @@ export function ledgerFor(
   const recordedPullRequests = new Set([
     ...sourcePullRequests,
     ...sourceReferences,
+    ...noteReferences,
     ...legacyIssuePullRequests,
     ...priorRecord.pullRequests.keys(),
   ]);
@@ -1853,6 +1855,7 @@ function main() {
     priorRecord,
     source.pullRequests,
     source.references,
+    noteReferences,
     legacyIssuePullRequests,
     source.revertedReferences,
     source.shippedBaselines,
