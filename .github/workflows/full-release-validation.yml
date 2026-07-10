@@ -303,6 +303,7 @@ jobs:
             }')"
           bash workflow/scripts/github/find-reusable-release-validation.sh \
             --target-sha "$TARGET_SHA" \
+            --workflow-sha "$GITHUB_SHA" \
             --release-profile "$RELEASE_PROFILE" \
             --run-release-soak "$RUN_RELEASE_SOAK" \
             --inputs-json "$inputs_json" \

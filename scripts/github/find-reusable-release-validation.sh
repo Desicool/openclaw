@@ -9,6 +9,7 @@ set -euo pipefail
 REPO="${GH_REPO:-}"
 WORKFLOW_FILE="full-release-validation.yml"
 TARGET_SHA=""
+WORKFLOW_SHA=""
 RELEASE_PROFILE=""
 RUN_RELEASE_SOAK="false"
 INPUTS_JSON=""
@@ -21,15 +22,17 @@ PREFLIGHT="${SCRIPT_DIR}/../release-preflight.mjs"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: find-reusable-release-validation.sh --target-sha <sha> --release-profile <beta|stable|full> \
-  --inputs-json <json> [--run-release-soak <true|false>] [--repo <owner/repo>] \
-  [--repo-dir <path>] [--workflow <file>] [--max-candidates <n>] [--github-output <file>]
+Usage: find-reusable-release-validation.sh --target-sha <sha> --workflow-sha <sha> \
+  --release-profile <beta|stable|full> --inputs-json <json> \
+  [--run-release-soak <true|false>] [--repo <owner/repo>] [--repo-dir <path>] \
+  [--workflow <file>] [--max-candidates <n>] [--github-output <file>]
 
 Scans recent successful Full Release Validation runs for a validation manifest
 whose targetSha differs from --target-sha only by release metadata paths, whose
-recorded lane-selection inputs match --inputs-json exactly, and whose recorded
-child runs are still green. Writes reuse=true plus evidence_* outputs when
-found; reuse=false otherwise.
+recorded lane-selection inputs match --inputs-json exactly, whose harness
+(.github/workflows tree at the run's head SHA) matches --workflow-sha, and
+whose recorded child runs are still green. Writes reuse=true plus evidence_*
+outputs when found; reuse=false otherwise.
 EOF
 }
 
@@ -37,6 +40,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --target-sha)
       TARGET_SHA="${2:-}"
+      shift 2
+      ;;
+    --workflow-sha)
+      WORKFLOW_SHA="${2:-}"
       shift 2
       ;;
     --release-profile)
@@ -113,6 +120,10 @@ if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Expected --target-sha to be a full lowercase commit SHA; got: ${TARGET_SHA}" >&2
   exit 2
 fi
+if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Expected --workflow-sha to be a full lowercase commit SHA; got: ${WORKFLOW_SHA}" >&2
+  exit 2
+fi
 if [[ -z "$REPO" ]]; then
   echo "Expected --repo <owner/repo> or GH_REPO." >&2
   exit 2
@@ -134,11 +145,23 @@ if ! (cd "$REPO_DIR" && node "$PREFLIGHT" --macos-versions-only >&2); then
   no_reuse "target version metadata is inconsistent"
 fi
 
+# Evidence must come from an identical harness: prior runs may have executed
+# with different lane definitions. Compare the .github/workflows tree of the
+# candidate run's head SHA against the current workflow ref's tree.
+workflows_tree_for() {
+  gh api "repos/${REPO}/contents/.github/workflows?ref=$1" \
+    --jq '[.[] | {path, sha}] | sort_by(.path) | tostring'
+}
+current_workflows_tree=""
+if ! current_workflows_tree="$(workflows_tree_for "$WORKFLOW_SHA")" || [[ -z "$current_workflows_tree" ]]; then
+  no_reuse "could not resolve the current workflow tree"
+fi
+
 runs_json=""
 if ! runs_json="$(
   gh api -X GET "repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs" \
     -F status=success -F event=workflow_dispatch -F per_page="$MAX_CANDIDATES" \
-    --jq '[.workflow_runs[] | {id, html_url}]'
+    --jq '[.workflow_runs[] | {id, html_url, head_sha}]'
 )"; then
   no_reuse "could not list prior successful validation runs"
 fi
@@ -154,6 +177,16 @@ trap 'rm -rf "$work_dir"' EXIT
 for ((index = 0; index < run_count; index += 1)); do
   run_id="$(jq -r ".[${index}].id" <<< "$runs_json")"
   run_url="$(jq -r ".[${index}].html_url" <<< "$runs_json")"
+  run_head_sha="$(jq -r ".[${index}].head_sha // \"\"" <<< "$runs_json")"
+
+  if [[ "$run_head_sha" != "$WORKFLOW_SHA" ]]; then
+    candidate_workflows_tree=""
+    if ! candidate_workflows_tree="$(workflows_tree_for "$run_head_sha")" \
+      || [[ -z "$candidate_workflows_tree" || "$candidate_workflows_tree" != "$current_workflows_tree" ]]; then
+      echo "[evidence-reuse] run ${run_id}: harness workflows differ from the current workflow ref; skipping" >&2
+      continue
+    fi
+  fi
 
   artifact_id=""
   if ! artifact_id="$(

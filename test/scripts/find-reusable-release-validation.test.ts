@@ -98,11 +98,15 @@ fi
 exec cat "\${fixture}.json"
 `;
 
+const WORKFLOW_SHA = "f".repeat(40);
+const CANDIDATE_HEAD_SHA = "e".repeat(40);
+
 interface FixtureOptions {
   runId?: string;
   manifest?: Record<string, unknown>;
   compare?: { base: string; head: string; status: string; files: string[] } | undefined;
   childRunStates?: Record<string, string>;
+  candidateWorkflowsTree?: { path: string; sha: string }[];
 }
 
 function setUpFixtures(options: FixtureOptions): { fixtures: string; binDir: string } {
@@ -121,8 +125,26 @@ function setUpFixtures(options: FixtureOptions): { fixtures: string; binDir: str
       "repos_openclaw_openclaw_actions_workflows_full-release-validation.yml_runs.json",
     ),
     JSON.stringify({
-      workflow_runs: [{ id: Number(runId), html_url: `https://example.test/runs/${runId}` }],
+      workflow_runs: [
+        {
+          id: Number(runId),
+          html_url: `https://example.test/runs/${runId}`,
+          head_sha: CANDIDATE_HEAD_SHA,
+        },
+      ],
     }),
+  );
+  const workflowsTree = [{ path: ".github/workflows/full-release-validation.yml", sha: "aa11" }];
+  writeFileSync(
+    join(fixtures, `repos_openclaw_openclaw_contents_.github_workflows_ref=${WORKFLOW_SHA}.json`),
+    JSON.stringify(workflowsTree),
+  );
+  writeFileSync(
+    join(
+      fixtures,
+      `repos_openclaw_openclaw_contents_.github_workflows_ref=${CANDIDATE_HEAD_SHA}.json`,
+    ),
+    JSON.stringify(options.candidateWorkflowsTree ?? workflowsTree),
   );
   if (options.manifest) {
     writeFileSync(
@@ -201,6 +223,8 @@ function runResolver(args: {
       SCRIPT_PATH,
       "--target-sha",
       args.targetSha,
+      "--workflow-sha",
+      WORKFLOW_SHA,
       "--release-profile",
       args.releaseProfile,
       "--run-release-soak",
@@ -404,6 +428,28 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const { fixtures, binDir } = setUpFixtures({
       manifest: manifestFor(priorSha),
       childRunStates: { "201": "completed/failure", "202": "completed/success" },
+    });
+
+    const result = runResolver({
+      repoDir: clone,
+      targetSha: priorSha,
+      releaseProfile: "stable",
+      fixtures,
+      binDir,
+    });
+    expect(result.status).toBe(0);
+    expect(parseOutput(result.stdout)).toMatchObject({ reuse: "false" });
+  });
+
+  it("rejects evidence from a run with a different workflow harness", () => {
+    const { origin, priorSha } = createRepoPair();
+    const clone = cloneHead(origin);
+    const { fixtures, binDir } = setUpFixtures({
+      manifest: manifestFor(priorSha),
+      childRunStates: HEALTHY_CHILDREN,
+      candidateWorkflowsTree: [
+        { path: ".github/workflows/full-release-validation.yml", sha: "bb22" },
+      ],
     });
 
     const result = runResolver({
