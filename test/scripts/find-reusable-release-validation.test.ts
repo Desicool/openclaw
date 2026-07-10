@@ -28,7 +28,22 @@ function commitFile(repo: string, filePath: string, content: string, message: st
   return git(repo, ["rev-parse", "HEAD"]);
 }
 
-function createRepoPair() {
+function plistFor(shortVersion: string, buildVersion: string): string {
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<plist version="1.0">',
+    "<dict>",
+    "    <key>CFBundleShortVersionString</key>",
+    `    <string>${shortVersion}</string>`,
+    "    <key>CFBundleVersion</key>",
+    `    <string>${buildVersion}</string>`,
+    "</dict>",
+    "</plist>",
+    "",
+  ].join("\n");
+}
+
+function createRepoPair(options: { plistBuildVersion?: string } = {}) {
   const origin = tempDirs.make("evidence-reuse-origin-");
   git(origin, ["init", "-q", "-b", "main"]);
   git(origin, ["config", "user.email", "test-user"]);
@@ -38,6 +53,11 @@ function createRepoPair() {
   writeFileSync(
     join(origin, "package.json"),
     `${JSON.stringify({ name: "x", version: "2026.7.1" }, null, 2)}\n`,
+  );
+  mkdirSync(join(origin, "apps/macos/Sources/OpenClaw/Resources"), { recursive: true });
+  writeFileSync(
+    join(origin, "apps/macos/Sources/OpenClaw/Resources/Info.plist"),
+    plistFor("2026.7.1", options.plistBuildVersion ?? "2026070100"),
   );
   writeFileSync(join(origin, "CHANGELOG.md"), "# Changelog\n");
   writeFileSync(join(origin, "index.ts"), "export const value = 1;\n");
@@ -395,6 +415,27 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     });
     expect(result.status).toBe(0);
     expect(parseOutput(result.stdout)).toMatchObject({ reuse: "false" });
+  });
+
+  it("rejects targets whose version stamps are internally inconsistent", () => {
+    const { origin, priorSha } = createRepoPair({ plistBuildVersion: "2026061000" });
+    const clone = cloneHead(origin);
+    const { fixtures, binDir } = setUpFixtures({
+      manifest: manifestFor(priorSha),
+      childRunStates: HEALTHY_CHILDREN,
+    });
+
+    const result = runResolver({
+      repoDir: clone,
+      targetSha: priorSha,
+      releaseProfile: "stable",
+      fixtures,
+      binDir,
+    });
+    expect(result.status).toBe(0);
+    const output = parseOutput(result.stdout);
+    expect(output.reuse).toBe("false");
+    expect(output.reuse_reason).toContain("version metadata");
   });
 
   it("reports no reuse when no prior runs or manifests exist", () => {

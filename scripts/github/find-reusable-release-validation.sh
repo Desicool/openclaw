@@ -17,6 +17,7 @@ MAX_CANDIDATES=12
 GITHUB_OUTPUT_FILE="${GITHUB_OUTPUT:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLASSIFIER="${SCRIPT_DIR}/../check-release-metadata-only.mjs"
+PREFLIGHT="${SCRIPT_DIR}/../release-preflight.mjs"
 
 usage() {
   cat >&2 <<'EOF'
@@ -124,6 +125,13 @@ expected_inputs=""
 if ! expected_inputs="$(jq -Sc . <<< "$INPUTS_JSON" 2>/dev/null)" || [[ -z "$expected_inputs" ]]; then
   echo "Expected --inputs-json to be a JSON object of lane-selection inputs." >&2
   exit 2
+fi
+
+# A metadata-only diff can still leave the target's version stamps mutually
+# inconsistent (for example package.json bumped without the macOS plist);
+# validate the target state before trusting any prior evidence.
+if ! (cd "$REPO_DIR" && node "$PREFLIGHT" --macos-versions-only >&2); then
+  no_reuse "target version metadata is inconsistent"
 fi
 
 runs_json=""

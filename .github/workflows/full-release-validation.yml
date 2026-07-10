@@ -848,10 +848,19 @@ jobs:
                   jq -s '[.[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped")]'
               )"
               if [[ "$workflow" == "openclaw-release-checks.yml" && "$RELEASE_PROFILE" == "beta" ]]; then
-                # Beta treats live-provider suites as advisory; their failures must
-                # not fail-fast-cancel the remaining release-check matrix.
+                # Beta treats live-provider suites as advisory (live_advisory in
+                # openclaw-live-and-e2e-checks-reusable.yml); their failures must
+                # not fail-fast-cancel the remaining release-check matrix. Repo
+                # E2E under the same caller stays blocking.
                 failed_jobs_json="$(
-                  jq '[.[] | select(.name | startswith("Run repo/live E2E validation / ") | not)]' <<< "$failed_jobs_json"
+                  jq '[.[] | select(
+                    (.name | startswith("Run repo/live E2E validation / "))
+                    and ((.name | contains("Docker live"))
+                      or (.name | contains("Live media suites"))
+                      or (.name | contains("validate_live_provider_suites"))
+                      or (.name | contains("validate_release_live_cache"))
+                      or (.name | contains("prepare_live_test_image")))
+                    | not)]' <<< "$failed_jobs_json"
                 )"
               fi
               if jq -e 'length > 0' <<< "$failed_jobs_json" >/dev/null; then
