@@ -273,11 +273,39 @@ jobs:
           TARGET_SHA: ${{ needs.resolve_target.outputs.sha }}
           RELEASE_PROFILE: ${{ inputs.release_profile }}
           RUN_RELEASE_SOAK: ${{ inputs.run_release_soak || inputs.release_profile == 'stable' || inputs.release_profile == 'full' }}
+          PROVIDER: ${{ inputs.provider }}
+          MODE: ${{ inputs.mode }}
+          LIVE_SUITE_FILTER: ${{ inputs.live_suite_filter }}
+          CROSS_OS_SUITE_FILTER: ${{ inputs.cross_os_suite_filter }}
+          RELEASE_PACKAGE_SPEC: ${{ inputs.release_package_spec }}
+          PACKAGE_ACCEPTANCE_PACKAGE_SPEC: ${{ inputs.package_acceptance_package_spec }}
+          CODEX_PLUGIN_SPEC: ${{ inputs.codex_plugin_spec }}
         run: |
+          set -euo pipefail
+          # Lane-selection inputs must match the prior run's manifest exactly;
+          # a default-input run must not stand in for a focused one.
+          inputs_json="$(jq -nc \
+            --arg provider "$PROVIDER" \
+            --arg mode "$MODE" \
+            --arg liveSuiteFilter "$LIVE_SUITE_FILTER" \
+            --arg crossOsSuiteFilter "$CROSS_OS_SUITE_FILTER" \
+            --arg releasePackageSpec "$RELEASE_PACKAGE_SPEC" \
+            --arg packageAcceptancePackageSpec "$PACKAGE_ACCEPTANCE_PACKAGE_SPEC" \
+            --arg codexPluginSpec "$CODEX_PLUGIN_SPEC" \
+            '{
+              provider: $provider,
+              mode: $mode,
+              liveSuiteFilter: $liveSuiteFilter,
+              crossOsSuiteFilter: $crossOsSuiteFilter,
+              releasePackageSpec: $releasePackageSpec,
+              packageAcceptancePackageSpec: $packageAcceptancePackageSpec,
+              codexPluginSpec: $codexPluginSpec
+            }')"
           bash workflow/scripts/github/find-reusable-release-validation.sh \
             --target-sha "$TARGET_SHA" \
             --release-profile "$RELEASE_PROFILE" \
             --run-release-soak "$RUN_RELEASE_SOAK" \
+            --inputs-json "$inputs_json" \
             --repo "$GITHUB_REPOSITORY" \
             --repo-dir target \
             --github-output "$GITHUB_OUTPUT"
@@ -1277,6 +1305,7 @@ jobs:
           EVIDENCE_ROOT_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_root_run_id }}
           EVIDENCE_RUN_URL: ${{ needs.evidence_reuse.outputs.evidence_run_url }}
           EVIDENCE_SHA: ${{ needs.evidence_reuse.outputs.evidence_sha }}
+          EVIDENCE_MANIFEST: ${{ needs.evidence_reuse.outputs.evidence_manifest }}
           RERUN_GROUP: ${{ inputs.rerun_group }}
           TARGET_SHA: ${{ needs.resolve_target.outputs.sha }}
           CHILD_WORKFLOW_REF: ${{ github.ref_name }}
@@ -1538,12 +1567,22 @@ jobs:
           performance_required=0
           if [[ "$RERUN_GROUP" == "all" && "$EVIDENCE_REUSE" == "true" ]]; then
             # Lanes were skipped because a prior green validation covers this
-            # target; re-verify the chain-root run so stale evidence cannot pass.
+            # target; re-verify the chain-root run and its recorded child runs
+            # so evidence that went stale after resolution cannot pass.
             evidence_state="$(gh_with_retry run view "$EVIDENCE_ROOT_RUN_ID" --json status,conclusion --jq '(.status // "") + "/" + (.conclusion // "")')"
             if [[ "$evidence_state" != "completed/success" ]]; then
               echo "::error::Reused evidence run ${EVIDENCE_ROOT_RUN_ID} is ${evidence_state}; evidence is no longer valid."
               failed=1
-            else
+            fi
+            while IFS= read -r evidence_child_run_id; do
+              [[ -n "$evidence_child_run_id" ]] || continue
+              evidence_child_state="$(gh_with_retry run view "$evidence_child_run_id" --json status,conclusion --jq '(.status // "") + "/" + (.conclusion // "")')"
+              if [[ "$evidence_child_state" != "completed/success" ]]; then
+                echo "::error::Reused evidence child run ${evidence_child_run_id} is ${evidence_child_state}; evidence is no longer valid."
+                failed=1
+              fi
+            done < <(jq -r '[.childRuns.normalCi // "", .childRuns.pluginPrerelease // "", .childRuns.releaseChecks // "", .childRuns.npmTelegram // "", (.childRuns.productPerformance.runId // "")] | map(select(. != "")) | .[]' <<< "$EVIDENCE_MANIFEST")
+            if [[ "$failed" == "0" ]]; then
               {
                 echo "### Reused validation evidence"
                 echo
@@ -1644,9 +1683,12 @@ jobs:
             echo "Release checks were skipped by rerun group; skipping automatic release evidence update."
             exit 0
           fi
-          # In reuse mode the child runs live on the chain-root validation run,
+          # In reuse mode the child runs live on the chain-root validation run
+          # (the evidence consumer scrapes dispatch logs from the given run),
           # so durable evidence must reference that run id, not this wrapper.
+          notes="Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE} after child workflows completed; the parent summary re-checks current child run conclusions."
           if [[ "$EVIDENCE_REUSE" == "true" && -n "${EVIDENCE_ROOT_RUN_ID// }" ]]; then
+            notes="Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE}, which reused green evidence from chain-root run ${EVIDENCE_ROOT_RUN_ID}; the release target differs from the validated SHA only by release metadata."
             GITHUB_RUN_ID_VALUE="$EVIDENCE_ROOT_RUN_ID"
           fi
           if [[ -z "${RELEASES_DISPATCH_TOKEN// }" ]]; then
@@ -1679,7 +1721,7 @@ jobs:
               --arg release_id "$release_id" \
               --arg release_ref "$TARGET_REF" \
               --arg package_spec "$evidence_package_spec" \
-              --arg notes "Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE} after child workflows completed; the parent summary re-checks current child run conclusions." \
+              --arg notes "$notes" \
               '{
                 event_type: "openclaw_full_release_validation_completed",
                 client_payload: {
@@ -1728,6 +1770,13 @@ jobs:
           EVIDENCE_REUSE: ${{ needs.evidence_reuse.outputs.reuse }}
           EVIDENCE_ROOT_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_root_run_id }}
           EVIDENCE_MANIFEST: ${{ needs.evidence_reuse.outputs.evidence_manifest }}
+          PROVIDER: ${{ inputs.provider }}
+          MODE: ${{ inputs.mode }}
+          LIVE_SUITE_FILTER: ${{ inputs.live_suite_filter }}
+          CROSS_OS_SUITE_FILTER: ${{ inputs.cross_os_suite_filter }}
+          RELEASE_PACKAGE_SPEC: ${{ inputs.release_package_spec }}
+          PACKAGE_ACCEPTANCE_PACKAGE_SPEC: ${{ inputs.package_acceptance_package_spec }}
+          CODEX_PLUGIN_SPEC: ${{ inputs.codex_plugin_spec }}
         run: |
           set -euo pipefail
           manifest_dir="${RUNNER_TEMP}/full-release-validation"
@@ -1768,6 +1817,13 @@ jobs:
             --arg npmTelegramRunId "$NPM_TELEGRAM_RUN_ID" \
             --arg performanceRunId "$PERFORMANCE_RUN_ID" \
             --arg performanceConclusion "$PERFORMANCE_CONCLUSION" \
+            --arg provider "$PROVIDER" \
+            --arg mode "$MODE" \
+            --arg liveSuiteFilter "$LIVE_SUITE_FILTER" \
+            --arg crossOsSuiteFilter "$CROSS_OS_SUITE_FILTER" \
+            --arg releasePackageSpec "$RELEASE_PACKAGE_SPEC" \
+            --arg packageAcceptancePackageSpec "$PACKAGE_ACCEPTANCE_PACKAGE_SPEC" \
+            --arg codexPluginSpec "$CODEX_PLUGIN_SPEC" \
             '{
               version: 2,
               workflowName: $workflowName,
@@ -1779,6 +1835,15 @@ jobs:
               releaseProfile: $releaseProfile,
               rerunGroup: $rerunGroup,
               runReleaseSoak: $runReleaseSoak,
+              validationInputs: {
+                provider: $provider,
+                mode: $mode,
+                liveSuiteFilter: $liveSuiteFilter,
+                crossOsSuiteFilter: $crossOsSuiteFilter,
+                releasePackageSpec: $releasePackageSpec,
+                packageAcceptancePackageSpec: $packageAcceptancePackageSpec,
+                codexPluginSpec: $codexPluginSpec
+              },
               controls: {
                 stableSoakRequired: ($releaseProfile == "stable" or $releaseProfile == "full"),
                 performanceBlocking: true

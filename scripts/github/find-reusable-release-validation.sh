@@ -11,6 +11,7 @@ WORKFLOW_FILE="full-release-validation.yml"
 TARGET_SHA=""
 RELEASE_PROFILE=""
 RUN_RELEASE_SOAK="false"
+INPUTS_JSON=""
 REPO_DIR="."
 MAX_CANDIDATES=12
 GITHUB_OUTPUT_FILE="${GITHUB_OUTPUT:-}"
@@ -20,12 +21,14 @@ CLASSIFIER="${SCRIPT_DIR}/../check-release-metadata-only.mjs"
 usage() {
   cat >&2 <<'EOF'
 Usage: find-reusable-release-validation.sh --target-sha <sha> --release-profile <beta|stable|full> \
-  [--run-release-soak <true|false>] [--repo <owner/repo>] [--repo-dir <path>] \
-  [--workflow <file>] [--max-candidates <n>] [--github-output <file>]
+  --inputs-json <json> [--run-release-soak <true|false>] [--repo <owner/repo>] \
+  [--repo-dir <path>] [--workflow <file>] [--max-candidates <n>] [--github-output <file>]
 
 Scans recent successful Full Release Validation runs for a validation manifest
-whose targetSha differs from --target-sha only by release metadata paths.
-Writes reuse=true plus evidence_* outputs when found; reuse=false otherwise.
+whose targetSha differs from --target-sha only by release metadata paths, whose
+recorded lane-selection inputs match --inputs-json exactly, and whose recorded
+child runs are still green. Writes reuse=true plus evidence_* outputs when
+found; reuse=false otherwise.
 EOF
 }
 
@@ -41,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --run-release-soak)
       RUN_RELEASE_SOAK="${2:-}"
+      shift 2
+      ;;
+    --inputs-json)
+      INPUTS_JSON="${2:-}"
       shift 2
       ;;
     --repo)
@@ -113,6 +120,11 @@ current_rank="$(profile_rank "$RELEASE_PROFILE")"
 if [[ "$current_rank" == "0" ]]; then
   no_reuse "unknown release profile ${RELEASE_PROFILE}"
 fi
+expected_inputs=""
+if ! expected_inputs="$(jq -Sc . <<< "$INPUTS_JSON" 2>/dev/null)" || [[ -z "$expected_inputs" ]]; then
+  echo "Expected --inputs-json to be a JSON object of lane-selection inputs." >&2
+  exit 2
+fi
 
 runs_json=""
 if ! runs_json="$(
@@ -174,6 +186,14 @@ for ((index = 0; index < run_count; index += 1)); do
     echo "[evidence-reuse] run ${run_id}: profile ${prior_profile} does not cover ${RELEASE_PROFILE}; skipping" >&2
     continue
   fi
+  # Lane selection (provider, mode, filters, package specs) changes what the
+  # prior run proved; only exact-match manifests are reusable. Manifests
+  # written before validationInputs existed never match.
+  manifest_inputs="$(jq -Sc '.validationInputs // empty' "$manifest_path")"
+  if [[ -z "$manifest_inputs" || "$manifest_inputs" != "$expected_inputs" ]]; then
+    echo "[evidence-reuse] run ${run_id}: validation inputs differ from the current request; skipping" >&2
+    continue
+  fi
   prior_soak="$(jq -r '.runReleaseSoak // "false"' "$manifest_path")"
   if [[ "$RUN_RELEASE_SOAK" == "true" && "$prior_soak" != "true" ]]; then
     echo "[evidence-reuse] run ${run_id}: no soak evidence; skipping" >&2
@@ -226,6 +246,27 @@ for ((index = 0; index < run_count; index += 1)); do
         continue
       fi
     fi
+  fi
+
+  # Recorded child runs can be re-run to failure after the parent stays green;
+  # reuse only evidence whose children are still completed/success, matching
+  # the recheck the normal summary performs on its own children.
+  children_healthy=1
+  while IFS= read -r child_run_id; do
+    [[ -n "$child_run_id" ]] || continue
+    if ! child_state="$(gh api "repos/${REPO}/actions/runs/${child_run_id}" --jq '(.status // "") + "/" + (.conclusion // "")')"; then
+      echo "[evidence-reuse] run ${run_id}: could not verify child run ${child_run_id}; skipping" >&2
+      children_healthy=0
+      break
+    fi
+    if [[ "$child_state" != "completed/success" ]]; then
+      echo "[evidence-reuse] run ${run_id}: child run ${child_run_id} is ${child_state}; skipping" >&2
+      children_healthy=0
+      break
+    fi
+  done < <(jq -r '[.childRuns.normalCi // "", .childRuns.pluginPrerelease // "", .childRuns.releaseChecks // "", .childRuns.npmTelegram // "", (.childRuns.productPerformance.runId // "")] | map(select(. != "")) | .[]' "$manifest_path")
+  if [[ "$children_healthy" != "1" ]]; then
+    continue
   fi
 
   # A reused run may itself be a reuse manifest; evidenceReuse.runId points at

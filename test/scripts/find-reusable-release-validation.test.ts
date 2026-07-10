@@ -82,6 +82,7 @@ interface FixtureOptions {
   runId?: string;
   manifest?: Record<string, unknown>;
   compare?: { base: string; head: string; status: string; files: string[] } | undefined;
+  childRunStates?: Record<string, string>;
 }
 
 function setUpFixtures(options: FixtureOptions): { fixtures: string; binDir: string } {
@@ -145,14 +146,32 @@ function setUpFixtures(options: FixtureOptions): { fixtures: string; binDir: str
       }),
     );
   }
+  for (const [childRunId, state] of Object.entries(options.childRunStates ?? {})) {
+    const [status, conclusion] = state.split("/");
+    writeFileSync(
+      join(fixtures, `repos_openclaw_openclaw_actions_runs_${childRunId}.json`),
+      JSON.stringify({ status, conclusion }),
+    );
+  }
   return { fixtures, binDir };
 }
+
+const DEFAULT_INPUTS = {
+  provider: "openai",
+  mode: "both",
+  liveSuiteFilter: "",
+  crossOsSuiteFilter: "",
+  releasePackageSpec: "",
+  packageAcceptancePackageSpec: "",
+  codexPluginSpec: "",
+};
 
 function runResolver(args: {
   repoDir: string;
   targetSha: string;
   releaseProfile: string;
   runReleaseSoak?: string;
+  inputs?: Record<string, string>;
   fixtures: string;
   binDir: string;
 }) {
@@ -166,6 +185,8 @@ function runResolver(args: {
       args.releaseProfile,
       "--run-release-soak",
       args.runReleaseSoak ?? "false",
+      "--inputs-json",
+      JSON.stringify(args.inputs ?? DEFAULT_INPUTS),
       "--repo",
       "openclaw/openclaw",
       "--repo-dir",
@@ -206,10 +227,13 @@ function manifestFor(targetSha: string, overrides: Record<string, unknown> = {})
     releaseProfile: "stable",
     runReleaseSoak: "true",
     targetSha,
-    childRuns: { normalCi: "1" },
+    validationInputs: DEFAULT_INPUTS,
+    childRuns: { normalCi: "201", productPerformance: { runId: "202" } },
     ...overrides,
   };
 }
+
+const HEALTHY_CHILDREN = { "201": "completed/success", "202": "completed/success" };
 
 describe("scripts/github/find-reusable-release-validation.sh", () => {
   it("reuses evidence when the delta is release-metadata-only", () => {
@@ -224,6 +248,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     const { fixtures, binDir } = setUpFixtures({
       manifest: manifestFor(priorSha),
       compare: { base: priorSha, head: targetSha, status: "ahead", files: ["CHANGELOG.md"] },
+      childRunStates: HEALTHY_CHILDREN,
     });
 
     const result = runResolver({
@@ -252,6 +277,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     // No compare fixture: an identical target must not hit the compare API.
     const { fixtures, binDir } = setUpFixtures({
       manifest: manifestFor(priorSha, { evidenceReuse: { runId: "42" } }),
+      childRunStates: HEALTHY_CHILDREN,
     });
 
     const result = runResolver({
@@ -329,6 +355,46 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     });
     expect(divergedResult.status).toBe(0);
     expect(parseOutput(divergedResult.stdout)).toMatchObject({ reuse: "false" });
+  });
+
+  it("rejects evidence recorded for different lane-selection inputs", () => {
+    const { origin, priorSha } = createRepoPair();
+    const clone = cloneHead(origin);
+    const { fixtures, binDir } = setUpFixtures({
+      manifest: manifestFor(priorSha, {
+        validationInputs: { ...DEFAULT_INPUTS, provider: "anthropic" },
+      }),
+      childRunStates: HEALTHY_CHILDREN,
+    });
+
+    const result = runResolver({
+      repoDir: clone,
+      targetSha: priorSha,
+      releaseProfile: "stable",
+      fixtures,
+      binDir,
+    });
+    expect(result.status).toBe(0);
+    expect(parseOutput(result.stdout)).toMatchObject({ reuse: "false" });
+  });
+
+  it("rejects evidence whose recorded child runs are no longer green", () => {
+    const { origin, priorSha } = createRepoPair();
+    const clone = cloneHead(origin);
+    const { fixtures, binDir } = setUpFixtures({
+      manifest: manifestFor(priorSha),
+      childRunStates: { "201": "completed/failure", "202": "completed/success" },
+    });
+
+    const result = runResolver({
+      repoDir: clone,
+      targetSha: priorSha,
+      releaseProfile: "stable",
+      fixtures,
+      binDir,
+    });
+    expect(result.status).toBe(0);
+    expect(parseOutput(result.stdout)).toMatchObject({ reuse: "false" });
   });
 
   it("reports no reuse when no prior runs or manifests exist", () => {
