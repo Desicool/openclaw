@@ -1356,6 +1356,16 @@ jobs:
             gh release upload "${RELEASE_TAG}" "${source_path}#${asset_name}" --repo "${GITHUB_REPOSITORY}"
           }
 
+          replace_release_asset() {
+            local source_path="$1"
+            local asset_name="$2"
+            # Postpublish evidence embeds this run's id, so resumable retries
+            # regenerate it; the newest verification replaces the asset while
+            # prior copies persist as workflow artifacts.
+            gh release upload "${RELEASE_TAG}" "${source_path}#${asset_name}" \
+              --repo "${GITHUB_REPOSITORY}" --clobber
+          }
+
           upload_release_evidence_assets() {
             local release_version manifest_path evidence_path manifest_asset evidence_asset
             release_version="${RELEASE_TAG#v}"
@@ -1385,13 +1395,13 @@ jobs:
             attach_or_verify_release_asset \
               "${RUNNER_TEMP}/${manifest_asset}.sha256" \
               "${manifest_asset}.sha256"
-            attach_or_verify_release_asset "${RUNNER_TEMP}/${evidence_asset}" "${evidence_asset}"
-            attach_or_verify_release_asset \
+            replace_release_asset "${RUNNER_TEMP}/${evidence_asset}" "${evidence_asset}"
+            replace_release_asset \
               "${RUNNER_TEMP}/${evidence_asset}.sha256" \
               "${evidence_asset}.sha256"
             {
               echo "- Immutable release manifest: \`${manifest_asset}\`"
-              echo "- Immutable postpublish evidence: \`${evidence_asset}\`"
+              echo "- Postpublish evidence (latest verification): \`${evidence_asset}\`"
             } >> "$GITHUB_STEP_SUMMARY"
           }
 
@@ -1757,17 +1767,22 @@ jobs:
             openclaw_failed=1
           fi
 
+          clawhub_failed=0
           if [[ -n "${clawhub_pid}" ]] && ! wait "${clawhub_pid}"; then
             failed=1
+            clawhub_failed=1
           fi
           if [[ -f "${clawhub_result}" && "$(cat "${clawhub_result}")" != "success" ]]; then
             failed=1
+            clawhub_failed=1
           fi
           if [[ -n "${clawhub_bootstrap_pid}" ]] && ! wait "${clawhub_bootstrap_pid}"; then
             failed=1
+            clawhub_failed=1
           fi
           if [[ -f "${clawhub_bootstrap_result}" && "$(cat "${clawhub_bootstrap_result}")" != "success" ]]; then
             failed=1
+            clawhub_failed=1
           fi
 
           if [[ -n "${android_promote_pid}" ]]; then
@@ -1786,7 +1801,9 @@ jobs:
           android_release_run_id="$(cat "${RUNNER_TEMP}/android-release-run-id.txt" 2>/dev/null || true)"
 
           if [[ ( -n "${openclaw_npm_run_id}" && "${openclaw_failed}" == "0" ) || "${openclaw_npm_already_published}" == "true" ]]; then
-            if [[ "${failed}" == "0" ]]; then
+            # Only a ClawHub failure skips ClawHub verification; unrelated
+            # promotion failures must not reduce the recorded evidence.
+            if [[ "${clawhub_failed}" == "0" ]]; then
               verify_published_release
             else
               verify_published_release true
