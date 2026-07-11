@@ -22,7 +22,7 @@ describe("full-release-validation-at-sha", () => {
       inputs: {
         mode: "linux",
         provider: "anthropic",
-        reuse_evidence: "false",
+        reuse_evidence: "true",
       },
       sha: "abc123",
       workflowSha: "origin/main",
@@ -40,9 +40,10 @@ describe("full-release-validation-at-sha", () => {
     expect(() => parseArgs(["-f", "-h"])).toThrow("-f requires a value");
   });
 
-  it("cannot enable evidence reuse on a temporary SHA-pinned workflow ref", () => {
-    expect(() => parseArgs(["-f", "reuse_evidence=true"])).toThrow(
-      "always disables evidence reuse",
+  it("allows exact-target reuse to be disabled for a forced fresh run", () => {
+    expect(parseArgs(["-f", "reuse_evidence=false"]).inputs.reuse_evidence).toBe("false");
+    expect(() => parseArgs(["-f", "reuse_evidence=maybe"])).toThrow(
+      "reuse_evidence must be true or false",
     );
   });
 

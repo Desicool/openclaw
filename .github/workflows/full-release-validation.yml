@@ -241,7 +241,7 @@ jobs:
   evidence_reuse:
     name: Check for reusable validation evidence
     needs: [resolve_target]
-    if: inputs.rerun_group == 'all' && inputs.reuse_evidence && github.ref == 'refs/heads/main'
+    if: inputs.rerun_group == 'all' && inputs.reuse_evidence && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-ci/'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:

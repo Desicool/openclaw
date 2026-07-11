@@ -9,7 +9,7 @@ const DEFAULT_INPUTS = {
   mode: "both",
   release_profile: "full",
   rerun_group: "all",
-  reuse_evidence: "false",
+  reuse_evidence: "true",
 };
 
 function usage() {
@@ -19,7 +19,7 @@ Creates a temporary remote branch pinned to trusted main release tooling,
 dispatches Full Release Validation with the target commit as its ref input,
 watches the parent run, verifies all child workflow head SHAs match the trusted
 workflow SHA, then deletes the temporary branch by default. Exact-target
-evidence reuse is disabled because it is trusted only from main.`);
+evidence reuse stays enabled; pass -f reuse_evidence=false to force a fresh run.`);
 }
 
 function run(command, args, options = {}) {
@@ -119,8 +119,8 @@ export function parseArgs(argv) {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (args.inputs.reuse_evidence !== "false") {
-    throw new Error("SHA-pinned release validation always disables evidence reuse");
+  if (!["true", "false"].includes(args.inputs.reuse_evidence)) {
+    throw new Error("reuse_evidence must be true or false");
   }
   if (Object.hasOwn(args.inputs, "ref")) {
     throw new Error("SHA-pinned release validation reserves the ref input for --sha");

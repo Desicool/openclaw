@@ -43,6 +43,16 @@ function releaseManifest(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function exactTargetEvidenceReuse() {
+  return {
+    changedPaths: [],
+    evidenceSha: targetSha,
+    policy: "exact-target-full-validation-v1",
+    runId: "122",
+    selectedRunId: "122",
+  };
+}
+
 function validate(
   runOverrides: Record<string, unknown> = {},
   manifestOverrides: Record<string, unknown> = {},
@@ -176,24 +186,41 @@ describe("full release validation evidence", () => {
     expect(() => validate({}, {}, false)).toThrow("not reachable from current main");
   });
 
-  it("rejects evidence reuse on the SHA-pinned path", () => {
-    expect(() => validate({}, { evidenceReuse: { runId: "122" } })).toThrow(
-      "must not reuse another validation run",
+  it("accepts exact-target evidence reuse on the SHA-pinned path", () => {
+    expect(validate({}, { evidenceReuse: exactTargetEvidenceReuse() }).result.source).toBe(
+      "sha-pinned-main",
     );
+  });
+
+  it("rejects malformed evidence reuse on the SHA-pinned path", () => {
+    expect(() =>
+      validate(
+        {},
+        { evidenceReuse: { ...exactTargetEvidenceReuse(), changedPaths: ["src/a.ts"] } },
+      ),
+    ).toThrow("evidence reuse is invalid");
+    expect(() =>
+      validate(
+        {},
+        { evidenceReuse: { ...exactTargetEvidenceReuse(), evidenceSha: "c".repeat(40) } },
+      ),
+    ).toThrow("evidence reuse is invalid");
   });
 
   it("keeps a pinned-shaped expected branch on the pinned trust path", () => {
     expect(() =>
       validateFullReleaseValidationEvidence({
         run: releaseRun(),
-        manifest: releaseManifest({ evidenceReuse: { runId: "122" } }),
+        manifest: releaseManifest({
+          evidenceReuse: { ...exactTargetEvidenceReuse(), selectedRunId: "" },
+        }),
         expectedRepository: "openclaw/openclaw",
         expectedRunId: "123",
         expectedTargetSha: targetSha,
         expectedWorkflowBranch: pinnedBranch,
         isTrustedMainAncestor: () => false,
       }),
-    ).toThrow("must not reuse another validation run");
+    ).toThrow("evidence reuse is invalid");
   });
 
   it("does not treat a malformed release-ci expected branch as direct", () => {

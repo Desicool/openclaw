@@ -1069,7 +1069,7 @@ function normalizeWorkflowPathRef(ref) {
   return `refs/heads/${ref}`;
 }
 
-function validateTrustedProducerIdentity(evidence, client, verifier, trustedWorkflowRef) {
+export function validateTrustedProducerIdentity(evidence, client, verifier, trustedWorkflowRef) {
   const { manifest, parentRun } = evidence;
   // Keep this predicate local: verifier source identity covers this file only.
   const shaPinned = SHA_PINNED_BRANCH_PATTERN.test(manifest.workflowRef ?? "");
@@ -1087,9 +1087,6 @@ function validateTrustedProducerIdentity(evidence, client, verifier, trustedWork
     }
     if (manifest.targetRef !== manifest.targetSha) {
       throw new Error("SHA-pinned release evidence target ref must equal its target SHA");
-    }
-    if (manifest.evidenceReuse !== undefined) {
-      throw new Error("SHA-pinned release evidence must not reuse another validation run");
     }
   }
   const expectedFullRef = trustedWorkflowFullRef(manifest.workflowRef);

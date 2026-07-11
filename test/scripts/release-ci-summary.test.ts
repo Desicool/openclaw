@@ -26,6 +26,7 @@ import {
   validateParentRunBinding,
   validatePerformanceArtifactOnlyJobs,
   validateReleaseRunEvidence,
+  validateTrustedProducerIdentity,
 } from "../../.agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs";
 
 const SCRIPT = ".agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs";
@@ -739,7 +740,7 @@ describe("release CI summary child correlation", () => {
     },
   );
 
-  it("rejects SHA-pinned evidence reuse", () => {
+  it("accepts SHA-pinned producer identity with exact-target evidence reuse", () => {
     const workflowSha = "7".repeat(40);
     const workflowRef = `release-ci/${workflowSha.slice(0, 12)}-1783705000000`;
     const fixture = trustedMainPackageFixture({
@@ -753,21 +754,24 @@ describe("release CI summary child correlation", () => {
       changedPaths: [],
       evidenceSha: fixture.targetSha,
       policy: "exact-target-full-validation-v1",
-      runId: fixture.runId,
-      selectedRunId: fixture.runId,
+      runId: "29071366024",
+      selectedRunId: "29071366024",
     };
 
-    expect(() =>
-      validateReleaseRunEvidence(
+    expect(
+      validateTrustedProducerIdentity(
         {
-          repository: "openclaw/openclaw",
-          runId: fixture.runId,
-          verifierSourceContent: readFileSync(SCRIPT),
-          verifierSourceSha: "c".repeat(40),
+          manifest: fixture.manifest,
+          parentRun: fixture.parentRun,
         },
         fixture.client,
+        { sourceSha: "c".repeat(40) },
+        "main",
       ),
-    ).toThrow("must not reuse another validation run");
+    ).toMatchObject({
+      producerOnTrustedMainLineage: true,
+      workflowRefProof: "manifest-v3-sha-pinned-main-ancestry",
+    });
   });
 
   it("rejects a SHA-pinned evidenceReuse field even when false", () => {

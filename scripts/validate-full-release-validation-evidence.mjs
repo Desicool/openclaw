@@ -137,7 +137,20 @@ export function validateFullReleaseValidationEvidence({
     );
   }
   if (Object.hasOwn(manifest, "evidenceReuse")) {
-    throw new Error("SHA-pinned validation evidence must not reuse another validation run.");
+    const reuse = manifest.evidenceReuse;
+    if (
+      !reuse ||
+      typeof reuse !== "object" ||
+      Array.isArray(reuse) ||
+      reuse.policy !== "exact-target-full-validation-v1" ||
+      reuse.evidenceSha !== expectedTargetSha ||
+      !Array.isArray(reuse.changedPaths) ||
+      reuse.changedPaths.length !== 0 ||
+      !/^[1-9][0-9]*$/u.test(String(reuse.runId ?? "")) ||
+      !/^[1-9][0-9]*$/u.test(String(reuse.selectedRunId ?? ""))
+    ) {
+      throw new Error("SHA-pinned validation evidence reuse is invalid.");
+    }
   }
   if (!isTrustedMainAncestor?.(run.headSha)) {
     throw new Error(
