@@ -24,6 +24,10 @@ import {
   isProviderAdvertised,
   parseProvidersFromHelp,
 } from "./crabbox-wrapper-providers.mjs";
+import {
+  prepareTestboxLeaseFreshness,
+  recordTestboxLeaseFreshness,
+} from "./testbox-lease-freshness.mjs";
 import { resolvePathEnvKey, resolveWindowsCmdExePath } from "./windows-cmd-helpers.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -365,7 +369,11 @@ function buildBatchCommandLine(command, commandArgs) {
   return `"${[escapedCommand, ...escapedArgs].join(" ")}"`;
 }
 
-function checkedOutput(command, commandArgs, timeoutMs = resolveMetadataProbeTimeoutMs(process.env)) {
+function checkedOutput(
+  command,
+  commandArgs,
+  timeoutMs = resolveMetadataProbeTimeoutMs(process.env),
+) {
   const invocation = spawnInvocation(command, commandArgs, process.env, process.platform);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: repoRoot,
@@ -2932,7 +2940,16 @@ function isWorktreeClean() {
   return gitOutput(["status", "--porcelain=v1"]).stdout === "";
 }
 
-function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, _providerName) {
+function hasAgentsBranchChanges() {
+  const base = gitOutput(["merge-base", "HEAD", "refs/remotes/origin/main"]);
+  if (base.status !== 0) {
+    return false;
+  }
+  const changed = gitOutput(["diff", "--name-only", `${base.stdout}..HEAD`, "--", ".agents"]);
+  return changed.status === 0 && changed.stdout.length > 0;
+}
+
+function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, providerName) {
   if (commandArgs[0] !== "run") {
     return false;
   }
@@ -2943,7 +2960,11 @@ function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, _providerName) {
     return false;
   }
 
-  return isSparseCheckout() || isChangedGateCommand(runCommandArgs(commandArgs));
+  return (
+    isSparseCheckout() ||
+    isChangedGateCommand(runCommandArgs(commandArgs)) ||
+    (canonicalProviderName(providerName) === "blacksmith-testbox" && hasAgentsBranchChanges())
+  );
 }
 
 function defaultFullCheckoutSyncRoot() {
@@ -3329,6 +3350,9 @@ if (normalizedArgs[0] === "run" && isBrokeredWsl2RemoteTarget(normalizedArgs, pr
 }
 
 const childEnv = { ...process.env };
+if (canonicalProvider === "blacksmith-testbox" && !childEnv.CI) {
+  childEnv.CI = "true";
+}
 if (
   isLocalContainerProvider(provider) &&
   !childEnv.CRABBOX_LOCAL_CONTAINER_DOCKER_SOCKET &&
@@ -3385,6 +3409,19 @@ const childArgs =
         ),
         remoteChangedGateBase,
       );
+let testboxLeaseFreshness;
+try {
+  testboxLeaseFreshness = prepareTestboxLeaseFreshness({
+    args: childArgs,
+    env: childEnv,
+    provider: canonicalProvider,
+    repoRoot,
+  });
+} catch (error) {
+  cleanupOnce();
+  console.error(`[crabbox] ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(2);
+}
 let fullCheckoutKeepaliveIntervalMsValue = 0;
 if (fullCheckout) {
   try {
@@ -3440,6 +3477,16 @@ child.on("exit", (code, signal) => {
   let fullCheckoutAvailable = true;
   if (fullCheckout) {
     fullCheckoutAvailable = assertFullCheckoutAvailableBeforeExit(fullCheckout.dir);
+  }
+  if (!signal && code === 0) {
+    try {
+      recordTestboxLeaseFreshness(testboxLeaseFreshness);
+    } catch (error) {
+      console.error(
+        `[crabbox] failed to record Testbox lease freshness: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      code = 2;
+    }
   }
   cleanupOnce();
   if (signal) {
