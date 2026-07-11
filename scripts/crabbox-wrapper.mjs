@@ -3181,6 +3181,16 @@ function injectFullCheckoutLeaseReclaim(commandArgs) {
   return normalizedArgs;
 }
 
+function injectReusableTestboxNoSync(commandArgs) {
+  if (hasOption(commandArgs, "--no-sync")) {
+    return commandArgs;
+  }
+  const normalizedArgs = [...commandArgs];
+  const { optionEnd } = runCommandBounds(normalizedArgs);
+  normalizedArgs.splice(optionEnd, 0, "--no-sync");
+  return normalizedArgs;
+}
+
 function injectRemoteTestboxCi(commandArgs, providerName) {
   if (commandArgs[0] !== "run" || canonicalProviderName(providerName) !== "blacksmith-testbox") {
     return commandArgs;
@@ -3276,6 +3286,25 @@ if (canonicalProvider === "blacksmith-testbox") {
     "[crabbox] delegated Testbox proof uses the wrapper exitCode and timing JSON; the linked Actions run can show cancelled during external lease cleanup",
   );
   enforceCrabboxOwnedBlacksmithLease(normalizedArgs);
+}
+
+let testboxLeaseFreshness;
+try {
+  testboxLeaseFreshness = prepareTestboxLeaseFreshness({
+    args: normalizedArgs,
+    env: { ...process.env, CI: process.env.CI || "true" },
+    provider: canonicalProvider,
+    repoRoot,
+  });
+  if (testboxLeaseFreshness?.skipSync) {
+    normalizedArgs = injectReusableTestboxNoSync(normalizedArgs);
+    console.error(
+      `[crabbox] Testbox ${optionValue(normalizedArgs, "--id")} already has clean HEAD ${testboxLeaseFreshness.current.headSha}; skipping source sync`,
+    );
+  }
+} catch (error) {
+  console.error(`[crabbox] ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(2);
 }
 
 let childCwd = repoRoot;
@@ -3415,19 +3444,6 @@ const childArgs = injectRemoteTestboxCi(
       ),
   provider,
 );
-let testboxLeaseFreshness;
-try {
-  testboxLeaseFreshness = prepareTestboxLeaseFreshness({
-    args: childArgs,
-    env: childEnv,
-    provider: canonicalProvider,
-    repoRoot,
-  });
-} catch (error) {
-  cleanupOnce();
-  console.error(`[crabbox] ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(2);
-}
 let fullCheckoutKeepaliveIntervalMsValue = 0;
 if (fullCheckout) {
   try {

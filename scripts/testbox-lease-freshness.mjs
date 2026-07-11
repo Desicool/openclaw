@@ -73,12 +73,20 @@ export function buildTestboxLeaseFingerprint(repoRoot, args) {
   return {
     version: STATE_VERSION,
     baseSha,
+    headSha: git(repoRoot, ["rev-parse", "HEAD"]),
+    workingTreeClean: git(repoRoot, ["status", "--porcelain=v1"]) === "",
     dependencyDigest: digestInputs(repoRoot, [...DEPENDENCY_INPUTS, "patches"]),
     environmentDigest: digestInputs(repoRoot, ENVIRONMENT_INPUTS),
     workflow: optionValue(args, "--blacksmith-workflow", ".github/workflows/ci-check-testbox.yml"),
     job: optionValue(args, "--blacksmith-job", "check"),
     ref: optionValue(args, "--blacksmith-ref", "main"),
   };
+}
+
+export function testboxLeaseCanSkipSync(saved, current) {
+  return Boolean(
+    saved?.syncedCleanHead && current.workingTreeClean && saved.syncedCleanHead === current.headSha,
+  );
 }
 
 export function testboxLeaseStaleReasons(saved, current) {
@@ -110,8 +118,9 @@ export function prepareTestboxLeaseFreshness({ args, env, provider, repoRoot }) 
         `Testbox ${id} is stale (${staleReasons.join(", ")}); stop it and warm a fresh lease, or set OPENCLAW_TESTBOX_ALLOW_STALE=1 for an intentional diagnostic reuse`,
       );
     }
+    return { current, path, skipSync: testboxLeaseCanSkipSync(saved, current) };
   }
-  return { current, path };
+  return { current, path, skipSync: false };
 }
 
 export function recordTestboxLeaseFreshness(prepared) {
@@ -120,6 +129,10 @@ export function recordTestboxLeaseFreshness(prepared) {
   }
   mkdirSync(resolve(prepared.path, ".."), { recursive: true });
   const temporaryPath = `${prepared.path}.tmp-${process.pid}`;
-  writeFileSync(temporaryPath, `${JSON.stringify(prepared.current, null, 2)}\n`);
+  const state = {
+    ...prepared.current,
+    syncedCleanHead: prepared.current.workingTreeClean ? prepared.current.headSha : "",
+  };
+  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`);
   renameSync(temporaryPath, prepared.path);
 }
