@@ -2,7 +2,15 @@
 // Coordinates release-candidate validation runs and emits the publish command
 // only after required local, CI, npm, plugin, and E2E evidence is green.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +50,25 @@ const WINDOWS_NODE_REQUIRED_ASSETS = [
   "OpenClawCompanion-Setup-arm64.exe",
 ];
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const RELEASE_CANDIDATE_STATE_VERSION = 1;
+const RELEASE_CANDIDATE_STATE_FILE = "release-candidate-state.json";
+const RELEASE_CANDIDATE_STATE_KEYS = [
+  "repo",
+  "tag",
+  "targetSha",
+  "toolingSha",
+  "workflowRef",
+  "provider",
+  "mode",
+  "releaseProfile",
+  "npmDistTag",
+  "pluginPublishScope",
+  "plugins",
+  "windowsNodeTag",
+  "skipParallels",
+  "skipTelegram",
+  "telegramProviderMode",
+];
 
 function usage() {
   return `Usage: pnpm release:candidate -- --tag vYYYY.M.PATCH-beta.N [options]
@@ -255,6 +282,74 @@ function readJson(path, label) {
       { cause: error },
     );
   }
+}
+
+export function buildReleaseCandidateState(options, { targetSha, toolingSha }) {
+  return {
+    version: RELEASE_CANDIDATE_STATE_VERSION,
+    phase: "validated",
+    repo: options.repo,
+    tag: options.tag,
+    targetSha,
+    toolingSha,
+    workflowRef: options.workflowRef,
+    provider: options.provider,
+    mode: options.mode,
+    releaseProfile: options.releaseProfile,
+    npmDistTag: options.npmDistTag,
+    pluginPublishScope: options.pluginPublishScope,
+    plugins: options.plugins,
+    windowsNodeTag: options.windowsNodeTag,
+    skipParallels: options.skipParallels,
+    skipTelegram: options.skipTelegram,
+    telegramProviderMode: options.telegramProviderMode,
+    fullReleaseRunId: options.fullReleaseRunId,
+    npmPreflightRunId: options.npmPreflightRunId,
+  };
+}
+
+export function reconcileReleaseCandidateState(saved, expected) {
+  if (!saved) {
+    return expected;
+  }
+  if (
+    typeof saved !== "object" ||
+    Array.isArray(saved) ||
+    saved.version !== RELEASE_CANDIDATE_STATE_VERSION
+  ) {
+    throw new Error("release candidate state has an unsupported schema");
+  }
+  for (const key of RELEASE_CANDIDATE_STATE_KEYS) {
+    if (saved[key] !== expected[key]) {
+      throw new Error(
+        `release candidate state mismatch for ${key}: saved=${JSON.stringify(saved[key])} current=${JSON.stringify(expected[key])}`,
+      );
+    }
+  }
+  for (const key of ["fullReleaseRunId", "npmPreflightRunId"]) {
+    if (saved[key] && expected[key] && saved[key] !== expected[key]) {
+      throw new Error(`release candidate state mismatch for ${key}`);
+    }
+  }
+  return {
+    ...expected,
+    phase: typeof saved.phase === "string" ? saved.phase : expected.phase,
+    fullReleaseRunId: expected.fullReleaseRunId || saved.fullReleaseRunId || "",
+    npmPreflightRunId: expected.npmPreflightRunId || saved.npmPreflightRunId || "",
+  };
+}
+
+function writeReleaseCandidateState(path, state) {
+  mkdirSync(join(path, ".."), { recursive: true });
+  const temporaryPath = `${path}.tmp-${process.pid}`;
+  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`);
+  renameSync(temporaryPath, path);
+}
+
+function updateReleaseCandidateState(path, state, phase, runIds = {}) {
+  const next = { ...state, ...runIds, phase };
+  writeReleaseCandidateState(path, next);
+  return next;
 }
 
 function githubApiTimeoutMs() {
@@ -1150,6 +1245,15 @@ async function main() {
     toolingTrackedStatus: gitTrackedStatus(TOOLING_ROOT),
     workflowRef: options.workflowRef,
   });
+  const statePath = join(options.outputDir, RELEASE_CANDIDATE_STATE_FILE);
+  const expectedState = buildReleaseCandidateState(options, { targetSha, toolingSha });
+  let candidateState = reconcileReleaseCandidateState(
+    existsSync(statePath) ? readJson(statePath, "release candidate state") : undefined,
+    expectedState,
+  );
+  options.fullReleaseRunId = candidateState.fullReleaseRunId;
+  options.npmPreflightRunId = candidateState.npmPreflightRunId;
+  writeReleaseCandidateState(statePath, candidateState);
   const releaseChangelog = run("git", ["show", `${targetSha}:CHANGELOG.md`], { capture: true });
   const releaseNotesVersion = releaseNotesVersionForTag(options.tag);
   const releaseNotesCheck = validateCandidateReleaseNotes({
@@ -1186,6 +1290,9 @@ async function main() {
         options.releaseProfile === "stable" || options.releaseProfile === "full" ? "true" : "false",
       rerun_group: "all",
     });
+    candidateState = updateReleaseCandidateState(statePath, candidateState, "dispatching", {
+      fullReleaseRunId: options.fullReleaseRunId,
+    });
   }
 
   if (!options.npmPreflightRunId && !options.skipDispatch) {
@@ -1195,7 +1302,14 @@ async function main() {
       preflight_only: "true",
       npm_dist_tag: options.npmDistTag,
     });
+    candidateState = updateReleaseCandidateState(statePath, candidateState, "dispatching", {
+      npmPreflightRunId: options.npmPreflightRunId,
+    });
   }
+  candidateState = updateReleaseCandidateState(statePath, candidateState, "waiting", {
+    fullReleaseRunId: options.fullReleaseRunId,
+    npmPreflightRunId: options.npmPreflightRunId,
+  });
 
   const fullRun = await waitForSuccessfulRun(options.repo, options.fullReleaseRunId, {
     workflowName: "Full Release Validation",
@@ -1376,6 +1490,7 @@ async function main() {
       "",
     ].join("\n"),
   );
+  updateReleaseCandidateState(statePath, candidateState, "completed");
 
   console.log(`release candidate evidence: ${evidencePath}`);
   console.log(`release candidate summary: ${evidenceMarkdownPath}`);
