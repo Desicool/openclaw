@@ -218,22 +218,33 @@ for ((index = 0; index < run_count; index += 1)); do
       and (.root.targetSha | type == "string" and test("^[0-9a-f]{40}$"))
       and (.root.artifact.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
       and all($record.current, $record.root;
-        .producerOnTrustedMainLineage == true
-        and .workflowFullRef == "refs/heads/main"
+        . as $parent
+        | .producerOnTrustedMainLineage == true
         and .workflowRefType == "branch"
         and .workflowPath == ".github/workflows/full-release-validation.yml"
+        and .workflowFullRef == ("refs/heads/" + .workflowRef)
         and .workflowQualifiedPath ==
-          ".github/workflows/full-release-validation.yml@refs/heads/main"
+          (".github/workflows/full-release-validation.yml@" + .workflowFullRef)
         and (
           .workflowRunPath == ".github/workflows/full-release-validation.yml"
-          or .workflowRunPath ==
-            ".github/workflows/full-release-validation.yml@refs/heads/main"
+          or .workflowRunPath == .workflowQualifiedPath
         )
         and (
-          (.manifestVersion == 3 and .workflowRefProof == "manifest-v3-branch")
+          (
+            .workflowRef == "main"
+            and (
+              (.manifestVersion == 3 and .workflowRefProof == "manifest-v3-branch")
+              or (
+                .manifestVersion == 2
+                and .workflowRefProof == "legacy-v2-main-ancestry"
+              )
+            )
+          )
           or (
-            .manifestVersion == 2
-            and .workflowRefProof == "legacy-v2-main-ancestry"
+            .manifestVersion == 3
+            and .workflowRefProof == "manifest-v3-sha-pinned-main-ancestry"
+            and (.workflowRef | test("^release-ci/[0-9a-f]{12}-[1-9][0-9]*$"))
+            and (.workflowRef | startswith("release-ci/\($parent.workflowSha[0:12])-"))
           )
         )
       )
