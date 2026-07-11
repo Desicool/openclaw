@@ -790,6 +790,30 @@ describe("scripts/crabbox-wrapper", () => {
     ]);
   });
 
+  it("exports CI for complete Blacksmith Testbox shell snippets", () => {
+    const result = runWrapper(
+      "provider: hetzner, aws, local-container, blacksmith-testbox, or cloudflare\n",
+      [
+        "run",
+        "--provider",
+        "blacksmith-testbox",
+        "--shell",
+        "--",
+        "cd packages && pnpm install && pnpm build",
+      ],
+    );
+
+    expect(result.status).toBe(0);
+    expect(parseFakeCrabboxOutput(result).args).toEqual([
+      "run",
+      "--provider",
+      "blacksmith-testbox",
+      "--shell",
+      "--",
+      "export CI=true; cd packages && pnpm install && pnpm build",
+    ]);
+  });
+
   it("only forces the short local-container Docker work root on Linux", () => {
     const result = runWrapper(
       "provider: hetzner, aws, local-container, blacksmith-testbox, or cloudflare\n",

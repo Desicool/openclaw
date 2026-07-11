@@ -3194,7 +3194,7 @@ function injectRemoteTestboxCi(commandArgs, providerName) {
     return normalizedArgs;
   }
   if (hasOption(normalizedArgs, "--shell")) {
-    normalizedArgs[start] = `env CI=true ${normalizedArgs[start]}`;
+    normalizedArgs[start] = `export CI=true; ${normalizedArgs[start]}`;
   } else {
     normalizedArgs.splice(start, 0, "env", "CI=true");
   }
