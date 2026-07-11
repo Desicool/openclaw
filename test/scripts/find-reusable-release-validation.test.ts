@@ -409,8 +409,18 @@ function runResolver(args: {
   runReleaseSoak?: string;
   targetSha: string;
   validatorPath: string;
+  verifierOnMain?: boolean;
   verifierSha?: string;
+  workflowRef?: string;
 }) {
+  const verifierSha = args.verifierSha ?? VERIFIER_SHA;
+  writeFileSync(
+    fixtureName(args.fixtures, `repos/${REPOSITORY}/compare/${verifierSha}...main`),
+    JSON.stringify({
+      merge_base_commit: { sha: args.verifierOnMain === false ? "f".repeat(40) : verifierSha },
+      status: args.verifierOnMain === false ? "diverged" : "ahead",
+    }),
+  );
   return spawnSync(
     "bash",
     [
@@ -418,7 +428,9 @@ function runResolver(args: {
       "--target-sha",
       args.targetSha,
       "--workflow-sha",
-      args.verifierSha ?? VERIFIER_SHA,
+      verifierSha,
+      "--workflow-ref",
+      args.workflowRef ?? "main",
       "--release-profile",
       args.releaseProfile ?? "full",
       "--run-release-soak",
@@ -459,6 +471,34 @@ function parseOutput(output: string): Record<string, string> {
 }
 
 describe("scripts/github/find-reusable-release-validation.sh", () => {
+  it("rejects noncanonical release refs and workflow SHAs outside trusted main", () => {
+    const { origin, priorSha } = createRepo();
+    const clone = cloneHead(origin);
+    const record = normalizedEvidence({ targetSha: priorSha });
+    const { binDir, fixtures, validatorPath } = setUpFixtures([{ record, runId: "111" }]);
+
+    const forgedRef = runResolver({
+      binDir,
+      fixtures,
+      repoDir: clone,
+      targetSha: priorSha,
+      validatorPath,
+      workflowRef: "release-ci/not-trusted",
+    });
+    expect(parseOutput(forgedRef.stdout)).toMatchObject({ reuse: "false" });
+
+    const untrustedSha = runResolver({
+      binDir,
+      fixtures,
+      repoDir: clone,
+      targetSha: priorSha,
+      validatorPath,
+      verifierOnMain: false,
+      workflowRef: `release-ci/${VERIFIER_SHA.slice(0, 12)}-123`,
+    });
+    expect(parseOutput(untrustedSha.stdout)).toMatchObject({ reuse: "false" });
+  });
+
   it("reuses pre-tooling trusted-main evidence for the exact target", () => {
     const { origin, priorSha } = createRepo();
     const clone = cloneHead(origin);

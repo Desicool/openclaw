@@ -10,6 +10,7 @@ REPO="${GH_REPO:-}"
 WORKFLOW_FILE="full-release-validation.yml"
 TARGET_SHA=""
 VERIFIER_WORKFLOW_SHA=""
+WORKFLOW_REF=""
 RELEASE_PROFILE=""
 RUN_RELEASE_SOAK="false"
 INPUTS_JSON=""
@@ -24,6 +25,7 @@ VALIDATOR="${OPENCLAW_RELEASE_CI_SUMMARY_VALIDATOR:-${REPO_ROOT}/scripts/release
 usage() {
   cat >&2 <<'EOF'
 Usage: find-reusable-release-validation.sh --target-sha <sha> --workflow-sha <sha> \
+  --workflow-ref <main|release-ci/sha12-timestamp> \
   --release-profile <beta|stable|full> --inputs-json <json> \
   [--run-release-soak <true|false>] [--repo <owner/repo>] [--repo-dir <path>] \
   [--workflow <file>] [--max-candidates <n>] [--github-output <file>]
@@ -45,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --workflow-sha)
       VERIFIER_WORKFLOW_SHA="${2:-}"
+      shift 2
+      ;;
+    --workflow-ref)
+      WORKFLOW_REF="${2:-}"
       shift 2
       ;;
     --release-profile)
@@ -116,6 +122,13 @@ if [[ ! "$VERIFIER_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Expected --workflow-sha to be a full lowercase commit SHA; got: ${VERIFIER_WORKFLOW_SHA}" >&2
   exit 2
 fi
+if [[ "$WORKFLOW_REF" != "main" ]]; then
+  expected_release_ref="release-ci/${VERIFIER_WORKFLOW_SHA:0:12}-"
+  if [[ ! "$WORKFLOW_REF" =~ ^release-ci/[0-9a-f]{12}-[1-9][0-9]*$ ]] ||
+    [[ "$WORKFLOW_REF" != "$expected_release_ref"* ]]; then
+    no_reuse "workflow ref is not a canonical SHA-pinned release ref"
+  fi
+fi
 if [[ -z "$REPO" ]]; then
   echo "Expected --repo <owner/repo> or GH_REPO." >&2
   exit 2
@@ -132,6 +145,20 @@ expected_inputs=""
 if ! expected_inputs="$(jq -Sc 'if type == "object" then . else error("expected object") end' <<< "$INPUTS_JSON" 2>/dev/null)" || [[ -z "$expected_inputs" ]]; then
   echo "Expected --inputs-json to be a JSON object of lane-selection inputs." >&2
   exit 2
+fi
+
+workflow_lineage=""
+if ! workflow_lineage="$(
+  gh api "repos/${REPO}/compare/${VERIFIER_WORKFLOW_SHA}...main"
+)"; then
+  no_reuse "could not verify workflow SHA against trusted main"
+fi
+if ! jq -e \
+  --arg workflow_sha "$VERIFIER_WORKFLOW_SHA" '
+    (.status == "ahead" or .status == "identical")
+    and .merge_base_commit.sha == $workflow_sha
+  ' <<< "$workflow_lineage" >/dev/null; then
+  no_reuse "workflow SHA is not on trusted main lineage"
 fi
 
 # Exact-target reuse still requires internally consistent version stamps
