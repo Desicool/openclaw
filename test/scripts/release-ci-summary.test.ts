@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,9 +29,9 @@ import {
   validateReleaseRunEvidence,
   validateTrustedProducerIdentity,
   watchReleaseCiRun,
-} from "../../.agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs";
+} from "../../scripts/release-ci-summary.mjs";
 
-const SCRIPT = ".agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs";
+const SCRIPT = "scripts/release-ci-summary.mjs";
 const MANIFEST_ARTIFACT_ENTRY = "full-release-validation-manifest.json";
 
 function crc32(input: Buffer): number {
@@ -896,9 +896,7 @@ describe("release CI summary child correlation", () => {
     const outsideCwd = mkdtempSync(join(tmpdir(), "release-verifier-cwd-"));
     try {
       const scriptPath = join(repositoryRoot, SCRIPT);
-      mkdirSync(join(repositoryRoot, ".agents/skills/release-openclaw-ci/scripts"), {
-        recursive: true,
-      });
+      mkdirSync(dirname(scriptPath), { recursive: true });
       writeFileSync(scriptPath, readFileSync(SCRIPT));
       execFileSync("git", ["init", "-q"], { cwd: repositoryRoot });
       execFileSync("git", ["add", SCRIPT], { cwd: repositoryRoot });

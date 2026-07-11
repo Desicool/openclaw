@@ -310,7 +310,7 @@ function normalizedEvidence(options: {
     validationInputs,
     verifier: {
       schemaVersion: 3,
-      script: ".agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs",
+      script: "scripts/release-ci-summary.mjs",
       scriptSha256: "b".repeat(64),
       sourceSha: options.verifierSha === undefined ? VERIFIER_SHA : options.verifierSha,
     },
