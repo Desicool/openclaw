@@ -35,8 +35,9 @@ function optionValue(args, name, fallback = "") {
 }
 
 function git(repoRoot, args) {
-  return execFileSync("git", ["-c", "core.excludesFile=/dev/null", "-C", repoRoot, ...args], {
+  return execFileSync("git", ["-C", repoRoot, ...args], {
     encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
   }).trim();
 }
 
