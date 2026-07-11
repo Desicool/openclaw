@@ -3296,7 +3296,7 @@ try {
     provider: canonicalProvider,
     repoRoot,
   });
-  if (testboxLeaseFreshness?.skipSync) {
+  if (testboxLeaseFreshness?.skipSync && !isChangedGateCommand(runCommandArgs(normalizedArgs))) {
     normalizedArgs = injectReusableTestboxNoSync(normalizedArgs);
     console.error(
       `[crabbox] Testbox ${optionValue(normalizedArgs, "--id")} already has clean HEAD ${testboxLeaseFreshness.current.headSha}; skipping source sync`,
