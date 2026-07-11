@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs } from "../../scripts/full-release-validation-at-sha.mjs";
+import {
+  parseArgs,
+  releaseEvidenceVerificationArgs,
+} from "../../scripts/full-release-validation-at-sha.mjs";
 
 describe("full-release-validation-at-sha", () => {
   it("parses release validation dispatch args", () => {
@@ -50,5 +53,16 @@ describe("full-release-validation-at-sha", () => {
   it("reserves the candidate ref for the resolved --sha", () => {
     expect(() => parseArgs(["-f", "ref=other"])).toThrow("reserves the ref input");
     expect(() => parseArgs(["--", "ref=other"])).toThrow("reserves the ref input");
+  });
+
+  it("validates direct and reused runs through the strict evidence verifier", () => {
+    expect(releaseEvidenceVerificationArgs("123")).toEqual([
+      "--validate-run",
+      "123",
+      "--trusted-workflow-ref",
+      "main",
+      "--json",
+    ]);
+    expect(() => releaseEvidenceVerificationArgs("")).toThrow("positive decimal");
   });
 });

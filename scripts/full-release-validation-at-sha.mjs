@@ -18,8 +18,9 @@ function usage() {
 Creates a temporary remote branch pinned to trusted main release tooling,
 dispatches Full Release Validation with the target commit as its ref input,
 watches the parent run, verifies all child workflow head SHAs match the trusted
-workflow SHA, then deletes the temporary branch by default. Exact-target
-evidence reuse stays enabled; pass -f reuse_evidence=false to force a fresh run.`);
+workflow lineage through the release evidence manifest, then deletes the
+temporary branch by default. Exact-target evidence reuse stays enabled; pass
+-f reuse_evidence=false to force a fresh run.`);
 }
 
 function run(command, args, options = {}) {
@@ -177,48 +178,24 @@ function findLatestRunId(branch, sha) {
   return match?.databaseId ? String(match.databaseId) : "";
 }
 
-function childRunIds(parentRunId) {
-  const jobsJson = run("gh", ["run", "view", parentRunId, "--json", "jobs"]);
-  const jobs = JSON.parse(jobsJson).jobs ?? [];
-  const summaryJob = jobs.find((job) => job.name === "Verify full validation");
-  if (!summaryJob?.databaseId) {
-    return [];
+export function releaseEvidenceVerificationArgs(parentRunId) {
+  if (!/^[1-9][0-9]*$/u.test(String(parentRunId))) {
+    throw new Error("parent run ID must be a positive decimal");
   }
-  const log = run("gh", [
-    "run",
-    "view",
-    parentRunId,
-    "--job",
-    String(summaryJob.databaseId),
-    "--log",
-  ]);
-  return [...new Set([...log.matchAll(/actions\/runs\/(\d+)/g)].map((match) => match[1]))];
+  return ["--validate-run", String(parentRunId), "--trusted-workflow-ref", "main", "--json"];
 }
 
-function verifyChildHeads(parentRunId, workflowSha) {
-  const ids = childRunIds(parentRunId);
-  if (ids.length === 0) {
-    throw new Error(
-      `Could not find child workflow run ids in parent verifier logs for ${parentRunId}.`,
-    );
+function verifyReleaseEvidence(parentRunId) {
+  const verifier = fileURLToPath(new URL("./release-ci-summary.mjs", import.meta.url));
+  const evidence = JSON.parse(
+    run(process.execPath, [verifier, ...releaseEvidenceVerificationArgs(parentRunId)]),
+  );
+  if (evidence.valid !== true) {
+    throw new Error(`Full Release Validation evidence is invalid for run ${parentRunId}.`);
   }
-
-  let failed = false;
-  for (const id of ids) {
-    const json = run("gh", ["run", "view", id, "--json", "name,status,conclusion,headSha,url"]);
-    const child = JSON.parse(json);
-    const ok =
-      child.headSha === workflowSha &&
-      child.status === "completed" &&
-      child.conclusion === "success";
-    console.log(
-      `${ok ? "ok" : "bad"} ${child.name} ${child.status}/${child.conclusion} ${child.headSha} ${child.url}`,
-    );
-    failed ||= !ok;
-  }
-  if (failed) {
-    throw new Error(`One or more child workflows failed or did not run at ${workflowSha}.`);
-  }
+  console.log(
+    `ok release evidence current=${evidence.current.runId} root=${evidence.root.runId} reused=${Boolean(evidence.evidenceReuse)}`,
+  );
 }
 
 function main() {
@@ -280,7 +257,7 @@ function main() {
         `Full Release Validation failed: https://github.com/openclaw/openclaw/actions/runs/${parentRunId}`,
       );
     }
-    verifyChildHeads(parentRunId, workflowSha);
+    verifyReleaseEvidence(parentRunId);
   } finally {
     if (!args.keepBranch) {
       run("git", ["push", "origin", `:${remoteBranchRef}`], {
