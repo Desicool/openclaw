@@ -32,6 +32,26 @@ export function buildSideChatComposerDraft(selection: string): string | null {
   return `/btw Regarding "${snippet}": `;
 }
 
+/**
+ * "Ask in side chat" must never discard an unsent draft: plain prose carries
+ * over as the question part. Drafts that are themselves slash commands cannot
+ * be embedded in a /btw question, so they are replaced instead.
+ */
+export function combineSideChatComposerDraft(
+  selection: string,
+  existingDraft: string | undefined,
+): string | null {
+  const prefill = buildSideChatComposerDraft(selection);
+  if (!prefill) {
+    return null;
+  }
+  const existing = existingDraft?.trim() ?? "";
+  if (!existing || existing.startsWith("/")) {
+    return prefill;
+  }
+  return `${prefill}${existing}`;
+}
+
 /** Human-readable question for the pending side-result card (drops the /btw prefix). */
 export function extractSideQuestionDisplayText(message: string): string {
   return message

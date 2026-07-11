@@ -239,9 +239,12 @@ export function renderChat(props: ChatProps) {
     onScrollToBottom: props.onScrollToBottom,
     onChatScroll: props.onChatScroll,
     onDraftChange: props.onDraftChange,
+    getDraft: props.getDraft,
     onSend: props.onSend,
     onSetReply: props.onSetReply,
-    onSideQuestion: props.onSideQuestion,
+    // Archived/non-composable sessions must not offer selection actions:
+    // withholding the callback keeps the popup from rendering at all.
+    onSideQuestion: props.canSend ? props.onSideQuestion : undefined,
     onFocusComposer: () =>
       chatSection
         ?.querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox > textarea")
