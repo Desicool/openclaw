@@ -154,11 +154,11 @@ function rate() {
 }
 
 export function validateParentRunBinding(parentView, parentRest, expectedRunId) {
-  const workflowPath = String(parentRest.path ?? "").split("@", 1)[0];
+  const boundWorkflowPath = String(parentRest.path ?? "").split("@", 1)[0];
   if (
     String(parentRest.id) !== String(expectedRunId) ||
     parentRest.event !== "workflow_dispatch" ||
-    workflowPath !== ".github/workflows/full-release-validation.yml" ||
+    boundWorkflowPath !== ".github/workflows/full-release-validation.yml" ||
     Number(parentRest.run_attempt) !== Number(parentView.attempt) ||
     parentRest.head_branch !== parentView.headBranch ||
     parentRest.head_sha !== parentView.headSha
@@ -309,11 +309,16 @@ function normalizeRepository(value) {
 
 function normalizeWorkflowRef(value, label) {
   const workflowRef = String(value ?? "");
-  if (
-    workflowRef.length === 0 ||
-    workflowRef.length > 255 ||
-    /[\u0000-\u001f\u007f~^:?*[\\\s]/u.test(workflowRef)
-  ) {
+  const hasForbiddenCharacter = [...workflowRef].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      codePoint <= 0x1f ||
+      codePoint === 0x7f ||
+      character.trim() === "" ||
+      "~^:?*[\\".includes(character)
+    );
+  });
+  if (workflowRef.length === 0 || workflowRef.length > 255 || hasForbiddenCharacter) {
     throw new Error(`${label} is invalid`);
   }
   return workflowRef;
@@ -349,7 +354,7 @@ function canonicalJson(value) {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .toSorted(([left], [right]) => left.localeCompare(right))
         .map(([key, entry]) => [key, canonicalJson(entry)]),
     );
   }
@@ -713,8 +718,8 @@ export function validateManifestChildRun(
   ) {
     throw new Error(`manifest child dispatch tuple mismatch: ${child.name}`);
   }
-  const workflowPath = String(run.path ?? "").split("@", 1)[0];
-  if (workflowPath !== `.github/workflows/${child.workflow}`) {
+  const childWorkflowPath = String(run.path ?? "").split("@", 1)[0];
+  if (childWorkflowPath !== `.github/workflows/${child.workflow}`) {
     throw new Error(`manifest child workflow mismatch: ${child.name}`);
   }
   selectManifestParentJob(parentJobs, child, parentManifest, originAttempt);
@@ -909,16 +914,12 @@ export function readManifestArtifactArchive(archivePath, expectedDigest) {
   return JSON.parse(manifestBytes.toString("utf8"));
 }
 
-function downloadParentManifestEvidence(
-  runId,
-  runAttempt,
-  repository = DEFAULT_REPO,
-  manifestPath,
-) {
+function downloadParentManifestEvidence(runId, runAttempt, repository, manifestPath) {
+  const targetRepository = repository ?? DEFAULT_REPO;
   const artifacts = [];
   for (let page = 1; page <= 10; page += 1) {
     const pageArtifacts =
-      githubRestJson(`actions/runs/${runId}/artifacts?per_page=100&page=${page}`, repository)
+      githubRestJson(`actions/runs/${runId}/artifacts?per_page=100&page=${page}`, targetRepository)
         .artifacts ?? [];
     artifacts.push(...pageArtifacts);
     if (pageArtifacts.length < 100) {
@@ -930,7 +931,7 @@ function downloadParentManifestEvidence(
     return undefined;
   }
   const artifact = validateManifestArtifactIdentity(
-    githubRestJson(`actions/artifacts/${listedArtifact.id}`, repository),
+    githubRestJson(`actions/artifacts/${listedArtifact.id}`, targetRepository),
     {
       artifactDigest: listedArtifact.digest,
       artifactId: listedArtifact.id,
@@ -941,7 +942,7 @@ function downloadParentManifestEvidence(
   const downloadDir = mkdtempSync(join(tmpdir(), "openclaw-release-ci-summary-"));
   try {
     const archivePath = join(downloadDir, "manifest.zip");
-    downloadArtifactZip(String(artifact.id), archivePath, repository);
+    downloadArtifactZip(String(artifact.id), archivePath, targetRepository);
     const manifest = readManifestArtifactArchive(archivePath, artifact.digest);
     validateManifestArtifactCompatibility(artifact, manifest, runId, runAttempt);
     if (manifestPath) {
@@ -1508,7 +1509,10 @@ export async function watchReleaseCiRun(options, overrides = {}) {
   const summarize = overrides.summarize ?? (() => summarizeReleaseCiRun(options));
   const sleep =
     overrides.sleep ??
-    ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    ((milliseconds) =>
+      new Promise((complete) => {
+        setTimeout(complete, milliseconds);
+      }));
   let previousFingerprint;
   while (true) {
     const parent = fetchParent();
@@ -1779,8 +1783,10 @@ async function main() {
 }
 
 if (process.argv[1]?.endsWith("release-ci-summary.mjs")) {
-  await main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  await main().catch(
+    /** @param {unknown} error */ (error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    },
+  );
 }

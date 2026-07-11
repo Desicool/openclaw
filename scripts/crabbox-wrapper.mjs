@@ -3483,6 +3483,7 @@ child.on("exit", (code, signal) => {
   if (childTreeShutdownStarted) {
     return;
   }
+  let exitCode = code;
   let fullCheckoutAvailable = true;
   if (fullCheckout) {
     fullCheckoutAvailable = assertFullCheckoutAvailableBeforeExit(fullCheckout.dir);
@@ -3494,7 +3495,7 @@ child.on("exit", (code, signal) => {
       console.error(
         `[crabbox] failed to record Testbox lease freshness: ${error instanceof Error ? error.message : String(error)}`,
       );
-      code = 2;
+      exitCode = 2;
     }
   }
   cleanupOnce();
@@ -3502,7 +3503,7 @@ child.on("exit", (code, signal) => {
     process.exit(signalExitCodes.get(signal) ?? 1);
     return;
   }
-  process.exit(fullCheckoutAvailable ? (code ?? 1) : 1);
+  process.exit(fullCheckoutAvailable ? (exitCode ?? 1) : 1);
 });
 
 child.on("error", (error) => {

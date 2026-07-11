@@ -41,7 +41,7 @@ function git(repoRoot, args) {
   }).trim();
 }
 
-function listFiles(path, root = path) {
+function listFiles(path) {
   if (!existsSync(path)) {
     return [];
   }
@@ -49,8 +49,8 @@ function listFiles(path, root = path) {
     return [path];
   }
   return readdirSync(path, { withFileTypes: true })
-    .flatMap((entry) => listFiles(resolve(path, entry.name), root))
-    .toSorted();
+    .flatMap((entry) => listFiles(resolve(path, entry.name)))
+    .toSorted((left, right) => left.localeCompare(right));
 }
 
 function digestInputs(repoRoot, inputs) {
