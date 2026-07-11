@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  testboxLeaseCanSkipSync,
-  testboxLeaseStaleReasons,
-} from "../../scripts/testbox-lease-freshness.mjs";
+import { testboxLeaseStaleReasons } from "../../scripts/testbox-lease-freshness.mjs";
 
 const fingerprint = {
   version: 1,
@@ -19,24 +16,6 @@ const fingerprint = {
 describe("Testbox lease freshness", () => {
   it("reuses a lease when hydrated inputs still match", () => {
     expect(testboxLeaseStaleReasons(fingerprint, { ...fingerprint })).toEqual([]);
-  });
-
-  it("skips sync only for the exact clean HEAD already proven on the lease", () => {
-    expect(
-      testboxLeaseCanSkipSync(
-        { ...fingerprint, syncedCleanHead: fingerprint.headSha },
-        fingerprint,
-      ),
-    ).toBe(true);
-    expect(
-      testboxLeaseCanSkipSync(
-        { ...fingerprint, syncedCleanHead: fingerprint.headSha },
-        { ...fingerprint, workingTreeClean: false },
-      ),
-    ).toBe(false);
-    expect(
-      testboxLeaseCanSkipSync({ ...fingerprint, syncedCleanHead: "e".repeat(40) }, fingerprint),
-    ).toBe(false);
   });
 
   it("rotates a lease when base, dependency, or workflow inputs drift", () => {

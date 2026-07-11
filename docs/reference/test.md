@@ -28,10 +28,9 @@ After the first successful reuse, the wrapper records the lease's base,
 dependency, and Testbox workflow fingerprint under `.crabbox/testbox-leases/`.
 Source-only edits keep reusing the warmed box. A changed merge base, lockfile,
 package-manager input, wrapper, or Testbox workflow fails closed and requires a
-fresh lease. `OPENCLAW_TESTBOX_ALLOW_STALE=1` is only for intentional
-diagnostics, not release proof. Repeating a targeted run from the exact clean
-HEAD that already succeeded skips source sync; changed gates, a new commit, or
-a dirty edit sync normally.
+fresh lease. Every run still syncs the current checkout.
+`OPENCLAW_TESTBOX_ALLOW_STALE=1` is only for intentional diagnostics, not
+release proof.
 
 Local test commands below are for human workflows or an explicit agent fallback
 requested by the user. Remote-provider unavailability must be reported; it is

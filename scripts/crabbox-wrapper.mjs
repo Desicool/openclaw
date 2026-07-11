@@ -3184,16 +3184,6 @@ function injectFullCheckoutLeaseReclaim(commandArgs) {
   return normalizedArgs;
 }
 
-function injectReusableTestboxNoSync(commandArgs) {
-  if (hasOption(commandArgs, "--no-sync")) {
-    return commandArgs;
-  }
-  const normalizedArgs = [...commandArgs];
-  const { optionEnd } = runCommandBounds(normalizedArgs);
-  normalizedArgs.splice(optionEnd, 0, "--no-sync");
-  return normalizedArgs;
-}
-
 function injectRemoteTestboxCi(commandArgs, providerName) {
   if (commandArgs[0] !== "run" || canonicalProviderName(providerName) !== "blacksmith-testbox") {
     return commandArgs;
@@ -3299,12 +3289,6 @@ try {
     provider: canonicalProvider,
     repoRoot,
   });
-  if (testboxLeaseFreshness?.skipSync && !isChangedGateCommand(runCommandArgs(normalizedArgs))) {
-    normalizedArgs = injectReusableTestboxNoSync(normalizedArgs);
-    console.error(
-      `[crabbox] Testbox ${optionValue(normalizedArgs, "--id")} already has clean HEAD ${testboxLeaseFreshness.current.headSha}; skipping source sync`,
-    );
-  }
 } catch (error) {
   console.error(`[crabbox] ${error instanceof Error ? error.message : String(error)}`);
   process.exit(2);

@@ -86,12 +86,6 @@ export function buildTestboxLeaseFingerprint(repoRoot, args) {
   };
 }
 
-export function testboxLeaseCanSkipSync(saved, current) {
-  return Boolean(
-    saved?.syncedCleanHead && current.workingTreeClean && saved.syncedCleanHead === current.headSha,
-  );
-}
-
 export function testboxLeaseStaleReasons(saved, current) {
   if (!saved || saved.version !== STATE_VERSION) {
     return ["state schema"];
@@ -121,9 +115,9 @@ export function prepareTestboxLeaseFreshness({ args, env, provider, repoRoot }) 
         `Testbox ${id} is stale (${staleReasons.join(", ")}); stop it and warm a fresh lease, or set OPENCLAW_TESTBOX_ALLOW_STALE=1 for an intentional diagnostic reuse`,
       );
     }
-    return { current, path, skipSync: testboxLeaseCanSkipSync(saved, current) };
+    return { current, path };
   }
-  return { current, path, skipSync: false };
+  return { current, path };
 }
 
 export function recordTestboxLeaseFreshness(prepared) {
@@ -132,10 +126,6 @@ export function recordTestboxLeaseFreshness(prepared) {
   }
   mkdirSync(resolve(prepared.path, ".."), { recursive: true });
   const temporaryPath = `${prepared.path}.tmp-${process.pid}`;
-  const state = {
-    ...prepared.current,
-    syncedCleanHead: prepared.current.workingTreeClean ? prepared.current.headSha : "",
-  };
-  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`);
+  writeFileSync(temporaryPath, `${JSON.stringify(prepared.current, null, 2)}\n`);
   renameSync(temporaryPath, prepared.path);
 }
