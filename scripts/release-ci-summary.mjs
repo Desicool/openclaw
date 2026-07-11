@@ -1402,6 +1402,8 @@ export function parseReleaseCiSummaryArgs(argv) {
     runId: undefined,
     trustedWorkflowRef: "main",
     validate: false,
+    verifierSourceFile: undefined,
+    verifierSourceSha: undefined,
     watch: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -1415,6 +1417,10 @@ export function parseReleaseCiSummaryArgs(argv) {
       options.manifestPath = argv[++index];
     } else if (argument === "--trusted-workflow-ref") {
       options.trustedWorkflowRef = argv[++index];
+    } else if (argument === "--verifier-source-sha") {
+      options.verifierSourceSha = argv[++index];
+    } else if (argument === "--verifier-source-file") {
+      options.verifierSourceFile = argv[++index];
     } else if (argument === "--json") {
       options.json = true;
     } else if (argument === "--watch") {
@@ -1437,6 +1443,9 @@ export function parseReleaseCiSummaryArgs(argv) {
   if (options.validate && options.watch) {
     throw new Error("--watch cannot be combined with --validate-run");
   }
+  if (options.verifierSourceFile && !options.verifierSourceSha) {
+    throw new Error("--verifier-source-file requires --verifier-source-sha");
+  }
   if (!options.runId) {
     throw new Error("full release run ID is required");
   }
@@ -1448,7 +1457,7 @@ function printUsage() {
     [
       "usage: release-ci-summary.mjs <full-release-run-id>",
       "       release-ci-summary.mjs <full-release-run-id> --watch [--interval seconds]",
-      "       release-ci-summary.mjs --validate-run <id> [--repo owner/name] [--trusted-workflow-ref main] [--manifest path] --json",
+      "       release-ci-summary.mjs --validate-run <id> [--repo owner/name] [--trusted-workflow-ref main] [--manifest path] [--verifier-source-sha sha --verifier-source-file path] --json",
     ].join("\n"),
   );
 }
@@ -1538,6 +1547,10 @@ async function main() {
         repository,
         runId,
         trustedWorkflowRef: options.trustedWorkflowRef,
+        verifierSourceContent: options.verifierSourceFile
+          ? readFileSync(options.verifierSourceFile)
+          : undefined,
+        verifierSourceSha: options.verifierSourceSha,
       });
       console.log(JSON.stringify(evidence, null, options.json ? 2 : 0));
     } catch (error) {

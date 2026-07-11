@@ -53,6 +53,21 @@ function exactTargetEvidenceReuse() {
   };
 }
 
+function strictEvidenceReuse() {
+  return {
+    schema: "openclaw.release-validation-evidence/v3",
+    valid: true,
+    current: { runId: "123", targetSha },
+    root: { runId: "122", targetSha },
+    evidenceReuse: {
+      evidenceSha: targetSha,
+      rootRunId: "122",
+      selectedRunId: "122",
+    },
+    conclusions: { allRequiredSucceeded: true },
+  };
+}
+
 function validate(
   runOverrides: Record<string, unknown> = {},
   manifestOverrides: Record<string, unknown> = {},
@@ -67,6 +82,7 @@ function validate(
     expectedTargetSha: targetSha,
     expectedWorkflowBranch: "release/2026.7.1",
     isTrustedMainAncestor,
+    validateEvidenceReuseStrictly: () => strictEvidenceReuse(),
   });
   return { isTrustedMainAncestor, result };
 }
@@ -192,6 +208,36 @@ describe("full release validation evidence", () => {
     );
   });
 
+  it("requires strict root and child validation for reused evidence", () => {
+    expect(() =>
+      validateFullReleaseValidationEvidence({
+        run: releaseRun(),
+        manifest: releaseManifest({ evidenceReuse: exactTargetEvidenceReuse() }),
+        expectedRepository: "openclaw/openclaw",
+        expectedRunId: "123",
+        expectedTargetSha: targetSha,
+        expectedWorkflowBranch: "release/2026.7.1",
+        isTrustedMainAncestor: () => true,
+      }),
+    ).toThrow("requires strict chain validation");
+
+    expect(() =>
+      validateFullReleaseValidationEvidence({
+        run: releaseRun(),
+        manifest: releaseManifest({ evidenceReuse: exactTargetEvidenceReuse() }),
+        expectedRepository: "openclaw/openclaw",
+        expectedRunId: "123",
+        expectedTargetSha: targetSha,
+        expectedWorkflowBranch: "release/2026.7.1",
+        isTrustedMainAncestor: () => true,
+        validateEvidenceReuseStrictly: () => ({
+          ...strictEvidenceReuse(),
+          conclusions: { allRequiredSucceeded: false },
+        }),
+      }),
+    ).toThrow("failed strict chain validation");
+  });
+
   it("rejects malformed evidence reuse on the SHA-pinned path", () => {
     expect(() =>
       validate(
@@ -219,6 +265,7 @@ describe("full release validation evidence", () => {
         expectedTargetSha: targetSha,
         expectedWorkflowBranch: pinnedBranch,
         isTrustedMainAncestor: () => false,
+        validateEvidenceReuseStrictly: () => strictEvidenceReuse(),
       }),
     ).toThrow("evidence reuse is invalid");
   });

@@ -353,6 +353,8 @@ describe("release CI summary child correlation", () => {
       runId: "29071366025",
       trustedWorkflowRef: "main",
       validate: true,
+      verifierSourceFile: undefined,
+      verifierSourceSha: undefined,
       watch: false,
     });
     expect(parseReleaseCiSummaryArgs(["29071366025"])).toMatchObject({
@@ -376,6 +378,27 @@ describe("release CI summary child correlation", () => {
     expect(() => parseReleaseCiSummaryArgs(["--manifest", "/tmp/manifest.json"])).toThrow(
       "--manifest requires --validate-run",
     );
+    expect(() =>
+      parseReleaseCiSummaryArgs([
+        "--validate-run",
+        "29071366025",
+        "--verifier-source-file",
+        "/tmp/verifier.mjs",
+      ]),
+    ).toThrow("--verifier-source-file requires --verifier-source-sha");
+    expect(
+      parseReleaseCiSummaryArgs([
+        "--validate-run",
+        "29071366025",
+        "--verifier-source-sha",
+        "a".repeat(40),
+        "--verifier-source-file",
+        "/tmp/verifier.mjs",
+      ]),
+    ).toMatchObject({
+      verifierSourceFile: "/tmp/verifier.mjs",
+      verifierSourceSha: "a".repeat(40),
+    });
   });
 
   it("changes the watch fingerprint only for visible run transitions", () => {

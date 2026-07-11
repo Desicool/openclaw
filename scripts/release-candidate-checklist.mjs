@@ -29,6 +29,7 @@ import {
 } from "./render-github-release-notes.mjs";
 import {
   isShaPinnedReleaseValidationBranch,
+  runStrictReleaseEvidenceValidation,
   validateFullReleaseValidationEvidence,
 } from "./validate-full-release-validation-evidence.mjs";
 
@@ -1356,6 +1357,8 @@ async function main() {
     expectedTargetSha: targetSha,
     expectedWorkflowBranch: options.workflowRef,
     isTrustedMainAncestor: (sha) => gitIsAncestor(sha, "refs/remotes/origin/main"),
+    validateEvidenceReuseStrictly: ({ repository, runId }) =>
+      runStrictReleaseEvidenceValidation({ repository, runId }),
   });
   if (fullValidationEvidence.source === "direct" && fullRun.headSha !== targetSha) {
     throw new Error(`run SHA mismatch: tag=${targetSha} full=${fullRun.headSha}`);

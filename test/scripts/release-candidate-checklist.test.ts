@@ -638,6 +638,7 @@ describe("release candidate checklist", () => {
     expect(source).toContain(
       "const fullValidationEvidence = validateFullReleaseValidationEvidence({",
     );
+    expect(source).toContain("runStrictReleaseEvidenceValidation({ repository, runId })");
     expect(source).toContain("refs/heads/main:refs/remotes/origin/main");
     expect(source).toContain(
       'fullValidationEvidence.source === "direct" && fullRun.headSha !== targetSha',
