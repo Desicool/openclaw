@@ -459,7 +459,12 @@ function satisfiesMinimumCrabboxVersion(version, minimum) {
 
 function gitOutput(commandArgs) {
   const gitBinary = resolvePathBinary("git", process.env, process.platform) ?? "git";
-  const invocation = spawnInvocation(gitBinary, commandArgs, process.env, process.platform);
+  const invocation = spawnInvocation(
+    gitBinary,
+    ["-c", "core.excludesFile=/dev/null", ...commandArgs],
+    process.env,
+    process.platform,
+  );
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: repoRoot,
     encoding: "utf8",
@@ -2937,7 +2942,7 @@ function isSparseCheckout() {
 }
 
 function isWorktreeClean() {
-  const status = gitOutput(["-c", "core.excludesFile=/dev/null", "status", "--porcelain=v1"]);
+  const status = gitOutput(["status", "--porcelain=v1"]);
   return status.status === 0 && status.stdout === "";
 }
 
