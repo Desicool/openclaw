@@ -264,7 +264,7 @@ describe("full release validation evidence", () => {
         expectedRunId: "123",
         expectedTargetSha: targetSha,
         expectedWorkflowBranch: pinnedBranch,
-        isTrustedMainAncestor: () => false,
+        isTrustedMainAncestor: () => true,
         validateEvidenceReuseStrictly: () => strictEvidenceReuse(),
       }),
     ).toThrow("evidence reuse is invalid");

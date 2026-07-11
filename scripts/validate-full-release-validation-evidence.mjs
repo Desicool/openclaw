@@ -137,6 +137,11 @@ export function validateFullReleaseValidationEvidence({
       `SHA-pinned validation target ref mismatch: expected ${expectedTargetSha}, got ${manifest.targetRef ?? "<missing>"}.`,
     );
   }
+  if (!isTrustedMainAncestor?.(run.headSha)) {
+    throw new Error(
+      `SHA-pinned validation workflow ${run.headSha} is not reachable from current main.`,
+    );
+  }
   if (Object.hasOwn(manifest, "evidenceReuse")) {
     const reuse = manifest.evidenceReuse;
     if (
@@ -173,11 +178,6 @@ export function validateFullReleaseValidationEvidence({
     ) {
       throw new Error("SHA-pinned validation evidence reuse failed strict chain validation.");
     }
-  }
-  if (!isTrustedMainAncestor?.(run.headSha)) {
-    throw new Error(
-      `SHA-pinned validation workflow ${run.headSha} is not reachable from current main.`,
-    );
   }
   return { run, source: "sha-pinned-main" };
 }
