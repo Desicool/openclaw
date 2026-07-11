@@ -718,6 +718,31 @@ describe("release CI summary child correlation", () => {
     });
   });
 
+  it("accepts a Unicode trusted workflow ref", () => {
+    const workflowRef = "release/unicode-\u{1f4a5}";
+    const fixture = trustedMainPackageFixture({
+      manifestVersion: 3,
+      workflowFullRef: `refs/heads/${workflowRef}`,
+      workflowRef,
+      workflowSha: "a".repeat(40),
+    });
+    const evidence = validateReleaseRunEvidence(
+      {
+        repository: "openclaw/openclaw",
+        runId: fixture.runId,
+        trustedWorkflowRef: workflowRef,
+        verifierSourceContent: readFileSync(SCRIPT),
+        verifierSourceSha: "c".repeat(40),
+      },
+      fixture.client,
+    );
+
+    expect(evidence.root).toMatchObject({
+      workflowFullRef: `refs/heads/${workflowRef}`,
+      workflowRef,
+    });
+  });
+
   it("rejects a v3 producer dispatched from a tag named main", () => {
     const fixture = trustedMainPackageFixture({
       manifestVersion: 3,

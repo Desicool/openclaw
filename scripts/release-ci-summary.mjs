@@ -309,7 +309,7 @@ function normalizeRepository(value) {
 
 function normalizeWorkflowRef(value, label) {
   const workflowRef = String(value ?? "");
-  const hasForbiddenCharacter = [...workflowRef].some((character) => {
+  const hasForbiddenCharacter = Array.from(workflowRef).some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return (
       codePoint <= 0x1f ||
