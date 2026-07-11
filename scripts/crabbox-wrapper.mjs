@@ -2937,7 +2937,8 @@ function isSparseCheckout() {
 }
 
 function isWorktreeClean() {
-  return gitOutput(["status", "--porcelain=v1"]).stdout === "";
+  const status = gitOutput(["-c", "core.excludesFile=/dev/null", "status", "--porcelain=v1"]);
+  return status.status === 0 && status.stdout === "";
 }
 
 function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, _providerName) {

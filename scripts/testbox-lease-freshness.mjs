@@ -35,7 +35,9 @@ function optionValue(args, name, fallback = "") {
 }
 
 function git(repoRoot, args) {
-  return execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" }).trim();
+  return execFileSync("git", ["-c", "core.excludesFile=/dev/null", "-C", repoRoot, ...args], {
+    encoding: "utf8",
+  }).trim();
 }
 
 function listFiles(path, root = path) {
