@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Dispatches full release validation against a temporary SHA-pinned branch.
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const WORKFLOW = "full-release-validation.yml";
@@ -185,17 +188,28 @@ export function releaseEvidenceVerificationArgs(parentRunId) {
   return ["--validate-run", String(parentRunId), "--trusted-workflow-ref", "main", "--json"];
 }
 
-function verifyReleaseEvidence(parentRunId) {
-  const verifier = fileURLToPath(new URL("./release-ci-summary.mjs", import.meta.url));
-  const evidence = JSON.parse(
-    run(process.execPath, [verifier, ...releaseEvidenceVerificationArgs(parentRunId)]),
-  );
-  if (evidence.valid !== true) {
-    throw new Error(`Full Release Validation evidence is invalid for run ${parentRunId}.`);
+function verifyReleaseEvidence(parentRunId, workflowSha) {
+  const verifierWorktree = mkdtempSync(join(tmpdir(), "openclaw-release-verifier-"));
+  try {
+    run("git", ["worktree", "add", "--detach", verifierWorktree, workflowSha], {
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    const verifier = join(verifierWorktree, "scripts", "release-ci-summary.mjs");
+    const evidence = JSON.parse(
+      run(process.execPath, [verifier, ...releaseEvidenceVerificationArgs(parentRunId)]),
+    );
+    if (evidence.valid !== true) {
+      throw new Error(`Full Release Validation evidence is invalid for run ${parentRunId}.`);
+    }
+    console.log(
+      `ok release evidence current=${evidence.current.runId} root=${evidence.root.runId} reused=${Boolean(evidence.evidenceReuse)}`,
+    );
+  } finally {
+    runStatus("git", ["worktree", "remove", "--force", verifierWorktree], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    rmSync(verifierWorktree, { force: true, recursive: true });
   }
-  console.log(
-    `ok release evidence current=${evidence.current.runId} root=${evidence.root.runId} reused=${Boolean(evidence.evidenceReuse)}`,
-  );
 }
 
 function main() {
@@ -257,7 +271,7 @@ function main() {
         `Full Release Validation failed: https://github.com/openclaw/openclaw/actions/runs/${parentRunId}`,
       );
     }
-    verifyReleaseEvidence(parentRunId);
+    verifyReleaseEvidence(parentRunId, workflowSha);
   } finally {
     if (!args.keepBranch) {
       run("git", ["push", "origin", `:${remoteBranchRef}`], {
