@@ -2940,16 +2940,7 @@ function isWorktreeClean() {
   return gitOutput(["status", "--porcelain=v1"]).stdout === "";
 }
 
-function hasAgentsBranchChanges() {
-  const base = gitOutput(["merge-base", "HEAD", "refs/remotes/origin/main"]);
-  if (base.status !== 0) {
-    return false;
-  }
-  const changed = gitOutput(["diff", "--name-only", `${base.stdout}..HEAD`, "--", ".agents"]);
-  return changed.status === 0 && changed.stdout.length > 0;
-}
-
-function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, providerName) {
+function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, _providerName) {
   if (commandArgs[0] !== "run") {
     return false;
   }
@@ -2960,11 +2951,7 @@ function shouldUseFullCheckoutForCleanRemoteSync(commandArgs, providerName) {
     return false;
   }
 
-  return (
-    isSparseCheckout() ||
-    isChangedGateCommand(runCommandArgs(commandArgs)) ||
-    (canonicalProviderName(providerName) === "blacksmith-testbox" && hasAgentsBranchChanges())
-  );
+  return isSparseCheckout() || isChangedGateCommand(runCommandArgs(commandArgs));
 }
 
 function defaultFullCheckoutSyncRoot() {
@@ -3194,6 +3181,23 @@ function injectFullCheckoutLeaseReclaim(commandArgs) {
   return normalizedArgs;
 }
 
+function injectRemoteTestboxCi(commandArgs, providerName) {
+  if (commandArgs[0] !== "run" || canonicalProviderName(providerName) !== "blacksmith-testbox") {
+    return commandArgs;
+  }
+  const normalizedArgs = [...commandArgs];
+  const { start } = runCommandBounds(normalizedArgs);
+  if (start < 0) {
+    return normalizedArgs;
+  }
+  if (hasOption(normalizedArgs, "--shell")) {
+    normalizedArgs[start] = `env CI=true ${normalizedArgs[start]}`;
+  } else {
+    normalizedArgs.splice(start, 0, "env", "CI=true");
+  }
+  return normalizedArgs;
+}
+
 const version = probeCrabboxMetadata(binary, ["--version"]);
 const help = probeCrabboxMetadata(binary, ["run", "--help"]);
 const providers = parseProvidersFromHelp(help.text);
@@ -3388,7 +3392,7 @@ try {
   cleanupOnce();
   throw error;
 }
-const childArgs =
+const childArgs = injectRemoteTestboxCi(
   childCwd === repoRoot
     ? injectRemoteWindowsHydratedNodeModulesBootstrap(
         injectRemoteAwsMacosSwiftBootstrap(
@@ -3408,7 +3412,9 @@ const childArgs =
           provider,
         ),
         remoteChangedGateBase,
-      );
+      ),
+  provider,
+);
 let testboxLeaseFreshness;
 try {
   testboxLeaseFreshness = prepareTestboxLeaseFreshness({
