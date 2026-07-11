@@ -1,7 +1,11 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   parseArgs,
   releaseEvidenceVerificationArgs,
+  releaseEvidenceVerifierPath,
 } from "../../scripts/full-release-validation-at-sha.mjs";
 
 describe("full-release-validation-at-sha", () => {
@@ -64,5 +68,29 @@ describe("full-release-validation-at-sha", () => {
       "--json",
     ]);
     expect(() => releaseEvidenceVerificationArgs("")).toThrow("positive decimal");
+  });
+
+  it("supports current and legacy verifier locations in trusted workflow checkouts", () => {
+    const root = mkdtempSync(join(tmpdir(), "openclaw-release-verifier-path-"));
+    try {
+      const legacy = join(
+        root,
+        ".agents",
+        "skills",
+        "release-openclaw-ci",
+        "scripts",
+        "release-ci-summary.mjs",
+      );
+      mkdirSync(join(legacy, ".."), { recursive: true });
+      writeFileSync(legacy, "");
+      expect(releaseEvidenceVerifierPath(root)).toBe(legacy);
+
+      const current = join(root, "scripts", "release-ci-summary.mjs");
+      mkdirSync(join(current, ".."), { recursive: true });
+      writeFileSync(current, "");
+      expect(releaseEvidenceVerifierPath(root)).toBe(current);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 });

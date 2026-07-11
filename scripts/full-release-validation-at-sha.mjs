@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Dispatches full release validation against a temporary SHA-pinned branch.
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -188,13 +188,32 @@ export function releaseEvidenceVerificationArgs(parentRunId) {
   return ["--validate-run", String(parentRunId), "--trusted-workflow-ref", "main", "--json"];
 }
 
+export function releaseEvidenceVerifierPath(worktreeRoot) {
+  const candidates = [
+    join(worktreeRoot, "scripts", "release-ci-summary.mjs"),
+    join(
+      worktreeRoot,
+      ".agents",
+      "skills",
+      "release-openclaw-ci",
+      "scripts",
+      "release-ci-summary.mjs",
+    ),
+  ];
+  const verifier = candidates.find((candidate) => existsSync(candidate));
+  if (!verifier) {
+    throw new Error("trusted workflow checkout does not contain a release evidence verifier");
+  }
+  return verifier;
+}
+
 function verifyReleaseEvidence(parentRunId, workflowSha) {
   const verifierWorktree = mkdtempSync(join(tmpdir(), "openclaw-release-verifier-"));
   try {
     run("git", ["worktree", "add", "--detach", verifierWorktree, workflowSha], {
       stdio: ["ignore", "ignore", "inherit"],
     });
-    const verifier = join(verifierWorktree, "scripts", "release-ci-summary.mjs");
+    const verifier = releaseEvidenceVerifierPath(verifierWorktree);
     const evidence = JSON.parse(
       run(process.execPath, [verifier, ...releaseEvidenceVerificationArgs(parentRunId)]),
     );
