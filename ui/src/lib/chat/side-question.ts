@@ -45,7 +45,9 @@ export function combineSideChatComposerDraft(
   if (!prefill) {
     return null;
   }
-  const existing = existingDraft?.trim() ?? "";
+  // /btw sends only the first line; collapse the carried-over prose so a
+  // multiline draft is not silently truncated at send time.
+  const existing = existingDraft?.replace(/\s+/g, " ").trim() ?? "";
   if (!existing || existing.startsWith("/")) {
     return prefill;
   }

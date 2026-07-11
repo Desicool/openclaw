@@ -285,11 +285,13 @@ describe("chat side result gateway events", () => {
     expect(state.chatSideResultTerminalRuns?.has("btw-run-old")).toBe(true);
   });
 
-  it("keeps this pane's pending guard when another run's result arrives", () => {
+  it("keeps this pane's pending card when another run's result arrives", () => {
     const state = createState();
     state.chatSideResultPending = { question: "my question", ts: 1, runId: "btw-run-mine" };
 
-    // Same session, different run (e.g. a split pane) that was never retired here.
+    // Same session, different run (e.g. a split pane) that was never retired
+    // here: it must not replace the live pending card, but its terminal chat
+    // event must still be swallowed in this pane.
     expect(
       handleChatSideResultGatewayEvent(state, {
         kind: "btw",
@@ -301,8 +303,9 @@ describe("chat side result gateway events", () => {
       }),
     ).toBe(true);
 
-    expect(state.chatSideResult).toMatchObject({ runId: "btw-run-other-pane" });
+    expect(state.chatSideResult).toBeNull();
     expect(state.chatSideResultPending).toMatchObject({ runId: "btw-run-mine" });
+    expect(state.chatSideResultTerminalRuns?.has("btw-run-other-pane")).toBe(true);
 
     // This pane's own run still resolves its pending card.
     handleChatSideResultGatewayEvent(state, {

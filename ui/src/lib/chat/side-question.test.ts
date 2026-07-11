@@ -45,6 +45,12 @@ describe("combineSideChatComposerDraft", () => {
     );
   });
 
+  it("collapses multiline drafts so the single-line /btw send loses nothing", () => {
+    expect(combineSideChatComposerDraft("cron scan job", "first line\nsecond line")).toBe(
+      `/btw Regarding "cron scan job": first line second line`,
+    );
+  });
+
   it("replaces slash-command drafts instead of embedding them", () => {
     expect(combineSideChatComposerDraft("cron scan job", "/compact")).toBe(
       `/btw Regarding "cron scan job": `,

@@ -338,16 +338,18 @@ export function handleChatSideResultGatewayEvent(state: ChatState, payload: unkn
   if (state.chatSideResultTerminalRuns?.has(sideResult.runId)) {
     return true;
   }
-  state.chatSideResult = sideResult;
-  state.chatSideResultTerminalRuns?.add(sideResult.runId);
-  // Only the pending run's own result consumes the card. A same-session
-  // result from elsewhere (e.g. a split pane showing this session) may
-  // display, but this pane's question is still running and must keep its
-  // run-id guard for the eventual side_result/terminal event.
+  // A same-session result from another run (e.g. a split pane) must not
+  // replace this pane's live pending card — displaying it would also let the
+  // dismiss button retire the hidden pending run. Record it so its trailing
+  // terminal chat event is still swallowed here.
   const pendingRunId = state.chatSideResultPending?.runId;
-  if (!pendingRunId || pendingRunId === sideResult.runId) {
-    state.chatSideResultPending = null;
+  if (pendingRunId && pendingRunId !== sideResult.runId) {
+    state.chatSideResultTerminalRuns?.add(sideResult.runId);
+    return true;
   }
+  state.chatSideResult = sideResult;
+  state.chatSideResultPending = null;
+  state.chatSideResultTerminalRuns?.add(sideResult.runId);
   return true;
 }
 
