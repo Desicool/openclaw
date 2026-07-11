@@ -1395,12 +1395,14 @@ export function validateReleaseRunEvidence(
 
 export function parseReleaseCiSummaryArgs(argv) {
   const options = {
+    intervalMs: 30_000,
     json: false,
     manifestPath: undefined,
     repository: DEFAULT_REPO,
     runId: undefined,
     trustedWorkflowRef: "main",
     validate: false,
+    watch: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -1415,6 +1417,14 @@ export function parseReleaseCiSummaryArgs(argv) {
       options.trustedWorkflowRef = argv[++index];
     } else if (argument === "--json") {
       options.json = true;
+    } else if (argument === "--watch") {
+      options.watch = true;
+    } else if (argument === "--interval") {
+      const seconds = argv[++index];
+      if (!/^[1-9][0-9]*$/u.test(seconds ?? "")) {
+        throw new Error("--interval requires a positive number of seconds");
+      }
+      options.intervalMs = Number(seconds) * 1000;
     } else if (!argument.startsWith("-") && !options.runId && !options.validate) {
       options.runId = argument;
     } else {
@@ -1423,6 +1433,9 @@ export function parseReleaseCiSummaryArgs(argv) {
   }
   if (!options.validate && options.manifestPath) {
     throw new Error("--manifest requires --validate-run");
+  }
+  if (options.validate && options.watch) {
+    throw new Error("--watch cannot be combined with --validate-run");
   }
   if (!options.runId) {
     throw new Error("full release run ID is required");
@@ -1434,12 +1447,80 @@ function printUsage() {
   console.error(
     [
       "usage: release-ci-summary.mjs <full-release-run-id>",
+      "       release-ci-summary.mjs <full-release-run-id> --watch [--interval seconds]",
       "       release-ci-summary.mjs --validate-run <id> [--repo owner/name] [--trusted-workflow-ref main] [--manifest path] --json",
     ].join("\n"),
   );
 }
 
-function main() {
+export function releaseCiWatchFingerprint(parent) {
+  return JSON.stringify({
+    attempt: parent.attempt,
+    conclusion: parent.conclusion ?? "",
+    jobs: (parent.jobs ?? [])
+      .map((job) => ({
+        conclusion: job.conclusion ?? "",
+        name: job.name,
+        status: job.status,
+      }))
+      .toSorted((left, right) => left.name.localeCompare(right.name)),
+    status: parent.status,
+  });
+}
+
+function summarizeReleaseCiRun(options) {
+  execFileSync(
+    process.execPath,
+    [
+      RELEASE_EVIDENCE_FILE,
+      options.runId,
+      "--repo",
+      options.repository,
+      "--trusted-workflow-ref",
+      options.trustedWorkflowRef,
+    ],
+    { stdio: "inherit" },
+  );
+}
+
+export async function watchReleaseCiRun(options, overrides = {}) {
+  const fetchParent =
+    overrides.fetchParent ??
+    (() =>
+      jsonGh([
+        "run",
+        "view",
+        options.runId,
+        "--repo",
+        options.repository,
+        "--json",
+        "status,conclusion,attempt,jobs",
+      ]));
+  const summarize = overrides.summarize ?? (() => summarizeReleaseCiRun(options));
+  const sleep =
+    overrides.sleep ??
+    ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  let previousFingerprint;
+  while (true) {
+    const parent = fetchParent();
+    const fingerprint = releaseCiWatchFingerprint(parent);
+    if (fingerprint !== previousFingerprint) {
+      summarize();
+      previousFingerprint = fingerprint;
+    }
+    if (parent.status === "completed") {
+      if (parent.conclusion !== "success") {
+        throw new Error(
+          `full release run ${options.runId} completed with ${parent.conclusion || "no conclusion"}`,
+        );
+      }
+      return;
+    }
+    await sleep(options.intervalMs);
+  }
+}
+
+async function main() {
   let options;
   try {
     options = parseReleaseCiSummaryArgs(process.argv.slice(2));
@@ -1472,6 +1553,10 @@ function main() {
       }
       process.exit(1);
     }
+    return;
+  }
+  if (options.watch) {
+    await watchReleaseCiRun(options);
     return;
   }
 
@@ -1681,5 +1766,8 @@ function main() {
 }
 
 if (process.argv[1]?.endsWith("release-ci-summary.mjs")) {
-  main();
+  await main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }

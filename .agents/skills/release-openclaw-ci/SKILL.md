@@ -122,16 +122,16 @@ publish workflow reads the effective profile from the full-validation manifest.
 
 ## Watch
 
-Use the summary helper instead of repeated raw polling:
+Use the transition-only summary watcher instead of repeated raw polling:
+
+```bash
+node .agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs <full-release-run-id> --watch
+```
+
+For a one-shot snapshot:
 
 ```bash
 node .agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs <full-release-run-id>
-```
-
-Then watch only when useful:
-
-```bash
-gh run watch <full-release-run-id> --repo openclaw/openclaw --exit-status
 ```
 
 Stop watchers before ending the turn or switching strategy.

@@ -11,6 +11,7 @@ import {
   manifestChildEntries,
   parseReleaseCiSummaryArgs,
   readManifestArtifactArchive,
+  releaseCiWatchFingerprint,
   requiredChildKeysForRerunGroup,
   resolveManifestChildOriginAttempt,
   selectExactChildRun,
@@ -27,6 +28,7 @@ import {
   validatePerformanceArtifactOnlyJobs,
   validateReleaseRunEvidence,
   validateTrustedProducerIdentity,
+  watchReleaseCiRun,
 } from "../../.agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs";
 
 const SCRIPT = ".agents/skills/release-openclaw-ci/scripts/release-ci-summary.mjs";
@@ -345,11 +347,13 @@ describe("release CI summary child correlation", () => {
       ]),
     ).toEqual({
       json: true,
+      intervalMs: 30_000,
       manifestPath: "/tmp/manifest.json",
       repository: "openclaw/openclaw",
       runId: "29071366025",
       trustedWorkflowRef: "main",
       validate: true,
+      watch: false,
     });
     expect(parseReleaseCiSummaryArgs(["29071366025"])).toMatchObject({
       repository: "openclaw/openclaw",
@@ -357,9 +361,72 @@ describe("release CI summary child correlation", () => {
       trustedWorkflowRef: "main",
       validate: false,
     });
+    expect(parseReleaseCiSummaryArgs(["29071366025", "--watch", "--interval", "15"])).toMatchObject(
+      {
+        intervalMs: 15_000,
+        watch: true,
+      },
+    );
+    expect(() => parseReleaseCiSummaryArgs(["29071366025", "--interval", "0"])).toThrow(
+      "positive number of seconds",
+    );
+    expect(() => parseReleaseCiSummaryArgs(["--validate-run", "29071366025", "--watch"])).toThrow(
+      "--watch cannot be combined",
+    );
     expect(() => parseReleaseCiSummaryArgs(["--manifest", "/tmp/manifest.json"])).toThrow(
       "--manifest requires --validate-run",
     );
+  });
+
+  it("changes the watch fingerprint only for visible run transitions", () => {
+    const parent = {
+      attempt: 1,
+      conclusion: "",
+      jobs: [{ name: "Run normal full CI", status: "in_progress", conclusion: "" }],
+      status: "in_progress",
+      url: "ignored",
+    };
+    expect(releaseCiWatchFingerprint({ ...parent, url: "changed" })).toBe(
+      releaseCiWatchFingerprint(parent),
+    );
+    expect(
+      releaseCiWatchFingerprint({
+        ...parent,
+        jobs: [{ ...parent.jobs[0], conclusion: "success", status: "completed" }],
+      }),
+    ).not.toBe(releaseCiWatchFingerprint(parent));
+  });
+
+  it("summarizes only transitions while watching a release run", async () => {
+    const states = [
+      { attempt: 1, conclusion: "", jobs: [], status: "queued" },
+      { attempt: 1, conclusion: "", jobs: [], status: "queued" },
+      {
+        attempt: 1,
+        conclusion: "success",
+        jobs: [{ name: "Run normal full CI", status: "completed", conclusion: "success" }],
+        status: "completed",
+      },
+    ];
+    let index = 0;
+    let summaries = 0;
+    let sleeps = 0;
+
+    await watchReleaseCiRun(
+      parseReleaseCiSummaryArgs(["29071366025", "--watch", "--interval", "1"]),
+      {
+        fetchParent: () => states[index++],
+        sleep: async () => {
+          sleeps += 1;
+        },
+        summarize: () => {
+          summaries += 1;
+        },
+      },
+    );
+
+    expect(summaries).toBe(2);
+    expect(sleeps).toBe(2);
   });
 
   it("selects one immutable manifest artifact bound to the exact parent run", () => {
