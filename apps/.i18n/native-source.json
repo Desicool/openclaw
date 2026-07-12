@@ -21539,7 +21539,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 223,
+      "line": 233,
       "path": "apps/macos/Sources/OpenClaw/CanvasManager.swift",
       "source": "Degraded",
       "surface": "apple",
@@ -25275,7 +25275,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 989,
+      "line": 983,
       "path": "apps/macos/Sources/OpenClaw/NodeMode/MacNodeRuntime.swift",
       "source": "approvalSource requires matching systemRunPlan",
       "surface": "apple",
@@ -25283,7 +25283,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 990,
+      "line": 984,
       "path": "apps/macos/Sources/OpenClaw/NodeMode/MacNodeRuntime.swift",
       "source": "explicit approval requires matching systemRunPlan",
       "surface": "apple",
