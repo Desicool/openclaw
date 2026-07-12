@@ -633,6 +633,10 @@ import {
   SessionsFilesGetParamsSchema,
   type SessionsFilesGetResult,
   SessionsFilesGetResultSchema,
+  type SessionsFilesSetParams,
+  SessionsFilesSetParamsSchema,
+  type SessionsFilesSetResult,
+  SessionsFilesSetResultSchema,
   type SessionsFilesListParams,
   SessionsFilesListParamsSchema,
   type SessionsFilesListResult,
@@ -1159,6 +1163,9 @@ export const validateSessionsFilesListParams = lazyCompile<SessionsFilesListPara
 );
 export const validateSessionsFilesGetParams = lazyCompile<SessionsFilesGetParams>(
   SessionsFilesGetParamsSchema,
+);
+export const validateSessionsFilesSetParams = lazyCompile<SessionsFilesSetParams>(
+  SessionsFilesSetParamsSchema,
 );
 export const validateSessionsDiffParams = lazyCompile<SessionsDiffParams>(SessionsDiffParamsSchema);
 export const validateSessionsCreateParams = lazyCompile<SessionsCreateParams>(
@@ -1689,6 +1696,8 @@ export {
   SessionFileRelevanceSchema,
   SessionsFilesGetParamsSchema,
   SessionsFilesGetResultSchema,
+  SessionsFilesSetParamsSchema,
+  SessionsFilesSetResultSchema,
   SessionsFilesListParamsSchema,
   SessionsFilesListResultSchema,
   SessionDiffFileSchema,
@@ -2116,6 +2125,8 @@ export type {
   SessionsFilesListResult,
   SessionsFilesGetParams,
   SessionsFilesGetResult,
+  SessionsFilesSetParams,
+  SessionsFilesSetResult,
   SessionDiffFile,
   SessionDiffFileStatus,
   SessionsDiffParams,
