@@ -18,7 +18,8 @@ struct WatchApprovalTransportSourceGuardTests {
         #expect(appSource.contains("pendingApprovalCount: approvals.count"))
         #expect(approvalFace.contains("self.store.isExecApprovalReviewLoading"))
         #expect(approvalFace.contains("title: \"Loading approval\""))
-        #expect(approvalFace.contains("self.approvalCount > 0"))
+        #expect(approvalFace.contains(
+            "self.approvalCount > 0 || self.store.shouldShowExecApprovalReviewStatus"))
         #expect(approvalFace.contains("title: \"Approval not loaded\""))
         #expect(approvalFace.contains("Approval details have not loaded"))
         #expect(approvalFace.contains("WatchSecondaryButton(title: \"Review again\")"))
