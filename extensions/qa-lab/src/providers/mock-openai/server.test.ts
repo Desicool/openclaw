@@ -1,5 +1,6 @@
 // Qa Lab tests cover server plugin behavior.
 import { afterEach, describe, expect, it } from "vitest";
+import { readQaMockRequestCursor } from "../shared/debug-request-cursor.js";
 import { resolveProviderVariant, startQaMockOpenAiServer } from "./server.js";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -236,10 +237,9 @@ describe("qa mock openai server", () => {
     const server = await startMockServer();
     const debugRequestLimit = 2_000;
     const readCursor = async () =>
-      requireRecord(
+      readQaMockRequestCursor(
         await fetch(`${server.baseUrl}/debug/request-cursor`).then((response) => response.json()),
-        "debug request cursor",
-      ).cursor;
+      );
 
     expect(await readCursor()).toBe(0);
     for (let index = 0; index < debugRequestLimit; index += 1) {
