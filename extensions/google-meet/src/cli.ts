@@ -5,6 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { format } from "node:util";
 import type { Command } from "commander";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
+import { expectDefined } from "openclaw/plugin-sdk/expect-runtime";
 import { callGatewayFromCli } from "openclaw/plugin-sdk/gateway-runtime";
 import {
   clampTimerTimeoutMs,
@@ -1317,7 +1318,11 @@ const CRC32_TABLE = new Uint32Array(
 function crc32(buffer: Buffer): number {
   let value = 0xffffffff;
   for (const byte of buffer) {
-    value = CRC32_TABLE[(value ^ byte) & 0xff] ^ (value >>> 8);
+    const tableValue = expectDefined(
+      CRC32_TABLE.at((value ^ byte) & 0xff),
+      "CRC32 lookup table entry",
+    );
+    value = tableValue ^ (value >>> 8);
   }
   return (value ^ 0xffffffff) >>> 0;
 }
