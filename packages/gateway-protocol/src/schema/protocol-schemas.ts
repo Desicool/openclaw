@@ -357,6 +357,22 @@ import {
   SecretsResolveResultSchema,
 } from "./secrets.js";
 import {
+  SessionCatalogCapabilitiesSchema,
+  SessionCatalogDescriptorSchema,
+  SessionCatalogHostSchema,
+  SessionCatalogSchema,
+  SessionCatalogSessionSchema,
+  SessionCatalogTranscriptItemSchema,
+  SessionsCatalogArchiveParamsSchema,
+  SessionsCatalogArchiveResultSchema,
+  SessionsCatalogContinueParamsSchema,
+  SessionsCatalogContinueResultSchema,
+  SessionsCatalogListParamsSchema,
+  SessionsCatalogListResultSchema,
+  SessionsCatalogReadParamsSchema,
+  SessionsCatalogReadResultSchema,
+} from "./sessions-catalog.js";
+import {
   SessionsAbortParamsSchema,
   SessionsCompactParamsSchema,
   SessionsCompactionBranchParamsSchema,
@@ -577,6 +593,20 @@ export const ProtocolSchemas = {
 
   // Session lifecycle, message routing, compaction, and usage accounting.
   SessionsListParams: SessionsListParamsSchema,
+  SessionCatalogCapabilities: SessionCatalogCapabilitiesSchema,
+  SessionCatalogDescriptor: SessionCatalogDescriptorSchema,
+  SessionCatalogSession: SessionCatalogSessionSchema,
+  SessionCatalogHost: SessionCatalogHostSchema,
+  SessionCatalog: SessionCatalogSchema,
+  SessionCatalogTranscriptItem: SessionCatalogTranscriptItemSchema,
+  SessionsCatalogListParams: SessionsCatalogListParamsSchema,
+  SessionsCatalogListResult: SessionsCatalogListResultSchema,
+  SessionsCatalogReadParams: SessionsCatalogReadParamsSchema,
+  SessionsCatalogReadResult: SessionsCatalogReadResultSchema,
+  SessionsCatalogContinueParams: SessionsCatalogContinueParamsSchema,
+  SessionsCatalogContinueResult: SessionsCatalogContinueResultSchema,
+  SessionsCatalogArchiveParams: SessionsCatalogArchiveParamsSchema,
+  SessionsCatalogArchiveResult: SessionsCatalogArchiveResultSchema,
   SessionsCleanupParams: SessionsCleanupParamsSchema,
   SessionsPreviewParams: SessionsPreviewParamsSchema,
   SessionsDescribeParams: SessionsDescribeParamsSchema,
