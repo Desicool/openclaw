@@ -508,6 +508,8 @@ describe("package acceptance workflow", () => {
     expect(workflow).toContain("actual=\"$(awk 'NF { name=$2;");
     expect(workflow).toContain('sub(/^\\*/, "", name)');
     expect(workflow).not.toContain('sub(/^\\\\*/, "", name)');
+    expect(workflow).toContain('sed \'s/\\r$//\' "$manifest" > "$normalized"');
+    expect(workflow).toContain('sha256sum --strict --check "$normalized"');
     expect(workflow).toContain(
       "Windows Node Release must contain one successful signed-installer promotion job.",
     );

@@ -619,15 +619,18 @@ jobs:
             (
               cd "$recovery_dir"
               verify_checksum_manifest() {
-                local manifest="$1" actual expected
+                local manifest="$1" actual expected normalized
                 shift
+                normalized="${manifest}.normalized"
+                sed 's/\r$//' "$manifest" > "$normalized"
                 expected="$(printf '%s\n' "$@" | LC_ALL=C sort)"
-                actual="$(awk 'NF { name=$2; sub(/^\*/, "", name); print name }' "$manifest" | LC_ALL=C sort)"
+                actual="$(awk 'NF { name=$2; sub(/^\*/, "", name); print name }' "$normalized" | LC_ALL=C sort)"
                 if [[ "$actual" != "$expected" ]]; then
                   echo "$manifest must list exactly: $*" >&2
                   exit 1
                 fi
-                sha256sum --strict --check "$manifest"
+                sha256sum --strict --check "$normalized"
+                rm -f "$normalized"
               }
               verify_checksum_manifest OpenClaw-Android-SHA256SUMS.txt \
                 OpenClaw-Android.apk
