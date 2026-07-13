@@ -4429,11 +4429,6 @@
       "translated": "Adres"
     },
     {
-      "id": "native.android.6926684139f297b5",
-      "source": "Limited Gateway access",
-      "translated": "Sınırlı Gateway erişimi"
-    },
-    {
       "id": "native.android.7f63838c1aaa496a",
       "source": "Discovered",
       "translated": "Keşfedildi"
@@ -4457,6 +4452,11 @@
       "id": "native.android.27b4b0e04eca357c",
       "source": "Scan QR to Pair",
       "translated": "Eşleştirmek için QR Kodunu Tara"
+    },
+    {
+      "id": "native.android.6926684139f297b5",
+      "source": "Limited Gateway access",
+      "translated": "Sınırlı Gateway erişimi"
     },
     {
       "id": "native.android.7b12195e02ebcc34",

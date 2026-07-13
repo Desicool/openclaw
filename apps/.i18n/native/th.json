@@ -4429,11 +4429,6 @@
       "translated": "ที่อยู่"
     },
     {
-      "id": "native.android.6926684139f297b5",
-      "source": "Limited Gateway access",
-      "translated": "การเข้าถึง Gateway แบบจำกัด"
-    },
-    {
       "id": "native.android.7f63838c1aaa496a",
       "source": "Discovered",
       "translated": "ค้นพบแล้ว"
@@ -4457,6 +4452,11 @@
       "id": "native.android.27b4b0e04eca357c",
       "source": "Scan QR to Pair",
       "translated": "สแกน QR เพื่อจับคู่"
+    },
+    {
+      "id": "native.android.6926684139f297b5",
+      "source": "Limited Gateway access",
+      "translated": "การเข้าถึง Gateway แบบจำกัด"
     },
     {
       "id": "native.android.7b12195e02ebcc34",

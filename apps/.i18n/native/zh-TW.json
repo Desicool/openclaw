@@ -4429,11 +4429,6 @@
       "translated": "位址"
     },
     {
-      "id": "native.android.6926684139f297b5",
-      "source": "Limited Gateway access",
-      "translated": "Gateway 存取受限"
-    },
-    {
       "id": "native.android.7f63838c1aaa496a",
       "source": "Discovered",
       "translated": "已探索"
@@ -4457,6 +4452,11 @@
       "id": "native.android.27b4b0e04eca357c",
       "source": "Scan QR to Pair",
       "translated": "掃描 QR Code 以配對"
+    },
+    {
+      "id": "native.android.6926684139f297b5",
+      "source": "Limited Gateway access",
+      "translated": "Gateway 存取受限"
     },
     {
       "id": "native.android.7b12195e02ebcc34",
