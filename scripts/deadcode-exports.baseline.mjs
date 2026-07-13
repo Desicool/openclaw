@@ -3509,6 +3509,7 @@ export const KNIP_UNUSED_EXPORT_BASELINE = [
   "src/infra/runtime-guard.ts: parseMinimumNodeEngine",
   "src/infra/runtime-guard.ts: RuntimeDetails",
   "src/infra/runtime-guard.ts: runtimeSatisfies",
+  "src/infra/session-cost-usage-cache.sqlite.ts: sessionCostUsageCacheTestApi",
   "src/infra/session-cost-usage.ts: loadSessionCostSummaryFromCache",
   "src/infra/session-cost-usage.ts: refreshCostUsageCache",
   "src/infra/session-cost-usage.ts: requestCostUsageCacheRefresh",
