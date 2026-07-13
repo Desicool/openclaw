@@ -94,15 +94,19 @@ extension AgentProTab {
     }
 
     @MainActor
-    func refreshOverview(force _: Bool) async {
-        let generation = self.overviewRefreshGate.begin()
-        let requestContext = self.overviewTaskID
+    func refreshOverview(force: Bool) async {
         guard self.scenePhase == .active, self.liveGatewayConnected else {
+            _ = self.overviewRefreshGate.begin()
             self.overview = nil
             self.overviewErrorText = nil
             self.overviewLoading = false
             return
         }
+        if self.overviewLoading, !force {
+            return
+        }
+        let generation = self.overviewRefreshGate.begin()
+        let requestContext = self.overviewTaskID
 
         self.overviewLoading = true
         self.overviewErrorText = nil
