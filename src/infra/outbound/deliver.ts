@@ -413,6 +413,7 @@ function createPluginHandler(
     threadId?: string | number | null;
     audioAsVoice?: boolean;
     formatting?: OutboundDeliveryFormattingOptions;
+    deliveryPartIndex?: number;
   }): Omit<ChannelOutboundContext, "text" | "mediaUrl"> => ({
     ...baseCtx,
     replyToId: overrides && "replyToId" in overrides ? overrides.replyToId : baseCtx.replyToId,
@@ -422,6 +423,7 @@ function createPluginHandler(
         : baseCtx.replyToIdSource,
     threadId: overrides && "threadId" in overrides ? overrides.threadId : baseCtx.threadId,
     audioAsVoice: overrides?.audioAsVoice,
+    deliveryPartIndex: overrides?.deliveryPartIndex,
     formatting:
       overrides && "formatting" in overrides
         ? { ...baseCtx.formatting, ...overrides.formatting }
@@ -2245,6 +2247,16 @@ async function deliverOutboundPayloadsCore(
         continue;
       }
       payloadSummary = buildPayloadSummary(effectivePayload);
+      if (params.requiredUnknownSendReconciliation) {
+        const plannedMediaCount =
+          params.renderedBatchPlan?.items[payloadIndex]?.mediaUrls.length ??
+          buildPayloadSummary(payload).mediaUrls.length;
+        if (plannedMediaCount !== payloadSummary.mediaUrls.length) {
+          throw new Error(
+            `Required durable message send changed platform fan-out after outbound transforms for ${channel}`,
+          );
+        }
+      }
       const deliveryHandler = await getDeliveryHandler(payloadSummary.mediaUrls);
       const effectiveDeliveryKind = deliveryKindForPayload(effectivePayload, payloadSummary);
       effectiveDeliveryKinds.set(payloadIndex, effectiveDeliveryKind);

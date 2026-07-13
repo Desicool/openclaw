@@ -16,6 +16,8 @@ export type OutboundMessageSendOverrides = ReplyToOverride & {
   audioAsVoice?: boolean;
   forceDocument?: boolean;
   formatting?: OutboundDeliveryFormattingOptions;
+  /** Stable zero-based platform-send index within one durable payload. */
+  deliveryPartIndex?: number;
 };
 
 /**
@@ -87,13 +89,16 @@ export function planOutboundTextMessageUnits(params: {
   formatting?: OutboundDeliveryFormattingOptions;
   consumeReplyTo?: PlanReplyToConsumption;
 }): OutboundMessageUnit[] {
-  const planTextUnit = (text: string): OutboundMessageUnit => ({
+  const planTextUnit = (text: string, deliveryPartIndex: number): OutboundMessageUnit => ({
     kind: "text",
     text,
-    overrides: withPlannedReplyTo(params.overrides, params.consumeReplyTo),
+    overrides: {
+      ...withPlannedReplyTo(params.overrides, params.consumeReplyTo),
+      deliveryPartIndex,
+    },
   });
-  const planChunkedTextUnit = (text: string): OutboundMessageUnit => {
-    const unit = planTextUnit(text);
+  const planChunkedTextUnit = (text: string, deliveryPartIndex: number): OutboundMessageUnit => {
+    const unit = planTextUnit(text, deliveryPartIndex);
     return {
       ...unit,
       overrides: withChunkedTextFormatting(unit.overrides, params.chunkedTextFormatting),
@@ -101,7 +106,7 @@ export function planOutboundTextMessageUnits(params: {
   };
 
   if (!params.chunker || params.textLimit === undefined) {
-    return [planTextUnit(params.text)];
+    return [planTextUnit(params.text, 0)];
   }
 
   if (params.chunkMode === "newline") {
@@ -126,7 +131,7 @@ export function planOutboundTextMessageUnits(params: {
         chunks.push(blockChunk);
       }
       for (const chunk of chunks) {
-        units.push(planChunkedTextUnit(chunk));
+        units.push(planChunkedTextUnit(chunk, units.length));
       }
     }
     return units;
@@ -153,6 +158,9 @@ export function planOutboundMediaMessageUnits(params: {
     kind: "media" as const,
     mediaUrl,
     ...(index === 0 ? { caption: params.caption } : {}),
-    overrides: withPlannedReplyTo(params.overrides, params.consumeReplyTo),
+    overrides: {
+      ...withPlannedReplyTo(params.overrides, params.consumeReplyTo),
+      deliveryPartIndex: index,
+    },
   }));
 }
