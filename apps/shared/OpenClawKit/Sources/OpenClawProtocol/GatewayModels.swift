@@ -2646,18 +2646,22 @@ public struct SessionsListParams: Codable, Sendable {
 public struct SessionCatalogCapabilities: Codable, Sendable {
     public let continuesession: Bool
     public let archive: Bool
+    public let createsession: [String: AnyCodable]?
 
     public init(
         continuesession: Bool,
-        archive: Bool)
+        archive: Bool,
+        createsession: [String: AnyCodable]? = nil)
     {
         self.continuesession = continuesession
         self.archive = archive
+        self.createsession = createsession
     }
 
     private enum CodingKeys: String, CodingKey {
         case continuesession = "continueSession"
         case archive
+        case createsession = "createSession"
     }
 }
 
@@ -2865,6 +2869,7 @@ public struct SessionCatalogTranscriptItem: Codable, Sendable {
 
 public struct SessionsCatalogListParams: Codable, Sendable {
     public let catalogid: String?
+    public let agentid: String?
     public let search: String?
     public let limitperhost: Int?
     public let hostids: [String]?
@@ -2872,12 +2877,14 @@ public struct SessionsCatalogListParams: Codable, Sendable {
 
     public init(
         catalogid: String? = nil,
+        agentid: String? = nil,
         search: String? = nil,
         limitperhost: Int? = nil,
         hostids: [String]? = nil,
         cursors: [String: AnyCodable]? = nil)
     {
         self.catalogid = catalogid
+        self.agentid = agentid
         self.search = search
         self.limitperhost = limitperhost
         self.hostids = hostids
@@ -2886,6 +2893,7 @@ public struct SessionsCatalogListParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case catalogid = "catalogId"
+        case agentid = "agentId"
         case search
         case limitperhost = "limitPerHost"
         case hostids = "hostIds"
@@ -4452,6 +4460,7 @@ public struct SessionsCreateParams: Codable, Sendable {
     public let agentid: String?
     public let label: String?
     public let model: String?
+    public let catalogid: String?
     public let parentsessionkey: String?
     public let fork: Bool?
     public let emitcommandhooks: Bool?
@@ -4468,6 +4477,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         agentid: String? = nil,
         label: String? = nil,
         model: String? = nil,
+        catalogid: String? = nil,
         parentsessionkey: String? = nil,
         fork: Bool? = nil,
         emitcommandhooks: Bool? = nil,
@@ -4483,6 +4493,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         self.agentid = agentid
         self.label = label
         self.model = model
+        self.catalogid = catalogid
         self.parentsessionkey = parentsessionkey
         self.fork = fork
         self.emitcommandhooks = emitcommandhooks
@@ -4500,6 +4511,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         case agentid = "agentId"
         case label
         case model
+        case catalogid = "catalogId"
         case parentsessionkey = "parentSessionKey"
         case fork
         case emitcommandhooks = "emitCommandHooks"
