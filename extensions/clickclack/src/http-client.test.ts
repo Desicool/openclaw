@@ -129,7 +129,7 @@ describe("ClickClack HTTP client", () => {
     const fetchMock = vi.fn(async () => Response.json({ events: [], tail_cursor: "cursor-900" }));
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock,
     });
 
@@ -160,7 +160,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       correlationId: " fakeco.case_1 ",
       fetch: fetchMock as unknown as typeof fetch,
     });
@@ -179,7 +179,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       correlationId: "bad\rcorrelation",
       fetch: fetchMock as unknown as typeof fetch,
     });
@@ -195,7 +195,7 @@ describe("ClickClack HTTP client", () => {
     const port = await listenLoopbackServer(server);
     const client = createClickClackClient({
       baseUrl: `http://127.0.0.1:${port}`,
-      token: "test-token",
+      token: "fake",
     });
 
     try {
@@ -214,7 +214,7 @@ describe("ClickClack HTTP client", () => {
     const fetchMock = vi.fn(async () => streamed.response);
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock,
     });
 
@@ -235,7 +235,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -269,7 +269,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -290,7 +290,7 @@ describe("ClickClack HTTP client", () => {
       );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -334,7 +334,7 @@ describe("ClickClack HTTP client", () => {
       .mockResolvedValueOnce(Response.json({ ok: true }));
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -355,7 +355,7 @@ describe("ClickClack HTTP client", () => {
     expect(uploadInit.method).toBe("POST");
     expect(uploadInit.body).toBeInstanceOf(FormData);
     const uploadHeaders = new Headers(uploadInit.headers);
-    expect(uploadHeaders.get("Authorization")).toBe("Bearer test-token");
+    expect(uploadHeaders.get("Authorization")).toBe("Bearer fake");
     expect(uploadHeaders.has("Content-Type")).toBe(false);
     const file = (uploadInit.body as FormData).get("file");
     expect(file).toBeInstanceOf(File);
@@ -398,7 +398,7 @@ describe("ClickClack HTTP client", () => {
       .mockResolvedValueOnce(Response.json({ error: "broken" }, { status: 503 }));
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -449,7 +449,7 @@ describe("ClickClack HTTP client", () => {
       .mockResolvedValueOnce(Response.json({ error: "broken" }, { status: 503 }));
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -488,7 +488,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -507,7 +507,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -523,7 +523,7 @@ describe("ClickClack HTTP client", () => {
     const fetchMock = vi.fn();
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -543,7 +543,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -570,7 +570,7 @@ describe("ClickClack HTTP client", () => {
     );
     const client = createClickClackClient({
       baseUrl: "https://clickclack.example",
-      token: "test-token",
+      token: "fake",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -598,7 +598,7 @@ describe("createClickClackClient websocket", () => {
     wss.on("connection", (server) => server.send(frame));
     const client = createClickClackClient({
       baseUrl: `http://127.0.0.1:${address.port}`,
-      token: "test-token",
+      token: "fake",
     });
     const socket = client.websocket("ws-1");
     try {
