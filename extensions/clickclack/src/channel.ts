@@ -25,7 +25,7 @@ import {
 } from "./accounts.js";
 import { clickClackConfigSchema } from "./config-schema.js";
 import { startClickClackGatewayAccount } from "./gateway.js";
-import { sendClickClackText } from "./outbound.js";
+import { sendClickClackMedia, sendClickClackText } from "./outbound.js";
 import {
   buildClickClackTarget,
   looksLikeClickClackTarget,
@@ -42,6 +42,7 @@ const clickClackMessageAdapter = defineChannelMessageAdapter({
   durableFinal: {
     capabilities: {
       text: true,
+      media: true,
       replyTo: true,
       thread: true,
       messageSendingHooks: true,
@@ -66,6 +67,32 @@ const clickClackMessageAdapter = defineChannelMessageAdapter({
           threadId,
           replyToId,
           kind: "text",
+        }),
+      };
+    },
+    media: async (ctx) => {
+      const messageId = await sendClickClackMedia({
+        cfg: ctx.cfg as CoreConfig,
+        accountId: ctx.accountId,
+        to: ctx.to,
+        text: ctx.text,
+        mediaUrl: ctx.mediaUrl,
+        mediaAccess: ctx.mediaAccess,
+        mediaLocalRoots: ctx.mediaLocalRoots,
+        mediaReadFile: ctx.mediaReadFile,
+        threadId: ctx.threadId,
+        replyToId: ctx.replyToId,
+        deliveryQueueId: ctx.deliveryQueueId,
+      });
+      const threadId = ctx.threadId == null ? undefined : String(ctx.threadId);
+      const replyToId = ctx.replyToId ?? undefined;
+      return {
+        messageId,
+        receipt: createMessageReceiptFromOutboundResults({
+          results: [{ channel: CHANNEL_ID, messageId }],
+          threadId,
+          replyToId,
+          kind: "media",
         }),
       };
     },
@@ -188,6 +215,37 @@ export const clickClackPlugin: ChannelPlugin<ResolvedClickClackAccount> = create
         });
         // Legacy outbound results use an empty id to report an intentional no-send.
         return { messageId: messageId ?? "" };
+      },
+      sendMedia: async ({
+        cfg,
+        to,
+        text,
+        mediaUrl,
+        mediaAccess,
+        mediaLocalRoots,
+        mediaReadFile,
+        accountId,
+        threadId,
+        replyToId,
+        deliveryQueueId,
+      }) => {
+        if (!mediaUrl) {
+          throw new Error("ClickClack media send requires mediaUrl");
+        }
+        const messageId = await sendClickClackMedia({
+          cfg: cfg as CoreConfig,
+          accountId,
+          to,
+          text,
+          mediaUrl,
+          mediaAccess,
+          mediaLocalRoots,
+          mediaReadFile,
+          threadId,
+          replyToId,
+          deliveryQueueId,
+        });
+        return { messageId };
       },
     },
   },

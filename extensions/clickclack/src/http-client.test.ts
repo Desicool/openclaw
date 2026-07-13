@@ -281,6 +281,90 @@ describe("ClickClack HTTP client", () => {
     });
   });
 
+  it("serializes retry nonces and reads persisted attachments", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ message: { id: "msg_retry" } }, { status: 201 }))
+      .mockResolvedValueOnce(
+        Response.json({ message: { id: "msg_retry", attachments: [{ id: "upl_1" }] } }),
+      );
+    const client = createClickClackClient({
+      baseUrl: "https://clickclack.example",
+      token: "test-token",
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await client.createChannelMessage("chn_1", "retry-safe", { nonce: "media-queue-1" });
+    const persisted = await client.message("msg_retry");
+
+    expect(requestBodyJson(fetchMock.mock.calls[0]?.[1])).toEqual({
+      body: "retry-safe",
+      nonce: "media-queue-1",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://clickclack.example/api/messages/msg_retry",
+      expect.any(Object),
+    );
+    expect(persisted.attachments).toEqual([{ id: "upl_1" }]);
+  });
+
+  it("uploads multipart bytes with filename and MIME, then attaches by id", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            upload: {
+              id: "upl_1",
+              workspace_id: "wsp_1",
+              owner_id: "usr_1",
+              filename: "viewer-proof.ts",
+              content_type: "text/typescript",
+              byte_size: 19,
+              width: 0,
+              height: 0,
+              duration_ms: 0,
+              created_at: "2026-07-11T00:00:00Z",
+            },
+          },
+          { status: 201 },
+        ),
+      )
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+    const client = createClickClackClient({
+      baseUrl: "https://clickclack.example",
+      token: "test-token",
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    const upload = await client.createUpload({
+      workspaceId: "wsp_1",
+      buffer: Buffer.from("const proof = true;"),
+      filename: "viewer-proof.ts",
+      contentType: "text/typescript",
+    });
+    await client.attachUpload("msg_1", upload.id);
+
+    const uploadRequest = fetchMock.mock.calls[0];
+    expect(uploadRequest?.[0]).toBe("https://clickclack.example/api/uploads?workspace_id=wsp_1");
+    const uploadInit = uploadRequest?.[1] as RequestInit;
+    expect(uploadInit.method).toBe("POST");
+    expect(uploadInit.body).toBeInstanceOf(FormData);
+    const uploadHeaders = new Headers(uploadInit.headers);
+    expect(uploadHeaders.get("Authorization")).toBe("Bearer test-token");
+    expect(uploadHeaders.has("Content-Type")).toBe(false);
+    const file = (uploadInit.body as FormData).get("file");
+    expect(file).toBeInstanceOf(File);
+    expect((file as File).name).toBe("viewer-proof.ts");
+    expect((file as File).type).toBe("text/typescript");
+    expect(await (file as File).text()).toBe("const proof = true;");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://clickclack.example/api/messages/msg_1/attachments",
+    );
+    expect(requestBodyJson(fetchMock.mock.calls[1]?.[1])).toEqual({ upload_id: "upl_1" });
+  });
+
   it("omits quoted_message_id on a channel message when not quoting", async () => {
     const fetchMock = vi.fn(
       async (_input: string | URL | Request, _init?: RequestInit) =>

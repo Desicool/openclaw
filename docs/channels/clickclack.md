@@ -52,19 +52,20 @@ An account counts as configured only when `baseUrl`, `token`, and `workspace` ar
 
 ### Account config keys
 
-| Key                     | Default             | Notes                                                                                   |
-| ----------------------- | ------------------- | --------------------------------------------------------------------------------------- |
-| `baseUrl`               | none (required)     | ClickClack server URL.                                                                  |
-| `token`                 | none (required)     | Plain string or secret ref (`source: "env" \| "file" \| "exec"`).                       |
-| `workspace`             | none (required)     | Workspace id, slug, or name.                                                            |
-| `replyMode`             | `"agent"`           | `"agent"` runs the full agent pipeline; `"model"` sends short direct model completions. |
-| `defaultTo`             | `"channel:general"` | Target used when an outbound path gives no target.                                      |
-| `allowFrom`             | `["*"]`             | User-id allowlist for inbound DMs and channel messages.                                 |
-| `botUserId`             | auto-detected       | Resolved from the bot token identity at startup.                                        |
-| `agentId`               | route default       | Pin this account's inbound messages to one agent.                                       |
-| `toolsAllow`            | none                | Tool allowlist for agent replies from this account.                                     |
-| `model`, `systemPrompt` | none                | Used by `replyMode: "model"` completions.                                               |
-| `reconnectMs`           | `1500`              | Realtime reconnect delay (100 to 60000).                                                |
+| Key                     | Default             | Notes                                                                                              |
+| ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------- |
+| `baseUrl`               | none (required)     | ClickClack server URL.                                                                             |
+| `token`                 | none (required)     | Plain string or secret ref (`source: "env" \| "file" \| "exec"`).                                  |
+| `workspace`             | none (required)     | Workspace id, slug, or name.                                                                       |
+| `replyMode`             | `"agent"`           | `"agent"` runs the full agent pipeline; `"model"` sends short direct model completions.            |
+| `defaultTo`             | `"channel:general"` | Target used when an outbound path gives no target.                                                 |
+| `allowFrom`             | `["*"]`             | User-id allowlist for inbound DMs and channel messages.                                            |
+| `botUserId`             | auto-detected       | Resolved from the bot token identity at startup.                                                   |
+| `agentId`               | route default       | Pin this account's inbound messages to one agent.                                                  |
+| `toolsAllow`            | none                | Tool allowlist for agent replies from this account.                                                |
+| `model`, `systemPrompt` | none                | Used by `replyMode: "model"` completions.                                                          |
+| `maxTokens`             | model default       | Optional model-mode output cap (1 to 32768); higher values can increase latency and provider cost. |
+| `reconnectMs`           | `1500`              | Realtime reconnect delay (100 to 60000).                                                           |
 
 If `plugins.allow` is a non-empty restrictive list, explicitly selecting
 ClickClack in channel setup or running `openclaw plugins enable clickclack`
@@ -107,7 +108,11 @@ Each account opens its own ClickClack realtime connection and uses its own bot t
 ## Reply modes
 
 - `replyMode: "agent"` (default) dispatches inbound messages through the normal agent pipeline, including session recording and tool policy.
-- `replyMode: "model"` skips the agent pipeline and uses the plugin runtime's `llm.complete` for short direct bot replies (optionally shaped by `model` and `systemPrompt`).
+- `replyMode: "model"` skips the agent pipeline and uses the plugin runtime's `llm.complete` for direct bot replies (optionally shaped by `model`, `systemPrompt`, and `maxTokens`).
+
+When `maxTokens` is unset, ClickClack omits the cap and lets the selected runtime
+and model choose their normal output budget. Set `maxTokens` per account to
+impose an explicit response-length, latency, or provider-usage bound.
 
 Model mode runs completions against the resolved bot agent id, which requires
 the explicit `plugins.entries.clickclack.llm.allowAgentIdOverride: true` trust
@@ -177,6 +182,14 @@ Requirements and behavior:
 - `thread:<message_id>` replies in the thread rooted at that message.
 
 Explicit outbound targets may also carry the `clickclack:` or `cc:` provider prefix.
+
+Outbound media uses ClickClack's upload API and then attaches the durable upload
+to the created channel message, thread reply, or DM. Local files and supported
+remote media URLs follow OpenClaw's normal media-access policy, with a 64 MiB
+per-file limit. Durable queued sends derive a ClickClack message nonce from the
+queue intent, reconcile a possibly persisted attachment, and retry attachment
+association once with the same upload and message. Retrying an interrupted send
+therefore does not create another visible message.
 
 Examples:
 

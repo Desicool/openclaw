@@ -16,6 +16,19 @@ import type {
   ClickClackWorkspace,
 } from "./types.js";
 
+type ClickClackUpload = {
+  id: string;
+  workspace_id: string;
+  owner_id: string;
+  filename: string;
+  content_type: string;
+  byte_size: number;
+  width: number;
+  height: number;
+  duration_ms: number;
+  created_at: string;
+};
+
 /**
  * Serializes optional provenance into the wire fields. Unknown JSON fields
  * are ignored by servers without the provenance columns, so these are safe
@@ -168,10 +181,22 @@ export function createClickClackClient(options: ClientOptions) {
       await request<{ root: ClickClackMessage; replies: ClickClackMessage[] }>(
         `/api/messages/${encodeURIComponent(messageId)}/thread`,
       ),
+    message: async (
+      messageId: string,
+    ): Promise<ClickClackMessage & { attachments?: Array<{ id: string }> }> => {
+      const data = await request<{
+        message: ClickClackMessage & { attachments?: Array<{ id: string }> };
+      }>(`/api/messages/${encodeURIComponent(messageId)}`);
+      return data.message;
+    },
     createChannelMessage: async (
       channelId: string,
       body: string,
-      opts?: { provenance?: ClickClackMessageProvenance; quotedMessageId?: string },
+      opts?: {
+        provenance?: ClickClackMessageProvenance;
+        quotedMessageId?: string;
+        nonce?: string;
+      },
     ): Promise<ClickClackMessage> => {
       const data = await request<{ message: ClickClackMessage }>(
         `/api/channels/${encodeURIComponent(channelId)}/messages`,
@@ -180,6 +205,7 @@ export function createClickClackClient(options: ClientOptions) {
           body: JSON.stringify({
             body,
             ...(opts?.quotedMessageId ? { quoted_message_id: opts.quotedMessageId } : {}),
+            ...(opts?.nonce ? { nonce: opts.nonce } : {}),
             ...provenanceFields(opts?.provenance),
           }),
         },
@@ -189,11 +215,18 @@ export function createClickClackClient(options: ClientOptions) {
     createThreadReply: async (
       messageId: string,
       body: string,
-      opts?: { provenance?: ClickClackMessageProvenance },
+      opts?: { provenance?: ClickClackMessageProvenance; nonce?: string },
     ): Promise<ClickClackMessage> => {
       const data = await request<{ message: ClickClackMessage }>(
         `/api/messages/${encodeURIComponent(messageId)}/thread/replies`,
-        { method: "POST", body: JSON.stringify({ body, ...provenanceFields(opts?.provenance) }) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            body,
+            ...(opts?.nonce ? { nonce: opts.nonce } : {}),
+            ...provenanceFields(opts?.provenance),
+          }),
+        },
       );
       return data.message;
     },
@@ -206,6 +239,28 @@ export function createClickClackClient(options: ClientOptions) {
         body: JSON.stringify({ workspace_id: workspaceId, member_ids: memberIds }),
       });
       return data.conversation;
+    },
+    createUpload: async (params: {
+      workspaceId: string;
+      buffer: Buffer;
+      filename: string;
+      contentType: string;
+    }): Promise<ClickClackUpload> => {
+      const form = new FormData();
+      const bytes = new Uint8Array(params.buffer);
+      form.append("file", new Blob([bytes], { type: params.contentType }), params.filename);
+      const query = new URLSearchParams({ workspace_id: params.workspaceId });
+      const data = await request<{ upload: ClickClackUpload }>(`/api/uploads?${query.toString()}`, {
+        method: "POST",
+        body: form,
+      });
+      return data.upload;
+    },
+    attachUpload: async (messageId: string, uploadId: string): Promise<void> => {
+      await request<{ ok: true }>(`/api/messages/${encodeURIComponent(messageId)}/attachments`, {
+        method: "POST",
+        body: JSON.stringify({ upload_id: uploadId }),
+      });
     },
     /**
      * POSTs a durable agent activity row (agent_commentary / agent_tool)
@@ -248,7 +303,7 @@ export function createClickClackClient(options: ClientOptions) {
     createDirectMessage: async (
       conversationId: string,
       body: string,
-      opts?: { quotedMessageId?: string },
+      opts?: { quotedMessageId?: string; nonce?: string },
     ): Promise<ClickClackMessage> => {
       const data = await request<{ message: ClickClackMessage }>(
         `/api/dms/${encodeURIComponent(conversationId)}/messages`,
@@ -257,6 +312,7 @@ export function createClickClackClient(options: ClientOptions) {
           body: JSON.stringify({
             body,
             ...(opts?.quotedMessageId ? { quoted_message_id: opts.quotedMessageId } : {}),
+            ...(opts?.nonce ? { nonce: opts.nonce } : {}),
           }),
         },
       );

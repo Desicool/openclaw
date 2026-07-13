@@ -77,6 +77,7 @@ function createAgentAccount(
     defaultTo: "channel:general",
     allowFrom: ["*"],
     reconnectMs: 1_500,
+    maxTokens: 512,
     agentActivity: false,
     config: {
       allowFrom: ["*"],
@@ -140,6 +141,7 @@ describe("handleClickClackInbound", () => {
       agentId: "service-bot",
       replyMode: "model",
       model: "openai/gpt-5.4-mini",
+      maxTokens: 512,
       toolsAllow: [],
       defaultTo: "channel:general",
       allowFrom: ["*"],
@@ -177,7 +179,7 @@ describe("handleClickClackInbound", () => {
     const completionRequest = (runtime.llm.complete as LlmCompleteMock).mock.calls[0]?.[0];
     expect(completionRequest?.agentId).toBe("service-bot");
     expect(completionRequest?.model).toBe("openai/gpt-5.4-mini");
-    expect(completionRequest?.maxTokens).toBe(96);
+    expect(completionRequest?.maxTokens).toBe(512);
     expect(completionRequest?.purpose).toBe("clickclack bot reply");
     expect(completionRequest?.messages).toEqual([{ role: "user", content: "hello bot" }]);
 
@@ -187,6 +189,65 @@ describe("handleClickClackInbound", () => {
     expect(sendRequest?.text).toBe("service bot online");
     expect(sendRequest?.replyToId).toBe("msg_1");
     expect(sendRequest?.correlationId).toBe("fakeco.case_1");
+  });
+
+  it("omits the completion cap and delivers the reply when maxTokens is unset", async () => {
+    const runtime = createRuntime();
+    setClickClackRuntime(runtime);
+    const account = createAgentAccount({
+      accountId: "service",
+      agentId: "service-bot",
+      replyMode: "model",
+      maxTokens: undefined,
+    });
+
+    await handleClickClackInbound({
+      account,
+      config: {} satisfies CoreConfig,
+      message: createMessage({
+        body: "hello without a clickclack cap",
+        author_id: "usr_human",
+      }),
+    });
+
+    const completionRequest = (runtime.llm.complete as LlmCompleteMock).mock.calls[0]?.[0];
+    expect(completionRequest).not.toHaveProperty("maxTokens");
+    expect(sendClickClackTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "service", text: "service bot online" }),
+    );
+  });
+
+  it("logs and skips delivery when model mode produces no sendable text", async () => {
+    const runtime = createRuntime();
+    vi.mocked(runtime.llm.complete).mockResolvedValue({
+      text: "   ",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      agentId: "service-bot",
+      usage: {},
+      audit: { caller: { kind: "plugin", id: "clickclack" } },
+    });
+    setClickClackRuntime(runtime);
+
+    await handleClickClackInbound({
+      account: createAgentAccount({
+        accountId: "service",
+        agentId: "service-bot",
+        replyMode: "model",
+      }),
+      config: {} satisfies CoreConfig,
+      message: createMessage({ body: "hello bot" }),
+    });
+
+    expect(sendClickClackTextMock).not.toHaveBeenCalled();
+    expect(runtime.logging.getChildLogger).toHaveBeenCalledWith({
+      plugin: "clickclack",
+      feature: "model-reply",
+    });
+    const logger = vi.mocked(runtime.logging.getChildLogger).mock.results[0]?.value;
+    expect(logger?.warn).toHaveBeenCalledWith(
+      "[service] ClickClack model reply produced no sendable text (maxTokens=512)",
+    );
   });
 
   it("marks agent turns command-authorized for allowlisted senders", async () => {

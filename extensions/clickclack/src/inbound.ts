@@ -89,7 +89,7 @@ async function dispatchModelReply(params: {
   const result = await runtime.llm.complete({
     agentId: params.route.agentId,
     model: params.account.model,
-    maxTokens: 96,
+    ...(params.account.maxTokens === undefined ? {} : { maxTokens: params.account.maxTokens }),
     purpose: "clickclack bot reply",
     systemPrompt: params.account.systemPrompt,
     messages: [
@@ -101,6 +101,11 @@ async function dispatchModelReply(params: {
   });
   const text = result.text.trim();
   if (!text) {
+    runtime.logging
+      .getChildLogger({ plugin: "clickclack", feature: "model-reply" })
+      .warn(
+        `[${params.account.accountId}] ClickClack model reply produced no sendable text (maxTokens=${params.account.maxTokens ?? "runtime default"})`,
+      );
     return;
   }
   await sendClickClackText({
