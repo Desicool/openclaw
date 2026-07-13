@@ -1026,6 +1026,7 @@ public struct SystemInfoResult: Codable, Sendable {
     public let port: Int?
     public let nodeversion: String
     public let pid: Int
+    public let processinstanceid: String?
     public let uptimems: Int
     public let cpucount: Int
     public let cpumodel: String?
@@ -1047,6 +1048,7 @@ public struct SystemInfoResult: Codable, Sendable {
         port: Int? = nil,
         nodeversion: String,
         pid: Int,
+        processinstanceid: String? = nil,
         uptimems: Int,
         cpucount: Int,
         cpumodel: String? = nil,
@@ -1067,6 +1069,7 @@ public struct SystemInfoResult: Codable, Sendable {
         self.port = port
         self.nodeversion = nodeversion
         self.pid = pid
+        self.processinstanceid = processinstanceid
         self.uptimems = uptimems
         self.cpucount = cpucount
         self.cpumodel = cpumodel
@@ -1089,6 +1092,7 @@ public struct SystemInfoResult: Codable, Sendable {
         case port
         case nodeversion = "nodeVersion"
         case pid
+        case processinstanceid = "processInstanceId"
         case uptimems = "uptimeMs"
         case cpucount = "cpuCount"
         case cpumodel = "cpuModel"
