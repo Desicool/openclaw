@@ -3136,7 +3136,6 @@ export const KNIP_UNUSED_EXPORT_BASELINE = [
   "ui/src/pages/chat/chat-session.ts: buildChatSessionListOptions",
   "ui/src/pages/chat/chat-session.ts: trackPendingChatPickerPatch",
   "ui/src/pages/chat/chat-state.ts: refreshChat",
-  "ui/src/pages/chat/chat-state.ts: requestChatPageUpdate",
   "ui/src/pages/chat/chat-thread.ts: buildChatItems",
   "ui/src/pages/chat/chat-thread.ts: BuildChatItemsProps",
   "ui/src/pages/chat/chat-thread.ts: WorkGroupRenderItem",
