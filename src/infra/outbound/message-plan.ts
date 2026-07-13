@@ -47,6 +47,32 @@ type OutboundMessageChunker = (
 
 type PlanReplyToConsumption = <T extends OutboundMessageSendOverrides>(overrides: T) => T;
 
+type DurableMediaFanoutContext = {
+  channel: string;
+  requiredUnknownSendReconciliation?: boolean;
+  renderedBatchPlan?: { items: Array<{ mediaUrls: readonly string[] }> };
+};
+
+type MediaFanoutSummary = { mediaUrls: readonly unknown[] };
+
+export function assertStableMediaFanout(
+  params: DurableMediaFanoutContext,
+  payloadIndex: number,
+  originalMediaCount: number,
+  effective: MediaFanoutSummary,
+): void {
+  if (!params.requiredUnknownSendReconciliation) {
+    return;
+  }
+  const plannedMediaCount =
+    params.renderedBatchPlan?.items[payloadIndex]?.mediaUrls.length ?? originalMediaCount;
+  if (plannedMediaCount !== effective.mediaUrls.length) {
+    throw new Error(
+      `Required durable message send changed platform fan-out after outbound transforms for ${params.channel}`,
+    );
+  }
+}
+
 function withPlannedReplyTo(
   overrides: OutboundMessageSendOverrides,
   consumeReplyTo?: PlanReplyToConsumption,

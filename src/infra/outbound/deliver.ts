@@ -84,6 +84,7 @@ import {
 import type { OutboundDeliveryFormattingOptions } from "./formatting.js";
 import type { OutboundIdentity } from "./identity.js";
 import {
+  assertStableMediaFanout,
   planOutboundMediaMessageUnits,
   planOutboundTextMessageUnits,
   type OutboundMessageSendOverrides,
@@ -407,14 +408,9 @@ function createPluginHandler(
         await params.onDeliveryResult?.(normalizeChannelMessageSendResult(params.channel, result));
       }
     : undefined;
-  const resolveCtx = (overrides?: {
-    replyToId?: string | null;
-    replyToIdSource?: "explicit" | "implicit";
-    threadId?: string | number | null;
-    audioAsVoice?: boolean;
-    formatting?: OutboundDeliveryFormattingOptions;
-    deliveryPartIndex?: number;
-  }): Omit<ChannelOutboundContext, "text" | "mediaUrl"> => ({
+  const resolveCtx = (
+    overrides?: OutboundMessageSendOverrides,
+  ): Omit<ChannelOutboundContext, "text" | "mediaUrl"> => ({
     ...baseCtx,
     replyToId: overrides && "replyToId" in overrides ? overrides.replyToId : baseCtx.replyToId,
     replyToIdSource:
@@ -429,9 +425,7 @@ function createPluginHandler(
         ? { ...baseCtx.formatting, ...overrides.formatting }
         : baseCtx.formatting,
   });
-  const buildTargetRef = (overrides?: {
-    threadId?: string | number | null;
-  }): ChannelOutboundTargetRef => ({
+  const buildTargetRef = (overrides?: OutboundMessageSendOverrides): ChannelOutboundTargetRef => ({
     channel: params.channel,
     to: params.to,
     accountId: params.accountId ?? undefined,
@@ -2125,6 +2119,7 @@ async function deliverOutboundPayloadsCore(
   for (const { index: payloadIndex, payload } of normalizedPayloads) {
     const payloadResultStartIndex = results.length;
     let payloadSummary = buildPayloadSummary(payload);
+    const originalMediaCount = payloadSummary.mediaUrls.length;
     let deliveryKind: DiagnosticMessageDeliveryKind = "other";
     let deliveryStartedAt = 0;
     let deliveryStarted = false;
@@ -2246,17 +2241,9 @@ async function deliverOutboundPayloadsCore(
         );
         continue;
       }
-      payloadSummary = buildPayloadSummary(effectivePayload);
-      if (params.requiredUnknownSendReconciliation) {
-        const plannedMediaCount =
-          params.renderedBatchPlan?.items[payloadIndex]?.mediaUrls.length ??
-          buildPayloadSummary(payload).mediaUrls.length;
-        if (plannedMediaCount !== payloadSummary.mediaUrls.length) {
-          throw new Error(
-            `Required durable message send changed platform fan-out after outbound transforms for ${channel}`,
-          );
-        }
-      }
+      const effectivePayloadSummary = buildPayloadSummary(effectivePayload);
+      assertStableMediaFanout(params, payloadIndex, originalMediaCount, effectivePayloadSummary);
+      payloadSummary = effectivePayloadSummary;
       const deliveryHandler = await getDeliveryHandler(payloadSummary.mediaUrls);
       const effectiveDeliveryKind = deliveryKindForPayload(effectivePayload, payloadSummary);
       effectiveDeliveryKinds.set(payloadIndex, effectiveDeliveryKind);
