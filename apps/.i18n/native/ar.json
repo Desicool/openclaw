@@ -11319,11 +11319,6 @@
       "translated": "التراخيص"
     },
     {
-      "id": "native.apple.5c4427c5a67068d6",
-      "source": "Gateway",
-      "translated": "Gateway"
-    },
-    {
       "id": "native.apple.800b6502b5b49941",
       "source": "Address",
       "translated": "العنوان"
@@ -11342,6 +11337,16 @@
       "id": "native.apple.8e3656d85f092897",
       "source": "Agents",
       "translated": "الوكلاء"
+    },
+    {
+      "id": "native.apple.5c4427c5a67068d6",
+      "source": "Gateway",
+      "translated": "Gateway"
+    },
+    {
+      "id": "native.apple.34444b9c6d74f472",
+      "source": "Scan QR to Pair",
+      "translated": "امسح رمز QR للإقران"
     },
     {
       "id": "native.apple.88835de05348122a",
@@ -11644,14 +11649,14 @@
       "translated": "يُستخدم لجلسات الدردشة والتحدث الجديدة."
     },
     {
-      "id": "native.apple.313eb24efcb8d4a0",
-      "source": "Paste setup code",
-      "translated": "الصق رمز الإعداد"
-    },
-    {
       "id": "native.apple.19552e71de246322",
       "source": "Scan QR",
       "translated": "مسح QR"
+    },
+    {
+      "id": "native.apple.313eb24efcb8d4a0",
+      "source": "Paste setup code",
+      "translated": "الصق رمز الإعداد"
     },
     {
       "id": "native.apple.f4afcfbe4e4a72f8",
@@ -11659,19 +11664,14 @@
       "translated": "اتصال"
     },
     {
-      "id": "native.apple.d8a5510f1a2e1701",
-      "source": "Setup Code",
-      "translated": "رمز الإعداد"
-    },
-    {
-      "id": "native.apple.adb22453596f1d78",
-      "source": "Discovered Gateways",
-      "translated": "بوابات Gateway المكتشفة"
-    },
-    {
       "id": "native.apple.64b89f4aa3a81aef",
       "source": "No gateways found yet. Use manual setup if Bonjour is blocked.",
       "translated": "لم يتم العثور على أي بوابات حتى الآن. استخدم الإعداد اليدوي إذا كان Bonjour محظورًا."
+    },
+    {
+      "id": "native.apple.784220b48f5c4af8",
+      "source": "Add Gateway",
+      "translated": "إضافة Gateway"
     },
     {
       "id": "native.apple.75c61c4ee1ecc6d8",

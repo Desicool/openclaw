@@ -11319,11 +11319,6 @@
       "translated": "Licenze"
     },
     {
-      "id": "native.apple.5c4427c5a67068d6",
-      "source": "Gateway",
-      "translated": "Gateway"
-    },
-    {
       "id": "native.apple.800b6502b5b49941",
       "source": "Address",
       "translated": "Indirizzo"
@@ -11342,6 +11337,16 @@
       "id": "native.apple.8e3656d85f092897",
       "source": "Agents",
       "translated": "Agenti"
+    },
+    {
+      "id": "native.apple.5c4427c5a67068d6",
+      "source": "Gateway",
+      "translated": "Gateway"
+    },
+    {
+      "id": "native.apple.34444b9c6d74f472",
+      "source": "Scan QR to Pair",
+      "translated": "Scansiona il codice QR per abbinare"
     },
     {
       "id": "native.apple.88835de05348122a",
@@ -11644,14 +11649,14 @@
       "translated": "Usato per nuove sessioni di Chat e Talk."
     },
     {
-      "id": "native.apple.313eb24efcb8d4a0",
-      "source": "Paste setup code",
-      "translated": "Incolla il codice di configurazione"
-    },
-    {
       "id": "native.apple.19552e71de246322",
       "source": "Scan QR",
       "translated": "Scansiona QR"
+    },
+    {
+      "id": "native.apple.313eb24efcb8d4a0",
+      "source": "Paste setup code",
+      "translated": "Incolla il codice di configurazione"
     },
     {
       "id": "native.apple.f4afcfbe4e4a72f8",
@@ -11659,19 +11664,14 @@
       "translated": "Connetti"
     },
     {
-      "id": "native.apple.d8a5510f1a2e1701",
-      "source": "Setup Code",
-      "translated": "Codice di configurazione"
-    },
-    {
-      "id": "native.apple.adb22453596f1d78",
-      "source": "Discovered Gateways",
-      "translated": "Gateway rilevati"
-    },
-    {
       "id": "native.apple.64b89f4aa3a81aef",
       "source": "No gateways found yet. Use manual setup if Bonjour is blocked.",
       "translated": "Nessun gateway trovato ancora. Usa la configurazione manuale se Bonjour è bloccato."
+    },
+    {
+      "id": "native.apple.784220b48f5c4af8",
+      "source": "Add Gateway",
+      "translated": "Aggiungi Gateway"
     },
     {
       "id": "native.apple.75c61c4ee1ecc6d8",

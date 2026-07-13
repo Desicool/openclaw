@@ -2036,38 +2036,6 @@
       ]
     },
     {
-      "locale": "ko",
-      "source": "Discovered Gateways",
-      "translations": [
-        "검색된 Gateway",
-        "발견된 Gateway"
-      ]
-    },
-    {
-      "locale": "nl",
-      "source": "Discovered Gateways",
-      "translations": [
-        "Gevonden Gateways",
-        "Ontdekte Gateways"
-      ]
-    },
-    {
-      "locale": "th",
-      "source": "Discovered Gateways",
-      "translations": [
-        "Gateway ที่ค้นพบ",
-        "Gateway ที่พบ"
-      ]
-    },
-    {
-      "locale": "zh-CN",
-      "source": "Discovered Gateways",
-      "translations": [
-        "发现的 Gateway",
-        "已发现的 Gateway"
-      ]
-    },
-    {
       "locale": "es",
       "source": "Discovery",
       "translations": [
@@ -6737,22 +6705,6 @@
       "translations": [
         "Configurar",
         "Configuração"
-      ]
-    },
-    {
-      "locale": "de",
-      "source": "Setup Code",
-      "translations": [
-        "Einrichtungscode",
-        "Setup-Code"
-      ]
-    },
-    {
-      "locale": "zh-TW",
-      "source": "Setup Code",
-      "translations": [
-        "設定代碼",
-        "設定碼"
       ]
     },
     {
