@@ -469,6 +469,10 @@ import {
   type MidTurnPrecheckRequest,
 } from "./midturn-precheck.js";
 import {
+  detachPrePersistedCurrentUserTurn,
+  sessionMessagesContainIdempotencyKey,
+} from "./pre-persisted-user-turn.js";
+import {
   PREEMPTIVE_OVERFLOW_ERROR_TEXT,
   buildPrePromptContextBudgetStatus,
   estimateLlmBoundaryTokenPressure,
@@ -568,17 +572,6 @@ function summarizeSessionContext(messages: AgentMessage[]): {
 
 function cloneHookMessages(messages: AgentMessage[]): AgentMessage[] {
   return messages.map((message) => structuredClone(message));
-}
-
-function sessionMessagesContainIdempotencyKey(
-  messages: AgentMessage[],
-  idempotencyKey: string,
-): boolean {
-  return messages.some(
-    (message) =>
-      typeof (message as { idempotencyKey?: unknown }).idempotencyKey === "string" &&
-      (message as { idempotencyKey?: unknown }).idempotencyKey === idempotencyKey,
-  );
 }
 
 function flushSessionManagerTranscript(
@@ -2791,6 +2784,12 @@ export async function runEmbeddedAttempt(
         params.onUserMessagePersistenceInvalidated?.();
         activeSession.agent.state.messages = sessionManager.buildSessionContext().messages;
       }
+      detachPrePersistedCurrentUserTurn({
+        activeSession,
+        preparedUserTurnMessage,
+        suppressNextUserMessagePersistence: params.suppressNextUserMessagePersistence,
+        userTurnAlreadyPersisted: params.userTurnTranscriptRecorder?.hasPersisted() === true,
+      });
       // Single source for the per-message timestamp prefix (issue #3658):
       // normal embedded runs stamp every user message from its own timestamp.
       // Raw model probes must keep the requested prompt text exact.
