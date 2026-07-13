@@ -944,9 +944,7 @@ export async function runEmbeddedAttempt(
       };
       setActiveSessionSystemPrompt(systemPromptText);
       let didDeliverSourceReplyViaMessageTool = false;
-      const markSourceReplyDelivered = () => {
-        didDeliverSourceReplyViaMessageTool = true;
-      };
+      const markSourceReplyDelivered = () => (didDeliverSourceReplyViaMessageTool = true);
       installMessageToolOnlyTerminalHook({
         agent: activeSession.agent,
         sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
