@@ -1453,6 +1453,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       cfg: config,
       profileId: profileAttempt?.profileId,
       allowAuthProfileFallback: profileAttempt?.allowAuthProfileFallback,
+      lockedProfile: true,
       store,
     });
 
