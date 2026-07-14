@@ -179,11 +179,13 @@ Skills own workflows; root owns hard policy and routing.
 - Issue/PR start: `git status -sb`; if clean, `git pull --ff-only`; if dirty, yell before pull/rebase.
 - PR refs: `gh pr view/diff` or `gh api`, not web search. Prefer `gitcrawl` for maintainer discovery; missing/stale `gitcrawl` falls through to live `gh`, not contributor setup. Verify live with `gh` before mutation.
 - `gh pr view` takes the branch positionally; no `--head` flag.
+- `gh pr diff` has no `--stat`; use `gh pr view --json changedFiles,additions,deletions` or `git diff --stat`.
 - zsh: quote `gh api` endpoints containing `?` or brackets; otherwise glob expansion corrupts the invocation.
 - Blacksmith Testbox status/stop: `--id <tbx_id>`; no status JSON flag.
 - Crabbox final timing JSON = proof complete; if portal sync hangs after it, interrupt wrapper only.
 - Sparse-sync temp checkout may claim kept Testbox; repo-path reuse needs `--reclaim`.
 - GitHub Actions: resolve workflow files from `.github/workflows` or API; never infer filenames from display names.
+- Yielded exec: retain the returned session id before polling; never blind-retry.
 - zsh: quote command globs; unmatched patterns abort before the tool runs.
 - Nested remote shell: avoid local `$()` expansion; use remote-safe validation.
 - zsh: don't use `path` as a variable; it rewrites `$PATH`.
