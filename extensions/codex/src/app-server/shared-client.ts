@@ -490,8 +490,8 @@ async function acquireSharedCodexAppServerClient(
   const acquireStartedAt = Date.now();
   const timeoutMs = options?.timeoutMs ?? 0;
   const context = await withCodexAppServerAcquireDeadline(
-    resolveCodexAppServerClientStartContext(options),
     timeoutMs,
+    resolveCodexAppServerClientStartContext(options),
     options?.abandonSignal,
   );
   const {
@@ -585,13 +585,13 @@ async function acquireSharedCodexAppServerClient(
     }));
   try {
     await withCodexAppServerAcquireDeadline(
-      startup.initialized,
       remainingTimeoutMs,
+      startup.initialized,
       options?.abandonSignal,
     );
     const client = await withCodexAppServerAcquireDeadline(
-      startup.ready,
       timeoutMs,
+      startup.ready,
       options?.abandonSignal,
       "codex app-server authentication timed out",
     );
@@ -623,8 +623,8 @@ async function acquireSharedCodexAppServerClient(
 }
 
 async function withCodexAppServerAcquireDeadline<T>(
+  timeoutMs: number, // First: fail before the caller starts its promise argument.
   promise: Promise<T>,
-  timeoutMs: number,
   signal?: AbortSignal,
   timeoutMessage = "codex app-server initialize timed out",
 ): Promise<T> {
@@ -725,8 +725,8 @@ export async function createIsolatedCodexAppServerClient(
     requestedStartOptions,
     startOptions,
   } = await withCodexAppServerAcquireDeadline(
-    resolveCodexAppServerClientStartContext(options),
     timeoutMs,
+    resolveCodexAppServerClientStartContext(options),
     options?.abandonSignal,
   );
   return await startInitializedCodexAppServerClient({
@@ -801,13 +801,9 @@ async function startInitializedCodexAppServerClient(params: {
     params.onStartedClient?.(client);
     let initialize: Promise<void> | undefined;
     try {
-      // Check the total startup deadline before starting another async phase.
-      // Otherwise an elapsed deadline can orphan the new promise during argument evaluation.
-      const initializeTimeoutMs = resolveRemainingAcquireTimeout(timeoutMs, acquireStartedAt);
-      initialize = client.initialize();
       await withCodexAppServerAcquireDeadline(
-        initialize,
-        initializeTimeoutMs,
+        resolveRemainingAcquireTimeout(timeoutMs, acquireStartedAt),
+        (initialize = client.initialize()),
         params.abandonSignal,
       );
     } catch (error) {
@@ -856,10 +852,8 @@ async function startInitializedCodexAppServerClient(params: {
     });
 
     try {
-      // Resolve the deadline before auth starts so a stalled initialize cannot
-      // leave an unobserved auth promise that rejects after client cleanup.
-      const authTimeoutMs = resolveRemainingAcquireTimeout(timeoutMs, acquireStartedAt);
       await withCodexAppServerAcquireDeadline(
+        resolveRemainingAcquireTimeout(timeoutMs, acquireStartedAt),
         applyCodexAppServerAuthProfile({
           client,
           agentDir: params.agentDir,
@@ -869,7 +863,6 @@ async function startInitializedCodexAppServerClient(params: {
           config: params.config,
           ...(params.authProfileStore ? { authProfileStore: params.authProfileStore } : {}),
         }),
-        authTimeoutMs,
         params.abandonSignal,
       );
       const nativeCommand =
