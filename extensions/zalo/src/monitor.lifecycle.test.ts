@@ -72,6 +72,8 @@ async function startLifecycleMonitor(
 describe("monitorZaloProvider lifecycle", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    getUpdatesMock.mockReset();
+    getUpdatesMock.mockImplementation(() => new Promise(() => {}));
     setActivePluginRegistry(createEmptyPluginRegistry());
   });
 
@@ -94,6 +96,36 @@ describe("monitorZaloProvider lifecycle", () => {
     await monitoredRun;
 
     expect(settled).toBe(true);
+    expect(runtime.log).toHaveBeenCalledWith("[default] Zalo provider stopped mode=polling");
+  });
+
+  it("ends poll error backoff immediately when abort fires", async () => {
+    getUpdatesMock.mockReset();
+    getUpdatesMock.mockRejectedValue(new Error("zalo poll transport failed"));
+
+    let settled = false;
+    const { abort, runtime, run } = await startLifecycleMonitor();
+    const monitoredRun = run.then(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() =>
+      expect(runtime.error).toHaveBeenCalledWith(expect.stringContaining("Zalo polling error:")),
+    );
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("zalo poll transport failed"),
+    );
+    expect(settled).toBe(false);
+
+    // Abort during the 5s error backoff; sleepWithAbort must end immediately
+    // instead of waiting out the full setTimeout.
+    const started = Date.now();
+    abort.abort();
+    await monitoredRun;
+    const elapsedMs = Date.now() - started;
+
+    expect(settled).toBe(true);
+    expect(elapsedMs).toBeLessThan(1_000);
     expect(runtime.log).toHaveBeenCalledWith("[default] Zalo provider stopped mode=polling");
   });
 
