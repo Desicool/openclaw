@@ -7,10 +7,7 @@ import type { OpenClawConfig } from "../../../config/types.js";
 import { legacyCodexProviderIdentityKey } from "./codex-route-model-ref.js";
 import { pruneBindingsForMissingAgents } from "./legacy-config-binding-repair.js";
 import { LEGACY_CONFIG_MIGRATIONS } from "./legacy-config-migrations.js";
-import {
-  collectBlockedLegacyOpenAICodexProviderPlan,
-  collectBlockedLegacyOpenAICodexProviderWarnings,
-} from "./legacy-config-migrations.runtime.models.js";
+import { collectBlockedLegacyOpenAICodexProviderPlan } from "./legacy-config-migrations.runtime.models.js";
 
 function repairBindingsForTest(config: OpenClawConfig) {
   const changes: string[] = [];
@@ -268,9 +265,9 @@ describe("legacy memory search config migrate", () => {
     expect(res.changes).toContain(
       "Skipped merging models.providers.codex into models.providers.openai because provider-level defaults cannot be represented safely on merged models: models.providers.codex.auth, models.providers.openai.apiKey.",
     );
-    expect(collectBlockedLegacyOpenAICodexProviderWarnings(res.config)).toEqual([
+    expect(collectBlockedLegacyOpenAICodexProviderPlan(res.config).warning).toEqual(
       expect.stringContaining("models.providers.codex cannot be merged automatically"),
-    ]);
+    );
     expect(collectBlockedLegacyOpenAICodexProviderPlan(res.config).blockedModelIdentities).toEqual([
       expectDefined(
         legacyCodexProviderIdentityKey("codex"),
@@ -343,9 +340,9 @@ describe("legacy memory search config migrate", () => {
     expect(res.changes).toContain(
       "Skipped merging models.providers.codex into models.providers.openai because colliding model definitions differ for: gpt-5.6-sol.",
     );
-    expect(collectBlockedLegacyOpenAICodexProviderWarnings(res.config)).toEqual([
+    expect(collectBlockedLegacyOpenAICodexProviderPlan(res.config).warning).toEqual(
       expect.stringContaining("colliding model definitions differ for: gpt-5.6-sol"),
-    ]);
+    );
     expect(collectBlockedLegacyOpenAICodexProviderPlan(res.config).blockedModelIdentities).toEqual([
       expectDefined(
         legacyCodexProviderIdentityKey("codex"),

@@ -40,7 +40,7 @@ export function legacyCodexProviderIdentityKey(
     : undefined;
 }
 
-export function legacyCodexModelIdentityKey(params: {
+function legacyCodexModelIdentityKey(params: {
   providerId: unknown;
   modelId: unknown;
 }): LegacyCodexModelIdentity | undefined {
@@ -64,7 +64,7 @@ export function legacyCodexModelIdentityKey(params: {
   return unscopedModelId ? `${providerId}\u0000${unscopedModelId}` : undefined;
 }
 
-export function legacyCodexModelRefIdentityKey(
+function legacyCodexModelRefIdentityKey(
   modelRef: unknown,
 ): LegacyCodexModelIdentity | undefined {
   if (typeof modelRef !== "string") {

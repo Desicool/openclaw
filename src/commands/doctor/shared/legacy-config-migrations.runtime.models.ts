@@ -1314,11 +1314,6 @@ export function collectBlockedLegacyOpenAICodexProviderPlan(
   };
 }
 
-export function collectBlockedLegacyOpenAICodexProviderWarnings(raw: unknown): string[] {
-  const warning = collectBlockedLegacyOpenAICodexProviderPlan(raw).warning;
-  return warning ? [warning] : [];
-}
-
 function resolveMovedCodexModelRuntime(params: {
   legacyProviderId: string;
   legacyProvider: Record<string, unknown>;
