@@ -16,6 +16,7 @@ import type { StartupMigrationLease } from "../infra/startup-migration-checkpoin
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { resolveHomeDir } from "../utils.js";
 import { noteIncludeConfinementWarning } from "./doctor-config-analysis.js";
+import type { CronCodexRuntimePolicyTarget } from "./doctor/cron/store-migration.js";
 import { findDoctorLegacyConfigIssues } from "./doctor/shared/legacy-config-issues.js";
 import { resolveStateMigrationConfigInput } from "./doctor/shared/legacy-config-state-migration-input.js";
 
@@ -88,6 +89,7 @@ async function maybeMigrateLegacyConfig(): Promise<string[]> {
 export type DoctorConfigPreflightResult = {
   snapshot: Awaited<ReturnType<typeof readConfigFileSnapshot>>;
   baseConfig: OpenClawConfig;
+  cronCodexRuntimePolicyTargets?: CronCodexRuntimePolicyTarget[];
 };
 
 function collectDoctorLegacyIssues(
@@ -245,6 +247,7 @@ export async function runDoctorConfigPreflight(
   let startupMigrationHeartbeat: ReturnType<typeof setInterval> | undefined;
   let startupMigrationHeartbeatError: unknown;
   const startupMigrationWarnings: string[] = [];
+  const cronCodexRuntimePolicyTargets: CronCodexRuntimePolicyTarget[] = [];
   const noteStartupStateMigrationResult = (result: {
     changes: string[];
     warnings: string[];
@@ -391,11 +394,22 @@ export async function runDoctorConfigPreflight(
             }),
           );
         } else if (stateMigrationInput.cfg) {
-          const { repairLegacyCronStoreWithoutPrompt } = await loadDoctorCron();
+          const {
+            collectCronCodexRuntimePolicyTargetsReadOnly,
+            repairLegacyCronStoreWithoutPrompt,
+          } = await loadDoctorCron();
           const cronResult = await repairLegacyCronStoreWithoutPrompt({
             cfg: stateMigrationInput.cfg,
+            migrateCodexModelRefs: false,
           });
           noteStartupStateMigrationResult(cronResult);
+          if (options.repairPrefixedConfig === true) {
+            const cronCodexPlan = await collectCronCodexRuntimePolicyTargetsReadOnly({
+              cfg: stateMigrationInput.cfg,
+            });
+            cronCodexRuntimePolicyTargets.push(...cronCodexPlan.targets);
+            noteStartupStateMigrationResult({ changes: [], warnings: cronCodexPlan.warnings });
+          }
           noteStartupStateMigrationResult(
             await autoMigrateLegacyState({
               cfg: stateMigrationInput.cfg,
@@ -460,6 +474,7 @@ export async function runDoctorConfigPreflight(
     return {
       snapshot,
       baseConfig,
+      ...(cronCodexRuntimePolicyTargets.length > 0 ? { cronCodexRuntimePolicyTargets } : {}),
     };
   } finally {
     if (startupMigrationHeartbeat) {

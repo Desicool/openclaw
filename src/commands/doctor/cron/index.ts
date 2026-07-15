@@ -17,6 +17,7 @@ import type { CronJob } from "../../../cron/types.js";
 import type { HealthFinding } from "../../../flows/health-checks.js";
 import { shortenHomePath } from "../../../utils.js";
 import type { DoctorPrompter, DoctorOptions } from "../../doctor-prompter.js";
+import type { LegacyCodexModelIdentity } from "../shared/codex-route-model-ref.js";
 import {
   countStaleDreamingJobs,
   migrateLegacyDreamingPayloadShape,
@@ -47,7 +48,12 @@ import {
   mergeRuntimeEntryIntoConfigJob,
   needsSqliteProjectionBackfill,
 } from "./repair-plan.js";
-import { normalizeStoredCronJobs } from "./store-migration.js";
+import { planCronCodexRefRewriteAgainstPersistedConfig } from "./runtime-policy-migration.js";
+import { normalizeStoredCronJobs, type CronCodexRuntimePolicyTarget } from "./store-migration.js";
+import {
+  collectStoredCronCodexRuntimePolicyTargets,
+  cronCodexRuntimePolicyTargetKey,
+} from "./store-migration.js";
 import { noteCronDeliveryTargetAdvisory, noteCronModelOverrides } from "./warnings.js";
 
 export {
@@ -132,6 +138,7 @@ type LegacyCronRepairState = {
 export type LegacyCronRepairResult = {
   changes: string[];
   warnings: string[];
+  codexRuntimePolicyTargets?: CronCodexRuntimePolicyTarget[];
 };
 
 const LEGACY_CRON_STORE_CHECK_ID = "core/doctor/legacy-cron-store";
@@ -227,11 +234,31 @@ async function applyLegacyCronStoreRepair(params: {
   cfg: OpenClawConfig;
   state: LegacyCronRepairState;
   normalized?: ReturnType<typeof normalizeStoredCronJobs>;
+  migrateCodexModelRefs?: boolean;
+  blockedModelIdentities?: ReadonlySet<LegacyCodexModelIdentity>;
 }): Promise<LegacyCronRepairResult> {
   const { state } = params;
   const changes: string[] = [];
   const warnings: string[] = [];
-  const normalized = params.normalized ?? normalizeStoredCronJobs(state.rawJobs);
+  const runtimePolicyPlan =
+    params.migrateCodexModelRefs === true
+      ? planCronCodexRefRewriteAgainstPersistedConfig({
+          cfg: params.cfg,
+          targets: collectStoredCronCodexRuntimePolicyTargets(state.rawJobs),
+          blockedModelIdentities: params.blockedModelIdentities,
+        })
+      : undefined;
+  warnings.push(...(runtimePolicyPlan?.warnings ?? []));
+  const blockedRuntimePolicyTargets = new Set(
+    (runtimePolicyPlan?.blockedTargets ?? []).map(cronCodexRuntimePolicyTargetKey),
+  );
+  const normalized =
+    params.normalized ??
+    normalizeStoredCronJobs(state.rawJobs, {
+      migrateCodexModelRefs: params.migrateCodexModelRefs,
+      shouldMigrateCodexRuntimePolicyTarget: (target) =>
+        !blockedRuntimePolicyTargets.has(cronCodexRuntimePolicyTargetKey(target)),
+    });
   const legacyWebhook = normalizeOptionalString(params.cfg.cron?.webhook);
   const notifyMigration = migrateLegacyNotifyFallback({
     jobs: state.rawJobs,
@@ -340,7 +367,11 @@ async function applyLegacyCronStoreRepair(params: {
     );
   }
 
-  return { changes, warnings };
+  return {
+    changes,
+    warnings,
+    codexRuntimePolicyTargets: normalized.codexRuntimePolicyTargets,
+  };
 }
 
 export async function collectLegacyCronStoreHealthFindings(params: {
@@ -476,6 +507,8 @@ export async function collectLegacyCronStoreHealthFindings(params: {
 
 export async function repairLegacyCronStoreWithoutPrompt(params: {
   cfg: OpenClawConfig;
+  migrateCodexModelRefs?: boolean;
+  blockedModelIdentities?: ReadonlySet<LegacyCodexModelIdentity>;
 }): Promise<LegacyCronRepairResult> {
   const storePath = resolveCronJobsStorePath(normalizeOptionalString(params.cfg.cron?.store));
   let state: LegacyCronRepairState | null;
@@ -495,7 +528,54 @@ export async function repairLegacyCronStoreWithoutPrompt(params: {
   if (!state) {
     return { changes: [], warnings: [] };
   }
-  return await applyLegacyCronStoreRepair({ cfg: params.cfg, state });
+  return await applyLegacyCronStoreRepair({ ...params, state });
+}
+
+/** Read legacy Codex cron targets without changing either cron storage or config. */
+export async function collectCronCodexRuntimePolicyTargetsReadOnly(params: {
+  cfg: OpenClawConfig;
+}): Promise<{ targets: CronCodexRuntimePolicyTarget[]; warnings: string[] }> {
+  const storePath = resolveCronJobsStorePath(normalizeOptionalString(params.cfg.cron?.store));
+  try {
+    const state = await loadLegacyCronRepairState({ cfg: params.cfg, readOnly: true });
+    return {
+      targets: state ? collectStoredCronCodexRuntimePolicyTargets(state.rawJobs) : [],
+      warnings: [],
+    };
+  } catch (err) {
+    return {
+      targets: [],
+      warnings: [
+        `Failed reading cron storage at ${shortenHomePath(storePath)} while planning Codex model migration: ${errorMessage(err)}`,
+      ],
+    };
+  }
+}
+
+/** Commit Codex cron refs only after their model-scoped config policy is durable. */
+export async function repairCronCodexModelRefsAfterConfigWrite(params: {
+  cfg: OpenClawConfig;
+  blockedModelIdentities?: ReadonlySet<LegacyCodexModelIdentity>;
+}): Promise<LegacyCronRepairResult> {
+  const storePath = resolveCronJobsStorePath(normalizeOptionalString(params.cfg.cron?.store));
+  try {
+    const state = await loadLegacyCronRepairState({ cfg: params.cfg });
+    return state
+      ? await applyLegacyCronStoreRepair({
+          cfg: params.cfg,
+          state,
+          migrateCodexModelRefs: true,
+          blockedModelIdentities: params.blockedModelIdentities,
+        })
+      : { changes: [], warnings: [] };
+  } catch (err) {
+    return {
+      changes: [],
+      warnings: [
+        `Failed reading cron storage at ${shortenHomePath(storePath)} while committing Codex model migration: ${errorMessage(err)}`,
+      ],
+    };
+  }
 }
 
 function noteLegacyCronRepairResult(result: LegacyCronRepairResult): void {
