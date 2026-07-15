@@ -408,8 +408,11 @@ vi.mock("../commands/doctor/cron/index.js", () => ({
   collectLegacyCronStoreHealthFindings: mocks.collectLegacyCronStoreHealthFindings,
   collectLegacyWhatsAppCrontabHealthWarning: mocks.collectLegacyWhatsAppCrontabHealthWarning,
   maybeRepairLegacyCronStore: mocks.maybeRepairLegacyCronStore,
-  repairCronCodexModelRefsAfterConfigWrite: mocks.repairCronCodexModelRefsAfterConfigWrite,
   noteLegacyWhatsAppCrontabHealthCheck: mocks.noteLegacyWhatsAppCrontabHealthCheck,
+}));
+
+vi.mock("../commands/doctor/cron/legacy-repair.js", () => ({
+  repairCronCodexModelRefsAfterConfigWrite: mocks.repairCronCodexModelRefsAfterConfigWrite,
 }));
 
 vi.mock("../commands/doctor/shared/channel-plugin-blockers.js", () => ({

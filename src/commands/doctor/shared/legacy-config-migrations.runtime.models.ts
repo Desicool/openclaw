@@ -1340,7 +1340,7 @@ function resolveMovedCodexModelRuntime(params: {
   // Converting provider-level auto must keep its sibling policy fields
   // (e.g. fallback: "none"), matching the model-level branch above.
   return providerRuntimeId && providerRuntimeId !== "auto"
-    ? providerRuntime
+    ? (providerRuntime ?? undefined)
     : { ...providerRuntime, id: "codex" };
 }
 

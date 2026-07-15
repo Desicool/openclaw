@@ -142,7 +142,7 @@ vi.mock("./doctor-state-migrations.js", () => ({
   autoMigrateLegacyTaskStateSidecars,
 }));
 
-vi.mock("./doctor/cron/index.js", () => ({
+vi.mock("./doctor/cron/legacy-repair.js", () => ({
   collectCronCodexRuntimePolicyTargetsReadOnly,
   repairLegacyCronStoreWithoutPrompt,
 }));

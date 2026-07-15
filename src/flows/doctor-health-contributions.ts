@@ -1341,7 +1341,7 @@ async function runWriteConfigHealth(ctx: DoctorHealthFlowContext): Promise<void>
     // required runtime policy was already persisted. Either way ctx.cfg is the
     // durable config, so the cron rewrite below validates against real state.
     const { repairCronCodexModelRefsAfterConfigWrite } =
-      await import("../commands/doctor/cron/index.js");
+      await import("../commands/doctor/cron/legacy-repair.js");
     const result = await repairCronCodexModelRefsAfterConfigWrite({
       cfg: ctx.cfg,
       ...(ctx.configResult.blockedCodexModelIdentities?.length

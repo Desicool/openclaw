@@ -24,7 +24,9 @@ const loadDoctorStateMigrations = createLazyRuntimeModule(
   () => import("./doctor-state-migrations.js"),
 );
 
-const loadDoctorCron = createLazyRuntimeModule(() => import("./doctor/cron/index.js"));
+const loadLegacyCronRepair = createLazyRuntimeModule(
+  () => import("./doctor/cron/legacy-repair.js"),
+);
 const startupPreflightTraceStartedAt = performance.now();
 
 async function measureStartupPreflightStep<T>(name: string, run: () => T | Promise<T>): Promise<T> {
@@ -397,7 +399,7 @@ export async function runDoctorConfigPreflight(
           const {
             collectCronCodexRuntimePolicyTargetsReadOnly,
             repairLegacyCronStoreWithoutPrompt,
-          } = await loadDoctorCron();
+          } = await loadLegacyCronRepair();
           const cronResult = await repairLegacyCronStoreWithoutPrompt({
             cfg: stateMigrationInput.cfg,
             migrateCodexModelRefs: false,
