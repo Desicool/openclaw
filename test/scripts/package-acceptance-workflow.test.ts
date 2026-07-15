@@ -4028,7 +4028,10 @@ describe("package artifact reuse", () => {
     expect(releaseWorkflow).toContain(
       '"${GITHUB_WORKSPACE}/.release-harness/scripts/openclaw-npm-postpublish-verify.ts"',
     );
-    expect(releaseWorkflow).toContain("verify_args+=(--skip-postpublish)");
+    expect(releaseWorkflow).toContain(
+      '"${GITHUB_WORKSPACE}/.release-harness/scripts/openclaw-npm-postpublish-verify.ts"',
+    );
+    expect(releaseWorkflow).toContain("--postpublish-verifier");
     expect(releaseWorkflow).toContain('"${verify_args[@]}"');
     expect(releaseWorkflow).toContain(
       "OpenClaw Release Publish must use trusted main workflow tooling",

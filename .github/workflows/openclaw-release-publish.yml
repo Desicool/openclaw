@@ -1918,17 +1918,17 @@ jobs:
             fi
 
             if [[ "${PUBLISH_OPENCLAW_NPM}" == "true" ]]; then
-              OPENCLAW_NPM_EXPECTED_WORKFLOW_REF="${openclaw_npm_expected_workflow_ref}" \
-                OPENCLAW_NPM_EXPECTED_WORKFLOW_SHA="${openclaw_npm_expected_workflow_sha}" \
-                node --import tsx \
-                "${GITHUB_WORKSPACE}/.release-harness/scripts/openclaw-npm-postpublish-verify.ts" \
-                "${release_version}"
-              verify_args+=(--skip-postpublish)
+              verify_args+=(
+                --postpublish-verifier
+                "${GITHUB_WORKSPACE}/.release-harness/scripts/openclaw-npm-postpublish-verify.ts"
+              )
             fi
 
-            node --import tsx \
-              "${GITHUB_WORKSPACE}/.release-harness/scripts/release-verify-beta.ts" \
-              "${verify_args[@]}"
+            OPENCLAW_NPM_EXPECTED_WORKFLOW_REF="${openclaw_npm_expected_workflow_ref}" \
+              OPENCLAW_NPM_EXPECTED_WORKFLOW_SHA="${openclaw_npm_expected_workflow_sha}" \
+              node --import tsx \
+                "${GITHUB_WORKSPACE}/.release-harness/scripts/release-verify-beta.ts" \
+                "${verify_args[@]}"
 
             # Resolve already validated this exact v3 run before mutation. Append
             # its immutable tuple here so frozen targets need no new CLI option.
