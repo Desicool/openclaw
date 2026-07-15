@@ -343,7 +343,7 @@ describe("package acceptance workflow", () => {
     expect(runReleasePublishInputValidation({ PUBLISH_OPENCLAW_NPM: "false" }).status).toBe(0);
   });
 
-  it("accepts only main-reachable SHA-pinned release publish branches", () => {
+  it("accepts only main-reachable protected SHA-pinned release publish tags", () => {
     const workflowSha = "a".repeat(40);
     const binDir = tempDirs.make("release-publish-gh-");
     const ghPath = `${binDir}/gh`;
@@ -352,7 +352,7 @@ describe("package acceptance workflow", () => {
     const pinnedEnv = {
       GITHUB_REPOSITORY: "openclaw/openclaw",
       PATH: `${binDir}:${process.env.PATH}`,
-      WORKFLOW_REF: `refs/heads/release-publish/${workflowSha.slice(0, 12)}-123`,
+      WORKFLOW_REF: `refs/tags/release-publish/${workflowSha.slice(0, 12)}-123`,
       WORKFLOW_SHA: workflowSha,
     };
 
@@ -364,11 +364,11 @@ describe("package acceptance workflow", () => {
 
     const mismatchedName = runReleasePublishInputValidation({
       ...pinnedEnv,
-      WORKFLOW_REF: `refs/heads/release-publish/${"b".repeat(12)}-123`,
+      WORKFLOW_REF: `refs/tags/release-publish/${"b".repeat(12)}-123`,
     });
     expect(mismatchedName.status).toBe(1);
     expect(mismatchedName.stderr).toContain(
-      "SHA-pinned release publish branch does not match workflow SHA",
+      "SHA-pinned release publish tag does not match workflow SHA",
     );
 
     const unreachable = runReleasePublishInputValidation({
@@ -377,7 +377,7 @@ describe("package acceptance workflow", () => {
     });
     expect(unreachable.status).toBe(1);
     expect(unreachable.stderr).toContain(
-      "SHA-pinned release publish workflow revision is not reachable from current main",
+      "SHA-pinned release publish tag revision is not reachable from current main",
     );
   });
 
@@ -407,6 +407,7 @@ describe("package acceptance workflow", () => {
     }
 
     expect(publishOrchestration.env?.PARENT_WORKFLOW_SHA).toBe("${{ github.sha }}");
+    expect(publishOrchestration.env?.CHILD_WORKFLOW_REF).toBe("${{ github.ref_name }}");
     expectTextToIncludeAll(publishOrchestration.run, [
       'gh api "repos/${GITHUB_REPOSITORY}/commits/${encoded_workflow_ref}"',
       'if [[ "$resolved_workflow_sha" != "$expected_sha" ]]',
@@ -3647,8 +3648,14 @@ describe("package artifact reuse", () => {
       '--release-publish-run-attempt "${GITHUB_RUN_ATTEMPT}"',
     );
     expect(trustedClawHubPlan.run).toContain(
+      '--bootstrap-workflow-ref "${BOOTSTRAP_WORKFLOW_REF}"',
+    );
+    expect(trustedClawHubPlan.run).toContain(
       '--bootstrap-workflow-sha "${bootstrap_workflow_sha}"',
     );
+    expect(trustedClawHubPlan.run).toContain('if [[ "${BOOTSTRAP_WORKFLOW_REF}" == "main" ]]');
+    expect(trustedClawHubPlan.run).toContain('bootstrap_workflow_sha="${GITHUB_SHA}"');
+    expect(trustedClawHubPlan.run).toContain(".bootstrap.ref == $bootstrap_ref");
     expect(trustedClawHubPlan.run).toContain(
       'gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main"',
     );
@@ -3683,6 +3690,9 @@ describe("package artifact reuse", () => {
     expect(releaseWorkflow).toContain("Bootstrap/repair candidates:");
     expect(releaseWorkflow).toContain("Trusted-publisher repair plugins:");
     expect(releaseWorkflow).toContain(
+      'echo "- ClawHub bootstrap workflow ref: \\`${bootstrap_summary_ref}\\` at \\`${bootstrap_summary_sha}\\`"',
+    );
+    expect(releaseWorkflow).toContain(
       "Waiting for plugin-clawhub-new.yml bootstrap to finish before continuing release publish.",
     );
     expect(releaseWorkflow).toContain(
@@ -3690,6 +3700,12 @@ describe("package artifact reuse", () => {
     );
     const verifyBootstrapWorkflowIndex = releaseWorkflow.indexOf(
       'bootstrap_workflow_sha="$(verify_bootstrap_workflow_sha)"',
+    );
+    expect(releaseWorkflow).toContain('if [[ "${approved_ref}" == "main" ]]');
+    expect(releaseWorkflow).toContain('[[ "${approved_ref}" == "${CHILD_WORKFLOW_REF}" ]]');
+    expect(releaseWorkflow).toContain('[[ "${approved_sha}" == "${PARENT_WORKFLOW_SHA}" ]]');
+    expect(releaseWorkflow).toContain(
+      "Trusted main moved from approved ClawHub bootstrap workflow SHA",
     );
     const dispatchPluginNpmIndex = releaseWorkflow.indexOf(
       'plugin_npm_run_id="$(dispatch_workflow plugin-npm-release.yml',
@@ -3762,7 +3778,7 @@ describe("package artifact reuse", () => {
     expect(releaseInputGuard).toContain(
       '[[ "${WORKFLOW_REF}" != "refs/heads/main" && "${tideclaw_alpha_publish}" != "true" && "${sha_pinned_release_publish}" != "true" ]]',
     );
-    expect(releaseInputGuard).toContain("refs/heads/release-publish/");
+    expect(releaseInputGuard).toContain("refs/tags/release-publish/");
     expect(releaseInputGuard).not.toContain("refs/heads/release/");
     expect(releaseInputGuard).toContain(
       '"${RELEASE_TAG}" == *"-alpha."* && "${RELEASE_NPM_DIST_TAG}" == "alpha"',
@@ -3894,7 +3910,7 @@ describe("package artifact reuse", () => {
     expect(clawHubNewWorkflow).toContain("verify-clawhub-published-artifact.mjs");
     expect(openclawNpmWorkflow).toContain("environment: npm-release");
     expect(releaseWorkflow).toContain("default: from-validation");
-    expect(releaseWorkflow).toContain('--release-publish-branch "${CHILD_WORKFLOW_REF}"');
+    expect(releaseWorkflow).toContain('--release-publish-branch "${PARENT_WORKFLOW_BRANCH}"');
     expect(releaseWorkflow).toContain('--release-publish-run-attempt "${GITHUB_RUN_ATTEMPT}"');
     expect(releaseWorkflow).toContain('--release-publish-run-id "${GITHUB_RUN_ID}"');
     expect(releaseWorkflow).toContain('--release-sha "${TARGET_SHA}"');
