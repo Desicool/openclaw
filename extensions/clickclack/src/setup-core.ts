@@ -42,7 +42,7 @@ function normalizeClickClackSetupCode(value: string): string | undefined {
   const normalized = value.trim().toUpperCase().replaceAll("-", "").replaceAll(" ", "");
   if (
     normalized.length !== SETUP_CODE_LENGTH ||
-    [...normalized].some((character) => !SETUP_CODE_ALPHABET.includes(character))
+    Array.from(normalized).some((character) => !SETUP_CODE_ALPHABET.includes(character))
   ) {
     return undefined;
   }
@@ -57,7 +57,7 @@ function requireHttpsClickClackBaseUrl(value: string | undefined): string {
   return baseUrl;
 }
 
-export function parseClickClackSetupCodeInput(params: { code: string; baseUrl?: string }): {
+function parseClickClackSetupCodeInput(params: { code: string; baseUrl?: string }): {
   code: string;
   baseUrl: string;
 } {
@@ -263,7 +263,7 @@ export const clickClackSetupAdapter: ChannelSetupAdapter = {
     return {
       ...remainingInput,
       baseUrl: setup.baseUrl,
-      ["token"]: claim.token,
+      token: claim.token,
       workspace: claim.workspace.id,
       ...(claim.defaults.defaultTo !== undefined ? { defaultTo: claim.defaults.defaultTo } : {}),
       ...(claim.defaults.allowFrom !== undefined

@@ -14,12 +14,17 @@ vi.mock("./setup-claim.js", async (importOriginal) => ({
 vi.mock("./setup-verify.js", () => ({
   verifyClickClackAccountAfterSetup,
 }));
-import { ClickClackSetupCodeClaimError } from "./setup-claim.js";
 import {
   applyClickClackCredentialConfig,
   clickClackSetupAdapter,
   normalizeClickClackBaseUrl,
 } from "./setup-core.js";
+
+// Structural stand-in for the internal claim error: the setup formatter
+// duck-types on a numeric `status`, so tests need only that shape.
+function makeClaimError(status: number, detail: string): Error {
+  return Object.assign(new Error(`claim failed (${status}): ${detail}`), { status });
+}
 
 function validate(params: {
   cfg?: OpenClawConfig;
@@ -163,16 +168,12 @@ describe("ClickClack setup adapter", () => {
   });
 
   it("maps invalid and rate-limited claims to actionable errors", async () => {
-    claimClickClackSetupCode.mockRejectedValueOnce(
-      new ClickClackSetupCodeClaimError(404, "not found"),
-    );
+    claimClickClackSetupCode.mockRejectedValueOnce(makeClaimError(404, "not found"));
     await expect(
       prepare({ code: "ABCD-EFGH-JKMN", baseUrl: "https://clickclack.example" }),
     ).rejects.toThrow("invalid, expired, or already used");
 
-    claimClickClackSetupCode.mockRejectedValueOnce(
-      new ClickClackSetupCodeClaimError(429, "retry later"),
-    );
+    claimClickClackSetupCode.mockRejectedValueOnce(makeClaimError(429, "retry later"));
     await expect(
       prepare({ code: "ABCD-EFGH-JKMN", baseUrl: "https://clickclack.example" }),
     ).rejects.toThrow("Too many ClickClack setup code attempts");
