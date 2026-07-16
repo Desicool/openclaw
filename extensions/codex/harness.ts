@@ -90,6 +90,12 @@ export function createCodexAppServerAgentHarness(options: {
         return validateCodexAppServerRuntimeArtifact(binding);
       },
     },
+    fetchUsageSnapshot: async (ctx) => {
+      const { fetchCodexAppServerUsageSnapshot } = await import("./src/app-server/usage.js");
+      return await fetchCodexAppServerUsageSnapshot(ctx, {
+        pluginConfig: options?.resolvePluginConfig?.() ?? options?.pluginConfig,
+      });
+    },
     supports: (ctx) => {
       const provider = ctx.provider.trim().toLowerCase();
       if (!providerIds.has(provider)) {
