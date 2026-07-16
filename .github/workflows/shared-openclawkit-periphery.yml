@@ -117,16 +117,12 @@ jobs:
       - name: Install iOS scan tooling
         run: |
           brew update
-          # Runner images occasionally ship a corrupted xcodegen Cellar entry
-          # ("<prefix>/Cellar/xcodegen/<ver> is not a directory"); pre-clean and
-          # retry once so a broken bottle pour cannot fail the scan.
-          rm -rf "$(brew --prefix)/Cellar/xcodegen"
-          brew install xcodegen periphery || {
-            brew cleanup xcodegen periphery || true
-            rm -rf "$(brew --prefix)/Cellar/xcodegen"
-            brew install xcodegen periphery
-          }
+          brew install periphery
           swift_tools_dir="$RUNNER_TEMP/openclaw-swift-tools"
+          # Homebrew's xcodegen bottle can arrive corrupted on runner images;
+          # use the repo's pinned, checksummed release installer like ci.yml.
+          ./scripts/install-xcodegen.sh "$swift_tools_dir"
+          "$swift_tools_dir/xcodegen" --version
           ./scripts/install-swift-tools.sh "$swift_tools_dir"
           echo "$swift_tools_dir" >> "$GITHUB_PATH"
           "$swift_tools_dir/swiftformat" --version
