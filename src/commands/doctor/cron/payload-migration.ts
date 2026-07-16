@@ -42,7 +42,7 @@ function hasShellToolAccess(toolsAllow: unknown): boolean {
   });
 }
 
-export type LegacyOpenAICodexCronModelRoute = {
+type LegacyOpenAICodexCronModelRoute = {
   legacyModelRef: string;
   canonicalModelRef: string;
 };
@@ -76,7 +76,7 @@ export function collectLegacyOpenAICodexCronModelRoutes(
 }
 
 /** Canonical OpenAI refs whose legacy cron shape implied the Codex runtime. */
-export function collectLegacyOpenAICodexCronModelRefs(payload: UnknownRecord): string[] {
+function collectLegacyOpenAICodexCronModelRefs(payload: UnknownRecord): string[] {
   return [
     ...new Set(
       collectLegacyOpenAICodexCronModelRoutes(payload).map((route) => route.canonicalModelRef),

@@ -34,9 +34,9 @@ vi.mock("../../../plugins/installed-plugin-index.js", async (importOriginal) => 
 }));
 
 import { legacyCodexProviderIdentityKey } from "./codex-route-model-ref.js";
-import { collectBlockedLegacyOpenAICodexProviderPlan } from "./legacy-config-migrations.runtime.models.js";
 import { repairCodexSessionStoreRoutes } from "./codex-route-session-repair.test-support.js";
 import { collectCodexRouteWarnings, maybeRepairCodexRoutes } from "./codex-route-warnings.js";
+import { collectBlockedLegacyOpenAICodexProviderPlan } from "./legacy-config-migrations.runtime.models.js";
 
 describe("collectCodexRouteWarnings", () => {
   beforeEach(() => {

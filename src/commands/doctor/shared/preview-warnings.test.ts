@@ -324,8 +324,9 @@ vi.mock("./codex-route-warnings.js", () => ({
 
 async function useRealCodexRouteWarningsOnce(): Promise<void> {
   const mocked = await import("./codex-route-warnings.js");
-  const actual =
-    await vi.importActual<typeof import("./codex-route-warnings.js")>("./codex-route-warnings.js");
+  const actual = await vi.importActual<typeof import("./codex-route-warnings.js")>(
+    "./codex-route-warnings.js",
+  );
   vi.mocked(mocked.collectCodexRouteWarnings).mockImplementationOnce(
     actual.collectCodexRouteWarnings,
   );
