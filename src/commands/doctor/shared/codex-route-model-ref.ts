@@ -64,9 +64,7 @@ function legacyCodexModelIdentityKey(params: {
   return unscopedModelId ? `${providerId}\u0000${unscopedModelId}` : undefined;
 }
 
-function legacyCodexModelRefIdentityKey(
-  modelRef: unknown,
-): LegacyCodexModelIdentity | undefined {
+function legacyCodexModelRefIdentityKey(modelRef: unknown): LegacyCodexModelIdentity | undefined {
   if (typeof modelRef !== "string") {
     return undefined;
   }

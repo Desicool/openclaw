@@ -33,10 +33,8 @@ vi.mock("../../../plugins/installed-plugin-index.js", async (importOriginal) => 
   loadInstalledPluginIndex: mocks.loadInstalledPluginIndex,
 }));
 
-import {
-  legacyCodexModelIdentityKey,
-  legacyCodexProviderIdentityKey,
-} from "./codex-route-model-ref.js";
+import { legacyCodexProviderIdentityKey } from "./codex-route-model-ref.js";
+import { collectBlockedLegacyOpenAICodexProviderPlan } from "./legacy-config-migrations.runtime.models.js";
 import { repairCodexSessionStoreRoutes } from "./codex-route-session-repair.test-support.js";
 import { collectCodexRouteWarnings, maybeRepairCodexRoutes } from "./codex-route-warnings.js";
 
@@ -4223,8 +4221,17 @@ describe("collectCodexRouteWarnings", () => {
         fallbackNoticeReason: "rate-limit",
       },
     };
+    // Build the blocked identity through the production plan so the test
+    // exercises the same composition doctor uses.
     const blockedIdentity = expectDefined(
-      legacyCodexModelIdentityKey({ providerId: "codex", modelId: "gpt-5.6-sol" }),
+      collectBlockedLegacyOpenAICodexProviderPlan({
+        models: {
+          providers: {
+            codex: { models: [{ id: "gpt-5.6-sol", api: "openai-responses" }] },
+            openai: { models: [{ id: "gpt-5.6-sol", api: "openai-chatgpt-responses" }] },
+          },
+        },
+      }).blockedModelIdentities[0],
       "blocked fallback notice model identity test invariant",
     );
 
