@@ -24,3 +24,4 @@ export function syncClawHubDocsTree(
   path: string;
   files: number;
 };
+export function pruneOrphanLocaleDocs(targetDocsDir: string): void;
