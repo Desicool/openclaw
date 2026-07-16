@@ -1,6 +1,6 @@
 // Codex usage tests cover the harness-owned provider-usage contribution.
 import type { ProviderFetchUsageSnapshotContext } from "openclaw/plugin-sdk/plugin-entry";
-import { CODEX_APP_SERVER_AUTH_MARKER } from "openclaw/plugin-sdk/provider-usage";
+import { CODEX_APP_SERVER_AUTH_MARKER } from "openclaw/plugin-sdk/agent-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { fetchCodexAppServerUsageSnapshot } from "./usage.js";
 
