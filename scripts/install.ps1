@@ -1250,7 +1250,8 @@ function Get-NpmDebugLogRootCandidates {
 }
 
 function Get-LatestNpmDebugLogPath {
-    foreach ($cacheDir in (Get-NpmDebugLogRootCandidates)) {
+    param([object[]]$CacheRoots)
+    foreach ($cacheDir in @($CacheRoots)) {
         $logDir = Join-Path $cacheDir "_logs"
         if (-not (Test-Path -LiteralPath $logDir -PathType Container)) {
             continue
@@ -1266,7 +1267,10 @@ function Get-LatestNpmDebugLogPath {
 }
 
 function Write-NpmInstallFailureDetails {
-    param([object[]]$Output)
+    param(
+        [object[]]$Output,
+        [object[]]$CacheRoots
+    )
     $printedOutput = $false
     foreach ($line in @($Output)) {
         if ($null -eq $line) {
@@ -1280,7 +1284,7 @@ function Write-NpmInstallFailureDetails {
         $printedOutput = $true
     }
 
-    $latestLog = Get-LatestNpmDebugLogPath
+    $latestLog = Get-LatestNpmDebugLogPath -CacheRoots $CacheRoots
     if ($latestLog) {
         Write-Host "Latest npm debug log ($latestLog):" -ForegroundColor Yellow
         Get-Content -LiteralPath $latestLog -Tail 120 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
@@ -1338,8 +1342,17 @@ function Install-OpenClaw {
     Remove-Item Env:NPM_CONFIG_BEFORE -ErrorAction SilentlyContinue
     Remove-Item Env:NPM_CONFIG_MIN_RELEASE_AGE -ErrorAction SilentlyContinue
     try {
-        $npmOutput = Invoke-NpmCommand -Arguments (@("install", "-g") + $freshnessArgs + @("$installSpec")) 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        # Resolve cache roots before the install so failure reporting cannot create a newer npm log.
+        $npmDebugLogRoots = @(Get-NpmDebugLogRootCandidates)
+        $npmInstallArguments = @("install", "-g") + $freshnessArgs + @("$installSpec")
+        $npmOutput = Invoke-NpmCommand -Arguments $npmInstallArguments 2>&1
+        $npmInstallStatus = $LASTEXITCODE
+        if ($npmInstallStatus -ne 0) {
+            Write-Host "[!] npm install failed; retrying once" -ForegroundColor Yellow
+            $npmOutput = Invoke-NpmCommand -Arguments $npmInstallArguments 2>&1
+            $npmInstallStatus = $LASTEXITCODE
+        }
+        if ($npmInstallStatus -ne 0) {
             Write-Host "[!] npm install failed" -ForegroundColor Red
             if ($npmOutput -match "spawn git" -or $npmOutput -match "ENOENT.*git") {
                 Write-Host "Error: git is missing from PATH." -ForegroundColor Red
@@ -1349,7 +1362,7 @@ function Install-OpenClaw {
                 Write-Host "Re-run with verbose output to see the full error:" -ForegroundColor Yellow
                 Write-Host '  powershell -c "irm https://openclaw.ai/install.ps1 | iex"' -ForegroundColor Cyan
             }
-            Write-NpmInstallFailureDetails -Output $npmOutput
+            Write-NpmInstallFailureDetails -Output $npmOutput -CacheRoots $npmDebugLogRoots
             return $false
         }
     } finally {

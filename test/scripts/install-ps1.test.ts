@@ -531,6 +531,12 @@ describe("install.ps1 failure handling", () => {
   it("runs npm install through the resolved command with quiet CI defaults", () => {
     const npmInstallBody = extractFunctionBody(source, "Install-OpenClaw");
     expect(npmInstallBody).toContain("$npmOutput = Invoke-NpmCommand -Arguments");
+    expect(npmInstallBody).toContain("$npmDebugLogRoots = @(Get-NpmDebugLogRootCandidates)");
+    expect(npmInstallBody).toContain('$npmInstallArguments = @("install", "-g")');
+    expect(npmInstallBody).toContain('Write-Host "[!] npm install failed; retrying once"');
+    expect(
+      npmInstallBody.match(/Invoke-NpmCommand -Arguments \$npmInstallArguments/g),
+    ).toHaveLength(2);
     expect(npmInstallBody).toContain('$env:NPM_CONFIG_LOGLEVEL = "error"');
     expect(npmInstallBody).toContain('$env:NPM_CONFIG_UPDATE_NOTIFIER = "false"');
     expect(npmInstallBody).toContain('$env:NPM_CONFIG_FUND = "false"');
@@ -540,18 +546,14 @@ describe("install.ps1 failure handling", () => {
     expect(npmInstallBody).toContain("Remove-Item Env:NPM_CONFIG_BEFORE");
     expect(npmInstallBody).toContain("Remove-Item Env:NPM_CONFIG_MIN_RELEASE_AGE");
     expect(npmInstallBody).toContain('$env:NODE_LLAMA_CPP_SKIP_DOWNLOAD = "1"');
-    expect(npmInstallBody).toContain(
-      [
-        "$npmOutput = Invoke-NpmCommand -Arguments",
-        '(@("install", "-g") + $freshnessArgs + @("$installSpec"))',
-      ].join(" "),
-    );
     expect(npmInstallBody).toContain("$env:NPM_CONFIG_LOGLEVEL = $prevLogLevel");
     expect(npmInstallBody).toContain("$env:NPM_CONFIG_BEFORE = $prevBefore");
     expect(npmInstallBody).toContain(
       "$env:NODE_LLAMA_CPP_SKIP_DOWNLOAD = $prevNodeLlamaSkipDownload",
     );
-    expect(npmInstallBody).toContain("Write-NpmInstallFailureDetails -Output $npmOutput");
+    expect(npmInstallBody).toContain(
+      "Write-NpmInstallFailureDetails -Output $npmOutput -CacheRoots $npmDebugLogRoots",
+    );
     expect(source).toContain("function Get-LatestNpmDebugLogPath {");
     expect(source).toContain("Get-Content -LiteralPath $latestLog -Tail 120");
   });
