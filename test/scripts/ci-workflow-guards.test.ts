@@ -1527,6 +1527,9 @@ describe("ci workflow guards", () => {
     );
     expect(cacheStep.with?.key).toContain(`platform-${appCompileSdk}.0-`);
     expect(installStep.run).toContain(`"${packageId}"`);
+    expect(installStep.run).toContain(
+      'yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null || [[ "${PIPESTATUS[1]}" -eq 0 ]]',
+    );
   });
 
   it("loads Android CI setup from the workflow revision for frozen targets", () => {
