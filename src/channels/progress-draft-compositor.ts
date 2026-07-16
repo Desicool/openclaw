@@ -52,6 +52,8 @@ export function createChannelProgressDraftCompositor(params: {
   update: (text: string, options?: ChannelProgressDraftUpdateOptions) => Promise<void> | void;
   deleteCurrent?: () => Promise<void> | void;
   tryNativeUpdate?: (text: string) => Promise<boolean> | boolean;
+  /** Publish when structured lines change even if the rendered text does not. */
+  updateOnLineChange?: boolean;
   formatLine?: (line: string) => string;
   isEmptyLine?: (line: ChannelProgressDraftCompositorLine | undefined) => boolean;
   shouldStartNow?: (line: ChannelProgressDraftCompositorLine | undefined) => boolean;
@@ -89,6 +91,7 @@ export function createChannelProgressDraftCompositor(params: {
   let progressSuppressed = false;
   let lines: ChannelProgressDraftCompositorLine[] = [];
   let lastRenderedText = "";
+  let lastRenderedLines = lines;
   let reasoningRawText = "";
   let lastReasoningLine: string | undefined;
   // Model preambles and narration share the status slot while tool lines keep
@@ -134,6 +137,7 @@ export function createChannelProgressDraftCompositor(params: {
     progressSuppressed = suppressed;
     lines = [];
     lastRenderedText = "";
+    lastRenderedLines = lines;
     reasoningRawText = "";
     lastReasoningLine = undefined;
     preambleText = "";
@@ -149,10 +153,12 @@ export function createChannelProgressDraftCompositor(params: {
       return false;
     }
     const text = formatDraftText();
-    if (!text || text === lastRenderedText) {
+    const linesChanged = params.updateOnLineChange === true && lines !== lastRenderedLines;
+    if (!text || (text === lastRenderedText && !linesChanged)) {
       return false;
     }
     lastRenderedText = text;
+    lastRenderedLines = lines;
     await params.update(text, { ...options, lines: [...lines] });
     return true;
   };
@@ -250,6 +256,7 @@ export function createChannelProgressDraftCompositor(params: {
       if (text && (await params.tryNativeUpdate(text))) {
         lines = nextLines;
         lastRenderedText = text;
+        lastRenderedLines = lines;
         return true;
       }
     }
@@ -263,6 +270,7 @@ export function createChannelProgressDraftCompositor(params: {
         return false;
       }
       lastRenderedText = text;
+      lastRenderedLines = lines;
       await params.update(text, { lines: [...lines] });
       return true;
     }
