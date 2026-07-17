@@ -108,6 +108,7 @@ type ChatComposerProps = {
   realtimeTalkDetail?: string | null;
   realtimeTalkInputLevel?: RealtimeTalkLevelSignal;
   realtimeTalkConversation?: RealtimeTalkConversationEntry[];
+  realtimeTalkVideoStream?: MediaStream | null;
   composerControls?: TemplateResult | typeof nothing;
   getDraft?: () => string;
   onDraftChange: (next: string) => void;
@@ -117,6 +118,7 @@ type ChatComposerProps = {
   onSend: () => void;
   onCompact?: () => void | Promise<void>;
   onToggleRealtimeTalk?: () => void;
+  onToggleRealtimeVideo?: () => void;
   onDismissRealtimeTalkError?: () => void;
   onAbort?: () => void;
   onQueueRemove: (id: string) => void;
@@ -1686,6 +1688,7 @@ type ChatRunControlsProps = {
   onSend: () => void;
   onStoreDraft: (draft: string) => void;
   onToggleVoice?: () => void;
+  onToggleVideo?: () => void;
   showPrimary?: boolean;
   showSecondary?: boolean;
 };
@@ -1833,6 +1836,23 @@ function renderChatPrimaryActions(props: ChatRunControlsProps) {
                   >
                 </button>
               </openclaw-tooltip>
+              ${props.onToggleVideo
+                ? html`
+                    <openclaw-tooltip .content=${t("chat.composer.startVideoTalk")}>
+                      <button
+                        class="chat-send-btn chat-send-btn--voice"
+                        @click=${props.onToggleVideo}
+                        ?disabled=${!props.connected || props.sending || props.isBusy}
+                        aria-label=${t("chat.composer.startVideoTalk")}
+                      >
+                        ${icons.camera}
+                        <span class="agent-chat__control-label"
+                          >${t("chat.composer.startVideoTalk")}</span
+                        >
+                      </button>
+                    </openclaw-tooltip>
+                  `
+                : nothing}
             `}
   `;
 }
@@ -2155,6 +2175,7 @@ export function renderChatComposer(props: ChatComposerProps) {
     onSend: handleSend,
     onStoreDraft: () => {},
     onToggleVoice: props.onToggleRealtimeTalk ? handleVoicePrimaryAction : undefined,
+    onToggleVideo: props.onToggleRealtimeVideo,
   };
   const slashMenuVisible = props.connected && canCompose && isSlashMenuVisible(state);
   const activeSlashMenuOptionId = getActiveSlashMenuOptionId(state, props.paneId);
@@ -2227,6 +2248,23 @@ export function renderChatComposer(props: ChatComposerProps) {
           detail: props.realtimeTalkDetail,
           onDismissError: props.onDismissRealtimeTalkError,
         })}
+        ${props.realtimeTalkVideoStream
+          ? html`
+              <div class="agent-chat__video-preview">
+                <video
+                  autoplay
+                  .muted=${true}
+                  playsinline
+                  aria-label=${t("chat.composer.cameraPreview")}
+                  ${ref((element) => {
+                    if (element instanceof HTMLVideoElement) {
+                      element.srcObject = props.realtimeTalkVideoStream ?? null;
+                    }
+                  })}
+                ></video>
+              </div>
+            `
+          : nothing}
 
         <div class="agent-chat__composer-input-row">
           ${renderChatAttachmentMenu({ ...props, disabled: !canCompose })}

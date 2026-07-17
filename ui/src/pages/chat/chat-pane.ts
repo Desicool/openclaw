@@ -1838,6 +1838,7 @@ class ChatPane extends OpenClawLightDomElement {
       state.realtimeTalkSession?.stop();
       state.realtimeTalkSession = null;
       state.realtimeTalkActive = false;
+      state.realtimeTalkVideoStream = null;
       state.realtimeTalkStatus = "idle";
       state.realtimeTalkInputLevel.set(0);
       state.resetToolStream();
@@ -2300,6 +2301,7 @@ class ChatPane extends OpenClawLightDomElement {
       realtimeTalkDetail: state.realtimeTalkDetail,
       realtimeTalkInputLevel: state.realtimeTalkInputLevel,
       realtimeTalkConversation: state.realtimeTalkConversation,
+      realtimeTalkVideoStream: state.realtimeTalkVideoStream,
       connected: state.connected,
       canSend: catalogKey ? this.catalogSession?.canContinue === true : !selectedSessionArchived,
       disabledReason: catalogDisabledReason ?? disabledReason,
@@ -2417,6 +2419,7 @@ class ChatPane extends OpenClawLightDomElement {
         this.context.navigate("sessions", { search: `?${search.toString()}` });
       },
       onToggleRealtimeTalk: () => void state.toggleRealtimeTalk(),
+      onToggleRealtimeVideo: () => void state.toggleRealtimeTalk({ video: true }),
       onDismissError: () => {
         dismissChatError(state as never);
         state.requestUpdate?.();
