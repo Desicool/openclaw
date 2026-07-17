@@ -12724,6 +12724,22 @@ public struct PluginsListResult: Codable, Sendable {
     }
 }
 
+public struct PluginsRefreshParams: Codable, Sendable {}
+
+public struct PluginsRefreshResult: Codable, Sendable {
+    public let ok: Bool
+
+    public init(
+        ok: Bool)
+    {
+        self.ok = ok
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+    }
+}
+
 public struct PluginsSearchParams: Codable, Sendable {
     public let query: String
     public let limit: Int?
