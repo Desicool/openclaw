@@ -3952,6 +3952,9 @@ describe("package artifact reuse", () => {
     expect(releaseNodeSetup.with?.["install-deps"]).toBe("false");
     expect(trustedReleaseToolingInstall.run).toContain("--dir .release-harness");
     expect(trustedReleaseToolingInstall.run).toContain("--frozen-lockfile");
+    expect(trustedReleaseToolingInstall.run).toContain(
+      "ln -s .release-harness/node_modules node_modules",
+    );
     expect(fastPretagScript).toContain(
       "node --import tsx scripts/plugin-release-pretag-pack-check.ts",
     );
