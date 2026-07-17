@@ -379,6 +379,7 @@ enum class GatewayMethod(
   MigrationsMemoryApply("migrations.memory.apply"),
   UiCommand("ui.command"),
   ApprovalHistory("approval.history"),
+  PluginSurfaceRefresh("plugin.surface.refresh"),
 }
 
 enum class GatewayEvent(
