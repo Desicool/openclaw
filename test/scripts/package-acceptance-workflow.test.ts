@@ -1261,7 +1261,10 @@ describe("package acceptance workflow", () => {
 
     expect(performanceStep.env?.RELEASE_PROFILE).toBe("${{ inputs.release_profile }}");
     expectTextToIncludeAll(performanceStep.run, [
+      "fail_on_regression=true",
       'if [[ "$RELEASE_PROFILE" == "beta" ]]',
+      "fail_on_regression=false",
+      '-f fail_on_regression="$fail_on_regression"',
       "Release impact: advisory",
       "advisory for beta",
     ]);
