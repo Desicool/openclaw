@@ -159,8 +159,11 @@ export async function resolveAndApplySecretAssignments(params: {
     for (const assignments of pendingOwners) {
       const failureReason = failedOwners.get(assignments);
       if (failureReason) {
-        // Leave explicit SecretRefs in runtime config. Applying another credential source here
-        // would silently route this owner through env/profile fallback after its declared ref failed.
+        // Canonicalize shorthand refs so runtime consumers can distinguish an unavailable ref
+        // from a successfully resolved literal that happens to look like `${ENV_VAR}`.
+        for (const assignment of assignments) {
+          assignment.apply({ ...assignment.ref });
+        }
         const degradedOwner = createDegradedOwner(assignments, failureReason);
         degradedOwners.push(degradedOwner);
         warnDegradedSecretOwner(params.context, degradedOwner);
