@@ -601,7 +601,24 @@ jobs:
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
         with:
+          install-deps: "false"
           install-bun: "false"
+
+      - name: Install trusted release tooling dependencies
+        env:
+          CI: "true"
+        run: |
+          set -euo pipefail
+          install_args=(
+            --dir .release-harness
+            install
+            --frozen-lockfile
+            --prefer-offline
+            --config.engine-strict=false
+            --config.enable-pre-post-scripts=true
+            --config.side-effects-cache=true
+          )
+          pnpm "${install_args[@]}" || pnpm "${install_args[@]}"
 
       - name: Resolve ClawHub release plan
         id: clawhub_plan
