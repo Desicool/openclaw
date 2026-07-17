@@ -1670,6 +1670,29 @@ describe("ci workflow guards", () => {
     }
   });
 
+  it("downloads the opengrep installer completely before execution", () => {
+    for (const workflowPath of [OPENGREP_PR_DIFF_WORKFLOW, OPENGREP_FULL_WORKFLOW]) {
+      const workflow = parse(readFileSync(workflowPath, "utf8"));
+      const run = expectDefined(
+        workflow.jobs.scan.steps.find((step: WorkflowStep) => step.name === "Install opengrep")
+          ?.run,
+        `Install opengrep step in ${workflowPath}`,
+      );
+
+      expect(run, workflowPath).toContain(
+        'installer="$(mktemp "${RUNNER_TEMP}/opengrep-install.XXXXXX")"',
+      );
+      expect(run, workflowPath).toContain("curl -fsSL --connect-timeout 10 --max-time 120 \\");
+      expect(run, workflowPath).toContain('-o "$installer"');
+      expect(run, workflowPath).toContain('bash "$installer" -v "$OPENGREP_VERSION"');
+      expect(run, workflowPath).toContain("trap 'rm -f \"$installer\"' EXIT");
+      expect(run.indexOf('-o "$installer"'), workflowPath).toBeLessThan(
+        run.indexOf('bash "$installer"'),
+      );
+      expect(run, workflowPath).not.toMatch(/\|\s*bash/u);
+    }
+  });
+
   it("runs real behavior proof from the trusted workflow revision", () => {
     const workflow = readRealBehaviorProofWorkflow();
     const source = readFileSync(".github/workflows/real-behavior-proof.yml", "utf8");
@@ -4278,12 +4301,5 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(rawSocketQuery).not.toContain(
       'call.getFile().getRelativePath() = "extensions/codex/src/app-server/transport-websocket.ts"',
     );
-  });
-
-  it("bounds Opengrep installer downloads with connect timeout", () => {
-    for (const path of [OPENGREP_PR_DIFF_WORKFLOW, OPENGREP_FULL_WORKFLOW]) {
-      const workflow = readFileSync(path, "utf8");
-      expect(workflow).toContain("curl -fsSL --connect-timeout 30 --max-time 120");
-    }
   });
 });
