@@ -55,6 +55,7 @@ function withSlackDispatchLifecycle(args: unknown): Record<string, unknown> {
 
 type SlackTestState = {
   config: Record<string, unknown>;
+  appConstructorArgs?: Record<string, unknown>;
   appStartMock: Mock<(...args: unknown[]) => Promise<unknown>>;
   appStopMock: Mock<(...args: unknown[]) => Promise<unknown>>;
   sendMock: Mock<(...args: unknown[]) => Promise<unknown>>;
@@ -75,6 +76,7 @@ type SlackTestState = {
 
 const slackTestState: SlackTestState = vi.hoisted(() => ({
   config: {} as Record<string, unknown>,
+  appConstructorArgs: undefined,
   appStartMock: vi.fn(),
   appStopMock: vi.fn(),
   sendMock: vi.fn(),
@@ -124,6 +126,15 @@ type SlackClient = {
 export const getSlackHandlers = () => ensureSlackTestRuntime().handlers;
 
 export const getSlackClient = () => ensureSlackTestRuntime().client;
+
+export function disposeSlackTestRuntime(): void {
+  const globalState = globalThis as {
+    __slackHandlers?: Map<string, SlackHandler>;
+    __slackClient?: SlackClient;
+  };
+  Reflect.deleteProperty(globalState, "__slackHandlers");
+  Reflect.deleteProperty(globalState, "__slackClient");
+}
 
 function ensureSlackTestRuntime(): {
   handlers: Map<string, SlackHandler>;
@@ -292,6 +303,7 @@ export function resetSlackTestState(config: Record<string, unknown> = defaultSla
   );
   process.env.OPENCLAW_STATE_DIR = lastSlackTestStateDir;
   slackTestState.config = config;
+  slackTestState.appConstructorArgs = undefined;
   slackTestState.socketModeLogger = undefined;
   slackTestState.appStartMock.mockReset().mockResolvedValue(undefined);
   slackTestState.appStopMock.mockReset().mockResolvedValue(undefined);
@@ -407,7 +419,8 @@ vi.mock("@slack/bolt", () => {
     receiver: unknown;
     middlewares: SlackMiddleware[] = [];
 
-    constructor(args?: { receiver?: unknown }) {
+    constructor(args?: Record<string, unknown>) {
+      slackTestState.appConstructorArgs = args;
       this.receiver = args?.receiver;
     }
     use(middleware: SlackMiddleware) {
