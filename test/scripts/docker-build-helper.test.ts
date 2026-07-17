@@ -4207,6 +4207,9 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
     expect(helper).toContain(
       '-v "$ROOT_DIR/scripts/windows-cmd-helpers.mjs:/app/scripts/windows-cmd-helpers.mjs:ro"',
     );
+    expect(helper).toContain(
+      '-v "$ROOT_DIR/packages/normalization-core/src:/app/packages/normalization-core/src:ro"',
+    );
     expect(helper).toContain('-v "$ROOT_DIR/test/e2e/qa-lab:/app/test/e2e/qa-lab:ro"');
     expect(helper).toContain('-v "$ROOT_DIR/test/helpers:/app/test/helpers:ro"');
   });
