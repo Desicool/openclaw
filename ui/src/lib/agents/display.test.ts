@@ -8,11 +8,7 @@ import {
   resolveAssistantTextAvatar,
   resolveChatAvatarRenderUrl,
 } from "../avatar.ts";
-import {
-  buildAgentContext,
-  formatBytes,
-  resolveEffectiveModelFallbacks,
-} from "./display.ts";
+import { buildAgentContext, formatBytes, resolveEffectiveModelFallbacks } from "./display.ts";
 
 describe("formatBytes", () => {
   it("preserves the Control UI byte-size display contract", () => {
