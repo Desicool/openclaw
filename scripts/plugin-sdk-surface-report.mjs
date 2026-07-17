@@ -114,7 +114,8 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "approval-runtime": 1,
   "config-runtime": 123,
   "config-contracts": 1,
-  "config-types": 425,
+  // +1: unified implicit-mention config type.
+  "config-types": 426,
   "config-schema": 3,
   "reply-dedupe": 1,
   "inbound-reply-dispatch": 26,
@@ -244,10 +245,11 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +32: shared channel setup, config-schema, policy, and status helpers.
       // +2: shared channel replay-guard factory and claim handle.
       // +6: lightweight speech settings types, normalizers, and config resolver.
+      // +4: unified implicit-mention config, schema, resolved policy, and resolver.
       // Harvest: retired AudioConfig type -1.
       // +4: bounded plugin blob store options, entry, entry info, and store types.
       // +6: shared progress receipt tracker + compositor snapshot across channel barrels.
-      8001,
+      8005,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -270,7 +272,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: shared channel replay-guard factory.
       // +3: receipt tracker/snapshot callables across channel barrels.
       // +3: lightweight speech settings normalizers and config resolver.
-      4471,
+      // +1: unified implicit-mention policy resolver.
+      4472,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
@@ -286,13 +289,15 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: Telegram runner alias retained for plugin SDK compatibility.
       // +8: shared channel helpers mirrored by deprecated barrels.
       // +3: receipt/snapshot exports through deprecated channel barrels.
-      2989,
+      // +1: unified implicit-mention config type through deprecated config-types.
+      2990,
       env,
     ),
     publicWildcardReexports: readPluginSdkSurfaceBudgetEnv(
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_WILDCARD_REEXPORTS",
       // Used-union narrowing removes 103 wildcard re-exports.
-      106,
+      // Harvest: freeze the compat config-schema barrel to explicit exports -1.
+      105,
       env,
     ),
   };
