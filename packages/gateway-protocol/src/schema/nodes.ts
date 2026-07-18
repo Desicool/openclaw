@@ -164,13 +164,16 @@ export const NodeInvokeResultParamsSchema = closedObject({
 });
 
 /** Ordered UTF-8 output emitted while a node command invocation is running. */
-export const NodeInvokeProgressParamsSchema = closedObject({
-  invokeId: NonEmptyString,
-  nodeId: NonEmptyString,
-  seq: Type.Integer({ minimum: 0 }),
-  // Empty chunks are liveness heartbeats for captured stderr or capped stdout.
-  chunk: Type.String({ maxLength: 16 * 1024 }),
-});
+export const NodeInvokeProgressParamsSchema = Type.Object(
+  {
+    invokeId: NonEmptyString,
+    nodeId: NonEmptyString,
+    seq: Type.Integer({ minimum: 0 }),
+    // Empty chunks are liveness heartbeats for captured stderr or capped stdout.
+    chunk: Type.String({ maxLength: 16 * 1024 }),
+  },
+  { additionalProperties: false },
+);
 
 /** Generic node event envelope accepted by the gateway. */
 export const NodeEventParamsSchema = closedObject({
