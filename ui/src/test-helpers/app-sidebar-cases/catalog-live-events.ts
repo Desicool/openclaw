@@ -101,6 +101,61 @@ describe("AppSidebar session catalog pagination", () => {
     }
   });
 
+  it("stays paused through a Gateway reconnect while the tab is hidden", async () => {
+    vi.useFakeTimers();
+    let visibility: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibility);
+    try {
+      const foregroundRequest = deferred<SessionsCatalogListResult>();
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce(catalogPage([]))
+        .mockReturnValue(foregroundRequest.promise);
+      const gateway = createGatewayHarness({ request } as unknown as GatewayBrowserClient);
+      gateway.publish({
+        hello: {
+          features: { methods: ["sessions.catalog.list"] },
+        } as ApplicationGatewaySnapshot["hello"],
+      });
+      const { sidebar } = await mountSidebar(
+        gateway.gateway,
+        createSessions("main", ["agent:main:main"]),
+      );
+      sidebar.connected = true;
+      await sidebar.updateComplete;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(request).toHaveBeenCalledTimes(1);
+
+      visibility = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+      gateway.publish({ connected: false, reconnecting: true, hello: null });
+      await sidebar.updateComplete;
+      gateway.publish({
+        connected: true,
+        reconnecting: false,
+        hello: {
+          features: { methods: ["sessions.catalog.list"] },
+        } as ApplicationGatewaySnapshot["hello"],
+      });
+      await sidebar.updateComplete;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(request).toHaveBeenCalledTimes(1);
+
+      visibility = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      globalThis.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(50);
+      expect(request).toHaveBeenCalledTimes(2);
+      foregroundRequest.resolve(catalogPage([]));
+      await vi.advanceTimersByTimeAsync(0);
+    } finally {
+      visibilitySpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not poll an older Gateway that does not advertise session catalogs", async () => {
     vi.useFakeTimers();
     try {
