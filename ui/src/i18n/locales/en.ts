@@ -3772,6 +3772,7 @@ export const en: TranslationMap = {
       submitFailed: "Could not submit: {error}",
       answered: "Answered",
       answeredElsewhere: "Answered elsewhere",
+      unavailable: "Unavailable",
       expired: "Expired",
       cancelled: "Cancelled",
     },
