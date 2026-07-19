@@ -36,6 +36,17 @@ import {
   AuditEventSchema,
   AuditListParamsSchema,
   AuditListResultSchema,
+  UserProfileSchema,
+  UsersLinkEmailParamsSchema,
+  UsersLinkEmailResultSchema,
+  UsersListParamsSchema,
+  UsersListResultSchema,
+  UsersSelfParamsSchema,
+  UsersSelfResultSchema,
+  UsersSetAvatarParamsSchema,
+  UsersSetAvatarResultSchema,
+  UsersSetDisplayNameParamsSchema,
+  UsersSetDisplayNameResultSchema,
   AgentIdentityParamsSchema,
   AgentIdentityResultSchema,
   AgentParamsSchema,
@@ -632,6 +643,15 @@ export const validateAuditActivityListParams = lazyCompile<AuditActivityListPara
   AuditActivityListParamsSchema,
 );
 export const validateAuditListParams = lazyCompile(AuditListParamsSchema);
+export const validateUsersListParams = lazyCompile(UsersListParamsSchema);
+export const validateUsersSelfParams = lazyCompile(UsersSelfParamsSchema);
+export const validateUsersSelfResult = lazyCompile(UsersSelfResultSchema);
+export const validateUsersLinkEmailParams = lazyCompile(UsersLinkEmailParamsSchema);
+export const validateUsersLinkEmailResult = lazyCompile(UsersLinkEmailResultSchema);
+export const validateUsersSetDisplayNameParams = lazyCompile(UsersSetDisplayNameParamsSchema);
+export const validateUsersSetDisplayNameResult = lazyCompile(UsersSetDisplayNameResultSchema);
+export const validateUsersSetAvatarParams = lazyCompile(UsersSetAvatarParamsSchema);
+export const validateUsersSetAvatarResult = lazyCompile(UsersSetAvatarResultSchema);
 export const validateAgentIdentityParams = lazyCompile(AgentIdentityParamsSchema);
 export const validateAgentWaitParams = lazyCompile(AgentWaitParamsSchema);
 export const validateWakeParams = lazyCompile(WakeParamsSchema);
@@ -1152,6 +1172,17 @@ export {
   AuditEventSchema,
   AuditListParamsSchema,
   AuditListResultSchema,
+  UserProfileSchema,
+  UsersLinkEmailParamsSchema,
+  UsersLinkEmailResultSchema,
+  UsersListParamsSchema,
+  UsersListResultSchema,
+  UsersSelfParamsSchema,
+  UsersSelfResultSchema,
+  UsersSetAvatarParamsSchema,
+  UsersSetAvatarResultSchema,
+  UsersSetDisplayNameParamsSchema,
+  UsersSetDisplayNameResultSchema,
   TaskSuggestionSchema,
   TaskSuggestionEventSchema,
   TaskSuggestionResolutionSchema,
@@ -1746,6 +1777,17 @@ export type {
   AuditEvent,
   AuditListParams,
   AuditListResult,
+  UserProfile,
+  UsersLinkEmailParams,
+  UsersLinkEmailResult,
+  UsersListParams,
+  UsersListResult,
+  UsersSelfParams,
+  UsersSelfResult,
+  UsersSetAvatarParams,
+  UsersSetAvatarResult,
+  UsersSetDisplayNameParams,
+  UsersSetDisplayNameResult,
   TaskSuggestion,
   TaskSuggestionEvent,
   TaskSuggestionResolution,
