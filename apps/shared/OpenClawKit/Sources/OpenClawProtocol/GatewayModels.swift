@@ -6184,6 +6184,9 @@ public struct SessionsPatchParams: Codable, Sendable {
     public let label: AnyCodable?
     public let category: AnyCodable?
     public let icon: AnyCodable?
+    public let statusnote: AnyCodable?
+    public let attention: AnyCodable?
+    public let ttlminutes: Int?
     public let archived: Bool?
     public let pinned: Bool?
     public let unread: Bool?
@@ -6216,6 +6219,9 @@ public struct SessionsPatchParams: Codable, Sendable {
         label: AnyCodable? = nil,
         category: AnyCodable? = nil,
         icon: AnyCodable? = nil,
+        statusnote: AnyCodable? = nil,
+        attention: AnyCodable? = nil,
+        ttlminutes: Int? = nil,
         archived: Bool? = nil,
         pinned: Bool? = nil,
         unread: Bool? = nil,
@@ -6247,6 +6253,9 @@ public struct SessionsPatchParams: Codable, Sendable {
         self.label = label
         self.category = category
         self.icon = icon
+        self.statusnote = statusnote
+        self.attention = attention
+        self.ttlminutes = ttlminutes
         self.archived = archived
         self.pinned = pinned
         self.unread = unread
@@ -6280,6 +6289,9 @@ public struct SessionsPatchParams: Codable, Sendable {
         case label
         case category
         case icon
+        case statusnote = "statusNote"
+        case attention
+        case ttlminutes = "ttlMinutes"
         case archived
         case pinned
         case unread
