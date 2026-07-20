@@ -3326,6 +3326,31 @@ describe("chat attachment picker", () => {
     expect(chat.hasAttribute("data-attachment-drop-active")).toBe(false);
   });
 
+  it("cancels non-file drops outside the composer textarea but keeps them native inside it", () => {
+    const container = renderChatView();
+    const chat = requireElement(container, "section.card.chat", "chat drop target");
+    const textarea = requireElement(
+      container,
+      ".agent-chat__composer-combobox > textarea",
+      "composer textarea",
+    );
+
+    const outsideDrop = createDragEvent("drop", ["text/uri-list"]);
+    chat.dispatchEvent(outsideDrop);
+    expect(outsideDrop.defaultPrevented).toBe(true);
+
+    const textareaDrop = createDragEvent("drop", ["text/uri-list"]);
+    textarea.dispatchEvent(textareaDrop);
+    expect(textareaDrop.defaultPrevented).toBe(false);
+
+    const range = document.createElement("input");
+    range.type = "range";
+    chat.append(range);
+    const rangeDrop = createDragEvent("drop", ["text/uri-list"]);
+    range.dispatchEvent(rangeDrop);
+    expect(rangeDrop.defaultPrevented).toBe(true);
+  });
+
   it("turns large pasted plain text into a compact attachment", async () => {
     const onAttachmentsChange = vi.fn();
     const container = renderChatView({
@@ -3490,7 +3515,9 @@ describe("chat attachment picker", () => {
     });
     const droppedFile = new File(["%PDF-1.4\n"], "brief.pdf", { type: "application/pdf" });
     const dropEvent = new Event("drop", { bubbles: true, cancelable: true });
-    Object.defineProperty(dropEvent, "dataTransfer", { value: { files: [droppedFile] } });
+    Object.defineProperty(dropEvent, "dataTransfer", {
+      value: { files: [droppedFile], types: ["Files"] },
+    });
 
     try {
       textarea.dispatchEvent(pasteEvent);
