@@ -647,6 +647,115 @@ describe("grouped chat rendering", () => {
     });
   });
 
+  it("collapses long user messages and toggles their disclosure state", () => {
+    const container = document.createElement("div");
+    const markdownContent = Array.from({ length: 13 }, (_, index) => `Prompt line ${index}`).join(
+      "\n",
+    );
+    const onToggleUserMessageExpanded = vi.fn();
+
+    renderGroupedMessage(
+      container,
+      {
+        role: "user",
+        content: markdownContent,
+        timestamp: 1001,
+      },
+      "user",
+      {
+        isUserMessageExpanded: () => false,
+        onToggleUserMessageExpanded,
+      },
+    );
+
+    const disclosure = expectElement(container, ".chat-user-message-disclosure", HTMLDivElement);
+    const toggle = expectElement(
+      disclosure,
+      ".chat-user-message-disclosure__toggle",
+      HTMLButtonElement,
+    );
+    expect(disclosure.classList.contains("is-expanded")).toBe(false);
+    expect(
+      expectElement(disclosure, ".chat-user-message-disclosure__preview", HTMLDivElement)
+        .textContent,
+    ).toBe(Array.from({ length: 12 }, (_, index) => `Prompt line ${index}`).join("\n") + "…");
+    expect(toggle.textContent?.trim()).toBe("Show more");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    toggle.click();
+    expect(onToggleUserMessageExpanded).toHaveBeenCalledWith("user-message:user-message");
+
+    renderGroupedMessage(
+      container,
+      {
+        role: "user",
+        content: markdownContent,
+        timestamp: 1001,
+      },
+      "user",
+      {
+        isUserMessageExpanded: () => true,
+        onToggleUserMessageExpanded,
+      },
+    );
+
+    const expandedDisclosure = expectElement(
+      container,
+      ".chat-user-message-disclosure",
+      HTMLDivElement,
+    );
+    const collapseToggle = expectElement(
+      expandedDisclosure,
+      ".chat-user-message-disclosure__toggle",
+      HTMLButtonElement,
+    );
+    expect(expandedDisclosure.classList.contains("is-expanded")).toBe(true);
+    expect(expandedDisclosure.querySelector(".chat-user-message-disclosure__preview")).toBeNull();
+    expect(collapseToggle.textContent?.trim()).toBe("Show less");
+    expect(collapseToggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("does not split a surrogate pair at the collapsed character limit", () => {
+    const container = document.createElement("div");
+    const markdownContent = `${"a".repeat(699)}😀`;
+
+    renderGroupedMessage(
+      container,
+      { role: "user", content: markdownContent, timestamp: 1001 },
+      "user",
+      { onToggleUserMessageExpanded: vi.fn() },
+    );
+
+    expect(
+      expectElement(container, ".chat-user-message-disclosure__preview", HTMLDivElement)
+        .textContent,
+    ).toBe(`${"a".repeat(699)}…`);
+  });
+
+  it("does not add prompt disclosure controls to short user or assistant messages", () => {
+    const container = document.createElement("div");
+    const onToggleUserMessageExpanded = vi.fn();
+
+    renderGroupedMessage(
+      container,
+      { role: "user", content: "Short prompt", timestamp: 1001 },
+      "user",
+      { onToggleUserMessageExpanded },
+    );
+    expect(container.querySelector(".chat-user-message-disclosure")).toBeNull();
+
+    renderAssistantMessage(
+      container,
+      {
+        role: "assistant",
+        content: "Long reply ".repeat(100),
+        timestamp: 1002,
+      },
+      { onToggleUserMessageExpanded },
+    );
+    expect(container.querySelector(".chat-user-message-disclosure")).toBeNull();
+  });
+
   it("keeps assistant markdown code-block copy chrome enabled", () => {
     const container = document.createElement("div");
     const markdownContent = "```bash\necho ok\n```";

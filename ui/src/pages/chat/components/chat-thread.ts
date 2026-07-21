@@ -50,6 +50,7 @@ import {
   collapseCompletedTurnWork,
   deletedChatItemsSignature,
   getExpandedToolCards,
+  getExpandedUserMessages,
   persistedMessageEntryId,
   resetChatThreadState,
   stableBooleanMapSignature,
@@ -1105,6 +1106,7 @@ function renderChatThreadContents(
   });
   syncToolCardExpansionState(props.sessionKey, chatItems, Boolean(props.autoExpandToolCalls));
   const expandedToolCards = getExpandedToolCards(props.sessionKey);
+  const expandedUserMessages = getExpandedUserMessages(props.sessionKey);
   const questionPrompts = new Map(
     (props.questionPrompts ?? []).map((prompt) => [prompt.id, prompt]),
   );
@@ -1160,6 +1162,11 @@ function renderChatThreadContents(
       isToolMessageExpanded: (messageId: string) => expandedToolCards.get(messageId),
       onToggleToolMessageExpanded: (messageId: string, expanded?: boolean) => {
         expandedToolCards.set(messageId, !(expanded ?? expandedToolCards.get(messageId) ?? false));
+        requestUpdate();
+      },
+      isUserMessageExpanded: (messageId: string) => expandedUserMessages.get(messageId) ?? false,
+      onToggleUserMessageExpanded: (messageId: string) => {
+        expandedUserMessages.set(messageId, !expandedUserMessages.get(messageId));
         requestUpdate();
       },
       isToolExpanded: (toolCardId: string) => expandedToolCards.get(toolCardId) ?? false,
@@ -1268,6 +1275,7 @@ function renderChatThreadContents(
     locale,
     deletedChatItemsSignature(deleted, chatItems),
     stableBooleanMapSignature(expandedToolCards),
+    stableBooleanMapSignature(expandedUserMessages),
     getAssistantAttachmentAvailabilityRenderVersion(),
     // The host minute poll requests an update; this key crosses row guard() memoization.
     Math.floor(Date.now() / 60_000),
