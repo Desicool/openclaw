@@ -91,6 +91,7 @@ import {
   isGatewayCapabilityAdvertised,
   isGatewayMethodAdvertised,
 } from "../../lib/gateway-methods.ts";
+import { isWorkboardEnabledInConfigSnapshot } from "../../lib/plugin-activation.ts";
 import { resolveSessionDisplayName } from "../../lib/session-display.ts";
 import {
   announceCatalogSessionContinued,
@@ -119,10 +120,12 @@ import { PollController } from "../../lit/poll-controller.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import {
   ensureBoardViewElement,
+  ensureWorkboardCardChipElement,
   renderBoardDockMenu,
   renderBoardFaceToggle,
   renderBoardSessionSurface,
   type BoardChatDockSize,
+  type WorkboardCardChipProps,
 } from "./board-session-surface.ts";
 import { catalogMessageId } from "./catalog-message-id.ts";
 import { refreshChatAvatar } from "./chat-avatar.ts";
@@ -446,6 +449,10 @@ class ChatPane extends OpenClawLightDomElement {
             }
             notify();
           }),
+      )
+      .watch(
+        () => this.context?.runtimeConfig,
+        (runtimeConfig, notify) => runtimeConfig.subscribe(notify),
       )
       .watch(
         () => this.resolveBoardProvider(),
@@ -1608,6 +1615,26 @@ class ChatPane extends OpenClawLightDomElement {
     this.boardProviderLease = undefined;
   }
 
+  private resolveWorkboardCardChip(board: ResolvedBoardView): WorkboardCardChipProps | null {
+    const gateway = this.context?.gateway.snapshot;
+    const enabled = isWorkboardEnabledInConfigSnapshot(
+      this.context?.runtimeConfig?.state.configSnapshot,
+    );
+    if (!board.hasBoard || board.face !== "dashboard" || !enabled || !gateway?.connected) {
+      return null;
+    }
+    const client = gateway.client;
+    const state = this.state;
+    if (!client || !state) {
+      return null;
+    }
+    return {
+      basePath: state.basePath,
+      client,
+      sessionKey: this.resolveBoardSessionKey(board.snapshot.sessionKey),
+    };
+  }
+
   private resolveBoardSessionKey(snapshotSessionKey = ""): string {
     const resolved = resolveSessionKey(
       snapshotSessionKey || this.state?.sessionKey || this.sessionKey,
@@ -2313,6 +2340,9 @@ class ChatPane extends OpenClawLightDomElement {
     this.cancelResetConfirmationForSessionChange();
     this.syncHistoryObserver();
     const board = this.resolveBoardView();
+    if (this.resolveWorkboardCardChip(board)) {
+      void ensureWorkboardCardChipElement().catch(() => undefined);
+    }
     if (
       board.hasBoard &&
       board.face === "dashboard" &&
@@ -3492,6 +3522,7 @@ class ChatPane extends OpenClawLightDomElement {
       gatewayUrl: state.settings.gatewayUrl,
     };
     const chat = renderChat(props);
+    const workboardCardChip = this.resolveWorkboardCardChip(board);
     const content =
       board.hasBoard && board.face === "dashboard"
         ? renderBoardSessionSurface({
@@ -3520,6 +3551,7 @@ class ChatPane extends OpenClawLightDomElement {
                 board.provider.refreshWidgetAppView(name, revision),
             } satisfies BoardViewCallbacks,
             widgetFrameUrl: (name, revision) => board.provider.widgetFrameUrl(name, revision),
+            workboardCardChip,
             onDockChange: (dock) => this.handleBoardDockChange(dock),
           })
         : chat;
