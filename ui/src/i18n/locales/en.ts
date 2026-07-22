@@ -2265,6 +2265,7 @@ export const en: TranslationMap = {
   presence: {
     rosterLabel: "Show who's online",
     rosterTitle: "Online",
+    serverRegion: "Server",
     you: "you",
   },
   profilePage: {
