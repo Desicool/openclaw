@@ -157,7 +157,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
       }
       return {
         key: row.key,
-        createdBy: row.createdBy,
+        createdActor: row.createdActor,
         // The sidebar's zone structure already says what forked from what;
         // a "Subagent:" prefix on named threads is noise (other surfaces keep it).
         label: resolveSessionDisplayName(row.key, row, {
@@ -612,7 +612,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
           mainSessionKeys.has(parentKey) &&
           !scopedRootKeys.has(row.key) &&
           !row.archived &&
-          (this.sessionsShowCron || (row.kind !== "cron" && !isCronSessionKey(row.key)))
+          (this.sessionsShowCron || !isCronSessionKey(row.key))
         );
       },
     );
