@@ -840,6 +840,95 @@ describe("redactSensitiveText", () => {
     expect(output).not.toContain("opaque-pass-secret-1234567890");
   });
 
+  it("masks common config-file secret assignments", () => {
+    const dbPassword = ["db", "password", "fixture", "1234567890"].join("-");
+    const databasePassword = ["database", "password", "fixture", "1234567890"].join("-");
+    const apiSecret = ["api", "secret", "fixture", "1234567890"].join("-");
+    const secretKey = ["django", "secret", "key", "1234567890"].join("-");
+    const passphrase = ["tls", "passphrase", "fixture", "1234567890"].join("-");
+    const dbPass = ["db", "pass", "fixture", "1234567890"].join("-");
+    const readonlyDbPassword = ["readonly", "db", "password", "fixture", "1234567890"].join("-");
+    const jwtValue = ["jwt", "fixture", "1234567890"].join("-");
+    const accessToken = ["access", "token", "fixture", "1234567890"].join("-");
+    const secretValue = ["bare", "secret", "fixture", "1234567890"].join("-");
+    const tokenValue = ["bare", "token", "fixture", "1234567890"].join("-");
+    const quoted = (value: string, quote: '"' | "'") => [quote, value, quote].join("");
+    const input = [
+      `password = ${dbPassword}`,
+      ["password", " = ", quoted(dbPassword, '"')].join(""),
+      ["password", "= ", quoted(dbPassword, '"')].join(""),
+      ["password", "= ", dbPassword].join(""),
+      `db_password = ${dbPassword}`,
+      `database_password: ${databasePassword}`,
+      ["api_secret", ": ", quoted(apiSecret, "'")].join(""),
+      ["api_secret", "= ", quoted(apiSecret, "'")].join(""),
+      `db_password=${dbPassword}`,
+      `api_secret: ${apiSecret}`,
+      `api_secret=${apiSecret}`,
+      ["api_secret", "= ", apiSecret].join(""),
+      `jdbc.password=${dbPassword}`,
+      ["jdbc.password", "=", quoted(dbPassword, '"')].join(""),
+      `secret_key = ${secretKey}`,
+      `secret_key=${secretKey}`,
+      `tls.passphrase: ${passphrase}`,
+      `tls_passphrase=${passphrase}`,
+      `readonly_db_password = ${readonlyDbPassword}`,
+      ["service_tls_passphrase", ": ", quoted(passphrase, "'")].join(""),
+      `db_pass=${dbPass}`,
+      `jwt: ${jwtValue}`,
+      ["access-token", "=", accessToken].join(""),
+      ["secret", " = ", quoted(secretValue, '"')].join(""),
+      ["token", ": ", quoted(tokenValue, "'")].join(""),
+      "password = abc,def",
+      "api_secret=abc,def",
+      `passphrase=${passphrase}`,
+      "safe_option = visible",
+    ].join("\n");
+
+    const output = redactSensitiveText(input, { mode: "tools" });
+    expect(output).toContain("password = db-pas…7890");
+    expect(output).toContain('password = "db-pas…7890"');
+    expect(output).toContain('password= "db-pas…7890"');
+    expect(output).toContain("password= db-pas…7890");
+    expect(output).toContain("db_password = db-pas…7890");
+    expect(output).toContain("database_password: databa…7890");
+    expect(output).toContain("api_secret: 'api-se…7890'");
+    expect(output).toContain("api_secret= 'api-se…7890'");
+    expect(output).toContain("db_password=db-pas…7890");
+    expect(output).toContain("api_secret: api-se…7890");
+    expect(output).toContain("api_secret=api-se…7890");
+    expect(output).toContain("api_secret= api-se…7890");
+    expect(output).toContain("jdbc.password=db-pas…7890");
+    expect(output).toContain('jdbc.password="db-pas…7890"');
+    expect(output).toContain("secret_key = django…7890");
+    expect(output).toContain("secret_key=django…7890");
+    expect(output).toContain("tls.passphrase: tls-pa…7890");
+    expect(output).toContain("tls_passphrase=tls-pa…7890");
+    expect(output).toContain("readonly_db_password = readon…7890");
+    expect(output).toContain("service_tls_passphrase: 'tls-pa…7890'");
+    expect(output).toContain("db_pass=db-pas…7890");
+    expect(output).toContain("jwt: jwt-fi…7890");
+    expect(output).toContain("access-token=access…7890");
+    expect(output).toContain('secret = "bare-s…7890"');
+    expect(output).toContain("token: 'bare-t…7890'");
+    expect(output).toContain("password = ***");
+    expect(output).toContain("api_secret=***");
+    expect(output).toContain("passphrase=tls-pa…7890");
+    expect(output).toContain("safe_option = visible");
+    expect(output).not.toContain(dbPassword);
+    expect(output).not.toContain(databasePassword);
+    expect(output).not.toContain(apiSecret);
+    expect(output).not.toContain(secretKey);
+    expect(output).not.toContain(passphrase);
+    expect(output).not.toContain(dbPass);
+    expect(output).not.toContain(readonlyDbPassword);
+    expect(output).not.toContain(jwtValue);
+    expect(output).not.toContain(accessToken);
+    expect(output).not.toContain(secretValue);
+    expect(output).not.toContain(tokenValue);
+    expect(output).not.toContain("abc,def");
+  });
+
   it("masks complete unquoted assignment values that contain delimiter-like punctuation", () => {
     const input = "password=abc,def token=abc;def client_secret=abc]def pass=abc)def";
     const output = redactSensitiveText(input, { mode: "tools" });
