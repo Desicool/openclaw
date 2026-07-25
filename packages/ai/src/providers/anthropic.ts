@@ -71,7 +71,6 @@ import {
   applyAnthropicFallbackBoundary,
   readAnthropicFallbackBoundary,
   resolveAnthropicFallbackServingModelCost,
-  resolveAnthropicPreOutputFallbackBoundary,
 } from "./anthropic-server-fallback.js";
 import {
   ANTHROPIC_OMITTED_REASONING_TEXT,
@@ -493,27 +492,6 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
         if (event.type === "message_start") {
           output.responseId = event.message.id;
           output.responseModel = event.message.model;
-          if (refusalBuffer) {
-            const preOutputFallback = resolveAnthropicPreOutputFallbackBoundary({
-              requestedModelId: model.id,
-              servingModelId: event.message.model,
-            });
-            if (preOutputFallback) {
-              applyAnthropicFallbackBoundary({
-                output,
-                boundary: preOutputFallback,
-                provider: model.provider,
-              });
-            }
-            costModel = {
-              ...model,
-              cost: resolveAnthropicFallbackServingModelCost({
-                requestedModelId: model.id,
-                servingModelId: event.message.model,
-                requestedCost: model.cost,
-              }),
-            };
-          }
           const promptUsage = readAnthropicPromptUsageSnapshot(event.message.usage);
           const messageStartPromptTokens = promptUsage
             ? promptUsage.input + promptUsage.cacheRead + promptUsage.cacheWrite

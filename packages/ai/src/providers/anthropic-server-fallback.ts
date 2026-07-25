@@ -63,22 +63,6 @@ function isClaudeOpusFallbackModel(modelId: string): boolean {
   return modelId === "claude-opus-5" || modelId === "claude-opus-4-8";
 }
 
-/** Detect a fallback that completed before the requested model emitted any content. */
-export function resolveAnthropicPreOutputFallbackBoundary(params: {
-  requestedModelId: string;
-  servingModelId: string | null;
-}): AnthropicFallbackBoundary | null {
-  const requestedModelId = resolveFallbackModelIdentity(params.requestedModelId);
-  const servingModelId = resolveFallbackModelIdentity(params.servingModelId);
-  if (!requestedModelId || !servingModelId || servingModelId === requestedModelId) {
-    return null;
-  }
-  return {
-    fromModel: requestedModelId,
-    toModel: servingModelId,
-  };
-}
-
 /** Resolve billed rates from the serving model reported by Anthropic's fallback stream. */
 export function resolveAnthropicFallbackServingModelCost(params: {
   requestedModelId: string;

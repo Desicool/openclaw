@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   CLAUDE_OPUS_FALLBACK_MODEL_COST,
   resolveAnthropicFallbackServingModelCost,
-  resolveAnthropicPreOutputFallbackBoundary,
 } from "./anthropic-server-fallback.js";
 
 const FABLE_COST = { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 };
@@ -40,24 +39,6 @@ describe("Anthropic server-side fallback", () => {
         requestedCost: FABLE_COST,
       }),
     ).toBe(FABLE_COST);
-  });
-
-  it("detects pre-output fallback only when the serving model changed", () => {
-    expect(
-      resolveAnthropicPreOutputFallbackBoundary({
-        requestedModelId: "claude-fable-5",
-        servingModelId: "claude-opus-5",
-      }),
-    ).toEqual({
-      fromModel: "claude-fable-5",
-      toModel: "claude-opus-5",
-    });
-    expect(
-      resolveAnthropicPreOutputFallbackBoundary({
-        requestedModelId: "anthropic/claude-opus-5@20260701",
-        servingModelId: "claude-opus-5",
-      }),
-    ).toBeNull();
   });
 
   it("preserves fast pricing when an Opus 5 alias resolves to its canonical id", () => {

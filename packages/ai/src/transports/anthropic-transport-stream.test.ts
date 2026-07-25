@@ -946,28 +946,38 @@ describe("anthropic transport stream", () => {
     expect(result.usage.cost.total).toBeCloseTo(0.00025, 10);
   });
 
-  it("records and prices a pre-output server-side fallback without a boundary block", async () => {
+  it("records and prices a pre-output server-side fallback boundary", async () => {
     guardedFetchMock.mockResolvedValueOnce(
       createSseResponse([
         {
           type: "message_start",
           message: {
             id: "msg_pre_output_fb",
-            model: "claude-opus-5",
+            model: "claude-fable-5",
             usage: { input_tokens: 5, output_tokens: 0 },
           },
         },
         {
           type: "content_block_start",
           index: 0,
+          content_block: {
+            type: "fallback",
+            from: { model: "claude-fable-5" },
+            to: { model: "claude-opus-5" },
+          },
+        },
+        { type: "content_block_stop", index: 0 },
+        {
+          type: "content_block_start",
+          index: 1,
           content_block: { type: "text", text: "" },
         },
         {
           type: "content_block_delta",
-          index: 0,
+          index: 1,
           delta: { type: "text_delta", text: "continued" },
         },
-        { type: "content_block_stop", index: 0 },
+        { type: "content_block_stop", index: 1 },
         {
           type: "message_delta",
           delta: { stop_reason: "end_turn" },
