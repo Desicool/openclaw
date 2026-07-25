@@ -27,7 +27,6 @@ import {
   ANTHROPIC_OMITTED_REASONING_TEXT,
   ANTHROPIC_SERVER_SIDE_FALLBACK_BETA,
   ANTHROPIC_SERVER_SIDE_FALLBACKS,
-  CLAUDE_OPUS_48_FALLBACK_MODEL_COST,
   applyClaudeRequestContract,
   applyAnthropicFallbackBoundary,
   defaultsClaudeAdaptiveThinking,
@@ -46,6 +45,7 @@ import {
   readAnthropicPromptUsageSnapshot,
   readAnthropicUsageTokenCount,
   readLastAnthropicIterationUsage,
+  resolveAnthropicFallbackServingModelCost,
   supportsClaudeAdaptiveThinking,
   supportsClaudeNativeMaxEffort,
   supportsClaudeNativeXhighEffort,
@@ -1442,6 +1442,16 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
             const usage = message?.usage ?? {};
             output.responseId = typeof message?.id === "string" ? message.id : undefined;
             output.responseModel = typeof message?.model === "string" ? message.model : undefined;
+            if (refusalBuffer) {
+              costModel = {
+                ...model,
+                cost: resolveAnthropicFallbackServingModelCost({
+                  requestedModelId: model.id,
+                  servingModelId: output.responseModel ?? null,
+                  requestedCost: model.cost,
+                }),
+              };
+            }
             const promptUsage = readAnthropicPromptUsageSnapshot(usage);
             const messageStartPromptTokens = promptUsage
               ? promptUsage.input + promptUsage.cacheRead + promptUsage.cacheWrite
@@ -1516,7 +1526,14 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
               // Cost intentionally mirrors top-level usage (serving attempt at
               // serving-model rates). A mid-stream decline's billed partial is
               // only in usage.iterations and is not folded in here.
-              costModel = { ...model, cost: CLAUDE_OPUS_48_FALLBACK_MODEL_COST };
+              costModel = {
+                ...model,
+                cost: resolveAnthropicFallbackServingModelCost({
+                  requestedModelId: model.id,
+                  servingModelId: fallbackBoundary.toModel,
+                  requestedCost: model.cost,
+                }),
+              };
               calculateCost(costModel, output.usage);
               eventSink.push({ type: "start", partial: output as never });
               for (const [i, block] of output.content.entries()) {

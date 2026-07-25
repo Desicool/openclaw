@@ -1,4 +1,4 @@
-import type { AssistantMessageDiagnostic } from "../types.js";
+import type { AssistantMessageDiagnostic, Model } from "../types.js";
 
 /** Anthropic beta that re-serves safety refusals on an allowed fallback model. */
 export const ANTHROPIC_SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01";
@@ -6,18 +6,68 @@ export const ANTHROPIC_SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07
 /** Let Anthropic select the recommended model for each refusal category. */
 export const ANTHROPIC_SERVER_SIDE_FALLBACKS = "default" as const;
 
-// Fallback-served turns bill at the serving model's rates.
-export const CLAUDE_OPUS_48_FALLBACK_MODEL_COST = {
+// Anthropic's current default routes serve fallback output on Opus 5 or 4.8,
+// which share the same standard and fast-mode rates.
+export const CLAUDE_OPUS_FALLBACK_MODEL_COST = {
   input: 5,
   output: 25,
   cacheRead: 0.5,
   cacheWrite: 6.25,
 } as const;
 
+const CLAUDE_OPUS_FAST_FALLBACK_MODEL_COST = {
+  input: 10,
+  output: 50,
+  cacheRead: 1,
+  cacheWrite: 12.5,
+} as const;
+
 export type AnthropicFallbackBoundary = {
   fromModel: string | null;
   toModel: string | null;
 };
+
+function isModelCostEqual(left: Model["cost"], right: Model["cost"]): boolean {
+  return (
+    left.input === right.input &&
+    left.output === right.output &&
+    left.cacheRead === right.cacheRead &&
+    left.cacheWrite === right.cacheWrite
+  );
+}
+
+function normalizeModelId(modelId: string | null): string | null {
+  const normalized = modelId?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function isClaudeOpusFallbackModel(modelId: string): boolean {
+  return /^claude-opus-(?:5|4-8)$/.test(modelId);
+}
+
+/** Resolve billed rates from the serving model reported by Anthropic's fallback stream. */
+export function resolveAnthropicFallbackServingModelCost(params: {
+  requestedModelId: string;
+  servingModelId: string | null;
+  requestedCost: Model["cost"];
+}): Model["cost"] {
+  const requestedModelId = normalizeModelId(params.requestedModelId);
+  const servingModelId = normalizeModelId(params.servingModelId);
+  if (
+    !servingModelId ||
+    servingModelId === requestedModelId ||
+    !isClaudeOpusFallbackModel(servingModelId)
+  ) {
+    return params.requestedCost;
+  }
+  if (
+    requestedModelId === "claude-opus-5" &&
+    isModelCostEqual(params.requestedCost, CLAUDE_OPUS_FAST_FALLBACK_MODEL_COST)
+  ) {
+    return CLAUDE_OPUS_FAST_FALLBACK_MODEL_COST;
+  }
+  return CLAUDE_OPUS_FALLBACK_MODEL_COST;
+}
 
 function readBoundaryModel(value: unknown): string | null {
   if (!value || typeof value !== "object") {

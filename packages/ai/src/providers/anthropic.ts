@@ -68,9 +68,9 @@ import { applyAnthropicRefusal } from "./anthropic-refusal.js";
 import {
   ANTHROPIC_SERVER_SIDE_FALLBACK_BETA,
   ANTHROPIC_SERVER_SIDE_FALLBACKS,
-  CLAUDE_OPUS_48_FALLBACK_MODEL_COST,
   applyAnthropicFallbackBoundary,
   readAnthropicFallbackBoundary,
+  resolveAnthropicFallbackServingModelCost,
 } from "./anthropic-server-fallback.js";
 import {
   ANTHROPIC_OMITTED_REASONING_TEXT,
@@ -492,6 +492,16 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
         if (event.type === "message_start") {
           output.responseId = event.message.id;
           output.responseModel = event.message.model;
+          if (refusalBuffer) {
+            costModel = {
+              ...model,
+              cost: resolveAnthropicFallbackServingModelCost({
+                requestedModelId: model.id,
+                servingModelId: event.message.model,
+                requestedCost: model.cost,
+              }),
+            };
+          }
           const promptUsage = readAnthropicPromptUsageSnapshot(event.message.usage);
           const messageStartPromptTokens = promptUsage
             ? promptUsage.input + promptUsage.cacheRead + promptUsage.cacheWrite
@@ -560,7 +570,14 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
             // Cost intentionally mirrors top-level usage (serving attempt at
             // serving-model rates). A mid-stream decline's billed partial is
             // only in usage.iterations and is not folded in here.
-            costModel = { ...model, cost: CLAUDE_OPUS_48_FALLBACK_MODEL_COST };
+            costModel = {
+              ...model,
+              cost: resolveAnthropicFallbackServingModelCost({
+                requestedModelId: model.id,
+                servingModelId: fallbackBoundary.toModel,
+                requestedCost: model.cost,
+              }),
+            };
             calculateCost(costModel, output.usage);
             eventSink.push({ type: "start", partial: output });
             for (const [i, block] of blocks.entries()) {
