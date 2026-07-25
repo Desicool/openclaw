@@ -1779,7 +1779,7 @@ describe("Anthropic provider", () => {
                   type: "message_start",
                   message: {
                     id: "msg_fallback",
-                    // Pre-output declines: message_start names the fallback model.
+                    // Pre-output fallback has no boundary block; message_start names the serving model.
                     model: "claude-opus-4-8",
                     usage: { input_tokens: 5, output_tokens: 0 },
                   },
@@ -1787,24 +1787,14 @@ describe("Anthropic provider", () => {
                 {
                   type: "content_block_start",
                   index: 0,
-                  content_block: {
-                    type: "fallback",
-                    from: { model: "claude-fable-5" },
-                    to: { model: "claude-opus-4-8" },
-                  },
-                },
-                { type: "content_block_stop", index: 0 },
-                {
-                  type: "content_block_start",
-                  index: 1,
                   content_block: { type: "text", text: "" },
                 },
                 {
                   type: "content_block_delta",
-                  index: 1,
+                  index: 0,
                   delta: { type: "text_delta", text: "Hi!" },
                 },
-                { type: "content_block_stop", index: 1 },
+                { type: "content_block_stop", index: 0 },
                 {
                   type: "message_delta",
                   delta: { stop_reason: "end_turn" },
@@ -1827,7 +1817,17 @@ describe("Anthropic provider", () => {
     expect(result.stopReason).toBe("stop");
     expect(result.content).toEqual([{ type: "text", text: "Hi!" }]);
     expect(result.responseModel).toBe("claude-opus-4-8");
-    expect(result.diagnostics).toEqual([expect.objectContaining({ type: "provider_fallback" })]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        type: "provider_fallback",
+        details: {
+          provider: "anthropic",
+          fromModel: "claude-fable-5",
+          toModel: "claude-opus-4-8",
+        },
+      }),
+    ]);
+    expect(result.usage.cost.total).toBeCloseTo(0.000075, 10);
   });
 
   it("routes interleaved active content blocks by their event indexes", async () => {

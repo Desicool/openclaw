@@ -946,6 +946,63 @@ describe("anthropic transport stream", () => {
     expect(result.usage.cost.total).toBeCloseTo(0.00025, 10);
   });
 
+  it("records and prices a pre-output server-side fallback without a boundary block", async () => {
+    guardedFetchMock.mockResolvedValueOnce(
+      createSseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "msg_pre_output_fb",
+            model: "claude-opus-5",
+            usage: { input_tokens: 5, output_tokens: 0 },
+          },
+        },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "continued" },
+        },
+        { type: "content_block_stop", index: 0 },
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: { input_tokens: 5, output_tokens: 2 },
+        },
+        { type: "message_stop" },
+      ]),
+    );
+
+    const model = makeAnthropicTransportModel({ id: "claude-fable-5", name: "Claude Fable 5" });
+    model.cost = { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 };
+    const result = await runTransportStream(
+      model,
+      {
+        messages: [{ role: "user", content: "hello" }],
+      } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.responseModel).toBe("claude-opus-5");
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        type: "provider_fallback",
+        details: {
+          provider: "anthropic",
+          fromModel: "claude-fable-5",
+          toModel: "claude-opus-5",
+        },
+      }),
+    ]);
+    expect(result.usage.cost.total).toBeCloseTo(0.000075, 10);
+  });
+
   it("uses bearer auth for Microsoft Foundry Anthropic transport requests", async () => {
     const model = makeAnthropicTransportModel({
       provider: "microsoft-foundry",

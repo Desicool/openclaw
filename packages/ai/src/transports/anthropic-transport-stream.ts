@@ -46,6 +46,7 @@ import {
   readAnthropicUsageTokenCount,
   readLastAnthropicIterationUsage,
   resolveAnthropicFallbackServingModelCost,
+  resolveAnthropicPreOutputFallbackBoundary,
   supportsClaudeAdaptiveThinking,
   supportsClaudeNativeMaxEffort,
   supportsClaudeNativeXhighEffort,
@@ -1443,6 +1444,17 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
             output.responseId = typeof message?.id === "string" ? message.id : undefined;
             output.responseModel = typeof message?.model === "string" ? message.model : undefined;
             if (refusalBuffer) {
+              const preOutputFallback = resolveAnthropicPreOutputFallbackBoundary({
+                requestedModelId: model.id,
+                servingModelId: output.responseModel ?? null,
+              });
+              if (preOutputFallback) {
+                applyAnthropicFallbackBoundary({
+                  output,
+                  boundary: preOutputFallback,
+                  provider: model.provider,
+                });
+              }
               costModel = {
                 ...model,
                 cost: resolveAnthropicFallbackServingModelCost({
