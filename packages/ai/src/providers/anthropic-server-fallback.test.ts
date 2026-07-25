@@ -54,9 +54,19 @@ describe("Anthropic server-side fallback", () => {
     });
     expect(
       resolveAnthropicPreOutputFallbackBoundary({
-        requestedModelId: "claude-opus-5",
+        requestedModelId: "anthropic/claude-opus-5@20260701",
         servingModelId: "claude-opus-5",
       }),
     ).toBeNull();
+  });
+
+  it("preserves fast pricing when an Opus 5 alias resolves to its canonical id", () => {
+    expect(
+      resolveAnthropicFallbackServingModelCost({
+        requestedModelId: "opus",
+        servingModelId: "claude-opus-5",
+        requestedCost: OPUS_FAST_COST,
+      }),
+    ).toBe(OPUS_FAST_COST);
   });
 });

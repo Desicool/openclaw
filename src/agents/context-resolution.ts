@@ -201,6 +201,8 @@ export function resolveAnthropicFixedContextWindow(
   ) {
     return ANTHROPIC_MYTHOS_5_CONTEXT_TOKENS;
   }
+  // Opus 5 is natively 1M on every runtime, including Claude CLI. Keep this
+  // ahead of the legacy CLI opt-in gate used by older 1M variants below.
   if (resolveClaudeOpus5ModelIdentity({ id: modelId })) {
     return ANTHROPIC_OPUS_5_CONTEXT_TOKENS;
   }
