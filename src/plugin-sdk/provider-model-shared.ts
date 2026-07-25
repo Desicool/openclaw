@@ -38,6 +38,7 @@ export {
   requiresClaudeMandatoryAdaptiveThinking,
   supportsClaude1MContext,
   supportsClaudeAdaptiveThinking,
+  supportsClaudeFastMode,
   supportsClaudeNativeMaxEffort,
   supportsClaudeNativeXhighEffort,
 } from "@openclaw/llm-core";

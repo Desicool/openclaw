@@ -125,6 +125,12 @@ export function supportsClaude1MContext(ref: ClaudeModelRef): boolean {
   );
 }
 
+/** Return whether a Claude model supports Anthropic's native fast mode. */
+export function supportsClaudeFastMode(ref: ClaudeModelRef): boolean {
+  const modelId = resolveClaudeModelIdentity(ref);
+  return /(?:^|-)claude-opus-(?:4-8|5)(?=$|[^a-z0-9])/.test(modelId);
+}
+
 /** Return whether a Claude model supports native max effort. */
 export function supportsClaudeNativeMaxEffort(ref: ClaudeModelRef): boolean {
   const modelId = resolveClaudeModelIdentity(ref);

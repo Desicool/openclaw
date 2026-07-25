@@ -18,6 +18,7 @@ import {
   selectPreferredLocalModelId,
   supportsClaude1MContext,
   supportsClaudeAdaptiveThinking,
+  supportsClaudeFastMode,
   supportsClaudeNativeMaxEffort,
   supportsClaudeNativeXhighEffort,
 } from "./provider-model-shared.js";
@@ -89,6 +90,14 @@ describe("Claude model contracts", () => {
     expect(supportsClaude1MContext({ id: "us.anthropic.claude-sonnet-4-6-v1:0" })).toBe(true);
     expect(supportsClaude1MContext({ id: "claude-opus-50" })).toBe(false);
     expect(supportsClaude1MContext({ id: "claude-haiku-4-5" })).toBe(false);
+  });
+
+  it("recognizes native fast-mode Claude models", () => {
+    expect(supportsClaudeFastMode({ id: "claude-opus-5" })).toBe(true);
+    expect(supportsClaudeFastMode({ id: "global.anthropic.claude-opus-5" })).toBe(true);
+    expect(supportsClaudeFastMode({ id: "claude-opus-4.8" })).toBe(true);
+    expect(supportsClaudeFastMode({ id: "claude-opus-4-7" })).toBe(false);
+    expect(supportsClaudeFastMode({ id: "claude-opus-50" })).toBe(false);
   });
 
   it("does not classify later numeric model versions as supported aliases", () => {
