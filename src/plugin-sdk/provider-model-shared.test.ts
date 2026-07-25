@@ -73,15 +73,29 @@ describe("Claude model contracts", () => {
     expect(requiresClaudeDefaultSampling({ id: "claude-mythos-5" })).toBe(true);
   });
 
-  it("recognizes Claude Opus 5 across direct and cloud model ids", () => {
-    expect(resolveClaudeOpus5ModelIdentity({ id: "claude-opus-5" })).toBe("claude-opus-5");
-    expect(resolveClaudeOpus5ModelIdentity({ id: "global.anthropic.claude-opus-5" })).toBe(
+  it.each([
+    ["Anthropic API", { id: "claude-opus-5" }, "claude-opus-5"],
+    ["Claude CLI", { id: "claude-opus-5" }, "claude-opus-5"],
+    ["Vertex AI", { id: "claude-opus-5@20260701" }, "claude-opus-5@20260701"],
+    ["Amazon Bedrock", { id: "global.anthropic.claude-opus-5" }, "claude-opus-5"],
+    [
+      "Amazon Bedrock Mantle",
+      { id: "anthropic.claude-opus-5", params: { canonicalModelId: "claude-opus-5" } },
       "claude-opus-5",
-    );
-    expect(supportsClaudeAdaptiveThinking({ id: "claude-opus-5" })).toBe(true);
-    expect(supportsClaudeNativeMaxEffort({ id: "claude-opus-5" })).toBe(true);
-    expect(supportsClaudeNativeXhighEffort({ id: "anthropic.claude-opus-5" })).toBe(true);
-    expect(requiresClaudeDefaultSampling({ id: "claude-opus-5" })).toBe(true);
+    ],
+    [
+      "Microsoft Foundry",
+      { id: "prod-opus", params: { canonicalModelId: "claude-opus-5" } },
+      "claude-opus-5",
+    ],
+    ["OpenRouter", { id: "anthropic/claude-opus-5" }, "claude-opus-5"],
+  ] as const)("recognizes the Claude Opus 5 contract through %s", (_provider, ref, identity) => {
+    expect(resolveClaudeOpus5ModelIdentity(ref)).toBe(identity);
+    expect(supportsClaude1MContext(ref)).toBe(true);
+    expect(supportsClaudeAdaptiveThinking(ref)).toBe(true);
+    expect(supportsClaudeNativeMaxEffort(ref)).toBe(true);
+    expect(supportsClaudeNativeXhighEffort(ref)).toBe(true);
+    expect(requiresClaudeDefaultSampling(ref)).toBe(true);
   });
 
   it("recognizes native 1M Claude model families independently", () => {
