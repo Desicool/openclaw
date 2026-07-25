@@ -10,6 +10,12 @@ import type { ReliabilityReport } from "../../scripts/lib/sqlite-reliability-con
 import { monitorSqliteWalDuring } from "../../scripts/lib/sqlite-reliability-wal-monitor.js";
 
 const tempDirs: string[] = [];
+// The real smoke proof runs twice and can exceed Vitest's 120s default on fork CI runners.
+const RELIABILITY_SMOKE_TEST_TIMEOUT_MS = 300_000;
+
+function reliabilitySmokeTest(name: string, test: () => void): void {
+  it(name, test, RELIABILITY_SMOKE_TEST_TIMEOUT_MS);
+}
 
 function makeTempDir(): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-sqlite-reliability-test-"));
@@ -139,7 +145,7 @@ describe("scripts/bench-sqlite-reliability", () => {
     });
   });
 
-  it("reuses a state directory without stale rows or restore collisions", () => {
+  reliabilitySmokeTest("reuses a state directory without stale rows or restore collisions", () => {
     const stateDir = makeTempDir();
     const firstOutput = path.join(stateDir, "report-first.json");
     const firstResult = runProof([
