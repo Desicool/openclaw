@@ -21,14 +21,15 @@ describe("Anthropic server-side fallback", () => {
     },
   );
 
-  it("preserves fast-mode pricing when Opus 5 falls back to Opus 4.8", () => {
+  it("preserves requested pricing when Opus 5 falls back to Opus 4.8", () => {
+    const customOpusCost = { input: 12, output: 60, cacheRead: 1.2, cacheWrite: 15 };
     expect(
       resolveAnthropicFallbackServingModelCost({
         requestedModelId: "claude-opus-5",
         servingModelId: "claude-opus-4-8",
-        requestedCost: OPUS_FAST_COST,
+        requestedCost: customOpusCost,
       }),
-    ).toEqual(OPUS_FAST_COST);
+    ).toBe(customOpusCost);
   });
 
   it("keeps requested pricing for an unknown future fallback target", () => {
