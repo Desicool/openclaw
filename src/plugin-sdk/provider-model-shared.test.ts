@@ -16,6 +16,7 @@ import {
   resolveClaudeThinkingProfile,
   requiresClaudeDefaultSampling,
   selectPreferredLocalModelId,
+  supportsClaude1MContext,
   supportsClaudeAdaptiveThinking,
   supportsClaudeNativeMaxEffort,
   supportsClaudeNativeXhighEffort,
@@ -80,6 +81,14 @@ describe("Claude model contracts", () => {
     expect(supportsClaudeNativeMaxEffort({ id: "claude-opus-5" })).toBe(true);
     expect(supportsClaudeNativeXhighEffort({ id: "anthropic.claude-opus-5" })).toBe(true);
     expect(requiresClaudeDefaultSampling({ id: "claude-opus-5" })).toBe(true);
+  });
+
+  it("recognizes native 1M Claude model families independently", () => {
+    expect(supportsClaude1MContext({ id: "claude-opus-5" })).toBe(true);
+    expect(supportsClaude1MContext({ id: "anthropic/claude-opus-4.8" })).toBe(true);
+    expect(supportsClaude1MContext({ id: "us.anthropic.claude-sonnet-4-6-v1:0" })).toBe(true);
+    expect(supportsClaude1MContext({ id: "claude-opus-50" })).toBe(false);
+    expect(supportsClaude1MContext({ id: "claude-haiku-4-5" })).toBe(false);
   });
 
   it("does not classify later numeric model versions as supported aliases", () => {

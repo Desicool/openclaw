@@ -117,6 +117,14 @@ export function supportsClaudeAdaptiveThinking(ref: ClaudeModelRef): boolean {
   );
 }
 
+/** Return whether a Claude model has a native 1M-token context window. */
+export function supportsClaude1MContext(ref: ClaudeModelRef): boolean {
+  const modelId = resolveClaudeModelIdentity(ref);
+  return /(?:^|-)claude-(?:fable-5|mythos-(?:5|preview)|opus-(?:4-(?:6|7|8)|5)|sonnet-(?:5|4-6))(?=$|[^a-z0-9])/.test(
+    modelId,
+  );
+}
+
 /** Return whether a Claude model supports native max effort. */
 export function supportsClaudeNativeMaxEffort(ref: ClaudeModelRef): boolean {
   const modelId = resolveClaudeModelIdentity(ref);
