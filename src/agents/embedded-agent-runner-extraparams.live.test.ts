@@ -170,9 +170,13 @@ describeAnthropicLive("embedded agent extra params (anthropic live)", () => {
     };
 
     if (!res.ok) {
-      expect(res.status).toBe(429);
-      expect(json.error?.type).toBe("rate_limit_error");
-      expect(json.error?.message).toContain("fast mode");
+      if (res.status === 429) {
+        expect(json.error?.type).toBe("rate_limit_error");
+        expect(json.error?.message).toContain("fast mode");
+        return;
+      }
+      expect(res.status).toBe(529);
+      expect(json.error?.type).toBe("overloaded_error");
       return;
     }
 
