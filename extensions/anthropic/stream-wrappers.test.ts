@@ -280,6 +280,14 @@ describe("anthropic stream wrappers", () => {
     expect(captured.model?.cost.output).toBe(50);
   });
 
+  it.each(["opus", "opus-5"])("uses native fast mode for the %s alias", (modelId) => {
+    const captured = runNativeFastModeWrapper({ modelId });
+
+    expect(captured.headers?.["anthropic-beta"]).toContain("fast-mode-2026-02-01");
+    expect(captured.payload).toEqual({ speed: "fast" });
+    expect(captured.model?.cost.output).toBe(50);
+  });
+
   it("keeps standard Opus 5 payload and pricing when fast mode is disabled", () => {
     const captured = runNativeFastModeWrapper({ enabled: false });
 
