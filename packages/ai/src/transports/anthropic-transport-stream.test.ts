@@ -753,37 +753,43 @@ describe("anthropic transport stream", () => {
     );
   });
 
-  it("sends server-side fallback params for direct Fable API-key requests", async () => {
-    guardedFetchMock.mockResolvedValueOnce(
-      createSseResponse([
-        {
-          type: "message_start",
-          message: { id: "msg_fb", usage: { input_tokens: 1, output_tokens: 0 } },
-        },
-        {
-          type: "message_delta",
-          delta: { stop_reason: "end_turn" },
-          usage: { input_tokens: 1, output_tokens: 1 },
-        },
-        { type: "message_stop" },
-      ]),
-    );
+  it.each([
+    { id: "claude-fable-5", name: "Claude Fable 5" },
+    { id: "claude-opus-5", name: "Claude Opus 5" },
+  ])(
+    "sends default server-side fallback params for direct $name API-key requests",
+    async (model) => {
+      guardedFetchMock.mockResolvedValueOnce(
+        createSseResponse([
+          {
+            type: "message_start",
+            message: { id: "msg_fb", usage: { input_tokens: 1, output_tokens: 0 } },
+          },
+          {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn" },
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          { type: "message_stop" },
+        ]),
+      );
 
-    await runTransportStream(
-      makeAnthropicTransportModel({ id: "claude-fable-5", name: "Claude Fable 5" }),
-      {
-        messages: [{ role: "user", content: "hello" }],
-      } as AnthropicStreamContext,
-      {
-        apiKey: "sk-ant-api",
-      } as AnthropicStreamOptions,
-    );
+      await runTransportStream(
+        makeAnthropicTransportModel(model),
+        {
+          messages: [{ role: "user", content: "hello" }],
+        } as AnthropicStreamContext,
+        {
+          apiKey: "sk-ant-api",
+        } as AnthropicStreamOptions,
+      );
 
-    expect(latestAnthropicRequest().payload.fallbacks).toEqual([{ model: "claude-opus-4-8" }]);
-    expect(latestAnthropicRequestHeaders().get("anthropic-beta")).toBe(
-      "fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-06-01",
-    );
-  });
+      expect(latestAnthropicRequest().payload.fallbacks).toBe("default");
+      expect(latestAnthropicRequestHeaders().get("anthropic-beta")).toBe(
+        "fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-07-01",
+      );
+    },
+  );
 
   it.each([
     {
@@ -801,8 +807,8 @@ describe("anthropic transport stream", () => {
       apiKey: "sk-ant-api",
     },
     {
-      label: "non-Fable models",
-      model: { id: "claude-opus-4-8", name: "Claude Opus 4.8" },
+      label: "unsupported models",
+      model: { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
       apiKey: "sk-ant-api",
     },
   ])("omits server-side fallback params for $label", async ({ model, apiKey }) => {

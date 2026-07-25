@@ -1,22 +1,18 @@
 import type { AssistantMessageDiagnostic } from "../types.js";
 
 /** Anthropic beta that re-serves safety refusals on an allowed fallback model. */
-export const ANTHROPIC_SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-06-01";
+export const ANTHROPIC_SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
-// Anthropic documents claude-opus-4-8 as the allowed fallback for claude-fable-5.
-export const CLAUDE_FABLE_5_FALLBACK_MODEL = "claude-opus-4-8";
+/** Let Anthropic select the recommended model for each refusal category. */
+export const ANTHROPIC_SERVER_SIDE_FALLBACKS = "default" as const;
 
 // Fallback-served turns bill at the serving model's rates.
-export const CLAUDE_FABLE_5_FALLBACK_MODEL_COST = {
+export const CLAUDE_OPUS_48_FALLBACK_MODEL_COST = {
   input: 5,
   output: 25,
   cacheRead: 0.5,
   cacheWrite: 6.25,
 } as const;
-
-export function buildAnthropicServerSideFallbacks(): Array<{ model: string }> {
-  return [{ model: CLAUDE_FABLE_5_FALLBACK_MODEL }];
-}
 
 export type AnthropicFallbackBoundary = {
   fromModel: string | null;

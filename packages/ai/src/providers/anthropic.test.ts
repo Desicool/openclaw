@@ -1583,30 +1583,36 @@ describe("Anthropic provider", () => {
     ]);
   });
 
-  it("sends server-side fallback params for direct Fable API-key requests", async () => {
-    let capturedPayload: unknown;
-    const stream = streamAnthropic(
-      makeAnthropicModel({ id: "claude-fable-5", name: "Claude Fable 5" }),
-      { messages: [{ role: "user", content: "hello", timestamp: 0 }] },
-      {
-        apiKey: "sk-ant-provider",
-        onPayload: (payload) => {
-          capturedPayload = payload;
-          throw new Error("stop before network");
+  it.each([
+    { id: "claude-fable-5", name: "Claude Fable 5" },
+    { id: "claude-opus-5", name: "Claude Opus 5" },
+  ])(
+    "sends default server-side fallback params for direct $name API-key requests",
+    async (model) => {
+      let capturedPayload: unknown;
+      const stream = streamAnthropic(
+        makeAnthropicModel(model),
+        { messages: [{ role: "user", content: "hello", timestamp: 0 }] },
+        {
+          apiKey: "sk-ant-provider",
+          onPayload: (payload) => {
+            capturedPayload = payload;
+            throw new Error("stop before network");
+          },
         },
-      },
-    );
-    await stream.result();
+      );
+      await stream.result();
 
-    expect((capturedPayload as { fallbacks?: unknown }).fallbacks).toEqual([
-      { model: "claude-opus-4-8" },
-    ]);
-    await vi.waitFor(() => expect(anthropicMockState.configs).toHaveLength(1));
-    const config = anthropicMockState.configs[0] as {
-      defaultHeaders?: Record<string, string>;
-    };
-    expect(config.defaultHeaders?.["anthropic-beta"]).toContain("server-side-fallback-2026-06-01");
-  });
+      expect((capturedPayload as { fallbacks?: unknown }).fallbacks).toBe("default");
+      await vi.waitFor(() => expect(anthropicMockState.configs).toHaveLength(1));
+      const config = anthropicMockState.configs[0] as {
+        defaultHeaders?: Record<string, string>;
+      };
+      expect(config.defaultHeaders?.["anthropic-beta"]).toContain(
+        "server-side-fallback-2026-07-01",
+      );
+    },
+  );
 
   it.each([
     { label: "OAuth tokens", overrides: {}, apiKey: "sk-ant-oat01-token" },
@@ -1621,8 +1627,8 @@ describe("Anthropic provider", () => {
       apiKey: "vertex-token",
     },
     {
-      label: "non-Fable models",
-      overrides: { id: "claude-opus-4-8", name: "Claude Opus 4.8" },
+      label: "unsupported models",
+      overrides: { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
       apiKey: "sk-ant-provider",
     },
   ])("omits server-side fallback params for $label", async ({ overrides, apiKey }) => {
