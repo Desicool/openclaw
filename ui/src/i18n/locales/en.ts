@@ -4233,6 +4233,8 @@ export const en: TranslationMap = {
       detail: "Details",
       close: "Close {panel}",
       drag: "Drag {panel}",
+      dropOnEmptyLeft: "Move {panel} to the empty left sidebar",
+      dropOnEmptyRight: "Move {panel} to the empty right sidebar",
       resize: "Resize {panel}",
     },
     thread: {
