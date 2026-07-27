@@ -274,6 +274,8 @@ export async function createGatewaySession(params: {
   key?: string;
   agentId?: string;
   label?: string;
+  /** Trusted model-generated title, persisted with a newly created dashboard session. */
+  generatedDisplayName?: string;
   model?: string;
   thinkingLevel?: string;
   incognito?: boolean;
@@ -323,6 +325,7 @@ export async function createGatewaySession(params: {
 }): Promise<CreateGatewaySessionResult> {
   const requestedKey = normalizeOptionalString(params.key);
   const parentSessionKey = normalizeOptionalString(params.parentSessionKey);
+  const generatedDisplayName = normalizeOptionalString(params.generatedDisplayName);
   const agentId = normalizeAgentId(
     normalizeOptionalString(params.agentId) ?? resolveDefaultAgentId(params.cfg),
   );
@@ -961,6 +964,7 @@ export async function createGatewaySession(params: {
           // the merge-level write-once guard), and legacy rows stay "unknown".
           ...(params.creation && createdNewEntry ? buildSessionCreationStamp(params.creation) : {}),
           ...(params.visibility && createdNewEntry ? { visibility: params.visibility } : {}),
+          ...(generatedDisplayName && createdNewEntry ? { displayName: generatedDisplayName } : {}),
           ...(catalogResolvedModel && catalogAgentRuntime
             ? {
                 providerOverride: catalogResolvedModel.provider,
