@@ -459,10 +459,9 @@ ensure_wsl_package() {
   [[ "$signature" == "Valid" ]] || die "WSL MSI signature was not valid Microsoft code: $signature"
   run_windows_installer prlctl exec "$VM_NAME" msiexec.exe /i 'C:\ProgramData\OpenClawPrerequisiteInstallers\WSL.msi' /qn /norestart '/L*v' 'C:\Windows\Temp\openclaw-wsl-install.log'
   finish_installer_reboot
-  guest_user_cmd 'wsl.exe --version' >/dev/null || {
-    guest_system_ps "Get-Content 'C:/Windows/Temp/openclaw-wsl-install.log' -Tail 80" >&2 || true
-    die "WSL package install did not produce a working wsl.exe"
-  }
+  # Parallels can return from the MSI client before the Windows Installer service
+  # finishes publishing wsl.exe. Match the bounded readiness check used by Git and Node.
+  wait_for_check WSL 'wsl.exe --version'
   guest_user_cmd 'wsl.exe --set-default-version 2' >/dev/null
   guest_system_ps "Remove-Item -LiteralPath '${wsl_msi}','C:/Windows/Temp/openclaw-wsl-install.log' -Force -ErrorAction SilentlyContinue"
 }
