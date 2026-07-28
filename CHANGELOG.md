@@ -52,7 +52,7 @@ Docs: https://docs.openclaw.ai
 ### Fixes
 
 - **Dev-channel updates:** finish package-to-git switches in a fresh CLI process even when source SHA and version metadata are unchanged, preventing stale hashed chunks from loading after the global package root changes.
-- **Parallels release smoke:** wait for Windows WSL MSI readiness, force explicit test-owned gateway stops, and reset Linux package, config, and cache state before install lanes, preventing false prerequisite, safety-gate, and stale-config failures.
+- **Parallels release smoke:** preserve Windows installer reboot results across Parallels, wait for WSL MSI/default-version readiness, force explicit test-owned gateway stops, and reset Linux package, config, and cache state before install lanes, preventing false prerequisite, safety-gate, and stale-config failures.
 - **Codex native controls:** stop misclassifying valid thinking/fast runtime controls as provider overrides so Codex routes keep their native controls, while provider-native objects and invalid values stay fail-closed. Thanks @VACInc. (#107588)
 - **State snapshot verification:** run SQLite snapshot verification in a separate process so worker-thread file closes no longer drop the Gateway's POSIX WAL locks, eliminating spurious WAL misses and I/O errors. Thanks @VACInc. (#114016)
 - **Reply latency with model policies:** reuse one immutable plugin-metadata snapshot per model-selection run instead of repeating plugin discovery, cutting reply delay when a model policy is configured. Thanks @VACInc. (#114117)
