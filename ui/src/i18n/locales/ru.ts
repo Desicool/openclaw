@@ -1142,9 +1142,9 @@ export const ru: TranslationMap = {
         label: "Трансляция",
         description: "Настройки трансляции и уведомлений",
       },
-      audio: {
-        label: "Аудио",
-        description: "Настройки ввода/вывода звука",
+      tts: {
+        label: "Голос",
+        description: "Преобразование текста в речь, голоса и персоны",
       },
       session: {
         label: "Сеанс",
@@ -1154,17 +1154,9 @@ export const ru: TranslationMap = {
         label: "Cron",
         description: "Запланированные задачи и автоматизация",
       },
-      web: {
-        label: "Веб",
-        description: "Настройки веб-сервера и API",
-      },
       discovery: {
         label: "Обнаружение",
         description: "Обнаружение сервисов и сеть",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Рендеринг и отображение Canvas",
       },
       talk: {
         label: "Разговор",
@@ -1329,7 +1321,7 @@ export const ru: TranslationMap = {
       broadcast: "Трансляция",
       notifications: "Уведомления",
       talk: "Разговор",
-      audio: "Аудио",
+      tts: "Голос",
       commands: "Команды",
       hooks: "Хуки",
       bindings: "Привязки",
@@ -1338,12 +1330,9 @@ export const ru: TranslationMap = {
       security: "Политика безопасности",
       plugins: "Плагины",
       gateway: "Gateway",
-      web: "Веб",
       browser: "Браузер",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Обнаружение",
-      media: "Медиа",
       acp: "ACP",
       mcp: "MCP",
       theme: "Тема",

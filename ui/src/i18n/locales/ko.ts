@@ -1124,9 +1124,9 @@ export const ko: TranslationMap = {
         label: "브로드캐스트",
         description: "브로드캐스트 및 알림 설정",
       },
-      audio: {
-        label: "오디오",
-        description: "오디오 입력/출력 설정",
+      tts: {
+        label: "음성",
+        description: "텍스트 음성 변환 출력, 음성 및 페르소나",
       },
       session: {
         label: "세션",
@@ -1136,17 +1136,9 @@ export const ko: TranslationMap = {
         label: "Cron",
         description: "예약된 작업 및 자동화",
       },
-      web: {
-        label: "Web",
-        description: "웹 서버 및 API 설정",
-      },
       discovery: {
         label: "Discovery",
         description: "서비스 검색 및 네트워킹",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "캔버스 렌더링 및 표시",
       },
       talk: {
         label: "Talk",
@@ -1310,7 +1302,7 @@ export const ko: TranslationMap = {
       broadcast: "브로드캐스트",
       notifications: "알림",
       talk: "대화",
-      audio: "오디오",
+      tts: "음성",
       commands: "명령",
       hooks: "훅",
       bindings: "바인딩",
@@ -1319,12 +1311,9 @@ export const ko: TranslationMap = {
       security: "보안 정책",
       plugins: "플러그인",
       gateway: "Gateway",
-      web: "웹",
       browser: "브라우저",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "검색",
-      media: "미디어",
       acp: "ACP",
       mcp: "MCP",
       theme: "테마",

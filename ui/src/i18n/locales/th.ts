@@ -1110,9 +1110,9 @@ export const th: TranslationMap = {
         label: "การกระจายสัญญาณ",
         description: "การตั้งค่าการกระจายสัญญาณและการแจ้งเตือน",
       },
-      audio: {
+      tts: {
         label: "เสียง",
-        description: "การตั้งค่าอินพุต/เอาต์พุตเสียง",
+        description: "เอาต์พุตการแปลงข้อความเป็นเสียง เสียงพูด และบุคลิก",
       },
       session: {
         label: "เซสชัน",
@@ -1122,17 +1122,9 @@ export const th: TranslationMap = {
         label: "Cron",
         description: "งานตามกำหนดการและการทำงานอัตโนมัติ",
       },
-      web: {
-        label: "Web",
-        description: "การตั้งค่าเว็บเซิร์ฟเวอร์และ API",
-      },
       discovery: {
         label: "Discovery",
         description: "การค้นพบบริการและเครือข่าย",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "การเรนเดอร์และการแสดงผล Canvas",
       },
       talk: {
         label: "Talk",
@@ -1296,7 +1288,7 @@ export const th: TranslationMap = {
       broadcast: "การกระจายเสียง",
       notifications: "การแจ้งเตือน",
       talk: "สนทนา",
-      audio: "เสียง",
+      tts: "เสียง",
       commands: "คำสั่ง",
       hooks: "ฮุก",
       bindings: "การผูก",
@@ -1305,12 +1297,9 @@ export const th: TranslationMap = {
       security: "นโยบายความปลอดภัย",
       plugins: "ปลั๊กอิน",
       gateway: "Gateway",
-      web: "เว็บ",
       browser: "เบราว์เซอร์",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "การค้นพบ",
-      media: "สื่อ",
       acp: "ACP",
       mcp: "MCP",
       theme: "ธีม",

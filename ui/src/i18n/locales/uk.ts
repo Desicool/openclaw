@@ -1137,9 +1137,9 @@ export const uk: TranslationMap = {
         label: "Трансляція",
         description: "Налаштування трансляції та сповіщень",
       },
-      audio: {
-        label: "Аудіо",
-        description: "Налаштування аудіовходу/аудіовиходу",
+      tts: {
+        label: "Голос",
+        description: "Синтез мовлення, голоси та персони",
       },
       session: {
         label: "Сесія",
@@ -1149,17 +1149,9 @@ export const uk: TranslationMap = {
         label: "Cron",
         description: "Заплановані завдання та автоматизація",
       },
-      web: {
-        label: "Веб",
-        description: "Налаштування вебсервера та API",
-      },
       discovery: {
         label: "Виявлення",
         description: "Виявлення служб і мережа",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Рендеринг і відображення Canvas",
       },
       talk: {
         label: "Розмова",
@@ -1325,7 +1317,7 @@ export const uk: TranslationMap = {
       broadcast: "Трансляція",
       notifications: "Сповіщення",
       talk: "Розмова",
-      audio: "Аудіо",
+      tts: "Голос",
       commands: "Команди",
       hooks: "Хуки",
       bindings: "Прив’язки",
@@ -1334,12 +1326,9 @@ export const uk: TranslationMap = {
       security: "Політика безпеки",
       plugins: "Плагіни",
       gateway: "Gateway",
-      web: "Веб",
       browser: "Браузер",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Виявлення",
-      media: "Медіа",
       acp: "ACP",
       mcp: "MCP",
       theme: "Тема",

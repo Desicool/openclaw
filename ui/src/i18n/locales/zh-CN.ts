@@ -1098,9 +1098,9 @@ export const zh_CN: TranslationMap = {
         label: "广播",
         description: "广播与通知设置",
       },
-      audio: {
-        label: "音频",
-        description: "音频输入/输出设置",
+      tts: {
+        label: "语音",
+        description: "文本转语音输出、声音和角色",
       },
       session: {
         label: "会话",
@@ -1110,17 +1110,9 @@ export const zh_CN: TranslationMap = {
         label: "Cron",
         description: "定时任务与自动化",
       },
-      web: {
-        label: "Web",
-        description: "Web 服务器与 API 设置",
-      },
       discovery: {
         label: "发现",
         description: "服务发现与网络",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Canvas 渲染与显示",
       },
       talk: {
         label: "语音",
@@ -1284,7 +1276,7 @@ export const zh_CN: TranslationMap = {
       broadcast: "广播",
       notifications: "通知",
       talk: "语音通话",
-      audio: "音频",
+      tts: "语音",
       commands: "命令",
       hooks: "Hooks",
       bindings: "绑定",
@@ -1293,12 +1285,9 @@ export const zh_CN: TranslationMap = {
       security: "安全策略",
       plugins: "插件",
       gateway: "Gateway",
-      web: "Web",
       browser: "浏览器",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "发现",
-      media: "媒体",
       acp: "ACP",
       mcp: "MCP",
       theme: "主题",

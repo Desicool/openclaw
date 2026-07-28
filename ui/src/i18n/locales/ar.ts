@@ -1119,9 +1119,9 @@ export const ar: TranslationMap = {
         label: "البث",
         description: "إعدادات البث والإشعارات",
       },
-      audio: {
+      tts: {
         label: "الصوت",
-        description: "إعدادات إدخال الصوت وإخراجه",
+        description: "إخراج تحويل النص إلى كلام، والأصوات، والشخصيات",
       },
       session: {
         label: "الجلسة",
@@ -1131,17 +1131,9 @@ export const ar: TranslationMap = {
         label: "Cron",
         description: "المهام المجدولة والأتمتة",
       },
-      web: {
-        label: "الويب",
-        description: "إعدادات خادم الويب وواجهة API",
-      },
       discovery: {
         label: "الاكتشاف",
         description: "اكتشاف الخدمات والشبكات",
-      },
-      canvasHost: {
-        label: "مضيف Canvas",
-        description: "عرض Canvas وإظهاره",
       },
       talk: {
         label: "التحدث",
@@ -1305,7 +1297,7 @@ export const ar: TranslationMap = {
       broadcast: "البث",
       notifications: "الإشعارات",
       talk: "التحدث",
-      audio: "الصوت",
+      tts: "الصوت",
       commands: "الأوامر",
       hooks: "الخطافات",
       bindings: "الارتباطات",
@@ -1314,12 +1306,9 @@ export const ar: TranslationMap = {
       security: "سياسة الأمان",
       plugins: "الإضافات",
       gateway: "Gateway",
-      web: "الويب",
       browser: "المتصفح",
       nodeHost: "مضيف العقدة",
-      canvasHost: "مضيف اللوحة",
       discovery: "الاكتشاف",
-      media: "الوسائط",
       acp: "ACP",
       mcp: "MCP",
       theme: "السمة",

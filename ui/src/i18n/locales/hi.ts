@@ -1121,9 +1121,9 @@ export const hi: TranslationMap = {
         label: "ब्रॉडकास्ट",
         description: "ब्रॉडकास्ट और सूचना सेटिंग्स",
       },
-      audio: {
-        label: "ऑडियो",
-        description: "ऑडियो इनपुट/आउटपुट सेटिंग्स",
+      tts: {
+        label: "आवाज़",
+        description: "टेक्स्ट-टू-स्पीच आउटपुट, आवाज़ें और व्यक्तित्व",
       },
       session: {
         label: "सत्र",
@@ -1133,17 +1133,9 @@ export const hi: TranslationMap = {
         label: "Cron",
         description: "अनुसूचित कार्य और ऑटोमेशन",
       },
-      web: {
-        label: "वेब",
-        description: "वेब सर्वर और API सेटिंग्स",
-      },
       discovery: {
         label: "डिस्कवरी",
         description: "सेवा डिस्कवरी और नेटवर्किंग",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "कैनवास रेंडरिंग और डिस्प्ले",
       },
       talk: {
         label: "Talk",
@@ -1307,7 +1299,7 @@ export const hi: TranslationMap = {
       broadcast: "ब्रॉडकास्ट",
       notifications: "सूचनाएं",
       talk: "टॉक",
-      audio: "ऑडियो",
+      tts: "आवाज़",
       commands: "कमांड्स",
       hooks: "हुक्स",
       bindings: "बाइंडिंग्स",
@@ -1316,12 +1308,9 @@ export const hi: TranslationMap = {
       security: "सुरक्षा नीति",
       plugins: "प्लगइन",
       gateway: "Gateway",
-      web: "वेब",
       browser: "ब्राउज़र",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "डिस्कवरी",
-      media: "मीडिया",
       acp: "ACP",
       mcp: "MCP",
       theme: "थीम",

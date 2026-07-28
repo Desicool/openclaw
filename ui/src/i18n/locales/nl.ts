@@ -1140,9 +1140,9 @@ export const nl: TranslationMap = {
         label: "Broadcast",
         description: "Instellingen voor broadcast en meldingen",
       },
-      audio: {
-        label: "Audio",
-        description: "Instellingen voor audio-invoer/-uitvoer",
+      tts: {
+        label: "Stem",
+        description: "Tekst-naar-spraakuitvoer, stemmen en persona's",
       },
       session: {
         label: "Sessie",
@@ -1152,17 +1152,9 @@ export const nl: TranslationMap = {
         label: "Cron",
         description: "Geplande taken en automatisering",
       },
-      web: {
-        label: "Web",
-        description: "Instellingen voor webserver en API",
-      },
       discovery: {
         label: "Discovery",
         description: "Service discovery en netwerken",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Canvas-rendering en -weergave",
       },
       talk: {
         label: "Spraak",
@@ -1327,7 +1319,7 @@ export const nl: TranslationMap = {
       broadcast: "Broadcast",
       notifications: "Meldingen",
       talk: "Talk",
-      audio: "Audio",
+      tts: "Stem",
       commands: "Opdrachten",
       hooks: "Hooks",
       bindings: "Bindings",
@@ -1336,12 +1328,9 @@ export const nl: TranslationMap = {
       security: "Beveiligingsbeleid",
       plugins: "Plugins",
       gateway: "Gateway",
-      web: "Web",
       browser: "Browser",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Ontdekking",
-      media: "Media",
       acp: "ACP",
       mcp: "MCP",
       theme: "Thema",

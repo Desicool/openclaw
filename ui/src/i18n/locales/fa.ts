@@ -1127,9 +1127,9 @@ export const fa: TranslationMap = {
         label: "پخش",
         description: "تنظیمات پخش و اعلان‌ها",
       },
-      audio: {
+      tts: {
         label: "صدا",
-        description: "تنظیمات ورودی/خروجی صدا",
+        description: "خروجی تبدیل متن به گفتار، صداها و شخصیت‌ها",
       },
       session: {
         label: "جلسه",
@@ -1139,17 +1139,9 @@ export const fa: TranslationMap = {
         label: "Cron",
         description: "وظایف زمان‌بندی‌شده و خودکارسازی",
       },
-      web: {
-        label: "وب",
-        description: "تنظیمات وب‌سرور و API",
-      },
       discovery: {
         label: "کشف",
         description: "کشف سرویس و شبکه‌سازی",
-      },
-      canvasHost: {
-        label: "میزبان Canvas",
-        description: "رندر و نمایش Canvas",
       },
       talk: {
         label: "گفتگو",
@@ -1314,7 +1306,7 @@ export const fa: TranslationMap = {
       broadcast: "پخش همگانی",
       notifications: "اعلان‌ها",
       talk: "گفتگو",
-      audio: "صدا",
+      tts: "صدا",
       commands: "دستورات",
       hooks: "قلاب‌ها",
       bindings: "پیوندها",
@@ -1323,12 +1315,9 @@ export const fa: TranslationMap = {
       security: "سیاست امنیتی",
       plugins: "افزونه‌ها",
       gateway: "Gateway",
-      web: "وب",
       browser: "مرورگر",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "کشف",
-      media: "رسانه",
       acp: "ACP",
       mcp: "MCP",
       theme: "پوسته",

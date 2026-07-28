@@ -1141,9 +1141,9 @@ export const es: TranslationMap = {
         label: "Difusión",
         description: "Configuración de difusión y notificaciones",
       },
-      audio: {
-        label: "Audio",
-        description: "Configuración de entrada/salida de audio",
+      tts: {
+        label: "Voz",
+        description: "Salida de texto a voz, voces y perfiles",
       },
       session: {
         label: "Sesión",
@@ -1153,17 +1153,9 @@ export const es: TranslationMap = {
         label: "Cron",
         description: "Tareas programadas y automatización",
       },
-      web: {
-        label: "Web",
-        description: "Configuración del servidor web y la API",
-      },
       discovery: {
         label: "Descubrimiento",
         description: "Descubrimiento de servicios y redes",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Renderizado y visualización del lienzo",
       },
       talk: {
         label: "Talk",
@@ -1330,7 +1322,7 @@ export const es: TranslationMap = {
       broadcast: "Difusión",
       notifications: "Notificaciones",
       talk: "Conversación",
-      audio: "Audio",
+      tts: "Voz",
       commands: "Comandos",
       hooks: "Hooks",
       bindings: "Enlaces",
@@ -1339,12 +1331,9 @@ export const es: TranslationMap = {
       security: "Política de seguridad",
       plugins: "Plugins",
       gateway: "Gateway",
-      web: "Web",
       browser: "Navegador",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Descubrimiento",
-      media: "Medios",
       acp: "ACP",
       mcp: "MCP",
       theme: "Tema",

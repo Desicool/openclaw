@@ -1140,9 +1140,9 @@ export const ja_JP: TranslationMap = {
         label: "ブロードキャスト",
         description: "ブロードキャストと通知の設定",
       },
-      audio: {
-        label: "オーディオ",
-        description: "オーディオの入出力設定",
+      tts: {
+        label: "音声",
+        description: "テキスト読み上げの出力、音声、ペルソナ",
       },
       session: {
         label: "セッション",
@@ -1152,17 +1152,9 @@ export const ja_JP: TranslationMap = {
         label: "Cron",
         description: "スケジュールされたタスクと自動化",
       },
-      web: {
-        label: "Web",
-        description: "WebサーバーとAPIの設定",
-      },
       discovery: {
         label: "ディスカバリー",
         description: "サービスディスカバリーとネットワーク",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "キャンバスのレンダリングと表示",
       },
       talk: {
         label: "Talk",
@@ -1326,7 +1318,7 @@ export const ja_JP: TranslationMap = {
       broadcast: "ブロードキャスト",
       notifications: "通知",
       talk: "トーク",
-      audio: "オーディオ",
+      tts: "音声",
       commands: "コマンド",
       hooks: "フック",
       bindings: "バインディング",
@@ -1335,12 +1327,9 @@ export const ja_JP: TranslationMap = {
       security: "セキュリティポリシー",
       plugins: "プラグイン",
       gateway: "Gateway",
-      web: "Web",
       browser: "ブラウザ",
       nodeHost: "ノードホスト",
-      canvasHost: "キャンバスホスト",
       discovery: "ディスカバリー",
-      media: "メディア",
       acp: "ACP",
       mcp: "MCP",
       theme: "テーマ",

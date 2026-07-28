@@ -1127,9 +1127,9 @@ export const id: TranslationMap = {
         label: "Broadcast",
         description: "Pengaturan broadcast dan notifikasi",
       },
-      audio: {
-        label: "Audio",
-        description: "Pengaturan input/output audio",
+      tts: {
+        label: "Suara",
+        description: "Output teks-ke-ucapan, suara, dan persona",
       },
       session: {
         label: "Sesi",
@@ -1139,17 +1139,9 @@ export const id: TranslationMap = {
         label: "Cron",
         description: "Tugas terjadwal dan otomatisasi",
       },
-      web: {
-        label: "Web",
-        description: "Pengaturan server web dan API",
-      },
       discovery: {
         label: "Discovery",
         description: "Penemuan layanan dan jaringan",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Rendering dan tampilan canvas",
       },
       talk: {
         label: "Talk",
@@ -1314,7 +1306,7 @@ export const id: TranslationMap = {
       broadcast: "Broadcast",
       notifications: "Notifications",
       talk: "Talk",
-      audio: "Audio",
+      tts: "Suara",
       commands: "Commands",
       hooks: "Hooks",
       bindings: "Bindings",
@@ -1323,12 +1315,9 @@ export const id: TranslationMap = {
       security: "Kebijakan Keamanan",
       plugins: "Plugin",
       gateway: "Gateway",
-      web: "Web",
       browser: "Browser",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Discovery",
-      media: "Media",
       acp: "ACP",
       mcp: "MCP",
       theme: "Theme",

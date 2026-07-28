@@ -1133,9 +1133,9 @@ export const tr: TranslationMap = {
         label: "Yayın",
         description: "Yayın ve bildirim ayarları",
       },
-      audio: {
+      tts: {
         label: "Ses",
-        description: "Ses giriş/çıkış ayarları",
+        description: "Metinden konuşmaya çıkış, sesler ve personalar",
       },
       session: {
         label: "Oturum",
@@ -1145,17 +1145,9 @@ export const tr: TranslationMap = {
         label: "Cron",
         description: "Zamanlanmış görevler ve otomasyon",
       },
-      web: {
-        label: "Web",
-        description: "Web sunucusu ve API ayarları",
-      },
       discovery: {
         label: "Keşif",
         description: "Hizmet keşfi ve ağ iletişimi",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Canvas oluşturma ve görüntüleme",
       },
       talk: {
         label: "Konuşma",
@@ -1320,7 +1312,7 @@ export const tr: TranslationMap = {
       broadcast: "Yayın",
       notifications: "Bildirimler",
       talk: "Konuşma",
-      audio: "Ses",
+      tts: "Ses",
       commands: "Komutlar",
       hooks: "Kancalar",
       bindings: "Bağlamalar",
@@ -1329,12 +1321,9 @@ export const tr: TranslationMap = {
       security: "Güvenlik Politikası",
       plugins: "Eklentiler",
       gateway: "Gateway",
-      web: "Web",
       browser: "Tarayıcı",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Keşif",
-      media: "Medya",
       acp: "ACP",
       mcp: "MCP",
       theme: "Tema",

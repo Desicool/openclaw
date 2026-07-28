@@ -1102,9 +1102,9 @@ export const zh_TW: TranslationMap = {
         label: "廣播",
         description: "廣播與通知設定",
       },
-      audio: {
-        label: "音訊",
-        description: "音訊輸入／輸出設定",
+      tts: {
+        label: "語音",
+        description: "文字轉語音輸出、語音與角色設定",
       },
       session: {
         label: "工作階段",
@@ -1114,17 +1114,9 @@ export const zh_TW: TranslationMap = {
         label: "Cron",
         description: "排程任務與自動化",
       },
-      web: {
-        label: "網頁",
-        description: "Web 伺服器與 API 設定",
-      },
       discovery: {
         label: "探索",
         description: "服務探索與網路連線",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Canvas 呈現與顯示",
       },
       talk: {
         label: "語音對話",
@@ -1288,7 +1280,7 @@ export const zh_TW: TranslationMap = {
       broadcast: "廣播",
       notifications: "通知",
       talk: "對話",
-      audio: "音訊",
+      tts: "語音",
       commands: "指令",
       hooks: "掛鉤",
       bindings: "綁定",
@@ -1297,12 +1289,9 @@ export const zh_TW: TranslationMap = {
       security: "安全性原則",
       plugins: "外掛程式",
       gateway: "Gateway",
-      web: "網頁",
       browser: "瀏覽器",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "探索",
-      media: "媒體",
       acp: "ACP",
       mcp: "MCP",
       theme: "主題",

@@ -1131,9 +1131,9 @@ export const vi: TranslationMap = {
         label: "Phát sóng",
         description: "Cài đặt phát sóng và thông báo",
       },
-      audio: {
-        label: "Âm thanh",
-        description: "Cài đặt đầu vào/đầu ra âm thanh",
+      tts: {
+        label: "Giọng nói",
+        description: "Đầu ra chuyển văn bản thành giọng nói, giọng đọc và phong cách nhân vật",
       },
       session: {
         label: "Phiên",
@@ -1143,17 +1143,9 @@ export const vi: TranslationMap = {
         label: "Cron",
         description: "Tác vụ theo lịch và tự động hóa",
       },
-      web: {
-        label: "Web",
-        description: "Cài đặt máy chủ web và API",
-      },
       discovery: {
         label: "Khám phá",
         description: "Khám phá dịch vụ và mạng",
-      },
-      canvasHost: {
-        label: "Canvas Host",
-        description: "Kết xuất và hiển thị canvas",
       },
       talk: {
         label: "Talk",
@@ -1317,7 +1309,7 @@ export const vi: TranslationMap = {
       broadcast: "Phát sóng",
       notifications: "Thông báo",
       talk: "Trò chuyện",
-      audio: "Âm thanh",
+      tts: "Giọng nói",
       commands: "Lệnh",
       hooks: "Hooks",
       bindings: "Liên kết",
@@ -1326,12 +1318,9 @@ export const vi: TranslationMap = {
       security: "Chính sách bảo mật",
       plugins: "Plugin",
       gateway: "Gateway",
-      web: "Web",
       browser: "Trình duyệt",
       nodeHost: "Node Host",
-      canvasHost: "Canvas Host",
       discovery: "Khám phá",
-      media: "Phương tiện",
       acp: "ACP",
       mcp: "MCP",
       theme: "Giao diện",
