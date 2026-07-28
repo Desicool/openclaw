@@ -4570,7 +4570,7 @@ export const fr: TranslationMap = {
       noContent: "Aucun contenu disponible",
     },
     sidebarColumns: {
-      chat: "Discussion",
+      chat: "Chat",
       discussion: "Discussion",
       detail: "Détails",
       close: "Fermer {panel}",

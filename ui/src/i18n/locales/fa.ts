@@ -4463,7 +4463,7 @@ export const fa: TranslationMap = {
       noContent: "محتوایی در دسترس نیست",
     },
     sidebarColumns: {
-      chat: "گفتگو",
+      chat: "چت",
       discussion: "گفت‌وگو",
       detail: "جزئیات",
       close: "بستن {panel}",

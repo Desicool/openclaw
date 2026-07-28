@@ -41,7 +41,7 @@ export const es: TranslationMap = {
     unselect: "Deseleccionar",
     enabled: "Habilitado",
     disabled: "Deshabilitado",
-    failed: "Fallidas",
+    failed: "Error",
     none: "ninguno",
     na: "n/d",
     never: "never",
@@ -2278,7 +2278,7 @@ export const es: TranslationMap = {
           "Inline escribe en el archivo de memoria; separate mantiene un archivo de informe dedicado.",
         modes: {
           inline: "Inline",
-          separate: "Separate",
+          separate: "Separado",
           both: "Ambos",
         },
         separateReportsLabel: "Informes separados",
@@ -2303,7 +2303,7 @@ export const es: TranslationMap = {
         },
       },
       phaseFields: {
-        enabled: "Activados",
+        enabled: "Activada",
         enabledHelp: "Ejecuta esta fase durante el barrido.",
         lookbackDays: "Días de retrospección",
         lookbackDaysHelp:

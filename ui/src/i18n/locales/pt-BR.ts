@@ -41,7 +41,7 @@ export const pt_BR: TranslationMap = {
     unselect: "Desmarcar",
     enabled: "Ativado",
     disabled: "Desativado",
-    failed: "Falharam",
+    failed: "Falha",
     none: "nenhum",
     na: "n/d",
     never: "never",
@@ -2183,7 +2183,7 @@ export const pt_BR: TranslationMap = {
       description:
         "Exatamente um plugin de memória ocupa o slot de memória. Selecionar um motor o ativa e desativa os outros.",
       rowTitle: "Motor de memória",
-      off: "Desativada",
+      off: "Desativado",
       autoHint:
         "Nenhum motor está fixado na configuração, então o slot recai sobre seu proprietário padrão.",
       explicitHint: "Este motor está fixado na configuração em plugins.slots.memory.",

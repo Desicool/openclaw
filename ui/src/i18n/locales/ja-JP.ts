@@ -2195,7 +2195,7 @@ export const ja_JP: TranslationMap = {
       disabledTitle: "このエンジンは無効です",
       disabledHint:
         "メモリスロットはこのプラグインを指していますが、プラグイン自体が無効になっているため、メモリは実行されていません。",
-      enable: "有効化：",
+      enable: "有効化",
     },
     backend: {
       title: "バックエンド",

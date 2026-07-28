@@ -2269,7 +2269,7 @@ export const ru: TranslationMap = {
         modeLabel: "Режим хранения",
         modeHelp: "Inline записывает в файл памяти; separate хранит отдельный файл отчётов.",
         modes: {
-          inline: "Внутри",
+          inline: "В основном файле",
           separate: "Отдельно",
           both: "Оба",
         },

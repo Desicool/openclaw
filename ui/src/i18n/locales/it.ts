@@ -41,7 +41,7 @@ export const it: TranslationMap = {
     unselect: "Deseleziona",
     enabled: "Abilitato",
     disabled: "Disabilitato",
-    failed: "Non riusciti",
+    failed: "Non riuscito",
     none: "nessuno",
     na: "n/d",
     never: "mai",

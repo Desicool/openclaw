@@ -2208,8 +2208,8 @@ export const th: TranslationMap = {
         modeHelp: "Inline จะเขียนลงในไฟล์ความทรงจำ ส่วน separate จะเก็บไฟล์รายงานแยกต่างหาก",
         modes: {
           inline: "Inline",
-          separate: "Separate",
-          both: "Both",
+          separate: "แยกกัน",
+          both: "ทั้งสองแบบ",
         },
         separateReportsLabel: "แยกรายงาน",
         separateReportsHelp: "เก็บรายงานการฝันไว้นอกไฟล์หน่วยความจำหลัก",
