@@ -306,6 +306,12 @@ describe("Parallels smoke model selection", () => {
     expect(linux).toContain("rm -rf /root/.openclaw /root/.npm/_cacache");
   });
 
+  it("forces the explicit test-owned Windows gateway stop", () => {
+    const windows = readFileSync(TS_PATHS.windows, "utf8");
+    expect(windows).toContain('const forceFlag = action === "stop" ? " --force" : "";');
+    expect(windows).toContain("Invoke-OpenClaw gateway ${action}${forceFlag}");
+  });
+
   it("preserves caller arguments when loaded as the Windows controller library", () => {
     const result = spawnSync(
       "bash",
