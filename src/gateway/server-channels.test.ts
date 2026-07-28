@@ -1753,7 +1753,9 @@ describe("server-channels auto restart", () => {
     const accountStartReady = new Promise<void>((resolve) => {
       releaseAccountStart = resolve;
     });
-    let nativeApprovalRuntime: GatewayNativeApprovalRuntime | undefined;
+    const nativeApprovalRuntime = {
+      current: undefined as GatewayNativeApprovalRuntime | undefined,
+    };
     const startAccount = vi.fn(async (ctx: ChannelGatewayContext<TestAccount>) => {
       const approvalRuntime =
         ctx.channelRuntime?.runtimeContexts.get<ApprovalGatewayRequestRuntime>({
@@ -1777,12 +1779,12 @@ describe("server-channels auto restart", () => {
     const manager = createManager({
       channelRuntime: createRuntimeChannel(),
       deferStartupAccountStartsUntil: accountStartReady,
-      getNativeApprovalRuntime: () => nativeApprovalRuntime,
+      getNativeApprovalRuntime: () => nativeApprovalRuntime.current,
     });
 
     await manager.startChannels();
     expect(startAccount).not.toHaveBeenCalled();
-    nativeApprovalRuntime = { request } as unknown as GatewayNativeApprovalRuntime;
+    nativeApprovalRuntime.current = { request } as unknown as GatewayNativeApprovalRuntime;
     releaseAccountStart();
     await flushMicrotasks();
 
