@@ -3256,7 +3256,6 @@ export const vi: TranslationMap = {
       title: "Ảnh chụp nhanh",
       subtitle: "Thông tin bắt tay Gateway mới nhất.",
       status: "Trạng thái",
-      uptime: "Thời gian hoạt động",
       tickInterval: "Khoảng thời gian cập nhật",
       lastChannelsRefresh: "Lần làm mới kênh gần nhất",
       lastError: "Lỗi gần nhất",

@@ -3251,7 +3251,6 @@ export const id: TranslationMap = {
       title: "Snapshot",
       subtitle: "Informasi handshake Gateway terbaru.",
       status: "Status",
-      uptime: "Waktu aktif",
       tickInterval: "Interval tick",
       lastChannelsRefresh: "Penyegaran saluran terakhir",
       lastError: "Kesalahan terakhir",

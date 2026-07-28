@@ -3231,7 +3231,6 @@ export const ko: TranslationMap = {
       title: "스냅샷",
       subtitle: "최신 Gateway 핸드셰이크 정보.",
       status: "상태",
-      uptime: "가동 시간",
       tickInterval: "틱 간격",
       lastChannelsRefresh: "마지막 채널 새로고침",
       lastError: "마지막 오류",

@@ -3190,7 +3190,6 @@ export const th: TranslationMap = {
       title: "สแนปช็อต",
       subtitle: "ข้อมูลการจับมือกับ Gateway ล่าสุด",
       status: "สถานะ",
-      uptime: "ระยะเวลาทำงาน",
       tickInterval: "ช่วงเวลาการอัปเดต",
       lastChannelsRefresh: "การรีเฟรชช่องครั้งล่าสุด",
       lastError: "ข้อผิดพลาดล่าสุด",

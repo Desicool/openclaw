@@ -3269,7 +3269,6 @@ export const uk: TranslationMap = {
       title: "Знімок стану",
       subtitle: "Остання інформація про рукостискання з Gateway.",
       status: "Статус",
-      uptime: "Час роботи",
       tickInterval: "Інтервал оновлення",
       lastChannelsRefresh: "Останнє оновлення каналів",
       lastError: "Остання помилка",

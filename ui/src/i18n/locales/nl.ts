@@ -3273,7 +3273,6 @@ export const nl: TranslationMap = {
       title: "Momentopname",
       subtitle: "Meest recente informatie over de Gateway-handshake.",
       status: "Status",
-      uptime: "Bedrijfstijd",
       tickInterval: "Tickinterval",
       lastChannelsRefresh: "Laatste vernieuwing van kanalen",
       lastError: "Laatste fout",

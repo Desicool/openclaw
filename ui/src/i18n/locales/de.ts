@@ -3301,7 +3301,6 @@ export const de: TranslationMap = {
       title: "Momentaufnahme",
       subtitle: "Neueste Informationen zum Gateway-Handshake.",
       status: "Status",
-      uptime: "Betriebszeit",
       tickInterval: "Tick-Intervall",
       lastChannelsRefresh: "Letzte Kanalaktualisierung",
       lastError: "Letzter Fehler",

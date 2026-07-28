@@ -3324,7 +3324,6 @@ export const fr: TranslationMap = {
       title: "Instantané",
       subtitle: "Dernières informations de négociation du Gateway.",
       status: "Statut",
-      uptime: "Durée de fonctionnement",
       tickInterval: "Intervalle de rafraîchissement",
       lastChannelsRefresh: "Dernière actualisation des canaux",
       lastError: "Dernière erreur",

@@ -3169,7 +3169,6 @@ export const zh_TW: TranslationMap = {
       title: "快照",
       subtitle: "最新的 Gateway 交握資訊。",
       status: "狀態",
-      uptime: "運作時間",
       tickInterval: "更新間隔",
       lastChannelsRefresh: "上次重新整理頻道",
       lastError: "上次錯誤",

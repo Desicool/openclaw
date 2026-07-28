@@ -3162,7 +3162,6 @@ export const zh_CN: TranslationMap = {
       title: "快照",
       subtitle: "最新的 Gateway 握手信息。",
       status: "状态",
-      uptime: "运行时间",
       tickInterval: "更新间隔",
       lastChannelsRefresh: "上次刷新频道",
       lastError: "最近一次错误",

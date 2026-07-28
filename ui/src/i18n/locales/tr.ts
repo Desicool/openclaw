@@ -3268,7 +3268,6 @@ export const tr: TranslationMap = {
       title: "Anlık Görüntü",
       subtitle: "En son Gateway el sıkışma bilgileri.",
       status: "Durum",
-      uptime: "Çalışma Süresi",
       tickInterval: "Tik Aralığı",
       lastChannelsRefresh: "Son Kanal Yenileme",
       lastError: "Son hata",

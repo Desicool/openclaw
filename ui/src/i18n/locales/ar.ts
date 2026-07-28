@@ -3213,7 +3213,6 @@ export const ar: TranslationMap = {
       title: "لقطة",
       subtitle: "أحدث معلومات مصافحة Gateway.",
       status: "الحالة",
-      uptime: "مدة التشغيل",
       tickInterval: "الفاصل الزمني للنبضات",
       lastChannelsRefresh: "آخر تحديث للقنوات",
       lastError: "آخر خطأ",

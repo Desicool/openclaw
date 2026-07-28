@@ -3275,7 +3275,6 @@ export const pt_BR: TranslationMap = {
       title: "Instantâneo",
       subtitle: "Informações do handshake mais recente do Gateway.",
       status: "Status",
-      uptime: "Tempo de atividade",
       tickInterval: "Intervalo de atualização",
       lastChannelsRefresh: "Última atualização dos canais",
       lastError: "Último erro",

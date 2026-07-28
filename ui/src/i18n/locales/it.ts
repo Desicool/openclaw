@@ -3295,7 +3295,6 @@ export const it: TranslationMap = {
       title: "Istantanea",
       subtitle: "Informazioni sull'handshake più recente del Gateway.",
       status: "Stato",
-      uptime: "Tempo di attività",
       tickInterval: "Intervallo di aggiornamento",
       lastChannelsRefresh: "Ultimo aggiornamento dei canali",
       lastError: "Ultimo errore",

@@ -3211,7 +3211,6 @@ export const hi: TranslationMap = {
       title: "स्नैपशॉट",
       subtitle: "नवीनतम गेटवे हैंडशेक जानकारी.",
       status: "स्थिति",
-      uptime: "अपटाइम",
       tickInterval: "टिक अंतराल",
       lastChannelsRefresh: "अंतिम चैनल रिफ्रेश",
       lastError: "पिछली त्रुटि",

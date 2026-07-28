@@ -3270,7 +3270,6 @@ export const ja_JP: TranslationMap = {
       title: "スナップショット",
       subtitle: "最新のGatewayハンドシェイク情報。",
       status: "ステータス",
-      uptime: "稼働時間",
       tickInterval: "更新間隔",
       lastChannelsRefresh: "最終チャンネル更新",
       lastError: "直近のエラー",

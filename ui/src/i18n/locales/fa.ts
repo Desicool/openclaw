@@ -3242,7 +3242,6 @@ export const fa: TranslationMap = {
       title: "تصویر لحظه‌ای",
       subtitle: "جدیدترین اطلاعات دست‌دهی Gateway.",
       status: "وضعیت",
-      uptime: "مدت فعالیت",
       tickInterval: "فاصله تیک",
       lastChannelsRefresh: "آخرین به‌روزرسانی کانال‌ها",
       lastError: "آخرین خطا",

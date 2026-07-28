@@ -3278,7 +3278,6 @@ export const ru: TranslationMap = {
       title: "Снимок",
       subtitle: "Последняя информация о рукопожатии шлюза.",
       status: "Статус",
-      uptime: "Время работы",
       tickInterval: "Интервал тика",
       lastChannelsRefresh: "Последнее обновление каналов",
       lastError: "Последняя ошибка",

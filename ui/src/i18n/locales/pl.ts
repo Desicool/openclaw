@@ -3283,7 +3283,6 @@ export const pl: TranslationMap = {
       title: "Migawka",
       subtitle: "Najnowsze informacje o uzgadnianiu połączenia z Gateway.",
       status: "Status",
-      uptime: "Czas działania",
       tickInterval: "Interwał aktualizacji",
       lastChannelsRefresh: "Ostatnie odświeżenie kanałów",
       lastError: "Ostatni błąd",
