@@ -2185,7 +2185,7 @@ export const tr: TranslationMap = {
       disabledTitle: "Bu motor devre dışı",
       disabledHint:
         "Bellek yuvası bu eklentiye işaret ediyor ancak eklentinin kendisi devre dışı, bu yüzden bellek çalışmıyor.",
-      enable: "Etkinleştirin:",
+      enable: "Etkinleştir",
     },
     backend: {
       title: "Arka uç",
@@ -2249,11 +2249,11 @@ export const tr: TranslationMap = {
         title: "Depolama",
         description: "Yükseltilen anıların ve dreaming raporlarının nereye yazılacağı.",
         modeLabel: "Depolama modu",
-        modeHelp: "Inline, bellek dosyasına yazar; separate özel bir rapor dosyası tutar.",
+        modeHelp: "Dosya içi mod bellek dosyasına yazar; ayrı mod özel bir rapor dosyası tutar.",
         modes: {
-          inline: "Inline",
-          separate: "Separate",
-          both: "Both",
+          inline: "Dosya içi",
+          separate: "Ayrı",
+          both: "Her ikisi",
         },
         separateReportsLabel: "Ayrı raporlar",
         separateReportsHelp: "Rüya raporlarını ana bellek dosyasının dışında tutun.",

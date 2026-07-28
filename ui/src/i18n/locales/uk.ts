@@ -2261,11 +2261,12 @@ export const uk: TranslationMap = {
         title: "Сховище",
         description: "Куди записуються підвищені спогади та звіти Dreaming.",
         modeLabel: "Режим сховища",
-        modeHelp: "Inline записує у файл пам'яті; separate зберігає окремий файл звіту.",
+        modeHelp:
+          "Режим «В основному файлі» записує у файл пам'яті; режим «Окремо» зберігає окремий файл звіту.",
         modes: {
-          inline: "Inline",
-          separate: "Separate",
-          both: "Both",
+          inline: "В основному файлі",
+          separate: "Окремо",
+          both: "Обидва",
         },
         separateReportsLabel: "Окремі звіти",
         separateReportsHelp: "Зберігати звіти про сновидіння окремо від основного файлу пам'яті.",

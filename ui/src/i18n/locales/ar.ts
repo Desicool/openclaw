@@ -2221,10 +2221,10 @@ export const ar: TranslationMap = {
         title: "التخزين",
         description: "أين تُكتب الذكريات المُرقّاة وتقارير Dreaming.",
         modeLabel: "وضع التخزين",
-        modeHelp: "Inline يكتب داخل ملف الذاكرة؛ Separate يحتفظ بملف تقرير مخصص.",
+        modeHelp: "يكتب الوضع المضمّن في ملف الذاكرة؛ ويحتفظ الوضع المنفصل بملف تقرير مخصص.",
         modes: {
-          inline: "Inline",
-          separate: "Separate",
+          inline: "مضمّن",
+          separate: "منفصل",
           both: "كلاهما",
         },
         separateReportsLabel: "تقارير منفصلة",

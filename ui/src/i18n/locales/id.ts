@@ -2304,7 +2304,7 @@ export const id: TranslationMap = {
         title: "Pengaturan bermimpi",
         rowTitle: "Tidak tersedia untuk mesin ini",
         description:
-          "Plugin {plugin} memiliki slot memori dan skema konfigurasinya tidak memiliki bagian bermimpi, jadi pengaturan ini tidak dapat disimpan. Ganti mesin pada tab Overview untuk mengeditnya.",
+          "Plugin {plugin} memiliki slot memori dan skema konfigurasinya tidak memiliki bagian bermimpi, jadi pengaturan ini tidak dapat disimpan. Ganti mesin pada tab Ikhtisar untuk mengeditnya.",
       },
     },
   },
