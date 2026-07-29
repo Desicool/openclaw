@@ -25,15 +25,6 @@ import {
   type HistoryEntry,
 } from "openclaw/plugin-sdk/reply-history";
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
-import { serializeMSTeamsAdaptiveCardActionValue } from "../adaptive-card-submit.js";
-import {
-  resolveMSTeamsAdvertisedMedia,
-  summarizeMSTeamsHtmlAttachments,
-  type MSTeamsAttachmentLike,
-} from "../attachments.js";
-import { extractHtmlFromAttachment } from "../attachments/shared.js";
-import { tryNormalizeBotFrameworkServiceUrl } from "../bot-framework-service-url.js";
-import type { StoredConversationReference } from "../conversation-store.js";
 import { formatUnknownError } from "../errors.js";
 import {
   fetchChannelMessage,
@@ -42,15 +33,17 @@ import {
   formatThreadContext,
   type GraphThreadMessage,
 } from "../graph-thread.js";
-import {
-  extractMSTeamsConversationMessageId,
-  extractMSTeamsQuoteInfo,
-  normalizeMSTeamsConversationId,
-  parseMSTeamsActivityTimestamp,
-  stripMSTeamsMentionTags,
-  wasMSTeamsBotMentioned,
-} from "../inbound.js";
+import { normalizeMSTeamsConversationId, parseMSTeamsActivityTimestamp } from "../inbound.js";
+import type { MSTeamsMessageHandlerDeps } from "../monitor-handler.types.js";
+import type { MSTeamsIngressLifecycle } from "../msteams-ingress.js";
+import { resolveMSTeamsAllowlistMatch, resolveMSTeamsReplyPolicy } from "../policy.js";
+import { extractMSTeamsPollVote } from "../polls.js";
+import { createMSTeamsReplyDispatcher } from "../reply-dispatcher.js";
 import { createMSTeamsInboundDeadline, withMSTeamsRequestDeadline } from "../request-timeout.js";
+import { getMSTeamsRuntime } from "../runtime.js";
+import type { MSTeamsTurnContext } from "../sdk-types.js";
+import { recordMSTeamsSentMessage } from "../sent-message-cache.js";
+import { resolveTeamGroupId } from "../team-identity.js";
 import {
   fetchParentMessageCached,
   formatParentContextEvent,
@@ -58,43 +51,12 @@ import {
   shouldInjectParentContext,
   summarizeParentMessage,
 } from "../thread-parent-context.js";
-
-function extractTextFromHtmlAttachments(attachments: MSTeamsAttachmentLike[]): string {
-  for (const attachment of attachments) {
-    const raw = extractHtmlFromAttachment(attachment);
-    if (!raw) {
-      continue;
-    }
-    const text = raw
-      .replace(/<at[^>]*>.*?<\/at>/gis, " ")
-      .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis, "$2 $1")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/p>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (text) {
-      return text;
-    }
-  }
-  return "";
-}
-
-import type { MSTeamsMessageHandlerDeps } from "../monitor-handler.types.js";
-import type { MSTeamsIngressLifecycle } from "../msteams-ingress.js";
-import { resolveMSTeamsAllowlistMatch, resolveMSTeamsReplyPolicy } from "../policy.js";
-import { extractMSTeamsPollVote } from "../polls.js";
-import { createMSTeamsReplyDispatcher } from "../reply-dispatcher.js";
-import { getMSTeamsRuntime } from "../runtime.js";
-import type { MSTeamsTurnContext } from "../sdk-types.js";
-import {
-  recordMSTeamsSentMessage,
-  wasMSTeamsMessageSentWithPersistence,
-} from "../sent-message-cache.js";
-import { resolveTeamGroupId } from "../team-identity.js";
 import { resolveMSTeamsSenderAccess } from "./access.js";
+import {
+  assembleMSTeamsInboundFacts,
+  prepareMSTeamsDebounceEntry,
+  type MSTeamsDebounceEntry,
+} from "./inbound-facts.js";
 import {
   resolveMSTeamsInboundMedia,
   resolveMSTeamsInboundMediaBody,
@@ -135,49 +97,6 @@ function formatMSTeamsSenderReason(params: {
   }
 }
 
-function buildStoredConversationReference(params: {
-  activity: MSTeamsTurnContext["activity"];
-  conversationId: string;
-  conversationType: string;
-  teamId?: string;
-  /** Thread root message ID for channel thread messages. */
-  threadId?: string;
-}): StoredConversationReference {
-  const { activity, conversationId, conversationType, teamId, threadId } = params;
-  const from = activity.from;
-  const conversation = activity.conversation;
-  const agent = activity.recipient;
-  const clientInfo = activity.entities?.find((e) => e.type === "clientInfo") as
-    | { timezone?: string }
-    | undefined;
-  // Bot Framework requires `tenantId` on outbound proactive activities so the
-  // connector can route them to the correct Azure AD tenant; missing it causes
-  // HTTP 403. Channel activities often leave `conversation.tenantId` unset, so
-  // prefer the canonical `channelData.tenant.id` source when available.
-  const channelDataTenantId = activity.channelData?.tenant?.id;
-  const tenantId = channelDataTenantId ?? conversation?.tenantId;
-  const aadObjectId = from?.aadObjectId;
-  const serviceUrl = tryNormalizeBotFrameworkServiceUrl(activity.serviceUrl);
-  return {
-    activityId: activity.id,
-    user: from ? { id: from.id, name: from.name, aadObjectId: from.aadObjectId } : undefined,
-    agent,
-    conversation: {
-      id: conversationId,
-      conversationType,
-      tenantId,
-    },
-    ...(tenantId ? { tenantId } : {}),
-    ...(aadObjectId ? { aadObjectId } : {}),
-    teamId,
-    channelId: activity.channelId,
-    ...(serviceUrl ? { serviceUrl } : {}),
-    locale: activity.locale,
-    ...(clientInfo?.timezone ? { timezone: clientInfo.timezone } : {}),
-    ...(threadId ? { threadId } : {}),
-  };
-}
-
 export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
   const {
     cfg,
@@ -214,41 +133,34 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
     channel: "msteams",
   });
 
-  type MSTeamsDebounceEntry = {
-    context: MSTeamsTurnContext;
-    rawText: string;
-    text: string;
-    attachments: MSTeamsAttachmentLike[];
-    wasMentioned: boolean;
-    implicitMentionKinds: Array<"reply_to_bot">;
-    turnAdoptionLifecycle?: MSTeamsIngressLifecycle;
-  };
-
   const handleTeamsMessageNow = async (params: MSTeamsDebounceEntry) => {
-    const context = params.context;
-    const activity = context.activity;
-    const rawText = params.rawText;
-    const text = params.text;
-    const attachments = params.attachments;
-    const advertisedMedia = resolveMSTeamsAdvertisedMedia(attachments, {
-      maxInlineBytes: mediaMaxBytes,
-      maxInlineTotalBytes: mediaMaxBytes,
-    });
-    const rawBody = text;
+    const facts = assembleMSTeamsInboundFacts({ entry: params, mediaMaxBytes });
+    const {
+      context,
+      activity,
+      rawText,
+      text,
+      attachments,
+      advertisedMedia,
+      rawBody,
+      quoteInfo,
+      from,
+      conversation,
+      attachmentTypes,
+      htmlSummary,
+      conversationId,
+      conversationMessageId,
+      conversationType,
+      isChannel,
+      teamId,
+      graphChannelId,
+      conversationRef,
+    } = facts;
     const historyBody = [text, formatMediaPlaceholderText(advertisedMedia)]
       .filter(Boolean)
       .join("\n");
-    const quoteInfo = extractMSTeamsQuoteInfo(attachments);
     let quoteSenderId: string | undefined;
     let quoteSenderName: string | undefined;
-    const from = activity.from;
-    const conversation = activity.conversation;
-
-    const attachmentTypes = attachments
-      .map((att) => (typeof att.contentType === "string" ? att.contentType : undefined))
-      .filter(Boolean)
-      .slice(0, 3);
-    const htmlSummary = summarizeMSTeamsHtmlAttachments(attachments);
 
     log.info("received message", {
       rawText: truncateUtf16Safe(rawText, 50),
@@ -266,28 +178,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       log.debug?.("skipping message without from.id");
       return;
     }
-
-    // Teams conversation.id may include ";messageid=..." suffix - strip it for session key.
-    const rawConversationId = conversation?.id ?? "";
-    const conversationId = normalizeMSTeamsConversationId(rawConversationId);
-    const conversationMessageId = extractMSTeamsConversationMessageId(rawConversationId);
-    const conversationType = conversation?.conversationType ?? "personal";
-    const teamId = activity.channelData?.team?.id;
-    const graphChannelId = activity.channelData?.channel?.id?.trim() || conversationId;
-    // For channel thread messages, resolve the thread root message ID so outbound
-    // replies land in the correct thread. The root ID comes from the `messageid=`
-    // portion of conversation.id (preferred) or from activity.replyToId.
-    const threadId =
-      conversationType === "channel"
-        ? (conversationMessageId ?? activity.replyToId ?? undefined)
-        : undefined;
-    const conversationRef = buildStoredConversationReference({
-      activity,
-      conversationId,
-      conversationType,
-      teamId,
-      threadId,
-    });
 
     const allowTextCommands = core.channel.commands.shouldHandleTextCommands({
       cfg,
@@ -314,8 +204,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
     const commandAuthorized = commandAccess.requested ? commandAccess.authorized : undefined;
     const effectiveDmAllowFrom = senderAccess.effectiveAllowFrom;
     const effectiveGroupAllowFrom = senderAccess.effectiveGroupAllowFrom;
-    const isChannel = conversationType === "channel";
-
     if (isDirectMessage && msteamsCfg && senderAccess.decision !== "allow") {
       if (senderAccess.reasonCode === "dm_policy_disabled") {
         log.info("dropping dm (dms disabled)", {
@@ -1112,34 +1000,11 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
     context: MSTeamsTurnContext,
     turnAdoptionLifecycle?: MSTeamsIngressLifecycle,
   ) {
-    const activity = context.activity;
-    const attachments = Array.isArray(activity.attachments)
-      ? (activity.attachments as unknown as MSTeamsAttachmentLike[])
-      : [];
-    const rawText = activity.text?.trim() ?? "";
-    const htmlText = extractTextFromHtmlAttachments(attachments);
-    const valueText =
-      rawText || htmlText ? "" : serializeMSTeamsAdaptiveCardActionValue(activity.value);
-    const text = stripMSTeamsMentionTags(rawText || htmlText || valueText || "");
-    const wasMentioned = wasMSTeamsBotMentioned(activity);
-    const conversationId = normalizeMSTeamsConversationId(activity.conversation?.id ?? "");
-    const replyToId = activity.replyToId ?? undefined;
-    const implicitMentionKinds: Array<"reply_to_bot"> =
-      conversationId &&
-      replyToId &&
-      (await wasMSTeamsMessageSentWithPersistence({ conversationId, messageId: replyToId }))
-        ? ["reply_to_bot"]
-        : [];
-
-    await inboundDebouncer.enqueue({
+    const entry = await prepareMSTeamsDebounceEntry({
       context,
-      rawText,
-      text,
-      attachments,
-      wasMentioned,
-      implicitMentionKinds,
       turnAdoptionLifecycle,
     });
+    await inboundDebouncer.enqueue(entry);
     if (turnAdoptionLifecycle) {
       // Keep the durable claim held across the debounce window. The merged
       // flush completes it only when the reply lane adopts (or terminally skips).
