@@ -5,11 +5,14 @@ import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelAccountSnapshot } from "../channels/plugins/types.public.js";
 import type { ChannelPlugin } from "../channels/plugins/types.public.js";
-import type { collectGatewayHealthSnapshot } from "../gateway/health/collector.js";
 import type { HealthSummary } from "../gateway/health/types.js";
 import { createPluginRecord } from "../plugins/status.test-fixtures.js";
 import { MAX_TIMER_TIMEOUT_MS } from "../shared/number-coercion.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import {
+  createLegacyHealthSnapshotCollector,
+  type LegacyHealthSnapshotParams,
+} from "./health.snapshot.test-support.js";
 
 let testConfig: Record<string, unknown> = {};
 let testStore: Record<string, { updatedAt?: number }> = {};
@@ -20,14 +23,6 @@ let setActivePluginRegistry: typeof import("../plugins/runtime.js").setActivePlu
 let setActiveDegradedPlugins: typeof import("../plugins/runtime-degraded-state.js").setActiveDegradedPlugins;
 let createChannelTestPluginBase: typeof import("../test-utils/channel-plugins.js").createChannelTestPluginBase;
 let createTestRegistry: typeof import("../test-utils/channel-plugins.js").createTestRegistry;
-type LegacyHealthSnapshotParams = Omit<
-  Parameters<typeof collectGatewayHealthSnapshot>[0],
-  "audience" | "probe"
-> & {
-  includeSensitive?: boolean;
-  probe?: boolean;
-};
-
 let getHealthSnapshot: (params?: LegacyHealthSnapshotParams) => Promise<HealthSummary>;
 let buildTelegramHealthSummaryForTest = buildTelegramHealthSummary;
 let probeTelegramAccountForTestOverride:
@@ -109,14 +104,7 @@ async function loadFreshHealthModulesForTest() {
     setActiveDegradedPlugins: pluginDegradedState.setActiveDegradedPlugins,
     createChannelTestPluginBase: channelTestUtils.createChannelTestPluginBase,
     createTestRegistry: channelTestUtils.createTestRegistry,
-    getHealthSnapshot: (params: LegacyHealthSnapshotParams = {}) => {
-      const { includeSensitive, probe, ...rest } = params;
-      return collectSnapshot({
-        ...rest,
-        audience: includeSensitive === false ? "public" : "admin",
-        probe: probe !== false,
-      });
-    },
+    getHealthSnapshot: createLegacyHealthSnapshotCollector(collectSnapshot),
   };
 }
 
