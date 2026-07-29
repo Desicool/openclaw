@@ -23,7 +23,7 @@ export const MAX_PROPOSAL_SUPPORT_FILES = 64;
 export const MAX_SKILL_PROPOSAL_EVALUATION_BYTES = 512 * 1024;
 const PROPOSAL_ID_PATTERN = /^[a-z0-9][a-z0-9-]{5,120}$/;
 
-export type SkillProposalRecordValidationError = {
+type SkillProposalRecordValidationError = {
   code: "invalid-proposal-metadata" | "invalid-rollback-metadata";
   message: string;
 };
