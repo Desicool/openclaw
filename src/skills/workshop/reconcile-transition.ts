@@ -94,10 +94,10 @@ export async function reconcileInterruptedSkillProposalApply(params: {
       if (recovery.state === "partial") {
         const config =
           params.config ??
-          createConfigIO({
+          (await createConfigIO({
             ...(params.store?.env ? { env: params.store.env } : {}),
             pluginValidation: "skip",
-          }).loadConfig();
+          }).readBestEffortConfig());
         const workshopConfig = resolveSkillWorkshopConfig(config);
         const restoration = await prepareWorkspaceSkillRestoration({
           workspaceDir: params.workspaceDir,
