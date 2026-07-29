@@ -71,6 +71,11 @@ type SkillProposalLookupScope = {
   workspaceDir?: string;
 };
 
+type SkillProposalReadOptions = {
+  config?: OpenClawConfig;
+  reconcile?: boolean;
+};
+
 export type PreparedSkillProposalSupportFile = SkillProposalSupportFile & {
   content: string;
 };
@@ -178,13 +183,15 @@ export async function readSkillProposal(
   proposalId: string,
   options: SkillWorkshopStoreOptions = {},
   scope: SkillProposalLookupScope = {},
-  recoveryConfig?: OpenClawConfig,
+  readOptions: SkillProposalReadOptions = {},
 ): Promise<SkillProposalReadResult | null> {
   let stored = readStoredProposal(proposalId, options);
   if (!stored || !isStoredProposalVisible(stored.row, scope)) {
     return null;
   }
-  await reconcileInterruptedApply(proposalId, options, recoveryConfig);
+  if (readOptions.reconcile !== false) {
+    await reconcileInterruptedApply(proposalId, options, readOptions.config);
+  }
   stored = readStoredProposal(proposalId, options);
   if (!stored || !isStoredProposalVisible(stored.row, scope)) {
     return null;

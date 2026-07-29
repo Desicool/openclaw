@@ -83,7 +83,10 @@ export type SkillProposalApplyTransitionDependencies = {
     workspaceDir?: string,
     env?: NodeJS.ProcessEnv,
     agentId?: string,
-    config?: OpenClawConfig,
+    readOptions?: {
+      config?: OpenClawConfig;
+      reconcile?: boolean;
+    },
   ) => Promise<SkillProposalReadResult>;
 };
 
@@ -113,12 +116,17 @@ export async function applySkillProposalTransition(
   input: SkillProposalActionInput,
   dependencies: SkillProposalApplyTransitionDependencies,
 ): Promise<SkillProposalApplyResult> {
+  const recoveryReadOptions = input.config ? { config: input.config } : undefined;
+  const lockedReadOptions = {
+    ...(input.config ? { config: input.config } : {}),
+    reconcile: false,
+  };
   const initial = await dependencies.readRequiredProposal(
     input.proposalId,
     input.workspaceDir,
     input.env,
     input.agentId,
-    input.config,
+    recoveryReadOptions,
   );
   if (initial.record.status !== "pending") {
     throw new Error(
@@ -149,7 +157,7 @@ export async function applySkillProposalTransition(
             input.workspaceDir,
             input.env,
             input.agentId,
-            input.config,
+            lockedReadOptions,
           );
           if (
             current.record.status === "pending" &&
@@ -190,7 +198,7 @@ export async function applySkillProposalTransition(
         input.workspaceDir,
         input.env,
         input.agentId,
-        input.config,
+        lockedReadOptions,
       );
       const { record, content } = read;
       if (record.status !== "pending") {

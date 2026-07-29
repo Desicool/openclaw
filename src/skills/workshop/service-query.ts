@@ -16,6 +16,11 @@ type SkillProposalScopeOptions = {
   workspaceDir?: string;
 };
 
+type RequiredProposalReadOptions = {
+  config?: OpenClawConfig;
+  reconcile?: boolean;
+};
+
 function storeOptions(env?: NodeJS.ProcessEnv) {
   return env ? { env } : {};
 }
@@ -123,7 +128,7 @@ export async function readRequiredProposal(
   workspaceDir?: string,
   env?: NodeJS.ProcessEnv,
   agentId?: string,
-  config?: OpenClawConfig,
+  readOptions: RequiredProposalReadOptions = {},
 ): Promise<SkillProposalReadResult> {
   const read = await readSkillProposal(
     proposalId,
@@ -132,7 +137,7 @@ export async function readRequiredProposal(
       ...(agentId ? { agentId } : {}),
       ...(workspaceDir ? { workspaceDir } : {}),
     },
-    config,
+    readOptions,
   );
   if (!read) {
     throw new Error(`Skill proposal not found: ${proposalId}`);

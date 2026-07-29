@@ -1159,6 +1159,16 @@ describe("skill workshop proposals", () => {
       "# External change\n",
     );
     await expect(readSkillProposalRollback(proposal.record.id)).resolves.not.toBeNull();
+
+    const startedAt = Date.now();
+    await expect(
+      rejectSkillProposal({
+        workspaceDir,
+        proposalId: proposal.record.id,
+        reason: "external target retained",
+      }),
+    ).resolves.toMatchObject({ status: "rejected" });
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
   it("reconciles an update apply interrupted after the live skill write", async () => {

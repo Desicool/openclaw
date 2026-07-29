@@ -642,12 +642,17 @@ async function withPendingSkillProposalMutation<T>(
   action: "applied" | "quarantined" | "rejected" | "revised",
   fn: (read: SkillProposalReadResult) => Promise<T>,
 ): Promise<T> {
+  const recoveryReadOptions = input.config ? { config: input.config } : undefined;
+  const lockedReadOptions = {
+    ...(input.config ? { config: input.config } : {}),
+    reconcile: false,
+  };
   const initial = await readRequiredProposal(
     input.proposalId,
     input.workspaceDir,
     input.env,
     input.agentId,
-    input.config,
+    recoveryReadOptions,
   );
   return await withSkillProposalTargetLock(
     initial.record,
@@ -657,7 +662,7 @@ async function withPendingSkillProposalMutation<T>(
         input.workspaceDir,
         input.env,
         input.agentId,
-        input.config,
+        lockedReadOptions,
       );
       if (read.record.status !== "pending") {
         throw new Error(
