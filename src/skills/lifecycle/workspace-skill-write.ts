@@ -9,11 +9,11 @@ const ALLOWED_SUPPORT_FILE_ROOTS = new Set(
 );
 export const MAX_WORKSPACE_SKILL_SUPPORT_FILE_BYTES = 256 * 1024;
 
-type WorkspaceSkillSymlinkWritePolicy = {
+export type WorkspaceSkillSymlinkWritePolicy = {
   allowWrites: boolean;
   allowedTargetRealPaths: readonly string[];
 };
-type WorkspaceSkillSupportFileWrite = { path: string; content: string };
+export type WorkspaceSkillSupportFileWrite = { path: string; content: string };
 
 type WorkspaceSkillWriteTargetParams = {
   workspaceDir: string;
@@ -21,7 +21,21 @@ type WorkspaceSkillWriteTargetParams = {
   symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
 };
 
-type PreviousSupportFile = { path: string; existed: boolean; previousContent?: string };
+type PreparedWorkspaceSkillFileMutation = {
+  filePath: string;
+  rootDir: string;
+  relativePath: string;
+  previousContent: string | null;
+  content: string;
+};
+
+export type PreparedWorkspaceSkillMutation = {
+  mode: "create" | "update";
+  workspaceDir: string;
+  skillDir: string;
+  skillFile: PreparedWorkspaceSkillFileMutation;
+  supportFiles: Array<PreparedWorkspaceSkillFileMutation & { path: string }>;
+};
 
 export function normalizeWorkspaceSkillSupportPath(input: string): string {
   const trimmed = input.trim();
@@ -113,46 +127,109 @@ export async function writeWorkspaceSkill(params: {
   mode: "create" | "update";
   symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
 }): Promise<void> {
+  const mutation = await prepareWorkspaceSkillMutation(params);
+  await applyWorkspaceSkillMutation(mutation);
+}
+
+export async function prepareWorkspaceSkillMutation(params: {
+  workspaceDir: string;
+  skillDir: string;
+  skillFile: string;
+  content: string;
+  supportFiles?: readonly WorkspaceSkillSupportFileWrite[];
+  mode: "create" | "update";
+  symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
+}): Promise<PreparedWorkspaceSkillMutation> {
   assertInsideWorkspace(params.workspaceDir, params.skillDir, "skill directory");
   const supportFiles = normalizeSupportFiles(params.supportFiles ?? []);
-  const previousSupportFiles = await prepareWorkspaceSkillWrite({
+  const skillTarget = await resolveWorkspaceSkillWriteTarget({
+    workspaceDir: params.workspaceDir,
+    filePath: params.skillFile,
+    symlinkPolicy: params.symlinkPolicy,
+  });
+  const previousContent = await readWorkspaceSkillFile(params.skillFile);
+  if (params.mode === "create" && previousContent !== null) {
+    throw new Error(`Target skill already exists: ${params.skillFile}`);
+  }
+  if (params.mode === "update" && previousContent === null) {
+    throw new Error(`Target skill is missing: ${params.skillFile}`);
+  }
+
+  const preparedSupportFiles: PreparedWorkspaceSkillMutation["supportFiles"] = [];
+  for (const file of supportFiles) {
+    const filePath = path.join(params.skillDir, ...file.path.split("/"));
+    const target = await resolveWorkspaceSkillWriteTarget({
+      workspaceDir: params.workspaceDir,
+      filePath,
+      symlinkPolicy: params.symlinkPolicy,
+    });
+    const previousSupportContent = await readWorkspaceSupportFile({
+      skillDir: params.skillDir,
+      relativePath: file.path,
+    });
+    if (params.mode === "create" && previousSupportContent !== null) {
+      throw new Error(`Target support file already exists: ${filePath}`);
+    }
+    preparedSupportFiles.push({
+      path: file.path,
+      filePath,
+      ...target,
+      previousContent: previousSupportContent,
+      content: file.content,
+    });
+  }
+
+  return {
     mode: params.mode,
     workspaceDir: params.workspaceDir,
     skillDir: params.skillDir,
-    skillFile: params.skillFile,
-    supportFiles,
-    symlinkPolicy: params.symlinkPolicy,
-  });
+    skillFile: {
+      filePath: params.skillFile,
+      ...skillTarget,
+      previousContent,
+      content: params.content,
+    },
+    supportFiles: preparedSupportFiles,
+  };
+}
+
+export async function applyWorkspaceSkillMutation(
+  mutation: PreparedWorkspaceSkillMutation,
+): Promise<void> {
+  const written: PreparedWorkspaceSkillFileMutation[] = [];
   const writtenSupportPaths: string[] = [];
   try {
-    for (const file of supportFiles) {
-      await writeWorkspaceFile({
-        workspaceDir: params.workspaceDir,
-        filePath: path.join(params.skillDir, ...file.path.split("/")),
-        content: file.content,
-        overwrite: params.mode === "update",
-        symlinkPolicy: params.symlinkPolicy,
-      });
+    for (const file of mutation.supportFiles) {
+      await writePreparedWorkspaceFile(file, mutation.mode === "update");
+      written.push(file);
       writtenSupportPaths.push(file.path);
     }
-    await writeWorkspaceFile({
-      workspaceDir: params.workspaceDir,
-      filePath: params.skillFile,
-      content: params.content,
-      overwrite: params.mode === "update",
-      symlinkPolicy: params.symlinkPolicy,
-    });
+    await writePreparedWorkspaceFile(mutation.skillFile, mutation.mode === "update");
   } catch (error) {
-    await restoreSupportFilesAfterFailedWrite({
-      mode: params.mode,
-      workspaceDir: params.workspaceDir,
-      skillDir: params.skillDir,
-      writtenSupportPaths,
-      previousSupportFiles,
-      symlinkPolicy: params.symlinkPolicy,
-    });
+    try {
+      await restorePreparedWorkspaceFiles(written.toReversed());
+    } catch (restoreError) {
+      const failure = new Error(
+        `Skill write failed and ${writtenSupportPaths.length} support file restoration(s) failed.`,
+        { cause: error },
+      );
+      Object.assign(failure, { restoreError });
+      throw failure;
+    }
     throw error;
   }
+}
+
+export async function restoreWorkspaceSkillMutation(
+  mutation: PreparedWorkspaceSkillMutation,
+): Promise<void> {
+  // SKILL.md is the activation marker: restore support first for updates, but
+  // remove it first for failed creates so a partial new skill is not discoverable.
+  const files =
+    mutation.mode === "create"
+      ? [mutation.skillFile, ...mutation.supportFiles.toReversed()]
+      : [...mutation.supportFiles.toReversed(), mutation.skillFile];
+  await restorePreparedWorkspaceFiles(files);
 }
 
 function normalizeSupportFiles(
@@ -166,110 +243,45 @@ function normalizeSupportFiles(
   return normalized;
 }
 
-async function prepareWorkspaceSkillWrite(params: {
-  mode: "create" | "update";
-  workspaceDir: string;
-  skillDir: string;
-  skillFile: string;
-  supportFiles: readonly WorkspaceSkillSupportFileWrite[];
-  symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
-}): Promise<PreviousSupportFile[]> {
-  await resolveWorkspaceSkillWriteTarget({
-    workspaceDir: params.workspaceDir,
-    filePath: params.skillFile,
-    symlinkPolicy: params.symlinkPolicy,
-  });
-  const previousContent = await readWorkspaceSkillFile(params.skillFile);
-  if (params.mode === "create" && previousContent !== null) {
-    throw new Error(`Target skill already exists: ${params.skillFile}`);
-  }
-  if (params.mode === "update" && previousContent === null) {
-    throw new Error(`Target skill is missing: ${params.skillFile}`);
-  }
-
-  const previousSupportFiles: PreviousSupportFile[] = [];
-  for (const file of params.supportFiles) {
-    const filePath = path.join(params.skillDir, ...file.path.split("/"));
-    await resolveWorkspaceSkillWriteTarget({
-      workspaceDir: params.workspaceDir,
-      filePath,
-      symlinkPolicy: params.symlinkPolicy,
-    });
-    if (params.mode === "update") {
-      const previousSupportContent = await readWorkspaceSupportFile({
-        skillDir: params.skillDir,
-        relativePath: file.path,
-      });
-      previousSupportFiles.push(
-        previousSupportContent === null
-          ? { path: file.path, existed: false }
-          : { path: file.path, existed: true, previousContent: previousSupportContent },
-      );
-    }
-  }
-  return previousSupportFiles;
-}
-
-async function writeWorkspaceFile(params: {
-  workspaceDir: string;
-  filePath: string;
-  content: string;
-  overwrite: boolean;
-  symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
-}): Promise<void> {
-  const target = await resolveWorkspaceSkillWriteTarget(params);
-  const targetRoot = await root(target.rootDir);
-  await targetRoot.write(target.relativePath, params.content, {
+async function writePreparedWorkspaceFile(
+  file: PreparedWorkspaceSkillFileMutation,
+  overwrite: boolean,
+): Promise<void> {
+  const targetRoot = await root(file.rootDir);
+  await targetRoot.write(file.relativePath, file.content, {
     encoding: "utf8",
     mkdir: true,
-    overwrite: params.overwrite,
+    overwrite,
   });
 }
 
-async function removeWorkspaceFile(params: {
-  workspaceDir: string;
-  filePath: string;
-  symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
-}): Promise<void> {
-  const target = await resolveWorkspaceSkillWriteTarget(params);
-  const targetRoot = await root(target.rootDir);
-  await targetRoot.remove(target.relativePath).catch((error: unknown) => {
-    if ((error as { code?: string })?.code !== "ENOENT") {
-      throw error;
-    }
-  });
-}
-
-async function restoreSupportFilesAfterFailedWrite(params: {
-  mode: "create" | "update";
-  workspaceDir: string;
-  skillDir: string;
-  writtenSupportPaths: readonly string[];
-  previousSupportFiles: readonly PreviousSupportFile[];
-  symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
-}): Promise<void> {
-  const previousByPath = new Map(params.previousSupportFiles.map((file) => [file.path, file]));
-  await Promise.allSettled(
-    params.writtenSupportPaths.toReversed().map(async (relativePath) => {
-      const filePath = path.join(params.skillDir, ...relativePath.split("/"));
-      const previous = previousByPath.get(relativePath);
-      if (params.mode === "update" && previous?.existed) {
-        await writeWorkspaceFile({
-          workspaceDir: params.workspaceDir,
-          filePath,
-          content: previous.previousContent ?? "",
-          overwrite: true,
-          symlinkPolicy: params.symlinkPolicy,
+async function restorePreparedWorkspaceFiles(
+  files: readonly PreparedWorkspaceSkillFileMutation[],
+): Promise<void> {
+  const errors: unknown[] = [];
+  for (const file of files) {
+    try {
+      const targetRoot = await root(file.rootDir);
+      if (file.previousContent === null) {
+        await targetRoot.remove(file.relativePath).catch((error: unknown) => {
+          if ((error as { code?: string })?.code !== "ENOENT") {
+            throw error;
+          }
         });
       } else {
-        await removeWorkspaceFile({
-          workspaceDir: params.workspaceDir,
-          filePath,
-          symlinkPolicy: params.symlinkPolicy,
+        await targetRoot.write(file.relativePath, file.previousContent, {
+          encoding: "utf8",
+          mkdir: true,
+          overwrite: true,
         });
       }
-    }),
-  );
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Failed to restore the previous workspace skill state.");
+  }
 }
 
 async function resolveWorkspaceSkillWriteTarget(

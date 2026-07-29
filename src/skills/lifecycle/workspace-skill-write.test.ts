@@ -1,0 +1,87 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
+import {
+  applyWorkspaceSkillMutation,
+  prepareWorkspaceSkillMutation,
+  restoreWorkspaceSkillMutation,
+} from "./workspace-skill-write.js";
+
+const tempDirs = createTrackedTempDirs();
+const symlinkPolicy = { allowWrites: false, allowedTargetRealPaths: [] };
+
+afterEach(async () => {
+  await tempDirs.cleanup();
+});
+
+describe("workspace skill mutations", () => {
+  it("removes support files when the activating SKILL.md write fails", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-workspace-skill-write-failure-");
+    const skillDir = path.join(workspaceDir, "skills", "partial-create");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const supportFile = path.join(skillDir, "references", "proof.md");
+    const mutation = await prepareWorkspaceSkillMutation({
+      workspaceDir,
+      skillDir,
+      skillFile,
+      content: "# Partial Create\n",
+      supportFiles: [{ path: "references/proof.md", content: "new support\n" }],
+      mode: "create",
+      symlinkPolicy,
+    });
+    await fs.mkdir(skillFile, { recursive: true });
+
+    await expect(applyWorkspaceSkillMutation(mutation)).rejects.toThrow();
+    await expect(fs.access(supportFile)).rejects.toThrow();
+  });
+
+  it("restores the complete previous update bundle", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-workspace-skill-write-update-");
+    const skillDir = path.join(workspaceDir, "skills", "reversible-update");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const supportFile = path.join(skillDir, "references", "proof.md");
+    await fs.mkdir(path.dirname(supportFile), { recursive: true });
+    await fs.writeFile(skillFile, "# Before\n", "utf8");
+    await fs.writeFile(supportFile, "before support\n", "utf8");
+    const mutation = await prepareWorkspaceSkillMutation({
+      workspaceDir,
+      skillDir,
+      skillFile,
+      content: "# After\n",
+      supportFiles: [{ path: "references/proof.md", content: "after support\n" }],
+      mode: "update",
+      symlinkPolicy,
+    });
+
+    await applyWorkspaceSkillMutation(mutation);
+    await expect(fs.readFile(skillFile, "utf8")).resolves.toBe("# After\n");
+    await expect(fs.readFile(supportFile, "utf8")).resolves.toBe("after support\n");
+
+    await restoreWorkspaceSkillMutation(mutation);
+    await expect(fs.readFile(skillFile, "utf8")).resolves.toBe("# Before\n");
+    await expect(fs.readFile(supportFile, "utf8")).resolves.toBe("before support\n");
+  });
+
+  it("removes every file from a restored create mutation", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-workspace-skill-write-create-");
+    const skillDir = path.join(workspaceDir, "skills", "reversible-create");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const supportFile = path.join(skillDir, "references", "proof.md");
+    const mutation = await prepareWorkspaceSkillMutation({
+      workspaceDir,
+      skillDir,
+      skillFile,
+      content: "# Created\n",
+      supportFiles: [{ path: "references/proof.md", content: "created support\n" }],
+      mode: "create",
+      symlinkPolicy,
+    });
+
+    await applyWorkspaceSkillMutation(mutation);
+    await restoreWorkspaceSkillMutation(mutation);
+
+    await expect(fs.access(skillFile)).rejects.toThrow();
+    await expect(fs.access(supportFile)).rejects.toThrow();
+  });
+});
