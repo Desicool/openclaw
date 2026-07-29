@@ -217,4 +217,24 @@ describe("refreshGatewayHealthSnapshot", () => {
     await expect(safe).resolves.toBe(safeSummary);
     expect(healthState.getHealthCache()).toBe(safeSummary);
   });
+
+  it.each([
+    { includeSensitive: false, label: "public" },
+    { includeSensitive: true, label: "sensitive" },
+  ])("releases the $label refresh lane after rejection", async ({ includeSensitive }) => {
+    const healthState = await loadHealthState();
+    const recovered = createHealthSummary();
+    getHealthSnapshotMock
+      .mockRejectedValueOnce(new Error("snapshot failed"))
+      .mockResolvedValueOnce(recovered);
+
+    await expect(
+      healthState.refreshGatewayHealthSnapshot({ probe: false, includeSensitive }),
+    ).rejects.toThrow("snapshot failed");
+    await expect(
+      healthState.refreshGatewayHealthSnapshot({ probe: false, includeSensitive }),
+    ).resolves.toBe(recovered);
+
+    expect(getHealthSnapshotMock).toHaveBeenCalledTimes(2);
+  });
 });
