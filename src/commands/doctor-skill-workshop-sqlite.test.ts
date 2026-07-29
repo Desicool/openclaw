@@ -221,6 +221,7 @@ describe("doctor Skill Workshop SQLite migration", () => {
         },
       }),
     ).resolves.toMatchObject({ detected: 1, migrated: 1, warnings: [] });
+    await expect(readSkillProposalRollback(proposalId)).resolves.toMatchObject(rollback);
 
     await expect(listSkillProposals({ agentId: "main", workspaceDir })).resolves.toMatchObject({
       proposals: [expect.objectContaining({ id: proposalId, status: "pending" })],
