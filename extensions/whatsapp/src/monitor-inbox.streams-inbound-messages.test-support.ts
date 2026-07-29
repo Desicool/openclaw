@@ -9,7 +9,7 @@ import {
   readWhatsAppBaileysCacheEntry,
   type WhatsAppBaileysGroupMetadataCache,
   type WhatsAppBaileysMessageCache,
-} from "./inbound/monitor.js";
+} from "./inbound/baileys-cache.js";
 
 const EXPECTED_WHATSAPP_GROUP_METADATA_CACHE_MAX_ENTRIES = 500;
 import { createWhatsAppDurableInboundQueue } from "./inbound/durable-receive.js";

@@ -4,7 +4,6 @@ import type {
   AnyMessageContent,
   MiscMessageGenerationOptions,
   proto,
-  GroupMetadata,
   ReachoutTimelockState,
   WAMessage,
   WAMessageKey,
@@ -19,11 +18,7 @@ import {
 import { createInboundDebouncer } from "openclaw/plugin-sdk/channel-inbound-debounce";
 import { fanInChannelIngressLifecycles } from "openclaw/plugin-sdk/channel-ingress-runtime";
 import { getChildLogger } from "openclaw/plugin-sdk/logging-core";
-import {
-  asDateTimestampMs,
-  parseStrictFiniteNumber,
-  resolveExpiresAtMsFromDurationMs,
-} from "openclaw/plugin-sdk/number-runtime";
+import { parseStrictFiniteNumber } from "openclaw/plugin-sdk/number-runtime";
 import { defaultRuntime } from "openclaw/plugin-sdk/runtime-env";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { maybeResolveWhatsAppApprovalReaction } from "../approval-reactions.js";
@@ -59,6 +54,12 @@ import {
   requireAdmittedWhatsAppInboundMessage,
   requireWhatsAppInboundAdmission,
 } from "./admission.js";
+import {
+  readWhatsAppBaileysCacheEntry,
+  rememberWhatsAppBaileysCacheEntry,
+  type WhatsAppBaileysGroupMetadataCache,
+  type WhatsAppBaileysMessageCache,
+} from "./baileys-cache.js";
 import { isRecentOutboundMessage, rememberRecentOutboundMessage } from "./dedupe.js";
 import {
   createWhatsAppDurableInboundQueue,
@@ -78,6 +79,10 @@ import {
   extractText,
   hasInboundUserContent,
 } from "./extract.js";
+import {
+  createWhatsAppGroupMetadataCacheOwner,
+  type WhatsAppGroupMetadataCache,
+} from "./group-metadata-cache.js";
 import { attachWhatsAppIngressLifecycle } from "./ingress-lifecycle.js";
 import { attachEmitterListener, closeInboundMonitorSocket } from "./lifecycle.js";
 import { resolveInboundMediaMimetype } from "./media-mimetype.js";
@@ -86,12 +91,7 @@ import {
   normalizeWebInboundMessage,
   withDeprecatedWebInboundMessageFlatAliases,
 } from "./message-aliases.js";
-import {
-  addWhatsAppOutboundMentionsToContent,
-  mayContainWhatsAppOutboundMention,
-  resolveWhatsAppOutboundMentions,
-  type WhatsAppOutboundMentionParticipant,
-} from "./outbound-mentions.js";
+import { addWhatsAppOutboundMentionsToContent } from "./outbound-mentions.js";
 import { DisconnectReason, isJidGroup } from "./runtime-api.js";
 import { createWebSendApi } from "./send-api.js";
 import { normalizeWhatsAppSendResult } from "./send-result.js";
@@ -104,38 +104,9 @@ import type {
 
 const LOGGED_OUT_STATUS = DisconnectReason.loggedOut;
 const RECONNECT_IN_PROGRESS_ERROR = "no active socket - reconnection in progress";
-const GROUP_META_TTL_MS = 5 * 60 * 1000;
 const BAILEYS_MESSAGE_TTL_MS = 10 * 60 * 1000;
 const INBOUND_CLOSE_DRAIN_TIMEOUT_MS = 5_000;
 const WHATSAPP_INGRESS_DRAIN_INTERVAL_MS = 1_000;
-const WHATSAPP_GROUP_METADATA_CACHE_MAX_ENTRIES = 500;
-
-type WhatsAppGroupMetadataCacheEntry = {
-  subject?: string;
-  expires: number;
-};
-
-export type WhatsAppGroupMetadataCache = Map<string, WhatsAppGroupMetadataCacheEntry>;
-type WhatsAppBaileysCacheEntry<T> = {
-  expiresAt: number;
-  value: T;
-};
-export type WhatsAppBaileysMessageCache = Map<string, WhatsAppBaileysCacheEntry<proto.IMessage>>;
-export type WhatsAppBaileysGroupMetadataCache = Map<
-  string,
-  WhatsAppBaileysCacheEntry<GroupMetadata>
->;
-type LocalGroupMetadataCacheEntry = WhatsAppGroupMetadataCacheEntry & {
-  participants?: string[];
-  mentionParticipants?: WhatsAppOutboundMentionParticipant[];
-};
-
-function resolveGroupMetadataExpiresAt(nowRaw = Date.now()): number | undefined {
-  const now = asDateTimestampMs(nowRaw);
-  return now === undefined
-    ? undefined
-    : resolveExpiresAtMsFromDurationMs(GROUP_META_TTL_MS, { nowMs: now });
-}
 
 function parseWhatsAppTimestampSeconds(value: unknown): number | undefined {
   if (value == null) {
@@ -146,90 +117,6 @@ function parseWhatsAppTimestampSeconds(value: unknown): number | undefined {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function rememberGroupMetadataCacheEntry<T extends WhatsAppGroupMetadataCacheEntry>(
-  cache: Map<string, T>,
-  jid: string,
-  entry: T,
-): void {
-  if (asDateTimestampMs(entry.expires) === undefined) {
-    cache.delete(jid);
-    return;
-  }
-  if (cache.has(jid)) {
-    cache.delete(jid);
-  }
-  cache.set(jid, entry);
-
-  while (cache.size > WHATSAPP_GROUP_METADATA_CACHE_MAX_ENTRIES) {
-    const oldest = cache.keys().next();
-    if (oldest.done) {
-      break;
-    }
-    cache.delete(oldest.value);
-  }
-}
-
-function readGroupMetadataCacheEntry<T extends WhatsAppGroupMetadataCacheEntry>(
-  cache: Map<string, T>,
-  jid: string,
-): T | null {
-  const entry = cache.get(jid);
-  if (!entry) {
-    return null;
-  }
-  const now = asDateTimestampMs(Date.now());
-  const expires = asDateTimestampMs(entry.expires);
-  if (now === undefined || expires === undefined || expires <= now) {
-    cache.delete(jid);
-    return null;
-  }
-  cache.delete(jid);
-  cache.set(jid, entry);
-  return entry;
-}
-
-function rememberWhatsAppBaileysCacheEntry<T>(
-  cache: Map<string, WhatsAppBaileysCacheEntry<T>> | undefined,
-  key: string,
-  value: T,
-  ttlMs: number,
-): void {
-  if (!cache) {
-    return;
-  }
-  if (cache.has(key)) {
-    cache.delete(key);
-  }
-  cache.set(key, {
-    expiresAt: Date.now() + ttlMs,
-    value,
-  });
-  while (cache.size > WHATSAPP_GROUP_METADATA_CACHE_MAX_ENTRIES) {
-    const oldest = cache.keys().next();
-    if (oldest.done) {
-      break;
-    }
-    cache.delete(oldest.value);
-  }
-}
-
-export function readWhatsAppBaileysCacheEntry<T>(
-  cache: Map<string, WhatsAppBaileysCacheEntry<T>>,
-  key: string,
-): T | undefined {
-  const entry = cache.get(key);
-  if (!entry) {
-    return undefined;
-  }
-  if (entry.expiresAt <= Date.now()) {
-    cache.delete(key);
-    return undefined;
-  }
-  cache.delete(key);
-  cache.set(key, entry);
-  return entry.value;
 }
 
 function logWhatsAppVerbose(enabled: boolean | undefined, message: string) {
@@ -622,17 +509,24 @@ export async function attachWebInboxToSocket(
       inboundConsoleLog.error(`Failed handling inbound web message: ${String(err)}`);
     },
   });
-  const groupMetadataCache = options.groupMetadataCache ?? new Map();
-  const groupMetaCache = new Map<string, LocalGroupMetadataCacheEntry>();
   const lidLookup = sock.signalRepository?.lidMapping;
-  const publishedGroupMetadataJids = new Set<string>();
-  const invalidatedGroupMetadataJids = new Set<string>();
-  let groupMetadataCacheClosed = false;
 
   const resolveInboundJid = async (jid: string | null | undefined): Promise<string | null> =>
     resolveJidToE164(jid, { authDir: options.authDir, lidLookup });
   const resolveReactionTargetJids = async (jid: string): Promise<string[]> =>
     resolveEquivalentWhatsAppDirectChatJids(jid, { authDir: options.authDir, lidLookup });
+  const groupMetadata = createWhatsAppGroupMetadataCacheOwner({
+    sock,
+    getCurrentSock,
+    resolveInboundJid,
+    reconnectCache: options.groupMetadataCache,
+    baileysCache: options.baileysGroupMetaCache,
+    logVerbose: (message) => logWhatsAppVerbose(options.verbose, message),
+    logHydrationWarning: (error) => {
+      inboundLogger.warn({ error }, "failed hydrating participating groups on connect");
+      inboundConsoleLog.warn(`Failed hydrating participating groups on connect: ${error}`);
+    },
+  });
 
   const rememberBaileysMessage = (
     remoteJid: string | null | undefined,
@@ -842,114 +736,6 @@ export async function attachWebInboxToSocket(
     },
   };
 
-  const summarizeGroupMeta = async (meta: GroupMetadata) => {
-    const participantEntries = await Promise.all(
-      meta.participants?.map(async (p) => {
-        const mapped = await resolveInboundJid(p.id);
-        return {
-          display: mapped ?? p.id,
-          mention: {
-            id: p.id,
-            lid: p.lid,
-            phoneNumber: p.phoneNumber,
-            e164: mapped,
-          } satisfies WhatsAppOutboundMentionParticipant,
-        };
-      }) ?? [],
-    );
-    const participants = participantEntries.map((entry) => entry.display).filter(Boolean);
-    const mentionParticipants = participantEntries.map((entry) => entry.mention);
-    return {
-      subject: meta.subject,
-      participants,
-      mentionParticipants,
-      expires: resolveGroupMetadataExpiresAt() ?? 0,
-    };
-  };
-
-  const summarizeGroupMetaForReconnectCache = (
-    meta: GroupMetadata,
-  ): WhatsAppGroupMetadataCacheEntry => ({
-    subject: meta.subject,
-    expires: resolveGroupMetadataExpiresAt() ?? Number.NaN,
-  });
-
-  const getGroupMeta = async (jid: string) => {
-    const cached = readGroupMetadataCacheEntry(groupMetaCache, jid);
-    if (cached) {
-      return cached;
-    }
-    try {
-      const meta = await (getCurrentSock() ?? sock).groupMetadata(jid);
-      rememberWhatsAppBaileysCacheEntry(
-        options.baileysGroupMetaCache,
-        jid,
-        meta,
-        GROUP_META_TTL_MS,
-      );
-      publishedGroupMetadataJids.add(jid);
-      const entry = await summarizeGroupMeta(meta);
-      rememberGroupMetadataCacheEntry(groupMetadataCache, jid, {
-        subject: entry.subject,
-        expires: entry.expires,
-      });
-      rememberGroupMetadataCacheEntry(groupMetaCache, jid, entry);
-      return entry;
-    } catch (err) {
-      const hydrated = readGroupMetadataCacheEntry(groupMetadataCache, jid);
-      if (hydrated) {
-        rememberGroupMetadataCacheEntry(groupMetaCache, jid, hydrated);
-        logWhatsAppVerbose(
-          options.verbose,
-          `Using cached group metadata for ${jid} after fetch failure: ${String(err)}`,
-        );
-        return hydrated;
-      }
-      logWhatsAppVerbose(
-        options.verbose,
-        `Failed to fetch group metadata for ${jid}: ${String(err)}`,
-      );
-      return { expires: resolveGroupMetadataExpiresAt() ?? 0 };
-    }
-  };
-
-  const resolveOutboundMentionsForGroup = async (
-    jid: string,
-    text: string,
-  ): Promise<{ text: string; mentionedJids: string[] }> => {
-    if (isJidGroup(jid) !== true || !mayContainWhatsAppOutboundMention(text)) {
-      return { text, mentionedJids: [] };
-    }
-    const meta = await getGroupMeta(jid);
-    return resolveWhatsAppOutboundMentions({
-      chatJid: jid,
-      text,
-      participants: meta.mentionParticipants,
-    });
-  };
-
-  const applyOutboundMentionsToContent = async (
-    jid: string,
-    content: AnyMessageContent,
-  ): Promise<AnyMessageContent> => {
-    if ("text" in content && typeof content.text === "string") {
-      const resolved = await resolveOutboundMentionsForGroup(jid, content.text);
-      return addWhatsAppOutboundMentionsToContent(
-        { ...content, text: resolved.text } as AnyMessageContent,
-        resolved.mentionedJids,
-      );
-    }
-    const caption = (content as { caption?: unknown }).caption;
-    if (typeof caption === "string") {
-      const resolved = await resolveOutboundMentionsForGroup(jid, caption);
-      return addWhatsAppOutboundMentionsToContent(
-        { ...content, caption: resolved.text } as AnyMessageContent,
-        resolved.mentionedJids,
-      );
-    }
-    return content;
-  };
-
   type NormalizedInboundMessage = {
     id?: string;
     remoteJid: string;
@@ -1030,7 +816,7 @@ export async function attachWebInboxToSocket(
     let groupSubject: string | undefined;
     let groupParticipants: string[] | undefined;
     if (group) {
-      const meta = await getGroupMeta(remoteJid);
+      const meta = await groupMetadata.get(remoteJid);
       groupSubject = meta.subject;
       groupParticipants = meta.participants;
     }
@@ -1262,7 +1048,7 @@ export async function attachWebInboxToSocket(
       }
     };
     const reply = async (text: string, optionsResult?: MiscMessageGenerationOptions) => {
-      const resolved = await resolveOutboundMentionsForGroup(chatJid, text);
+      const resolved = await groupMetadata.resolveOutboundMentions(chatJid, text);
       const result = await sendTrackedMessage(
         chatJid,
         addWhatsAppOutboundMentionsToContent({ text: resolved.text }, resolved.mentionedJids),
@@ -1277,7 +1063,7 @@ export async function attachWebInboxToSocket(
       const previewPayload = await addWhatsAppImagePreviewFields(payload);
       const result = await sendTrackedMessage(
         chatJid,
-        await applyOutboundMentionsToContent(chatJid, previewPayload),
+        await groupMetadata.applyOutboundMentions(chatJid, previewPayload),
         optionsValue,
       );
       return normalizeWhatsAppSendResult(result, "media");
@@ -1643,7 +1429,7 @@ export async function attachWebInboxToSocket(
     }
   };
   const drainInboundBeforeSocketClose = async () => {
-    groupMetadataCacheClosed = true;
+    groupMetadata.close();
     // Interleave force-flush with event-driven wait for drain dispatch so close
     // cannot deadlock inside the debounce window. Debounce semantics stay intact.
     for (;;) {
@@ -1738,111 +1524,13 @@ export async function attachWebInboxToSocket(
     handleConnectionUpdate as unknown as (...args: unknown[]) => void,
   );
 
-  const isFullGroupMetadataUpdate = (update: Partial<GroupMetadata>): update is GroupMetadata =>
-    typeof update.id === "string" &&
-    typeof update.subject === "string" &&
-    Array.isArray(update.participants);
-
-  const rememberFullGroupMetadataUpdate = (jid: string, meta: GroupMetadata) => {
-    if (groupMetadataCacheClosed) {
-      return;
-    }
-    rememberWhatsAppBaileysCacheEntry(options.baileysGroupMetaCache, jid, meta, GROUP_META_TTL_MS);
-    publishedGroupMetadataJids.add(jid);
-    invalidatedGroupMetadataJids.delete(jid);
-    rememberGroupMetadataCacheEntry(
-      groupMetadataCache,
-      jid,
-      summarizeGroupMetaForReconnectCache(meta),
-    );
-    groupMetaCache.delete(jid);
-  };
-
-  const forgetFullGroupMetadata = (jid: string) => {
-    options.baileysGroupMetaCache?.delete(jid);
-    groupMetadataCache.delete(jid);
-    groupMetaCache.delete(jid);
-    publishedGroupMetadataJids.delete(jid);
-    invalidatedGroupMetadataJids.add(jid);
-  };
-
-  const detachGroupsUpsert = attachSockListener("groups.upsert", ((groups: GroupMetadata[]) => {
-    for (const group of groups) {
-      if (group.id) {
-        rememberFullGroupMetadataUpdate(group.id, group);
-      }
-    }
-  }) as unknown as (...args: unknown[]) => void);
-
-  const detachGroupsUpdate = attachSockListener("groups.update", ((
-    updates: Partial<GroupMetadata>[],
-  ) => {
-    for (const update of updates) {
-      if (!update.id) {
-        continue;
-      }
-      if (isFullGroupMetadataUpdate(update)) {
-        rememberFullGroupMetadataUpdate(update.id, update);
-        continue;
-      }
-      forgetFullGroupMetadata(update.id);
-    }
-  }) as unknown as (...args: unknown[]) => void);
-
-  const detachGroupParticipantsUpdate = attachSockListener("group-participants.update", ((update: {
-    id: string;
-  }) => {
-    forgetFullGroupMetadata(update.id);
-  }) as unknown as (...args: unknown[]) => void);
-
   durableInboundMonitor.start();
-
-  const groupHydrationTask = (async () => {
-    try {
-      const groups = await sock.groupFetchAllParticipating();
-      if (groupMetadataCacheClosed) {
-        return;
-      }
-      for (const [jid, meta] of Object.entries(groups ?? {})) {
-        if (
-          meta &&
-          !publishedGroupMetadataJids.has(jid) &&
-          !invalidatedGroupMetadataJids.has(jid)
-        ) {
-          rememberGroupMetadataCacheEntry(
-            groupMetadataCache,
-            jid,
-            summarizeGroupMetaForReconnectCache(meta),
-          );
-          rememberWhatsAppBaileysCacheEntry(
-            options.baileysGroupMetaCache,
-            jid,
-            meta,
-            GROUP_META_TTL_MS,
-          );
-          publishedGroupMetadataJids.add(jid);
-        }
-      }
-      logWhatsAppVerbose(
-        options.verbose,
-        `Hydrated ${Object.keys(groups ?? {}).length} participating groups on connect`,
-      );
-    } catch (err) {
-      const error = String(err);
-      inboundLogger.warn({ error }, "failed hydrating participating groups on connect");
-      inboundConsoleLog.warn(`Failed hydrating participating groups on connect: ${error}`);
-      logWhatsAppVerbose(
-        options.verbose,
-        `Failed to hydrate participating groups on connect: ${error}`,
-      );
-    }
-  })();
-  void groupHydrationTask;
+  groupMetadata.start();
 
   const sendApi = createWebSendApi({
     sock: sendApiSocketOperations,
     defaultAccountId: options.accountId,
-    resolveOutboundMentions: ({ jid, text }) => resolveOutboundMentionsForGroup(jid, text),
+    resolveOutboundMentions: ({ jid, text }) => groupMetadata.resolveOutboundMentions(jid, text),
     authDir: options.authDir,
   });
 
@@ -1851,9 +1539,6 @@ export async function attachWebInboxToSocket(
       try {
         detachMessagesUpsert();
         detachConnectionUpdate();
-        detachGroupsUpsert();
-        detachGroupsUpdate();
-        detachGroupParticipantsUpdate();
         await drainInboundBeforeSocketCloseWithTimeout();
       } catch (err) {
         logWhatsAppVerbose(options.verbose, `Inbound close drain failed: ${String(err)}`);
