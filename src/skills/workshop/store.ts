@@ -66,6 +66,8 @@ export {
   MAX_PROPOSAL_SUPPORT_FILES,
   parseSkillProposalRecord,
   parseSkillProposalRollback,
+  validateSkillProposalRecord,
+  validateSkillProposalRollback,
 } from "./store-record.js";
 export { readSkillProposalRollback, writeSkillProposalRollback } from "./store-sqlite-rollback.js";
 
