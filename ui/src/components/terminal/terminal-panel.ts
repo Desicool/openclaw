@@ -277,7 +277,8 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
   }
 
   private handleSessionPickerFocusOut(event: FocusEvent): void {
-    const picker = event.currentTarget;
+    const menu = event.currentTarget;
+    const picker = menu instanceof HTMLElement ? menu.closest(".tp-session-picker") : null;
     const next = event.relatedTarget;
     if (picker instanceof HTMLElement && next instanceof Node && picker.contains(next)) {
       return;
