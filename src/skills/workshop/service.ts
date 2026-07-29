@@ -1,8 +1,6 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { readLocalFileSafely, root, walkDirectory } from "../../infra/fs-safe.js";
 import {
   buildWorkspaceSkillStatus,
   resolveSkillStatusEntry,
@@ -16,8 +14,6 @@ import {
 import {
   assertInsideWorkspace,
   assertWorkspaceSkillWriteTarget,
-  MAX_WORKSPACE_SKILL_SUPPORT_FILE_BYTES,
-  normalizeWorkspaceSkillSupportPath,
   readWorkspaceSkillFile,
   readWorkspaceSupportFile,
   writeWorkspaceSkill,
@@ -31,6 +27,7 @@ import {
   stripProposalFrontmatterForSkill,
 } from "./frontmatter.js";
 import { createSkillProposalEvent, dispatchSkillProposalChanged } from "./plugin-hooks.js";
+export { readSkillProposalDraftDirectory, readSkillProposalDraftFile } from "./proposal-draft.js";
 import { readSkillProposalTargetTreeSha256 } from "./proposal-bundle.js";
 import { assertProposalContainsNoLiteralSecrets, scanProposalBundle } from "./proposal-scan.js";
 import { hashSkillProposalRevision } from "./revision-hash.js";
@@ -44,7 +41,6 @@ import {
   createSkillProposalId,
   createSkillProposalRollback,
   hashSkillProposalContent,
-  MAX_PROPOSAL_SUPPORT_FILES,
   prepareSkillProposalSupportFiles,
   readProposalSupportFiles,
   replaceSkillProposalDraft,
@@ -76,7 +72,6 @@ import {
   type SkillProposalReviseInput,
   type SkillProposalRollback,
   type SkillProposalSupportFile,
-  type SkillProposalSupportFileInput,
   type SkillProposalUpdateInput,
 } from "./types.js";
 
@@ -90,8 +85,6 @@ function proposalStoreOptions(env?: NodeJS.ProcessEnv) {
 }
 
 const WRITABLE_WORKSPACE_SOURCES = new Set(["openclaw-workspace", "agents-skills-project"]);
-const MAX_PROPOSAL_DRAFT_BYTES = 1024 * 1024;
-const MAX_PROPOSAL_DIRECTORY_ENTRIES = MAX_PROPOSAL_SUPPORT_FILES * 4;
 const MAX_SKILL_PROPOSAL_DESCRIPTION_BYTES = 160;
 
 class SkillProposalLifecycleError extends Error {
@@ -108,76 +101,6 @@ type SkillProposalTransitionInput = Pick<
   SkillProposalActionInput,
   "agentId" | "correlationId" | "env" | "eventActor" | "workspaceDir"
 >;
-
-export async function readSkillProposalDraftFile(filePath: string): Promise<string> {
-  const read = await readLocalFileSafely({
-    filePath,
-    maxBytes: MAX_PROPOSAL_DRAFT_BYTES,
-  });
-  return decodeProposalTextFile(read.buffer, filePath);
-}
-
-export async function readSkillProposalDraftDirectory(dirPath: string): Promise<{
-  content: string;
-  supportFiles: SkillProposalSupportFileInput[];
-}> {
-  const absoluteDir = path.resolve(dirPath);
-  const draftRoot = await root(absoluteDir);
-  const proposal = await draftRoot.read("PROPOSAL.md", {
-    hardlinks: "reject",
-    maxBytes: MAX_PROPOSAL_DRAFT_BYTES,
-    symlinks: "reject",
-  });
-  const scanned = await walkDirectory(absoluteDir, {
-    maxDepth: 8,
-    maxEntries: MAX_PROPOSAL_DIRECTORY_ENTRIES,
-    symlinks: "include",
-  });
-  if (scanned.truncated) {
-    throw new Error("Proposal directory has too many entries.");
-  }
-  const supportFiles: SkillProposalSupportFileInput[] = [];
-  for (const entry of scanned.entries.toSorted((a, b) =>
-    a.relativePath.localeCompare(b.relativePath),
-  )) {
-    const relativePath = toPortableRelativePath(entry.relativePath);
-    if (!relativePath || relativePath === "PROPOSAL.md") {
-      continue;
-    }
-    if (entry.kind === "directory") {
-      continue;
-    }
-    if (entry.kind !== "file") {
-      throw new Error(`Proposal support file must be a regular file: ${relativePath}`);
-    }
-    const supportPath = normalizeWorkspaceSkillSupportPath(relativePath);
-    const stats = await fs.stat(entry.path);
-    if ((stats.mode & 0o111) !== 0) {
-      throw new Error(`Proposal support files must not be executable: ${relativePath}`);
-    }
-    const read = await draftRoot.read(relativePath, {
-      hardlinks: "reject",
-      maxBytes: MAX_WORKSPACE_SKILL_SUPPORT_FILE_BYTES,
-      symlinks: "reject",
-    });
-    supportFiles.push({
-      path: supportPath,
-      content: decodeProposalTextFile(read.buffer, relativePath),
-    });
-  }
-  return {
-    content: decodeProposalTextFile(proposal.buffer, "PROPOSAL.md"),
-    supportFiles,
-  };
-}
-
-function decodeProposalTextFile(buffer: Buffer, label: string): string {
-  const content = buffer.toString("utf8");
-  if (!Buffer.from(content, "utf8").equals(buffer) || content.includes("\0")) {
-    throw new Error(`Proposal files must be UTF-8 text: ${label}`);
-  }
-  return content;
-}
 
 function normalizeProposalOrigin(
   origin: SkillProposalOrigin | undefined,
@@ -1222,7 +1145,4 @@ function normalizeRequired(value: string, label: string): string {
   return normalized;
 }
 
-function toPortableRelativePath(relativePath: string): string {
-  return relativePath.split(path.sep).join("/");
-}
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
