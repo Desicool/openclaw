@@ -285,3 +285,7 @@ export function createWhatsAppGroupMetadataCacheOwner(params: GroupMetadataCache
     applyOutboundMentions,
   } as const;
 }
+
+export type WhatsAppGroupMetadataCacheOwner = ReturnType<
+  typeof createWhatsAppGroupMetadataCacheOwner
+>;

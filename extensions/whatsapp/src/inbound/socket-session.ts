@@ -479,3 +479,7 @@ export async function createWhatsAppAttachedSocketSession(options: SocketSession
     markRead,
   } as const;
 }
+
+export type WhatsAppAttachedSocketSession = Awaited<
+  ReturnType<typeof createWhatsAppAttachedSocketSession>
+>;
