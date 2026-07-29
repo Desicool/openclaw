@@ -313,6 +313,7 @@ export async function applySkillProposalTransition(
           applied,
           mutation,
           env: input.env,
+          workspaceDir: input.workspaceDir,
         });
         if (!recovered) {
           throw error;
@@ -327,6 +328,7 @@ export async function applySkillProposalTransition(
           applied,
           mutation,
           env: input.env,
+          workspaceDir: input.workspaceDir,
         });
         if (!recovered) {
           throw error;
@@ -584,6 +586,7 @@ async function recoverAfterApplyCommitFailure(params: {
   applied: SkillProposalRecord;
   mutation: PreparedWorkspaceSkillMutation;
   env?: NodeJS.ProcessEnv;
+  workspaceDir: string;
 }): Promise<boolean> {
   const authoritative = readStoredProposal(params.expected.id, storeOptions(params.env));
   if (
@@ -598,7 +601,15 @@ async function recoverAfterApplyCommitFailure(params: {
     return false;
   }
   try {
-    await restoreWorkspaceSkillMutation(params.mutation);
+    try {
+      await restoreWorkspaceSkillMutation(params.mutation);
+    } finally {
+      bumpSkillsSnapshotVersion({
+        workspaceDir: params.workspaceDir,
+        reason: "workshop",
+        changedPath: params.expected.target.skillFile,
+      });
+    }
   } catch (restoreError) {
     const failure = new Error(
       "Skill proposal apply failed after filesystem mutation and requires reconciliation.",
