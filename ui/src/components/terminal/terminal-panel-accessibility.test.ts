@@ -89,7 +89,7 @@ describe("OpenClawTerminalPanel accessibility", () => {
     expect(panel.renderRoot.querySelector(".tp-session-menu")).toBeNull();
   });
 
-  it("keeps trigger focus inside the picker until its click closes", async () => {
+  it("keeps trigger focus inside the picker and dismisses after focus leaves", async () => {
     const panel = createPanel(createPickerClient());
     await waitForFast(() => expect(panel.renderRoot.querySelector(".tp-actions")).not.toBeNull());
 
@@ -106,6 +106,23 @@ describe("OpenClawTerminalPanel accessibility", () => {
     await panel.updateComplete;
     expect(panel.renderRoot.querySelector(".tp-session-menu")).not.toBeNull();
     trigger.click();
+    await panel.updateComplete;
+    expect(panel.renderRoot.querySelector(".tp-session-menu")).toBeNull();
+
+    trigger.click();
+    await waitForFast(() =>
+      expect(panel.shadowRoot?.activeElement).toBe(
+        panel.renderRoot.querySelector(".tp-session-refresh"),
+      ),
+    );
+    trigger.focus();
+    await Promise.resolve();
+    expect(panel.renderRoot.querySelector(".tp-session-menu")).not.toBeNull();
+
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    await Promise.resolve();
     await panel.updateComplete;
     expect(panel.renderRoot.querySelector(".tp-session-menu")).toBeNull();
   });

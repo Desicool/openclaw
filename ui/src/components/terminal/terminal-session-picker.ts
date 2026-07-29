@@ -18,7 +18,7 @@ const TERMINAL_SESSION_PICKER_ID = "terminal-session-picker-dialog";
 
 export function renderTerminalSessionPicker(props: TerminalSessionPickerProps) {
   return html`
-    <div class="tp-session-picker">
+    <div class="tp-session-picker" @focusout=${props.onFocusOut}>
       <button
         class="tp-icon"
         type="button"
@@ -48,7 +48,6 @@ export function renderTerminalSessionPicker(props: TerminalSessionPickerProps) {
             class="tp-session-menu"
             role="dialog"
             aria-label=${t("terminal.sessions")}
-            @focusout=${props.onFocusOut}
             @keydown=${(event: KeyboardEvent) => {
               if (event.key !== "Escape") {
                 return;
