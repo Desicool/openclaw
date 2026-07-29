@@ -660,6 +660,55 @@ describe("OpenClawTerminalPanel", () => {
     expect(menu).not.toContain("old-agent");
   });
 
+  it("manages focus and dismissal for the terminal session picker", async () => {
+    createGhosttyTerminalMock.mockResolvedValue(createTerminalController());
+    const client: TerminalGatewayClient = {
+      forceReconnect: () => {},
+      request: async <T>(method: string) =>
+        (method === "terminal.open"
+          ? terminalOpenResult("current-1")
+          : method === "terminal.list"
+            ? { sessions: [] }
+            : {}) as T,
+      addEventListener: () => () => {},
+    };
+    const panel = document.createElement(TERMINAL_PANEL_ELEMENT_NAME) as OpenClawTerminalPanel;
+    panel.client = client;
+    panel.available = true;
+    document.body.append(panel);
+    panel.toggle();
+    await waitForFast(() => expect(panel.renderRoot.querySelector(".tp-actions")).not.toBeNull());
+
+    const trigger = panel.renderRoot.querySelector<HTMLButtonElement>(
+      '[aria-label="Terminal sessions"]',
+    );
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger?.getAttribute("aria-controls")).toBe("terminal-session-picker-dialog");
+
+    trigger?.click();
+    await waitForFast(() =>
+      expect(panel.renderRoot.activeElement).toBe(
+        panel.renderRoot.querySelector(".tp-session-refresh"),
+      ),
+    );
+    expect(panel.renderRoot.querySelector(".tp-session-menu")?.getAttribute("role")).toBe("dialog");
+
+    panel.renderRoot
+      .querySelector(".tp-session-refresh")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await panel.updateComplete;
+    expect(panel.renderRoot.querySelector(".tp-session-menu")).toBeNull();
+    expect(panel.renderRoot.activeElement).toBe(trigger);
+
+    trigger?.click();
+    await waitForFast(() =>
+      expect(panel.renderRoot.querySelector(".tp-session-menu")).not.toBeNull(),
+    );
+    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, composed: true }));
+    await panel.updateComplete;
+    expect(panel.renderRoot.querySelector(".tp-session-menu")).toBeNull();
+  });
+
   it("shows a picker attach failure after the listed session disappears", async () => {
     createGhosttyTerminalMock
       .mockResolvedValueOnce(createTerminalController())
