@@ -7,6 +7,7 @@ import {
 import {
   applyWorkspaceSkillMutation,
   assertInsideWorkspace,
+  isWorkspaceSkillMutationApplied,
   prepareWorkspaceSkillMutation,
   readWorkspaceSkillFile,
   restoreWorkspaceSkillMutation,
@@ -592,6 +593,10 @@ async function recoverAfterApplyCommitFailure(params: {
     return true;
   }
   requiredApplyStatus("apply_failed");
+  const stillApplied = await isWorkspaceSkillMutationApplied(params.mutation).catch(() => false);
+  if (!stillApplied) {
+    return false;
+  }
   try {
     await restoreWorkspaceSkillMutation(params.mutation);
   } catch (restoreError) {

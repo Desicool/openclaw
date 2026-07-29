@@ -1,4 +1,5 @@
 import path from "node:path";
+import { loadConfig } from "../../config/config.js";
 import {
   normalizeWorkspaceSkillSupportPath,
   prepareWorkspaceSkillRestoration,
@@ -6,7 +7,9 @@ import {
   readWorkspaceSupportFile,
   restoreWorkspaceSkillMutation,
 } from "../lifecycle/workspace-skill-write.js";
+import { resolveAllowedSkillSymlinkTargetRealPaths } from "../loading/symlink-targets.js";
 import { bumpSkillsSnapshotVersion } from "../runtime/refresh-state.js";
+import { resolveSkillWorkshopConfig } from "./config.js";
 import { stripProposalFrontmatterForSkill } from "./frontmatter.js";
 import { createSkillProposalEvent } from "./plugin-hooks.js";
 import { hashSkillProposalContent } from "./proposal-hash.js";
@@ -87,6 +90,8 @@ export async function reconcileInterruptedSkillProposalApply(params: {
         return true;
       }
       if (recovery.state === "partial") {
+        const config = loadConfig({ skipPluginValidation: true });
+        const workshopConfig = resolveSkillWorkshopConfig(config);
         const restoration = await prepareWorkspaceSkillRestoration({
           workspaceDir: params.workspaceDir,
           skillDir: stored.record.target.skillDir,
@@ -94,7 +99,12 @@ export async function reconcileInterruptedSkillProposalApply(params: {
           previousContent: rollback.previousContent ?? null,
           supportFiles: recovery.supportFiles,
           mode: stored.record.kind,
-          symlinkPolicy: { allowWrites: false, allowedTargetRealPaths: [] },
+          symlinkPolicy: {
+            allowWrites: workshopConfig.allowSymlinkTargetWrites,
+            allowedTargetRealPaths: workshopConfig.allowSymlinkTargetWrites
+              ? resolveAllowedSkillSymlinkTargetRealPaths(config)
+              : [],
+          },
         });
         try {
           await restoreWorkspaceSkillMutation(restoration);

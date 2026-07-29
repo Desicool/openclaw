@@ -267,6 +267,22 @@ export async function restoreWorkspaceSkillMutation(
   await restorePreparedWorkspaceFiles(files);
 }
 
+export async function isWorkspaceSkillMutationApplied(
+  mutation: PreparedWorkspaceSkillMutation,
+): Promise<boolean> {
+  const skillContent = await readPreparedWorkspaceFile(mutation.skillFile, 1024 * 1024);
+  if (skillContent !== mutation.skillFile.content) {
+    return false;
+  }
+  for (const file of mutation.supportFiles) {
+    const content = await readPreparedWorkspaceFile(file, MAX_WORKSPACE_SKILL_SUPPORT_FILE_BYTES);
+    if (content !== file.content) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function normalizeSupportFiles(
   supportFiles: readonly WorkspaceSkillSupportFileWrite[],
 ): WorkspaceSkillSupportFileWrite[] {
@@ -317,6 +333,22 @@ async function restorePreparedWorkspaceFiles(
   if (errors.length > 0) {
     throw new AggregateError(errors, "Failed to restore the previous workspace skill state.");
   }
+}
+
+async function readPreparedWorkspaceFile(
+  file: PreparedWorkspaceSkillFileMutation,
+  maxBytes: number,
+): Promise<string | null> {
+  if (!(await pathExists(path.join(file.rootDir, file.relativePath)))) {
+    return null;
+  }
+  const targetRoot = await root(file.rootDir);
+  const read = await targetRoot.read(file.relativePath, {
+    hardlinks: "reject",
+    maxBytes,
+    symlinks: "reject",
+  });
+  return read.buffer.toString("utf8");
 }
 
 async function resolveWorkspaceSkillWriteTarget(

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
 import {
   applyWorkspaceSkillMutation,
+  isWorkspaceSkillMutationApplied,
   prepareWorkspaceSkillMutation,
   prepareWorkspaceSkillRestoration,
   restoreWorkspaceSkillMutation,
@@ -108,5 +109,24 @@ describe("workspace skill mutations", () => {
 
     await expect(fs.readFile(skillFile, "utf8")).resolves.toBe("# Before\n");
     await expect(fs.readFile(supportFile, "utf8")).resolves.toBe("before support\n");
+  });
+
+  it("detects external edits before restoring a completed mutation", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-workspace-skill-external-edit-");
+    const skillDir = path.join(workspaceDir, "skills", "external-edit");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const mutation = await prepareWorkspaceSkillMutation({
+      workspaceDir,
+      skillDir,
+      skillFile,
+      content: "# Proposed\n",
+      mode: "create",
+      symlinkPolicy,
+    });
+
+    await applyWorkspaceSkillMutation(mutation);
+    await expect(isWorkspaceSkillMutationApplied(mutation)).resolves.toBe(true);
+    await fs.writeFile(skillFile, "# External edit\n", "utf8");
+    await expect(isWorkspaceSkillMutationApplied(mutation)).resolves.toBe(false);
   });
 });
