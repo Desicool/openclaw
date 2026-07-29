@@ -50,17 +50,12 @@ import {
   summarizeParentMessage,
 } from "../thread-parent-context.js";
 import { admitMSTeamsMessage } from "./access.js";
+import { prepareMSTeamsInboundContent } from "./inbound-content.js";
 import {
   assembleMSTeamsInboundFacts,
   prepareMSTeamsDebounceEntry,
   type MSTeamsDebounceEntry,
 } from "./inbound-facts.js";
-import {
-  resolveMSTeamsInboundMedia,
-  resolveMSTeamsInboundMediaBody,
-  mergeMSTeamsMediaFacts,
-  shouldAttemptMSTeamsGraphMediaFallback,
-} from "./inbound-media.js";
 import { resolveMSTeamsRouteSessionKey } from "./thread-session.js";
 
 export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
@@ -200,18 +195,6 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       return;
     }
 
-    const mayRecoverGraphMedia =
-      Boolean(htmlSummary?.attachmentIds.length) ||
-      shouldAttemptMSTeamsGraphMediaFallback({
-        conversationType,
-        htmlSummary: htmlSummary ?? undefined,
-        graphMediaFallback: msteamsCfg?.graphMediaFallback,
-      });
-    if (!rawBody && advertisedMedia.length === 0 && !mayRecoverGraphMedia) {
-      log.debug?.("skipping empty message after stripping mentions");
-      return;
-    }
-
     const teamsFrom = isDirectMessage
       ? `msteams:${senderId}`
       : isChannel
@@ -324,59 +307,28 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       teamAadGroupId = await teamGroupIdPromise;
       return teamAadGroupId;
     };
-    let mediaList = [] as Awaited<ReturnType<typeof resolveMSTeamsInboundMedia>>;
-    try {
-      mediaList = await withMSTeamsRequestDeadline({
-        deadline: preprocessingDeadline,
-        label: "MS Teams inbound media",
-        work: () =>
-          resolveMSTeamsInboundMedia({
-            attachments,
-            htmlSummary: htmlSummary ?? undefined,
-            maxBytes: mediaMaxBytes,
-            tokenProvider,
-            allowHosts: msteamsCfg?.mediaAllowHosts,
-            authAllowHosts: msteamsCfg?.mediaAuthAllowHosts,
-            graphMediaFallback: msteamsCfg?.graphMediaFallback,
-            conversationType,
-            conversationId,
-            conversationMessageId: conversationMessageId ?? undefined,
-            teamAadGroupId,
-            resolveTeamAadGroupId: resolveChannelTeamGroupId,
-            serviceUrl: activity.serviceUrl,
-            activity: {
-              id: activity.id,
-              replyToId: activity.replyToId,
-              channelData: activity.channelData,
-            },
-            log,
-            deadline: preprocessingDeadline,
-            preserveFilenames: false,
-          }),
-      });
-    } catch (err) {
-      log.debug?.("failed to resolve inbound Teams media", {
-        error: formatUnknownError(err),
-      });
-    }
-
-    const inboundMedia = mergeMSTeamsMediaFacts(advertisedMedia, mediaList);
-    const nativeMediaForComparison = [
-      ...advertisedMedia,
-      ...mediaList.slice(advertisedMedia.length).map((media) => ({
-        contentType: media.contentType,
-        kind: media.kind,
-      })),
-    ];
-    const agentBody = resolveMSTeamsInboundMediaBody({
-      body: rawBody,
-      nativeMedia: nativeMediaForComparison,
-      materializedMedia: inboundMedia,
+    const content = await prepareMSTeamsInboundContent({
+      entry: params,
+      rawBody,
+      advertisedMedia,
+      htmlSummary: htmlSummary ?? undefined,
+      conversationType,
+      conversationId,
+      conversationMessageId: conversationMessageId ?? undefined,
+      teamAadGroupId,
+      resolveTeamAadGroupId: resolveChannelTeamGroupId,
+      mediaMaxBytes,
+      tokenProvider,
+      mediaAllowHosts: msteamsCfg?.mediaAllowHosts,
+      mediaAuthAllowHosts: msteamsCfg?.mediaAuthAllowHosts,
+      graphMediaFallback: msteamsCfg?.graphMediaFallback,
+      deadline: preprocessingDeadline,
+      log,
     });
-    if (!agentBody && inboundMedia.length === 0) {
-      log.debug?.("skipping empty message after Graph media recovery");
+    if (!content) {
       return;
     }
+    const { agentBody, inboundMedia } = content;
     enqueuePrimaryMessageSystemEvent();
     teamAadGroupId = await resolveChannelTeamGroupId();
 
