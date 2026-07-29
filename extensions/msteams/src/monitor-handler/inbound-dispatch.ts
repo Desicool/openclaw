@@ -22,7 +22,7 @@ import type { prepareMSTeamsInboundContent } from "./inbound-content.js";
 import type { assembleMSTeamsInboundFacts } from "./inbound-facts.js";
 import type { prepareMSTeamsThreadRouting, resolveMSTeamsThreadContext } from "./thread-context.js";
 
-export type MSTeamsInboundDispatchResult =
+type MSTeamsInboundDispatchResult =
   | { kind: "completed"; finalResponses: number }
   | { kind: "failed" };
 
