@@ -83,7 +83,7 @@ export type WhatsAppAppendReplyWindow = {
   maxAgeMs: number;
 };
 
-export type WhatsAppMessageDeliveryOptions = {
+type WhatsAppMessageDeliveryOptions = {
   cfg: OpenClawConfig;
   loadConfig?: () => OpenClawConfig;
   verbose: boolean;

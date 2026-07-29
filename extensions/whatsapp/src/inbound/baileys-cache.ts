@@ -3,7 +3,7 @@ import type { GroupMetadata, proto } from "baileys";
 
 const WHATSAPP_BAILEYS_CACHE_MAX_ENTRIES = 500;
 
-export type WhatsAppBaileysCacheEntry<T> = {
+type WhatsAppBaileysCacheEntry<T> = {
   expiresAt: number;
   value: T;
 };
