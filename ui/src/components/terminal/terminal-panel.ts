@@ -268,7 +268,10 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
       return;
     }
     const picker = this.renderRoot.querySelector(".tp-session-picker");
-    if (picker && !event.composedPath().includes(picker)) {
+    // Document capture sees retargeted shadow-DOM events. The composed path
+    // preserves the picker wrapper so its trigger and actions stay clickable.
+    const path = event.composedPath();
+    if (picker && !path.includes(picker)) {
       this.closeSessionPicker(false);
     }
   }
