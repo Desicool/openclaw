@@ -4850,6 +4850,8 @@ describe("gateway healthHandlers.health cache freshness", () => {
     runtimeSnapshot?: Record<string, unknown>;
     context?: Record<string, unknown>;
     refreshHealthSnapshot?: ReturnType<typeof vi.fn>;
+    requestParams?: Record<string, unknown>;
+    scopes?: string[];
   }) {
     const respond = vi.fn();
     const refreshHealthSnapshot =
@@ -4858,7 +4860,7 @@ describe("gateway healthHandlers.health cache freshness", () => {
       healthHandlers,
       {
         req: {} as never,
-        params: {} as never,
+        params: (params.requestParams ?? {}) as never,
         respond: respond as never,
         context: {
           getHealthCache: () => params.cached,
@@ -4867,7 +4869,9 @@ describe("gateway healthHandlers.health cache freshness", () => {
           logHealth: { error: vi.fn() },
           ...params.context,
         } as never,
-        client: { connect: { role: "operator", scopes: ["operator.read"] } } as never,
+        client: {
+          connect: { role: "operator", scopes: params.scopes ?? ["operator.read"] },
+        } as never,
         isWebchatConnect: () => false,
       },
     );
@@ -4918,6 +4922,38 @@ describe("gateway healthHandlers.health cache freshness", () => {
     await requestHealthSnapshot({ cached, refreshHealthSnapshot });
 
     expect(refreshHealthSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("bypasses a fresh cache for explicit admin probes", async () => {
+    const cached = createHealthSnapshot({});
+    const fresh = createHealthSnapshot({ ts: cached.ts + 1 });
+    const { respond, refreshHealthSnapshot } = await requestHealthSnapshot({
+      cached,
+      fresh,
+      requestParams: { probe: true },
+      scopes: ["operator.admin"],
+    });
+
+    expect(refreshHealthSnapshot).toHaveBeenCalledWith({
+      probe: true,
+      includeSensitive: true,
+    });
+    expect(respond).toHaveBeenCalledWith(true, fresh, undefined);
+  });
+
+  it("maps health collection failures to UNAVAILABLE", async () => {
+    const refreshHealthSnapshot = vi.fn().mockRejectedValue(new Error("collector failed"));
+    const { respond } = await requestHealthSnapshot({
+      cached: null,
+      refreshHealthSnapshot,
+    });
+
+    expect(mockCallArg(respond)).toBe(false);
+    expect(mockCallArg(respond, 0, 1)).toBeUndefined();
+    expect(mockCallArg(respond, 0, 2)).toMatchObject({
+      code: "UNAVAILABLE",
+      message: "Error: collector failed",
+    });
   });
 
   it("refreshes cached health when runtime channel lifecycle has changed", async () => {
