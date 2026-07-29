@@ -43,7 +43,7 @@ import type {
 const DEFAULT_HEALTH_TIMEOUT_MS = 10_000;
 const healthLog = createSubsystemLogger("health");
 
-export type HealthSnapshotAudience = "public" | "admin";
+type HealthSnapshotAudience = "public" | "admin";
 
 const debugHealth = (
   cfg: OpenClawConfig | undefined,
