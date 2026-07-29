@@ -282,7 +282,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
     queueMicrotask(() => {
       if (
         picker instanceof HTMLElement &&
-        !picker.contains(this.renderRoot.activeElement) &&
+        !picker.contains(this.shadowRoot?.activeElement ?? null) &&
         this.sessionPickerOpen
       ) {
         this.closeSessionPicker(false);

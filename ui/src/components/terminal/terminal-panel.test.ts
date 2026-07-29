@@ -687,7 +687,7 @@ describe("OpenClawTerminalPanel", () => {
 
     trigger?.click();
     await waitForFast(() =>
-      expect(panel.renderRoot.activeElement).toBe(
+      expect(panel.shadowRoot?.activeElement).toBe(
         panel.renderRoot.querySelector(".tp-session-refresh"),
       ),
     );
@@ -698,7 +698,7 @@ describe("OpenClawTerminalPanel", () => {
       ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await panel.updateComplete;
     expect(panel.renderRoot.querySelector(".tp-session-menu")).toBeNull();
-    expect(panel.renderRoot.activeElement).toBe(trigger);
+    expect(panel.shadowRoot?.activeElement).toBe(trigger);
 
     trigger?.click();
     await waitForFast(() =>
