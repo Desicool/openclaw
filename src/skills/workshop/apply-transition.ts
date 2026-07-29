@@ -1,4 +1,5 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   dispatchCommittedSkillChangeBestEffort,
   hasCommittedSkillChangeHooks,
@@ -82,6 +83,7 @@ export type SkillProposalApplyTransitionDependencies = {
     workspaceDir?: string,
     env?: NodeJS.ProcessEnv,
     agentId?: string,
+    config?: OpenClawConfig,
   ) => Promise<SkillProposalReadResult>;
 };
 
@@ -116,6 +118,7 @@ export async function applySkillProposalTransition(
     input.workspaceDir,
     input.env,
     input.agentId,
+    input.config,
   );
   if (initial.record.status !== "pending") {
     throw new Error(
@@ -146,6 +149,7 @@ export async function applySkillProposalTransition(
             input.workspaceDir,
             input.env,
             input.agentId,
+            input.config,
           );
           if (
             current.record.status === "pending" &&
@@ -186,6 +190,7 @@ export async function applySkillProposalTransition(
         input.workspaceDir,
         input.env,
         input.agentId,
+        input.config,
       );
       const { record, content } = read;
       if (record.status !== "pending") {

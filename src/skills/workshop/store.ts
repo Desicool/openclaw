@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { removePathWithinRoot } from "../../infra/fs-safe-remove.js";
 import { root } from "../../infra/fs-safe.js";
 import {
@@ -177,12 +178,13 @@ export async function readSkillProposal(
   proposalId: string,
   options: SkillWorkshopStoreOptions = {},
   scope: SkillProposalLookupScope = {},
+  recoveryConfig?: OpenClawConfig,
 ): Promise<SkillProposalReadResult | null> {
   let stored = readStoredProposal(proposalId, options);
   if (!stored || !isStoredProposalVisible(stored.row, scope)) {
     return null;
   }
-  await reconcileInterruptedApply(proposalId, options);
+  await reconcileInterruptedApply(proposalId, options, recoveryConfig);
   stored = readStoredProposal(proposalId, options);
   if (!stored || !isStoredProposalVisible(stored.row, scope)) {
     return null;
@@ -417,6 +419,7 @@ export async function readSkillProposalManifest(
 async function reconcileInterruptedApply(
   proposalId: string,
   options: SkillWorkshopStoreOptions,
+  config?: OpenClawConfig,
 ): Promise<boolean> {
   const stored = readStoredProposal(proposalId, options);
   if (!stored || stored.record.status !== "pending") {
@@ -443,6 +446,7 @@ async function reconcileInterruptedApply(
     expectedRecordJson: stored.row.record_json,
     draftContent,
     workspaceDir: stored.row.workspace_dir,
+    ...(config ? { config } : {}),
     store: options,
   });
 }

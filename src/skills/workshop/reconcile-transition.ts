@@ -1,5 +1,6 @@
 import path from "node:path";
-import { loadConfig } from "../../config/config.js";
+import { createConfigIO } from "../../config/config.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   normalizeWorkspaceSkillSupportPath,
   prepareWorkspaceSkillRestoration,
@@ -25,6 +26,7 @@ export async function reconcileInterruptedSkillProposalApply(params: {
   expectedRecordJson: string;
   draftContent: string;
   workspaceDir: string;
+  config?: OpenClawConfig;
   store?: SkillWorkshopStoreOptions;
 }): Promise<boolean> {
   return await withSkillProposalTargetLock(
@@ -90,7 +92,12 @@ export async function reconcileInterruptedSkillProposalApply(params: {
         return true;
       }
       if (recovery.state === "partial") {
-        const config = loadConfig({ skipPluginValidation: true });
+        const config =
+          params.config ??
+          createConfigIO({
+            ...(params.store?.env ? { env: params.store.env } : {}),
+            pluginValidation: "skip",
+          }).loadConfig();
         const workshopConfig = resolveSkillWorkshopConfig(config);
         const restoration = await prepareWorkspaceSkillRestoration({
           workspaceDir: params.workspaceDir,

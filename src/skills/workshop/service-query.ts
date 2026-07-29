@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { normalizeSkillIndexName } from "../discovery/skill-index.js";
 import {
   readProposalSupportFiles,
@@ -122,11 +123,17 @@ export async function readRequiredProposal(
   workspaceDir?: string,
   env?: NodeJS.ProcessEnv,
   agentId?: string,
+  config?: OpenClawConfig,
 ): Promise<SkillProposalReadResult> {
-  const read = await readSkillProposal(proposalId, storeOptions(env), {
-    ...(agentId ? { agentId } : {}),
-    ...(workspaceDir ? { workspaceDir } : {}),
-  });
+  const read = await readSkillProposal(
+    proposalId,
+    storeOptions(env),
+    {
+      ...(agentId ? { agentId } : {}),
+      ...(workspaceDir ? { workspaceDir } : {}),
+    },
+    config,
+  );
   if (!read) {
     throw new Error(`Skill proposal not found: ${proposalId}`);
   }

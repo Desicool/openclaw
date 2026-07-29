@@ -991,7 +991,7 @@ describe("skill workshop proposals", () => {
   });
 
   it.runIf(process.platform !== "win32")(
-    "restores a partial create through an allowed skill symlink",
+    "recovers a partial create through the apply config",
     async () => {
       const workspaceDir = await makeWorkspace();
       const targetSkillsDir = await tempDirs.make("openclaw-workshop-recovery-symlink-");
@@ -1002,7 +1002,6 @@ describe("skill workshop proposals", () => {
           workshop: { allowSymlinkTargetWrites: true },
         },
       };
-      await testState.writeConfig(config);
       const proposal = await proposeCreateSkill({
         workspaceDir,
         config,
@@ -1033,12 +1032,69 @@ describe("skill workshop proposals", () => {
       await expect(listSkillProposals({ workspaceDir })).resolves.toMatchObject({
         proposals: [expect.objectContaining({ id: proposal.record.id, status: "pending" })],
       });
-      await expect(fs.access(targetSupportFile)).rejects.toThrow();
+      await expect(fs.readFile(targetSupportFile, "utf8")).resolves.toBe("Symlink support.\n");
 
       await expect(
         applySkillProposal({ workspaceDir, config, proposalId: proposal.record.id }),
       ).resolves.toMatchObject({ record: { status: "applied" } });
       await expect(fs.readFile(targetSupportFile, "utf8")).resolves.toBe("Symlink support.\n");
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "uses the proposal environment for symlink recovery",
+    async () => {
+      const workspaceDir = await makeWorkspace();
+      const targetSkillsDir = await tempDirs.make("openclaw-workshop-recovery-env-symlink-");
+      await fs.symlink(targetSkillsDir, path.join(workspaceDir, "skills"), "dir");
+      const config = {
+        skills: {
+          load: { allowSymlinkTargets: [targetSkillsDir] },
+          workshop: { allowSymlinkTargetWrites: true },
+        },
+      };
+      const configDir = await tempDirs.make("openclaw-workshop-recovery-env-config-");
+      const configPath = path.join(configDir, "openclaw.json");
+      await fs.writeFile(configPath, JSON.stringify(config), "utf8");
+      const env = { ...testState.env, OPENCLAW_CONFIG_PATH: configPath };
+      const proposal = await proposeCreateSkill({
+        workspaceDir,
+        config,
+        env,
+        name: "Profile Symlink",
+        description: "Recover through the proposal profile",
+        content: "# Profile Symlink\n\nRetry after recovery.\n",
+        supportFiles: [{ path: "references/proof.md", content: "Profile support.\n" }],
+      });
+      const targetSupportFile = path.join(
+        targetSkillsDir,
+        "profile-symlink",
+        "references",
+        "proof.md",
+      );
+      await writeSkillProposalRollback({
+        proposalId: proposal.record.id,
+        rollback: createSkillProposalRollback({
+          proposalId: proposal.record.id,
+          targetSkillFile: proposal.record.target.skillFile,
+          action: "create",
+          supportFiles: [{ path: "references/proof.md", existed: false }],
+        }),
+        store: { env },
+      });
+      await fs.mkdir(path.dirname(targetSupportFile), { recursive: true });
+      await fs.writeFile(targetSupportFile, "Profile support.\n", "utf8");
+
+      closeOpenClawStateDatabaseForTest();
+      await expect(listSkillProposals({ workspaceDir, env })).resolves.toMatchObject({
+        proposals: [expect.objectContaining({ id: proposal.record.id, status: "pending" })],
+      });
+      await expect(fs.access(targetSupportFile)).rejects.toThrow();
+
+      await expect(
+        applySkillProposal({ workspaceDir, config, env, proposalId: proposal.record.id }),
+      ).resolves.toMatchObject({ record: { status: "applied" } });
+      await expect(fs.readFile(targetSupportFile, "utf8")).resolves.toBe("Profile support.\n");
     },
   );
 

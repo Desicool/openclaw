@@ -631,7 +631,13 @@ async function markProposal(
 async function withPendingSkillProposalMutation<T>(
   input: Pick<
     SkillProposalActionInput,
-    "agentId" | "env" | "eventActor" | "expectedRevisionHash" | "proposalId" | "workspaceDir"
+    | "agentId"
+    | "config"
+    | "env"
+    | "eventActor"
+    | "expectedRevisionHash"
+    | "proposalId"
+    | "workspaceDir"
   >,
   action: "applied" | "quarantined" | "rejected" | "revised",
   fn: (read: SkillProposalReadResult) => Promise<T>,
@@ -641,6 +647,7 @@ async function withPendingSkillProposalMutation<T>(
     input.workspaceDir,
     input.env,
     input.agentId,
+    input.config,
   );
   return await withSkillProposalTargetLock(
     initial.record,
@@ -650,6 +657,7 @@ async function withPendingSkillProposalMutation<T>(
         input.workspaceDir,
         input.env,
         input.agentId,
+        input.config,
       );
       if (read.record.status !== "pending") {
         throw new Error(
