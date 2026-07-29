@@ -96,12 +96,17 @@ export async function reconcileInterruptedSkillProposalApply(params: {
           mode: stored.record.kind,
           symlinkPolicy: { allowWrites: false, allowedTargetRealPaths: [] },
         });
-        await restoreWorkspaceSkillMutation(restoration);
-        bumpSkillsSnapshotVersion({
-          workspaceDir: params.workspaceDir,
-          reason: "workshop",
-          changedPath: stored.record.target.skillFile,
-        });
+        try {
+          await restoreWorkspaceSkillMutation(restoration);
+        } finally {
+          // Restoration attempts can partially succeed before reporting an
+          // aggregate error, so invalidate readers even on a failed recovery.
+          bumpSkillsSnapshotVersion({
+            workspaceDir: params.workspaceDir,
+            reason: "workshop",
+            changedPath: stored.record.target.skillFile,
+          });
+        }
       }
       return await clearSkillProposalRollback({
         proposalId: stored.record.id,

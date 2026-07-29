@@ -31,6 +31,7 @@ import {
   readStoredProposal,
   updateProposal,
 } from "./store-sqlite-record.js";
+import { readSkillProposalRollback } from "./store-sqlite-rollback.js";
 import {
   databaseOptions,
   ensureSkillWorkshopSchema,
@@ -61,7 +62,7 @@ export {
   validateSkillProposalRollback,
 } from "./store-record.js";
 export { hashSkillProposalContent } from "./proposal-hash.js";
-export { readSkillProposalRollback } from "./store-sqlite-rollback.js";
+export { readSkillProposalRollback };
 export { withSkillProposalTargetLock } from "./target-lock.js";
 
 type SkillProposalLookupScope = {
@@ -419,6 +420,11 @@ async function reconcileInterruptedApply(
 ): Promise<boolean> {
   const stored = readStoredProposal(proposalId, options);
   if (!stored || stored.record.status !== "pending") {
+    return false;
+  }
+  // Avoid acquiring the target lock on ordinary reads. Apply and revise reread
+  // proposals while already holding that lock.
+  if (!(await readSkillProposalRollback(proposalId, options))) {
     return false;
   }
   let draftContent: string;
