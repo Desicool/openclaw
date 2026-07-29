@@ -230,16 +230,20 @@ export async function prepareWorkspaceSkillRestoration(params: {
 
 export async function applyWorkspaceSkillMutation(
   mutation: PreparedWorkspaceSkillMutation,
+  writeFile: (
+    file: PreparedWorkspaceSkillFileMutation,
+    overwrite: boolean,
+  ) => Promise<void> = writeWorkspaceSkillFile,
 ): Promise<void> {
   const written: PreparedWorkspaceSkillFileMutation[] = [];
   const writtenSupportPaths: string[] = [];
   try {
     for (const file of mutation.supportFiles) {
-      await writePreparedWorkspaceFile(file, mutation.mode === "update");
+      await writePreparedWorkspaceFile(file, mutation.mode === "update", writeFile);
       written.push(file);
       writtenSupportPaths.push(file.path);
     }
-    await writePreparedWorkspaceFile(mutation.skillFile, mutation.mode === "update");
+    await writePreparedWorkspaceFile(mutation.skillFile, mutation.mode === "update", writeFile);
   } catch (error) {
     try {
       await restorePreparedWorkspaceFiles(written.toReversed());
@@ -315,6 +319,32 @@ function normalizeSupportFiles(
 }
 
 async function writePreparedWorkspaceFile(
+  file: PreparedWorkspaceSkillFileMutation,
+  overwrite: boolean,
+  writeFile: (file: PreparedWorkspaceSkillFileMutation, overwrite: boolean) => Promise<void>,
+): Promise<void> {
+  try {
+    await writeFile(file, overwrite);
+  } catch (error) {
+    // fs-safe commits writes atomically, but its post-write identity check can
+    // reject after commit. Restore only our exact bytes; preserve external edits.
+    const currentContent = await readPreparedWorkspaceFile(file, 1024 * 1024).catch(() => null);
+    if (currentContent === file.content && currentContent !== file.previousContent) {
+      try {
+        await restorePreparedWorkspaceFiles([file]);
+      } catch (restoreError) {
+        const failure = new Error("Skill write failed after commit and restoration failed.", {
+          cause: error,
+        });
+        Object.assign(failure, { restoreError });
+        throw failure;
+      }
+    }
+    throw error;
+  }
+}
+
+async function writeWorkspaceSkillFile(
   file: PreparedWorkspaceSkillFileMutation,
   overwrite: boolean,
 ): Promise<void> {
