@@ -5,6 +5,7 @@ import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
 import {
   applyWorkspaceSkillMutation,
   prepareWorkspaceSkillMutation,
+  prepareWorkspaceSkillRestoration,
   restoreWorkspaceSkillMutation,
 } from "./workspace-skill-write.js";
 
@@ -83,5 +84,29 @@ describe("workspace skill mutations", () => {
 
     await expect(fs.access(skillFile)).rejects.toThrow();
     await expect(fs.access(supportFile)).rejects.toThrow();
+  });
+
+  it("restores an interrupted update from persisted rollback facts", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-workspace-skill-recovery-");
+    const skillDir = path.join(workspaceDir, "skills", "recovered-update");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const supportFile = path.join(skillDir, "references", "proof.md");
+    await fs.mkdir(path.dirname(supportFile), { recursive: true });
+    await fs.writeFile(skillFile, "# Partial update\n", "utf8");
+    await fs.writeFile(supportFile, "partial support\n", "utf8");
+
+    const restoration = await prepareWorkspaceSkillRestoration({
+      workspaceDir,
+      skillDir,
+      skillFile,
+      previousContent: "# Before\n",
+      supportFiles: [{ path: "references/proof.md", previousContent: "before support\n" }],
+      mode: "update",
+      symlinkPolicy,
+    });
+    await restoreWorkspaceSkillMutation(restoration);
+
+    await expect(fs.readFile(skillFile, "utf8")).resolves.toBe("# Before\n");
+    await expect(fs.readFile(supportFile, "utf8")).resolves.toBe("before support\n");
   });
 });

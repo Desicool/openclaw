@@ -12,6 +12,7 @@ import {
 import { createSkillProposalEvent } from "./plugin-hooks.js";
 import { listSkillProposalEvents, listSkillProposals, proposeCreateSkill } from "./service.js";
 import { parseSkillProposalEvaluation } from "./store-record.js";
+import { commitPendingSkillProposalTransition } from "./store-sqlite-transition.js";
 import { updateSkillProposalRecord } from "./store.js";
 
 let testState: OpenClawTestState;
@@ -28,6 +29,36 @@ afterEach(async () => {
 });
 
 describe("Skill Workshop SQLite store", () => {
+  it("commits a pending transition once and rejects stale record facts", async () => {
+    const proposal = await proposeCreateSkill({
+      workspaceDir: testState.stateDir,
+      name: "Transition Compare And Swap",
+      description: "Bind state transitions to authoritative proposal facts",
+      content: "# Transition Compare And Swap\n",
+    });
+    const applied = {
+      ...proposal.record,
+      status: "applied" as const,
+      updatedAt: "2026-07-29T00:00:00.000Z",
+      appliedAt: "2026-07-29T00:00:00.000Z",
+    };
+
+    expect(
+      commitPendingSkillProposalTransition({
+        expected: proposal.record,
+        record: applied,
+        operationLabel: "skill-workshop.test.commit",
+      }),
+    ).toMatchObject({ state: "committed" });
+    expect(
+      commitPendingSkillProposalTransition({
+        expected: proposal.record,
+        record: applied,
+        operationLabel: "skill-workshop.test.conflict",
+      }),
+    ).toMatchObject({ state: "conflict", current: { status: "applied" } });
+  });
+
   it("lazily ensures additive tables without changing the schema version", async () => {
     const databasePath = openOpenClawStateDatabase().path;
     closeOpenClawStateDatabaseForTest();
