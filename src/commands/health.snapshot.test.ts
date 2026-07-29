@@ -5,10 +5,11 @@ import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelAccountSnapshot } from "../channels/plugins/types.public.js";
 import type { ChannelPlugin } from "../channels/plugins/types.public.js";
+import type { collectGatewayHealthSnapshot } from "../gateway/health/collector.js";
+import type { HealthSummary } from "../gateway/health/types.js";
 import { createPluginRecord } from "../plugins/status.test-fixtures.js";
 import { MAX_TIMER_TIMEOUT_MS } from "../shared/number-coercion.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import type { HealthSummary } from "./health.js";
 
 let testConfig: Record<string, unknown> = {};
 let testStore: Record<string, { updatedAt?: number }> = {};
@@ -19,7 +20,15 @@ let setActivePluginRegistry: typeof import("../plugins/runtime.js").setActivePlu
 let setActiveDegradedPlugins: typeof import("../plugins/runtime-degraded-state.js").setActiveDegradedPlugins;
 let createChannelTestPluginBase: typeof import("../test-utils/channel-plugins.js").createChannelTestPluginBase;
 let createTestRegistry: typeof import("../test-utils/channel-plugins.js").createTestRegistry;
-let getHealthSnapshot: typeof import("./health.js").getHealthSnapshot;
+type LegacyHealthSnapshotParams = Omit<
+  Parameters<typeof collectGatewayHealthSnapshot>[0],
+  "audience" | "probe"
+> & {
+  includeSensitive?: boolean;
+  probe?: boolean;
+};
+
+let getHealthSnapshot: (params?: LegacyHealthSnapshotParams) => Promise<HealthSummary>;
 let buildTelegramHealthSummaryForTest = buildTelegramHealthSummary;
 let probeTelegramAccountForTestOverride:
   | ((account: TelegramHealthAccount, timeoutMs: number) => Promise<Record<string, unknown>>)
@@ -91,15 +100,23 @@ async function loadFreshHealthModulesForTest() {
     import("../plugins/runtime.js"),
     import("../plugins/runtime-degraded-state.js"),
     import("../test-utils/channel-plugins.js"),
-    import("./health.js"),
+    import("../gateway/health/collector.js"),
   ]);
+  const collectSnapshot = health.collectGatewayHealthSnapshot;
 
   return {
     setActivePluginRegistry: pluginsRuntime.setActivePluginRegistry,
     setActiveDegradedPlugins: pluginDegradedState.setActiveDegradedPlugins,
     createChannelTestPluginBase: channelTestUtils.createChannelTestPluginBase,
     createTestRegistry: channelTestUtils.createTestRegistry,
-    getHealthSnapshot: health.getHealthSnapshot,
+    getHealthSnapshot: (params: LegacyHealthSnapshotParams = {}) => {
+      const { includeSensitive, probe, ...rest } = params;
+      return collectSnapshot({
+        ...rest,
+        audience: includeSensitive === false ? "public" : "admin",
+        probe: probe !== false,
+      });
+    },
   };
 }
 
@@ -458,7 +475,7 @@ function createIMessageHealthPlugin(): HealthTestPlugin {
   };
 }
 
-describe("getHealthSnapshot", () => {
+describe("collectGatewayHealthSnapshot", () => {
   beforeAll(async () => {
     ({
       setActivePluginRegistry,
