@@ -1,10 +1,8 @@
 // Msteams plugin module implements message handler behavior.
-import { formatAllowlistMatchMeta } from "openclaw/plugin-sdk/allow-from";
 import {
   buildChannelInboundEventContext,
   createChannelInboundEnvelopeBuilder,
   formatMediaPlaceholderText,
-  logInboundDrop,
   resolveInboundMentionDecision,
   resolveInboundSupplementalSenderAllowed,
   toInboundMediaFactsWithMetadata,
@@ -51,7 +49,7 @@ import {
   shouldInjectParentContext,
   summarizeParentMessage,
 } from "../thread-parent-context.js";
-import { resolveMSTeamsSenderAccess } from "./access.js";
+import { admitMSTeamsMessage } from "./access.js";
 import {
   assembleMSTeamsInboundFacts,
   prepareMSTeamsDebounceEntry,
@@ -64,38 +62,6 @@ import {
   shouldAttemptMSTeamsGraphMediaFallback,
 } from "./inbound-media.js";
 import { resolveMSTeamsRouteSessionKey } from "./thread-session.js";
-
-function formatMSTeamsSenderReason(params: {
-  reasonCode: string;
-  dmPolicy?: string;
-  groupPolicy?: string;
-}): string {
-  switch (params.reasonCode) {
-    case "dm_policy_open":
-      return "dmPolicy=open";
-    case "dm_policy_disabled":
-      return "dmPolicy=disabled";
-    case "dm_policy_pairing_required":
-      return "dmPolicy=pairing (not allowlisted)";
-    case "dm_policy_allowlisted":
-      return `dmPolicy=${params.dmPolicy ?? "allowlist"} (allowlisted)`;
-    case "dm_policy_not_allowlisted":
-      return `dmPolicy=${params.dmPolicy ?? "allowlist"} (not allowlisted)`;
-    case "group_policy_disabled":
-      return "groupPolicy=disabled";
-    case "group_policy_empty_allowlist":
-    case "route_sender_empty":
-      return "groupPolicy=allowlist (empty allowlist)";
-    case "group_policy_not_allowlisted":
-      return "groupPolicy=allowlist (not allowlisted)";
-    case "group_policy_open":
-      return "groupPolicy=open";
-    case "group_policy_allowed":
-      return `groupPolicy=${params.groupPolicy ?? "allowlist"}`;
-    default:
-      return params.reasonCode;
-  }
-}
 
 export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
   const {
@@ -179,159 +145,32 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       return;
     }
 
-    const allowTextCommands = core.channel.commands.shouldHandleTextCommands({
-      cfg,
-      surface: "msteams",
-    });
-    const isControlCommand =
-      allowTextCommands && core.channel.commands.isControlCommandMessage(text, cfg);
-    const {
-      dmPolicy,
-      senderId,
-      senderName,
-      pairing,
-      isDirectMessage,
-      channelGate,
-      senderAccess,
-      commandAccess,
-      allowNameMatching,
-      groupPolicy,
-    } = await resolveMSTeamsSenderAccess({
+    const admission = await admitMSTeamsMessage({
       cfg,
       activity,
-      hasControlCommand: isControlCommand,
+      text,
+      conversationId,
+      conversationRef,
+      isChannel,
+      conversationStore,
+      log,
+      logVerboseMessage,
     });
-    const commandAuthorized = commandAccess.requested ? commandAccess.authorized : undefined;
-    const effectiveDmAllowFrom = senderAccess.effectiveAllowFrom;
-    const effectiveGroupAllowFrom = senderAccess.effectiveGroupAllowFrom;
-    if (isDirectMessage && msteamsCfg && senderAccess.decision !== "allow") {
-      if (senderAccess.reasonCode === "dm_policy_disabled") {
-        log.info("dropping dm (dms disabled)", {
-          sender: senderId,
-          label: senderName,
-        });
-        log.debug?.("dropping dm (dms disabled)");
-        return;
-      }
-      const allowMatch = resolveMSTeamsAllowlistMatch({
-        allowFrom: effectiveDmAllowFrom,
-        senderId,
-        senderName,
-        allowNameMatching,
-      });
-      if (senderAccess.decision === "pairing") {
-        conversationStore.upsert(conversationId, conversationRef).catch((err: unknown) => {
-          log.debug?.("failed to save conversation reference", {
-            error: formatUnknownError(err),
-          });
-        });
-        const request = await pairing.upsertPairingRequest({
-          id: senderId,
-          meta: { name: senderName },
-        });
-        if (request) {
-          log.info("msteams pairing request created", {
-            sender: senderId,
-            label: senderName,
-          });
-        }
-      }
-      log.debug?.("dropping dm (not allowlisted)", {
-        sender: senderId,
-        label: senderName,
-        allowlistMatch: formatAllowlistMatchMeta(allowMatch),
-      });
-      log.info("dropping dm (not allowlisted)", {
-        sender: senderId,
-        label: senderName,
-        dmPolicy,
-        reason: formatMSTeamsSenderReason({
-          reasonCode: senderAccess.reasonCode,
-          dmPolicy,
-          groupPolicy,
-        }),
-        allowlistMatch: formatAllowlistMatchMeta(allowMatch),
-      });
+    if (!admission) {
       return;
     }
-
-    if (!isDirectMessage && msteamsCfg) {
-      if (channelGate.allowlistConfigured && !channelGate.allowed) {
-        log.info("dropping group message (not in team/channel allowlist)", {
-          conversationId,
-          teamKey: channelGate.teamKey ?? "none",
-          channelKey: channelGate.channelKey ?? "none",
-          channelMatchKey: channelGate.channelMatchKey ?? "none",
-          channelMatchSource: channelGate.channelMatchSource ?? "none",
-        });
-        log.debug?.("dropping group message (not in team/channel allowlist)", {
-          conversationId,
-          teamKey: channelGate.teamKey ?? "none",
-          channelKey: channelGate.channelKey ?? "none",
-          channelMatchKey: channelGate.channelMatchKey ?? "none",
-          channelMatchSource: channelGate.channelMatchSource ?? "none",
-        });
-        return;
-      }
-
-      if (!senderAccess.allowed && senderAccess.reasonCode === "group_policy_disabled") {
-        log.info("dropping group message (groupPolicy: disabled)", {
-          conversationId,
-        });
-        log.debug?.("dropping group message (groupPolicy: disabled)", {
-          conversationId,
-        });
-        return;
-      }
-      if (
-        !senderAccess.allowed &&
-        (senderAccess.reasonCode === "group_policy_empty_allowlist" ||
-          senderAccess.reasonCode === "route_sender_empty")
-      ) {
-        log.info("dropping group message (groupPolicy: allowlist, no allowlist)", {
-          conversationId,
-        });
-        log.debug?.("dropping group message (groupPolicy: allowlist, no allowlist)", {
-          conversationId,
-        });
-        return;
-      }
-      if (!senderAccess.allowed && senderAccess.reasonCode === "group_policy_not_allowlisted") {
-        const allowMatch = resolveMSTeamsAllowlistMatch({
-          allowFrom: effectiveGroupAllowFrom,
-          senderId,
-          senderName,
-          allowNameMatching,
-        });
-        log.debug?.("dropping group message (not in groupAllowFrom)", {
-          sender: senderId,
-          label: senderName,
-          allowlistMatch: formatAllowlistMatchMeta(allowMatch),
-        });
-        log.info("dropping group message (not in groupAllowFrom)", {
-          sender: senderId,
-          label: senderName,
-          allowlistMatch: formatAllowlistMatchMeta(allowMatch),
-        });
-        return;
-      }
-    }
-
-    if (commandAccess.shouldBlockControlCommand) {
-      logInboundDrop({
-        log: logVerboseMessage,
-        channel: "msteams",
-        reason: "control command (unauthorized)",
-        target: senderId,
-      });
-      return;
-    }
-
-    conversationStore.upsert(conversationId, conversationRef).catch((err: unknown) => {
-      log.debug?.("failed to save conversation reference", {
-        error: formatUnknownError(err),
-      });
-    });
+    const {
+      senderId,
+      senderName,
+      isDirectMessage,
+      channelGate,
+      allowNameMatching,
+      groupPolicy,
+      commandAuthorized,
+      effectiveGroupAllowFrom,
+      allowTextCommands,
+      isControlCommand,
+    } = admission;
 
     const pollVote = extractMSTeamsPollVote(activity);
     if (pollVote) {
