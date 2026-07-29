@@ -54,7 +54,7 @@ function waitForFast<T>(
 
 const AGENT_RUN_CACHE_ENTRY_LIMIT = 5_000;
 
-vi.mock("../../commands/status.js", () => ({
+vi.mock("../../status/summary.js", () => ({
   getStatusSummary: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
@@ -4733,11 +4733,11 @@ describe("exec approval handlers", () => {
 });
 
 describe("gateway healthHandlers.status scope handling", () => {
-  let statusModule: typeof import("../../commands/status.js");
+  let statusModule: typeof import("../../status/summary.js");
   let healthHandlers: typeof import("./health.js").healthHandlers;
 
   beforeAll(async () => {
-    statusModule = await import("../../commands/status.js");
+    statusModule = await import("../../status/summary.js");
     ({ healthHandlers } = await import("./health.js"));
   });
 
