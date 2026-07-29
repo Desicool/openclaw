@@ -15,11 +15,9 @@ import {
   assertWorkspaceSkillSupportPathSetIsFileOnly,
   MAX_WORKSPACE_SKILL_SUPPORT_FILE_BYTES,
   normalizeWorkspaceSkillSupportPath,
-  readWorkspaceSkillFile,
-  readWorkspaceSupportFile,
 } from "../lifecycle/workspace-skill-write.js";
-import { stripProposalFrontmatterForSkill } from "./frontmatter.js";
 import { hashSkillProposalContent } from "./proposal-hash.js";
+import { reconcileInterruptedSkillProposalApply } from "./reconcile-transition.js";
 import { hashSkillProposalRevision } from "./revision-hash.js";
 import {
   assertProposalId,
@@ -33,7 +31,6 @@ import {
   readStoredProposal,
   updateProposal,
 } from "./store-sqlite-record.js";
-import { readSkillProposalRollback } from "./store-sqlite-rollback.js";
 import {
   databaseOptions,
   ensureSkillWorkshopSchema,
@@ -44,7 +41,6 @@ import {
 } from "./store-sqlite-schema.js";
 import {
   SKILL_WORKSHOP_MANIFEST_SCHEMA,
-  SKILL_WORKSHOP_ROLLBACK_SCHEMA,
   type SkillProposalManifest,
   type SkillProposalManifestEntry,
   type SkillProposalReadResult,
@@ -65,11 +61,7 @@ export {
   validateSkillProposalRollback,
 } from "./store-record.js";
 export { hashSkillProposalContent } from "./proposal-hash.js";
-export {
-  clearSkillProposalRollback,
-  readSkillProposalRollback,
-  writeSkillProposalRollback,
-} from "./store-sqlite-rollback.js";
+export { readSkillProposalRollback } from "./store-sqlite-rollback.js";
 export { withSkillProposalTargetLock } from "./target-lock.js";
 
 type SkillProposalLookupScope = {
@@ -429,14 +421,6 @@ async function reconcileInterruptedApply(
   if (!stored || stored.record.status !== "pending") {
     return false;
   }
-  const rollback = await readSkillProposalRollback(proposalId, options);
-  if (
-    !rollback ||
-    rollback.action !== stored.record.kind ||
-    path.resolve(rollback.targetSkillFile) !== path.resolve(stored.record.target.skillFile)
-  ) {
-    return false;
-  }
   let draftContent: string;
   try {
     const stateRoot = await root(resolveSkillWorkshopStateDir(options));
@@ -448,79 +432,13 @@ async function reconcileInterruptedApply(
   } catch {
     return false;
   }
-  if (hashSkillProposalContent(draftContent) !== stored.record.draftHash) {
-    return false;
-  }
-  let proposedContent: string;
-  try {
-    proposedContent = stripProposalFrontmatterForSkill(draftContent);
-  } catch {
-    return false;
-  }
-  try {
-    const targetContent = await readWorkspaceSkillFile(stored.record.target.skillFile);
-    if (
-      targetContent === null ||
-      hashSkillProposalContent(targetContent) !== hashSkillProposalContent(proposedContent)
-    ) {
-      return false;
-    }
-    for (const file of stored.record.supportFiles ?? []) {
-      const targetSupportContent = await readWorkspaceSupportFile({
-        skillDir: stored.record.target.skillDir,
-        relativePath: file.path,
-      });
-      if (
-        targetSupportContent === null ||
-        hashSkillProposalContent(targetSupportContent) !== file.hash
-      ) {
-        return false;
-      }
-    }
-  } catch {
-    return false;
-  }
-  const now = new Date().toISOString();
-  return runOpenClawStateWriteTransaction(
-    ({ db }) => {
-      const kysely = getNodeSqliteKysely<SkillWorkshopDatabase>(db);
-      const current = executeSqliteQueryTakeFirstSync(
-        db,
-        kysely
-          .selectFrom("skill_workshop_proposals")
-          .selectAll()
-          .where("proposal_id", "=", proposalId),
-      );
-      const record = current ? parseSkillProposalRow(current) : null;
-      if (
-        !current ||
-        !record ||
-        current.record_json !== stored.row.record_json ||
-        record.status !== "pending"
-      ) {
-        return false;
-      }
-      updateProposal(db, current, {
-        ...record,
-        status: "applied",
-        updatedAt: now,
-        appliedAt: now,
-      });
-      appendSkillProposalEvent(db, {
-        eventId: crypto.randomUUID(),
-        proposalId,
-        proposedVersion: record.proposedVersion,
-        revisionHash: hashSkillProposalRevision(record),
-        type: "applied",
-        occurredAt: now,
-        actor: { type: "system" },
-        payload: { recovered: true },
-      });
-      return true;
-    },
-    databaseOptions(options),
-    { operationLabel: "skill-workshop.apply.reconcile" },
-  );
+  return await reconcileInterruptedSkillProposalApply({
+    record: stored.record,
+    expectedRecordJson: stored.row.record_json,
+    draftContent,
+    workspaceDir: stored.row.workspace_dir,
+    store: options,
+  });
 }
 
 export async function readProposalSupportFiles(
@@ -546,31 +464,6 @@ export async function readProposalSupportFiles(
   }
   assertWorkspaceSkillSupportPathSetIsFileOnly(out.map((file) => file.path));
   return out;
-}
-
-export function createSkillProposalRollback(params: {
-  proposalId: string;
-  targetSkillFile: string;
-  action: "create" | "update";
-  previousContent?: string;
-  supportFiles?: SkillProposalRollback["supportFiles"];
-}): SkillProposalRollback {
-  return {
-    schema: SKILL_WORKSHOP_ROLLBACK_SCHEMA,
-    proposalId: params.proposalId,
-    writtenAt: new Date().toISOString(),
-    targetSkillFile: params.targetSkillFile,
-    action: params.action,
-    ...(params.previousContent !== undefined
-      ? {
-          previousContent: params.previousContent,
-          previousContentHash: hashSkillProposalContent(params.previousContent),
-        }
-      : {}),
-    ...(params.supportFiles && params.supportFiles.length > 0
-      ? { supportFiles: params.supportFiles }
-      : {}),
-  };
 }
 
 export function importLegacySkillProposal(params: {
