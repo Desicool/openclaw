@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { sha256Hex } from "../../infra/crypto-digest.js";
 import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
 import {
   applyWorkspaceSkillMutation,
@@ -165,7 +166,14 @@ describe("workspace skill mutations", () => {
       skillDir,
       skillFile,
       previousContent: "# Before\n",
-      supportFiles: [{ path: "references/proof.md", previousContent: "before support\n" }],
+      proposedContentHash: sha256Hex("# Partial update\n"),
+      supportFiles: [
+        {
+          path: "references/proof.md",
+          previousContent: "before support\n",
+          proposedContentHash: sha256Hex("partial support\n"),
+        },
+      ],
       mode: "update",
       symlinkPolicy,
     });
@@ -192,5 +200,9 @@ describe("workspace skill mutations", () => {
     await expect(isWorkspaceSkillMutationApplied(mutation)).resolves.toBe(true);
     await fs.writeFile(skillFile, "# External edit\n", "utf8");
     await expect(isWorkspaceSkillMutationApplied(mutation)).resolves.toBe(false);
+    await expect(restoreWorkspaceSkillMutation(mutation)).rejects.toThrow(
+      "Failed to restore the previous workspace skill state.",
+    );
+    await expect(fs.readFile(skillFile, "utf8")).resolves.toBe("# External edit\n");
   });
 });

@@ -104,6 +104,7 @@ export async function reconcileInterruptedSkillProposalApply(params: {
           skillDir: stored.record.target.skillDir,
           skillFile: stored.record.target.skillFile,
           previousContent: rollback.previousContent ?? null,
+          proposedContentHash: hashSkillProposalContent(proposedContent),
           supportFiles: recovery.supportFiles,
           mode: stored.record.kind,
           symlinkPolicy: {
@@ -138,6 +139,7 @@ export async function reconcileInterruptedSkillProposalApply(params: {
 type SkillProposalRecoverySupportFile = {
   path: string;
   previousContent: string | null;
+  proposedContentHash: string;
 };
 
 function resolveRecoveryRollback(
@@ -237,7 +239,11 @@ async function inspectInterruptedApplyState(params: {
       );
     }
     supportStates.push(state);
-    supportFiles.push({ path: file.path, previousContent: previousSupportContent });
+    supportFiles.push({
+      path: file.path,
+      previousContent: previousSupportContent,
+      proposedContentHash: file.hash,
+    });
   }
   const states = [mainState, ...supportStates];
   return {

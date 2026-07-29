@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { sha256Hex } from "../../infra/crypto-digest.js";
 import { pathExists, root } from "../../infra/fs-safe.js";
 import { isPathInside } from "../../infra/path-safety.js";
 import { findContainingAllowedSkillSymlinkTarget } from "../loading/symlink-targets.js";
@@ -17,6 +18,7 @@ type WorkspaceSkillSupportFileWrite = { path: string; content: string };
 type WorkspaceSkillSupportFileRestoration = {
   path: string;
   previousContent: string | null;
+  proposedContentHash: string;
 };
 
 type WorkspaceSkillWriteTargetParams = {
@@ -31,6 +33,7 @@ type PreparedWorkspaceSkillFileMutation = {
   relativePath: string;
   previousContent: string | null;
   content: string;
+  proposedContentHash: string;
 };
 
 export type PreparedWorkspaceSkillMutation = {
@@ -161,6 +164,7 @@ export async function prepareWorkspaceSkillMutation(params: {
       ...target,
       previousContent: previousSupportContent,
       content: file.content,
+      proposedContentHash: sha256Hex(file.content),
     });
   }
 
@@ -173,6 +177,7 @@ export async function prepareWorkspaceSkillMutation(params: {
       ...skillTarget,
       previousContent,
       content: params.content,
+      proposedContentHash: sha256Hex(params.content),
     },
     supportFiles: preparedSupportFiles,
   };
@@ -183,6 +188,7 @@ export async function prepareWorkspaceSkillRestoration(params: {
   skillDir: string;
   skillFile: string;
   previousContent: string | null;
+  proposedContentHash: string;
   supportFiles?: readonly WorkspaceSkillSupportFileRestoration[];
   mode: "create" | "update";
   symlinkPolicy: WorkspaceSkillSymlinkWritePolicy;
@@ -191,6 +197,7 @@ export async function prepareWorkspaceSkillRestoration(params: {
   const supportFiles = (params.supportFiles ?? []).map((file) => ({
     path: normalizeWorkspaceSkillSupportPath(file.path),
     previousContent: file.previousContent,
+    proposedContentHash: file.proposedContentHash,
   }));
   assertWorkspaceSkillSupportPathSetIsFileOnly(supportFiles.map((file) => file.path));
   const skillTarget = await resolveWorkspaceSkillWriteTarget({
@@ -212,6 +219,7 @@ export async function prepareWorkspaceSkillRestoration(params: {
       ...target,
       previousContent: file.previousContent,
       content: file.previousContent ?? "",
+      proposedContentHash: file.proposedContentHash,
     });
   }
   return {
@@ -223,6 +231,7 @@ export async function prepareWorkspaceSkillRestoration(params: {
       ...skillTarget,
       previousContent: params.previousContent,
       content: params.previousContent ?? "",
+      proposedContentHash: params.proposedContentHash,
     },
     supportFiles: preparedSupportFiles,
   };
@@ -362,6 +371,13 @@ async function restorePreparedWorkspaceFiles(
   const errors: unknown[] = [];
   for (const file of files) {
     try {
+      const currentContent = await readPreparedWorkspaceFile(file, 1024 * 1024);
+      if (currentContent === file.previousContent) {
+        continue;
+      }
+      if (currentContent === null || sha256Hex(currentContent) !== file.proposedContentHash) {
+        throw new Error(`Workspace skill target changed before restoration: ${file.filePath}`);
+      }
       const targetRoot = await root(file.rootDir);
       if (file.previousContent === null) {
         await targetRoot.remove(file.relativePath).catch((error: unknown) => {
