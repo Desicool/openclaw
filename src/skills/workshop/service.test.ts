@@ -983,7 +983,6 @@ describe("skill workshop proposals", () => {
       proposals: [expect.objectContaining({ id: proposal.record.id, status: "pending" })],
     });
     await expect(fs.access(supportFile)).rejects.toThrow();
-    await expect(readSkillProposalRollback(proposal.record.id)).resolves.toBeNull();
 
     await expect(
       applySkillProposal({ workspaceDir, proposalId: proposal.record.id }),

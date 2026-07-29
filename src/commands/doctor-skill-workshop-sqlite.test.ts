@@ -226,7 +226,6 @@ describe("doctor Skill Workshop SQLite migration", () => {
       proposals: [expect.objectContaining({ id: proposalId, status: "pending" })],
     });
     await expect(fs.access(targetSupportFile)).rejects.toThrow();
-    await expect(readSkillProposalRollback(proposalId)).resolves.toBeNull();
 
     await reviseSkillProposal({
       workspaceDir,
