@@ -703,5 +703,3 @@ function normalizeRequired(value: string, label: string): string {
   }
   return normalized;
 }
-
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
