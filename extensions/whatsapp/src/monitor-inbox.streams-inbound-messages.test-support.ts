@@ -272,7 +272,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   }
 
-  it("streams inbound messages", async () => {
+  it("delivery coordinator streams inbound messages", async () => {
     const onMessage = vi.fn(async (msg) => {
       await msg.sendComposing();
       await msg.reply("flat reply works");
@@ -331,7 +331,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("delays read receipts until inbound handlers complete", async () => {
+  it("delivery coordinator delays read receipts until inbound handlers complete", async () => {
     let finishMessage: (() => void) | undefined;
     const handlerGate = new Promise<void>((resolve) => {
       finishMessage = resolve;
@@ -371,7 +371,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("keeps the first durable delivery when a duplicate arrives", async () => {
+  it("delivery coordinator keeps the first durable delivery when a duplicate arrives", async () => {
     const onMessage = vi.fn(async () => undefined);
     const { listener, sock } = await startInboxMonitor(onMessage as InboxOnMessage);
     const messageId = nextMessageId("dup-prepared");
@@ -394,7 +394,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("retries a transient persistence failure and still delivers through the drain", async () => {
+  it("delivery coordinator retries a transient persistence failure through the drain", async () => {
     const onMessage = vi.fn(async () => undefined);
     const queue = createWhatsAppDurableInboundQueue(DEFAULT_ACCOUNT_ID);
     // One transient rejection absorbs into the bounded retry; the message then
@@ -439,7 +439,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("does not dispatch live duplicates that already have pending durable delivery", async () => {
+  it("delivery coordinator does not dispatch duplicates with pending durable delivery", async () => {
     let finishMessage: (() => void) | undefined;
     const handlerGate = new Promise<void>((resolve) => {
       finishMessage = resolve;
@@ -470,7 +470,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("does not redispatch a completed transport-key duplicate", async () => {
+  it("delivery coordinator does not redispatch a completed transport-key duplicate", async () => {
     const onMessage = vi.fn(async () => undefined);
     const { listener, sock } = await startInboxMonitor(onMessage as InboxOnMessage);
     const upsert = buildNotifyMessageUpsert({
@@ -503,7 +503,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("hydrates participating groups once after connect", async () => {
+  it("group metadata cache hydrates participating groups once after connect", async () => {
     const { listener, sock } = await startInboxMonitor(vi.fn(async () => {}) as InboxOnMessage);
 
     expect(sock.groupFetchAllParticipating).toHaveBeenCalledTimes(1);
@@ -511,7 +511,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("continues when group hydration fails on connect", async () => {
+  it("group metadata cache keeps delivery alive when hydration fails", async () => {
     const sock = getSock();
     sock.groupFetchAllParticipating.mockRejectedValueOnce(new Error("no groups"));
 
@@ -523,7 +523,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("omits group context when a group message has no group facts", async () => {
+  it("group metadata cache omits group context when no group facts exist", async () => {
     const sock = getSock();
     sock.groupFetchAllParticipating.mockRejectedValueOnce(new Error("no groups"));
     const onMessage = vi.fn(async () => {});
@@ -549,7 +549,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("keeps group inbound alive with cached metadata after reconnect-time metadata fetch failures", async () => {
+  it("group metadata cache serves reconnect metadata after live fetch failures", async () => {
     const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
     const onMessage = vi.fn(async (_msg: Parameters<InboxOnMessage>[0]) => {});
 
@@ -600,7 +600,7 @@ describe("web monitor inbox", () => {
     await second.listener.close();
   });
 
-  it("keeps full participating group metadata available to Baileys", async () => {
+  it("group metadata cache keeps full participating metadata available to Baileys", async () => {
     const sock = getSock();
     sock.groupFetchAllParticipating.mockResolvedValueOnce({
       "123@g.us": groupMetadata({
@@ -622,7 +622,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("invalidates cached group metadata on partial group and participant updates", async () => {
+  it("group metadata cache invalidates partial group and participant updates", async () => {
     const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
     const { listener, sock, baileysCache } = await startInboxMonitorWithBaileysCache({
       groupMetadataCache,
@@ -659,7 +659,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("expires Baileys retry and group metadata cache entries", async () => {
+  it("group metadata cache expires Baileys retry and metadata entries", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const baileysCache = createBaileysCacheSupport();
     const onMessage = vi.fn(async (_msg: Parameters<InboxOnMessage>[0]) => {});
@@ -716,7 +716,7 @@ describe("web monitor inbox", () => {
     }
   });
 
-  it("does not republish invalidated group metadata from pending hydration", async () => {
+  it("group metadata cache does not republish invalidated pending hydration", async () => {
     const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
     const baileysCache = createBaileysCacheSupport();
     const sock = getSock();
@@ -750,7 +750,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("cleans up Baileys group metadata listeners on close", async () => {
+  it("group metadata cache detaches Baileys listeners on close", async () => {
     const baileysCache = createBaileysCacheSupport();
     const { listener, sock } = await startInboxMonitor(vi.fn(async () => {}) as InboxOnMessage, {
       recentMessageKeys: baileysCache.recentMessageKeys,
@@ -768,7 +768,7 @@ describe("web monitor inbox", () => {
     expect(sock.ev.listenerCount("group-participants.update")).toBe(0);
   });
 
-  it("bounds cached group metadata kept across reconnects", async () => {
+  it("group metadata cache bounds reconnect entries", async () => {
     const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
     const groups = Object.fromEntries(
       Array.from({ length: EXPECTED_WHATSAPP_GROUP_METADATA_CACHE_MAX_ENTRIES + 2 }, (_, index) => [
@@ -799,7 +799,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("does not keep reconnect group metadata when the expiry would exceed a valid Date", async () => {
+  it("group metadata cache rejects reconnect expiry beyond a valid Date", async () => {
     const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(8_640_000_000_000_000);
     try {
@@ -828,7 +828,7 @@ describe("web monitor inbox", () => {
     }
   });
 
-  it("does not block inbound listeners while group hydration is pending", async () => {
+  it("group metadata cache does not block inbound listeners during hydration", async () => {
     let resolveHydration!: () => void;
     const sock = getSock();
     const pendingHydration = new Promise<Record<string, never>>((resolve) => {
@@ -979,7 +979,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("lets a later same-key flush steer while the earlier turn is still active", async () => {
+  it("delivery coordinator lets a later same-key flush steer during an active turn", async () => {
     let releaseFirst: (() => void) | undefined;
     const firstTurn = new Promise<void>((resolve) => {
       releaseFirst = resolve;
@@ -1027,7 +1027,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("drains admitted same-lane turns before close completes", async () => {
+  it("delivery coordinator drains admitted same-lane turns before close completes", async () => {
     let releaseFirst: (() => void) | undefined;
     const firstTurn = new Promise<void>((resolve) => {
       releaseFirst = resolve;
@@ -1090,7 +1090,7 @@ describe("web monitor inbox", () => {
     expect(closed).toBe(true);
   });
 
-  it("keeps a reused debounce key pending after the earlier turn completes", async () => {
+  it("delivery coordinator keeps a reused debounce key pending across turns", async () => {
     let releaseFirst!: () => void;
     let finishFirst!: () => void;
     const firstTurn = new Promise<void>((resolve) => {
@@ -1150,7 +1150,7 @@ describe("web monitor inbox", () => {
     expect(inboundMessage(onMessage, 1).payload.body).toBe("second");
   });
 
-  it("completes shutdown under a long durable debounce without waiting for the window", async () => {
+  it("delivery coordinator force-flushes long durable debounce during shutdown", async () => {
     // Durable pump tasks await claim flush waiters; close must force-flush
     // debounced batches before waiting on those pumps (socket-close timeout).
     const onMessage = vi.fn(async () => undefined);
@@ -1180,7 +1180,7 @@ describe("web monitor inbox", () => {
     expect(sock.end).toHaveBeenCalledTimes(1);
   });
 
-  it("lets serialized same-lane replies drain before closing the socket", async () => {
+  it("delivery coordinator drains serialized same-lane replies before socket close", async () => {
     vi.useFakeTimers();
     try {
       let releaseFirst: (() => void) | undefined;
@@ -1251,7 +1251,7 @@ describe("web monitor inbox", () => {
     }
   });
 
-  it("waits for in-flight inbound handlers before draining on close", async () => {
+  it("delivery coordinator waits for in-flight handlers before close drain", async () => {
     let releaseHandler: (() => void) | undefined;
     const handlerGate = new Promise<void>((resolve) => {
       releaseHandler = resolve;
@@ -1921,7 +1921,7 @@ describe("web monitor inbox", () => {
     }
   });
 
-  it("deduplicates redelivered messages by id", async () => {
+  it("delivery coordinator deduplicates redelivered messages by id", async () => {
     const onMessage = vi.fn(async () => {});
 
     const { listener, sock } = await startInboxMonitor(onMessage as InboxOnMessage);
@@ -1942,7 +1942,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("retries redelivered messages after an explicit retryable inbound failure", async () => {
+  it("delivery coordinator retries redelivery after an explicit retryable failure", async () => {
     let attempts = 0;
     const onMessage = vi.fn(async () => {
       attempts += 1;
@@ -1974,7 +1974,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("retries redelivered messages after reply session initialization conflicts", async () => {
+  it("delivery coordinator retries redelivery after reply session conflicts", async () => {
     let attempts = 0;
     const onMessage = vi.fn(async () => {
       attempts += 1;
@@ -2090,7 +2090,7 @@ describe("web monitor inbox", () => {
     await listener.close();
   });
 
-  it("keeps a same-lane follow-up pending until the first handler adopts", async () => {
+  it("delivery coordinator keeps same-lane follow-up pending until turn adoption", async () => {
     let adoptFirst: (() => void | Promise<void>) | undefined;
     const onMessage = vi.fn(async (message: WebInboundMessage) => {
       if (!adoptFirst) {
