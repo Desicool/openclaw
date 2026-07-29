@@ -280,6 +280,52 @@ describe("getStatusSummary", () => {
     expect(summary.taskAudit.warnings).toBe(1);
   });
 
+  it("redacts collected session details when sensitive output is disabled", async () => {
+    statusSummaryMocks.listSessionEntries.mockReturnValue([
+      {
+        sessionKey: "agent:main:main",
+        entry: {
+          sessionId: "session-1",
+          updatedAt: 100,
+          model: "gpt-5.5",
+          modelProvider: "openai",
+          totalTokens: 42,
+        },
+      },
+    ]);
+
+    const summary = await getStatusSummary({ includeSensitive: false });
+
+    expect(summary.sessions).toMatchObject({
+      paths: [],
+      count: 1,
+      defaults: { model: null, contextTokens: null },
+      recent: [],
+      byAgent: [{ agentId: "main", path: "[redacted]", count: 1, recent: [] }],
+    });
+  });
+
+  it("keeps resolved and source config roles distinct for channel summaries", async () => {
+    const config = { channels: { discord: { enabled: true } } };
+    const sourceConfig = { channels: { discord: { token: "source-secret" } } };
+
+    await getStatusSummary({
+      config: config as never,
+      sourceConfig: sourceConfig as never,
+    });
+
+    expect(statusSummaryMocks.hasConfiguredChannelsForReadOnlyScope).toHaveBeenCalledWith({
+      config,
+      activationSourceConfig: sourceConfig,
+    });
+    expect(resolveLinkChannelContext).toHaveBeenCalledWith(config, { sourceConfig });
+    expect(buildChannelSummary).toHaveBeenCalledWith(config, {
+      colorize: true,
+      includeAllowFrom: true,
+      sourceConfig,
+    });
+  });
+
   it("reports degraded SecretRef owners without exposing ref identifiers", async () => {
     setActiveDegradedSecretOwners([
       {
