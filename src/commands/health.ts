@@ -36,6 +36,16 @@ import {
 } from "../gateway/channel-health-policy.js";
 import type { GatewayHotReloadStatus } from "../gateway/config-reload-status.types.js";
 import { isGatewaySecretRefUnavailableError } from "../gateway/credentials.js";
+import type {
+  AgentHealthSummary,
+  ChannelAccountHealthSummary,
+  ChannelHealthSummary,
+  ContextEngineHealthSummary,
+  DeliveryQueueHealthSummary,
+  HealthSummary,
+  PluginHealthErrorSummary,
+  PluginHealthSummary,
+} from "../gateway/health/types.js";
 import type { ChannelRuntimeSnapshot } from "../gateway/server-channel-runtime.types.js";
 import { info } from "../globals.js";
 import { countFailedDeliveryQueueEntries } from "../infra/delivery-queue-sqlite.js";
@@ -59,19 +69,9 @@ import {
   gatewayProbeResultSawGateway,
 } from "./gateway-health-auth-diagnostic.js";
 import { formatHealthChannelLines } from "./health-format.js";
-import type {
-  AgentHealthSummary,
-  ChannelAccountHealthSummary,
-  ChannelHealthSummary,
-  ContextEngineHealthSummary,
-  DeliveryQueueHealthSummary,
-  HealthSummary,
-  PluginHealthErrorSummary,
-  PluginHealthSummary,
-} from "./health.types.js";
 import { logGatewayConnectionDetails } from "./status.gateway-connection.js";
 export { formatHealthChannelLines } from "./health-format.js";
-export type { HealthSummary } from "./health.types.js";
+export type { HealthSummary } from "../gateway/health/types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const healthLog = createSubsystemLogger("health");
