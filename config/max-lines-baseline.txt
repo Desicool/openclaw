@@ -300,7 +300,6 @@ extensions/whatsapp/src/auto-reply.web-auto-reply.connection-and-logging.e2e.tes
 extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.test.ts
 extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.ts
 extensions/whatsapp/src/connection-controller.ts
-extensions/whatsapp/src/inbound/monitor.ts
 extensions/whatsapp/src/monitor-inbox.streams-inbound-messages.test-support.ts
 extensions/workboard/src/sqlite-store.ts
 extensions/workboard/src/store-card-helpers.ts
