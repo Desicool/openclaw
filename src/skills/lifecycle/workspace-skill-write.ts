@@ -283,6 +283,26 @@ export async function isWorkspaceSkillMutationApplied(
   return true;
 }
 
+export async function isWorkspaceSkillMutationRestored(
+  mutation: PreparedWorkspaceSkillMutation,
+): Promise<boolean> {
+  try {
+    const skillContent = await readPreparedWorkspaceFile(mutation.skillFile, 1024 * 1024);
+    if (skillContent !== mutation.skillFile.previousContent) {
+      return false;
+    }
+    for (const file of mutation.supportFiles) {
+      const content = await readPreparedWorkspaceFile(file, MAX_WORKSPACE_SKILL_SUPPORT_FILE_BYTES);
+      if (content !== file.previousContent) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeSupportFiles(
   supportFiles: readonly WorkspaceSkillSupportFileWrite[],
 ): WorkspaceSkillSupportFileWrite[] {

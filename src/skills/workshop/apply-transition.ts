@@ -9,6 +9,7 @@ import {
   applyWorkspaceSkillMutation,
   assertInsideWorkspace,
   isWorkspaceSkillMutationApplied,
+  isWorkspaceSkillMutationRestored,
   prepareWorkspaceSkillMutation,
   readWorkspaceSkillFile,
   restoreWorkspaceSkillMutation,
@@ -274,7 +275,10 @@ export async function applySkillProposalTransition(
       try {
         await applyWorkspaceSkillMutation(mutation);
       } catch (error) {
-        if (!hasRestoreError(error)) {
+        // A rejected filesystem write may have partially changed its target
+        // before throwing. Keep recovery facts unless the full bundle is
+        // proven back at the authoritative pre-apply state.
+        if (await isWorkspaceSkillMutationRestored(mutation).catch(() => false)) {
           await clearSkillProposalRollback({
             proposalId: record.id,
             expectedRecordJson: JSON.stringify(record),
@@ -645,10 +649,6 @@ function requiredApplyStatus(outcome: SkillProposalApplyOutcome): SkillProposalS
     throw new Error(`Invalid pending Skill Workshop apply transition: ${outcome}`);
   }
   return status;
-}
-
-function hasRestoreError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "restoreError" in error);
 }
 
 function storeOptions(env?: NodeJS.ProcessEnv): SkillWorkshopStoreOptions {

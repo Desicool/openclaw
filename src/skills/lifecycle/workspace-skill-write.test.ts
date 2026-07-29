@@ -5,6 +5,7 @@ import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
 import {
   applyWorkspaceSkillMutation,
   isWorkspaceSkillMutationApplied,
+  isWorkspaceSkillMutationRestored,
   prepareWorkspaceSkillMutation,
   prepareWorkspaceSkillRestoration,
   restoreWorkspaceSkillMutation,
@@ -36,6 +37,7 @@ describe("workspace skill mutations", () => {
 
     await expect(applyWorkspaceSkillMutation(mutation)).rejects.toThrow();
     await expect(fs.access(supportFile)).rejects.toThrow();
+    await expect(isWorkspaceSkillMutationRestored(mutation)).resolves.toBe(false);
   });
 
   it("restores the complete previous update bundle", async () => {
@@ -61,6 +63,7 @@ describe("workspace skill mutations", () => {
     await expect(fs.readFile(supportFile, "utf8")).resolves.toBe("after support\n");
 
     await restoreWorkspaceSkillMutation(mutation);
+    await expect(isWorkspaceSkillMutationRestored(mutation)).resolves.toBe(true);
     await expect(fs.readFile(skillFile, "utf8")).resolves.toBe("# Before\n");
     await expect(fs.readFile(supportFile, "utf8")).resolves.toBe("before support\n");
   });
