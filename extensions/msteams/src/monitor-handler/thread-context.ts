@@ -96,9 +96,7 @@ export async function resolveMSTeamsThreadContext(params: {
   conversationId: string;
   contextVisibilityMode: "all" | "allowlist" | "allowlist_quote";
   groupPolicy: Parameters<typeof resolveInboundSupplementalSenderAllowed>[0]["groupPolicy"];
-  effectiveGroupAllowFrom: Parameters<
-    typeof resolveInboundSupplementalSenderAllowed
-  >[0]["allowFrom"];
+  effectiveGroupAllowFrom: readonly (string | number)[];
   allowNameMatching: boolean;
   log: MSTeamsMessageHandlerDeps["log"];
 }) {
