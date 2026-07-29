@@ -8,7 +8,6 @@ import {
   rememberWhatsAppBaileysCacheEntry,
   type WhatsAppBaileysGroupMetadataCache,
 } from "./baileys-cache.js";
-import { attachEmitterListener } from "./lifecycle.js";
 import {
   addWhatsAppOutboundMentionsToContent,
   mayContainWhatsAppOutboundMention,
@@ -38,6 +37,7 @@ type GroupMetadataCacheOwnerParams = {
   resolveInboundJid: (jid: string | null | undefined) => Promise<string | null>;
   reconnectCache?: WhatsAppGroupMetadataCache;
   baileysCache?: WhatsAppBaileysGroupMetadataCache;
+  listen: (event: string, listener: (...args: unknown[]) => void) => () => void;
   logVerbose: (message: string) => void;
   logHydrationWarning: (error: string) => void;
 };
@@ -219,13 +219,8 @@ export function createWhatsAppGroupMetadataCacheOwner(params: GroupMetadataCache
       return;
     }
     started = true;
-    const emitter = params.sock.ev as unknown as {
-      on: (event: string, listener: (...args: unknown[]) => void) => void;
-      off?: (event: string, listener: (...args: unknown[]) => void) => void;
-      removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
-    };
     const listen = (event: string, listener: (...args: unknown[]) => void) => {
-      detachListeners.push(attachEmitterListener(emitter, event, listener));
+      detachListeners.push(params.listen(event, listener));
     };
 
     listen("groups.upsert", ((groups: GroupMetadata[]) => {

@@ -4,7 +4,6 @@ import type {
   AnyMessageContent,
   MiscMessageGenerationOptions,
   proto,
-  ReachoutTimelockState,
   WAMessage,
   WAMessageKey,
   WASocket,
@@ -22,30 +21,13 @@ import { parseStrictFiniteNumber } from "openclaw/plugin-sdk/number-runtime";
 import { defaultRuntime } from "openclaw/plugin-sdk/runtime-env";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { maybeResolveWhatsAppApprovalReaction } from "../approval-reactions.js";
-import { readWebSelfIdentityForDecision, WhatsAppAuthUnstableError } from "../auth-store.js";
-import { getWhatsAppConnectionController } from "../connection-controller-runtime-context.js";
-import { getPrimaryIdentityId, identitiesOverlap, resolveComparableIdentity } from "../identity.js";
+import { getPrimaryIdentityId, resolveComparableIdentity } from "../identity.js";
 import { addWhatsAppImagePreviewFields } from "../image-preview.js";
 import { maybeResolveWhatsAppQuestionReaction } from "../question-reactions.js";
 import { cacheInboundMessageMeta } from "../quoted-message.js";
-import { DEFAULT_RECONNECT_POLICY, computeBackoff, sleepWithAbort } from "../reconnect.js";
 import type { OpenClawConfig } from "../runtime-api.js";
-import { createWaSocket, formatError, getStatusCode, waitForWaConnection } from "../session.js";
-import {
-  createWhatsAppSocketOperationTimeoutAdapter,
-  isWhatsAppSocketOperationTimeoutError,
-  resolveWhatsAppSocketOperationTimeoutMs,
-  resolveWhatsAppSocketTiming,
-  withWhatsAppSocketOperationTimeout,
-  type WhatsAppSocketOperationAdapter,
-  type WhatsAppSocketTimingOptions,
-} from "../socket-timing.js";
-import {
-  resolveEquivalentWhatsAppDirectChatJids,
-  resolveJidToE164,
-  toWhatsappJid,
-  toWhatsappJidWithLid,
-} from "../text-runtime.js";
+import { createWaSocket, formatError, waitForWaConnection } from "../session.js";
+import { resolveWhatsAppSocketTiming, type WhatsAppSocketTimingOptions } from "../socket-timing.js";
 import {
   checkInboundAccessControl,
   type AcceptedInboundAccessControlResult,
@@ -56,11 +38,10 @@ import {
 } from "./admission.js";
 import {
   readWhatsAppBaileysCacheEntry,
-  rememberWhatsAppBaileysCacheEntry,
   type WhatsAppBaileysGroupMetadataCache,
   type WhatsAppBaileysMessageCache,
 } from "./baileys-cache.js";
-import { isRecentOutboundMessage, rememberRecentOutboundMessage } from "./dedupe.js";
+import { isRecentOutboundMessage } from "./dedupe.js";
 import {
   createWhatsAppDurableInboundQueue,
   createWhatsAppIngressMonitor,
@@ -84,7 +65,7 @@ import {
   type WhatsAppGroupMetadataCache,
 } from "./group-metadata-cache.js";
 import { attachWhatsAppIngressLifecycle } from "./ingress-lifecycle.js";
-import { attachEmitterListener, closeInboundMonitorSocket } from "./lifecycle.js";
+import { closeInboundMonitorSocket } from "./lifecycle.js";
 import { resolveInboundMediaMimetype } from "./media-mimetype.js";
 import { downloadInboundMedia, downloadQuotedInboundMedia } from "./media.js";
 import {
@@ -92,19 +73,16 @@ import {
   withDeprecatedWebInboundMessageFlatAliases,
 } from "./message-aliases.js";
 import { addWhatsAppOutboundMentionsToContent } from "./outbound-mentions.js";
-import { DisconnectReason, isJidGroup } from "./runtime-api.js";
+import { isJidGroup } from "./runtime-api.js";
 import { createWebSendApi } from "./send-api.js";
 import { normalizeWhatsAppSendResult } from "./send-result.js";
+import { createWhatsAppAttachedSocketSession } from "./socket-session.js";
 import type {
   AdmittedWebInboundMessage,
   WebInboundMessage,
   WebInboundMessageInput,
-  WebListenerCloseReason,
 } from "./types.js";
 
-const LOGGED_OUT_STATUS = DisconnectReason.loggedOut;
-const RECONNECT_IN_PROGRESS_ERROR = "no active socket - reconnection in progress";
-const BAILEYS_MESSAGE_TTL_MS = 10 * 60 * 1000;
 const INBOUND_CLOSE_DRAIN_TIMEOUT_MS = 5_000;
 const WHATSAPP_INGRESS_DRAIN_INTERVAL_MS = 1_000;
 
@@ -126,50 +104,12 @@ function logWhatsAppVerbose(enabled: boolean | undefined, message: string) {
   defaultRuntime.log(message);
 }
 
-function isDirectUserJid(jid: string): boolean {
-  return /^(\d+)(?::\d+)?@(s\.whatsapp\.net|c\.us|lid|hosted|hosted\.lid)$/i.test(jid.trim());
-}
-
-function getActiveReachoutTimelock(
-  state: ReachoutTimelockState | undefined,
-): ReachoutTimelockState | undefined {
-  if (state?.isActive !== true) {
-    return undefined;
-  }
-  const endsAt = state.timeEnforcementEnds?.getTime();
-  return endsAt === undefined || !Number.isFinite(endsAt) || endsAt > Date.now()
-    ? state
-    : undefined;
-}
-
-function formatReachoutTimelockError(state: ReachoutTimelockState): string {
-  const details = [
-    state.enforcementType ? `type=${state.enforcementType}` : undefined,
-    state.timeEnforcementEnds instanceof Date &&
-    Number.isFinite(state.timeEnforcementEnds.getTime())
-      ? `until=${state.timeEnforcementEnds.toISOString()}`
-      : undefined,
-  ].filter(Boolean);
-  return `WhatsApp reachout timelock is active; direct messages are temporarily blocked${details.length ? ` (${details.join(", ")})` : ""}`;
-}
-
 function recordAcceptedInboundActivity(accountId: string): void {
   recordChannelActivity({
     channel: "whatsapp",
     accountId,
     direction: "inbound",
   });
-}
-
-function isRetryableSendDisconnectError(err: unknown): boolean {
-  if (isWhatsAppSocketOperationTimeoutError(err)) {
-    return false;
-  }
-  return /closed|reset|timed\s*out|disconnect|no active socket/i.test(formatError(err));
-}
-
-function shouldClearSocketRefAfterSendFailure(err: unknown): boolean {
-  return /closed|reset|disconnect|no active socket/i.test(formatError(err));
 }
 
 type AdmittedWebInboundCallbackMessage = WebInboundMessage & {
@@ -240,80 +180,33 @@ export async function attachWebInboxToSocket(
   const inboundLogger = getChildLogger({ module: "web-inbound" });
   const inboundConsoleLog = createSubsystemLogger("gateway/channels/whatsapp").child("inbound");
   const sock = options.sock;
-  const connectedAtMs = Date.now();
-  if (options.socketRef) {
-    options.socketRef.current = sock;
-  }
-  const shouldRetryDisconnect = () => options.shouldRetryDisconnect?.() === true;
-  const disconnectRetryPolicy = options.disconnectRetryPolicy ?? DEFAULT_RECONNECT_POLICY;
-  const sendRetryMaxAttempts =
-    disconnectRetryPolicy.maxAttempts > 0
-      ? disconnectRetryPolicy.maxAttempts
-      : DEFAULT_RECONNECT_POLICY.maxAttempts;
-  const sendOperationTimeoutMs = resolveWhatsAppSocketOperationTimeoutMs(
-    options.socketTiming.defaultQueryTimeoutMs,
-  );
-
-  let onCloseResolve: ((reason: WebListenerCloseReason) => void) | null = null;
-  const onClose = new Promise<WebListenerCloseReason>((resolve) => {
-    onCloseResolve = resolve;
+  const socketSession = await createWhatsAppAttachedSocketSession({
+    sock,
+    socketRef: options.socketRef,
+    accountId: options.accountId,
+    authDir: options.authDir,
+    selfChatMode: options.selfChatMode,
+    socketTiming: options.socketTiming,
+    shouldRetryDisconnect: options.shouldRetryDisconnect,
+    disconnectRetryPolicy: options.disconnectRetryPolicy,
+    disconnectRetryAbortSignal: options.disconnectRetryAbortSignal,
+    recentMessageKeys: options.recentMessageKeys,
+    logVerbose: (message) => logWhatsAppVerbose(options.verbose, message),
+    logConnectionError: (error) => {
+      inboundLogger.error({ error: String(error) }, "connection.update handler error");
+    },
   });
-  const resolveClose = (reason: WebListenerCloseReason) => {
-    if (!onCloseResolve) {
-      return;
-    }
-    const resolver = onCloseResolve;
-    onCloseResolve = null;
-    resolver(reason);
-  };
-  const presence = options.selfChatMode ? "unavailable" : "available";
-
-  try {
-    await createWhatsAppSocketOperationTimeoutAdapter(
-      sock,
-      sendOperationTimeoutMs,
-    ).sendPresenceUpdate(presence);
-    logWhatsAppVerbose(options.verbose, `Sent global '${presence}' presence on connect`);
-  } catch (err) {
-    logWhatsAppVerbose(
-      options.verbose,
-      `Failed to send '${presence}' presence on connect: ${String(err)}`,
-    );
-  }
-
-  const selfIdentity = await readWebSelfIdentityForDecision(
-    options.authDir,
-    sock.user as { id?: string | null; lid?: string | null } | undefined,
-  );
-  if (selfIdentity.outcome === "unstable") {
-    throw new WhatsAppAuthUnstableError(
-      "WhatsApp auth state is still stabilizing; retrying inbox attach.",
-    );
-  }
-  const self = selfIdentity.identity;
-  // If this monitor's controller is shutdown while a captured reply is still in
-  // flight, only hand off to a successor controller authenticated as the same
-  // WhatsApp identity. Missing or mismatched identity fails closed.
-  const getCurrentSock = (): WASocket | null => {
-    if (!options.socketRef) {
-      return sock;
-    }
-    if (options.socketRef.current) {
-      return options.socketRef.current;
-    }
-    if (!self.e164 && !self.jid && !self.lid) {
-      return null;
-    }
-    const successor = getWhatsAppConnectionController(options.accountId);
-    if (!successor) {
-      return null;
-    }
-    const successorIdentity = successor.getSelfIdentity();
-    if (!successorIdentity || !identitiesOverlap(self, successorIdentity)) {
-      return null;
-    }
-    return successor.getCurrentSock();
-  };
+  const {
+    connectedAtMs,
+    self,
+    getCurrentSock,
+    resolveInboundJid,
+    resolveReactionTargetJids,
+    rememberBaileysMessage,
+    assertCanSendToJid,
+    sendTrackedMessage,
+    socketOperations,
+  } = socketSession;
   type QueuedInboundMessageMetadata = {
     admission: AdmittedWebInboundCallbackMessage["admission"];
     debounceKey?: string;
@@ -509,232 +402,19 @@ export async function attachWebInboxToSocket(
       inboundConsoleLog.error(`Failed handling inbound web message: ${String(err)}`);
     },
   });
-  const lidLookup = sock.signalRepository?.lidMapping;
-
-  const resolveInboundJid = async (jid: string | null | undefined): Promise<string | null> =>
-    resolveJidToE164(jid, { authDir: options.authDir, lidLookup });
-  const resolveReactionTargetJids = async (jid: string): Promise<string[]> =>
-    resolveEquivalentWhatsAppDirectChatJids(jid, { authDir: options.authDir, lidLookup });
   const groupMetadata = createWhatsAppGroupMetadataCacheOwner({
     sock,
     getCurrentSock,
     resolveInboundJid,
     reconnectCache: options.groupMetadataCache,
     baileysCache: options.baileysGroupMetaCache,
+    listen: socketSession.listen,
     logVerbose: (message) => logWhatsAppVerbose(options.verbose, message),
     logHydrationWarning: (error) => {
       inboundLogger.warn({ error }, "failed hydrating participating groups on connect");
       inboundConsoleLog.warn(`Failed hydrating participating groups on connect: ${error}`);
     },
   });
-
-  const rememberBaileysMessage = (
-    remoteJid: string | null | undefined,
-    messageId: string | null | undefined,
-    message: proto.IMessage | null | undefined,
-  ) => {
-    if (!options.recentMessageKeys || !remoteJid || !messageId || !message) {
-      return;
-    }
-    rememberWhatsAppBaileysCacheEntry(
-      options.recentMessageKeys,
-      `${remoteJid}:${messageId}`,
-      message,
-      BAILEYS_MESSAGE_TTL_MS,
-    );
-  };
-
-  const rememberOutboundMessage = (remoteJid: string, result: unknown) => {
-    const messageId =
-      typeof result === "object" && result && "key" in result
-        ? ((result as { key?: { id?: string } }).key?.id ?? "")
-        : "";
-    if (!messageId) {
-      return;
-    }
-    rememberRecentOutboundMessage({
-      accountId: options.accountId,
-      remoteJid,
-      messageId,
-    });
-    const message =
-      typeof result === "object" && result && "message" in result
-        ? (result as { message?: proto.IMessage }).message
-        : undefined;
-    rememberBaileysMessage(remoteJid, messageId, message);
-    // Baileys derives the participant for fromMe quotes from its own userJid.
-    // Retain only the facts needed to avoid the cache-miss fromMe=false fallback.
-    cacheInboundMessageMeta(options.accountId, remoteJid, messageId, {
-      fromMe: true,
-      body: extractText(message ?? undefined),
-    });
-  };
-  const trackLateAcceptedSend = (jid: string, promise: Promise<WAMessage | undefined>) => {
-    // The local send has failed terminally, but Baileys may still deliver it.
-    // Track a late message id only to suppress the resulting self-echo.
-    void promise.then(
-      (result) => {
-        rememberOutboundMessage(jid, result);
-      },
-      () => {},
-    );
-  };
-  let reachoutTimeLock: ReachoutTimelockState | undefined;
-  let reachoutTimeLockFetch: Promise<ReachoutTimelockState | undefined> | undefined;
-  let reachoutTimeLockVersion = 0;
-  let verifiedSendReady:
-    | { jid: string; sock: WASocket; reachoutTimeLockVersion: number }
-    | undefined;
-  const rememberReachoutTimeLock = (state: ReachoutTimelockState | undefined) => {
-    reachoutTimeLock = state;
-    reachoutTimeLockVersion += 1;
-    verifiedSendReady = undefined;
-  };
-  const fetchReachoutTimeLock = async (
-    currentSock: WASocket,
-  ): Promise<ReachoutTimelockState | undefined> => {
-    if (typeof currentSock.fetchAccountReachoutTimelock !== "function") {
-      return undefined;
-    }
-    if (!reachoutTimeLockFetch) {
-      reachoutTimeLockFetch = currentSock
-        .fetchAccountReachoutTimelock()
-        .then((state) => {
-          rememberReachoutTimeLock(state);
-          return state;
-        })
-        .catch((err: unknown) => {
-          logWhatsAppVerbose(
-            options.verbose,
-            `Failed fetching WhatsApp reachout timelock before send: ${formatError(err)}`,
-          );
-          return undefined;
-        })
-        .finally(() => {
-          reachoutTimeLockFetch = undefined;
-        });
-    }
-    return await reachoutTimeLockFetch;
-  };
-  const rememberVerifiedSendReady = (jid: string, currentSock: WASocket) => {
-    verifiedSendReady = {
-      jid,
-      sock: currentSock,
-      reachoutTimeLockVersion,
-    };
-  };
-  const consumeVerifiedSendReady = (jid: string, currentSock: WASocket): boolean => {
-    if (
-      verifiedSendReady?.jid !== jid ||
-      verifiedSendReady.sock !== currentSock ||
-      verifiedSendReady.reachoutTimeLockVersion !== reachoutTimeLockVersion
-    ) {
-      return false;
-    }
-    verifiedSendReady = undefined;
-    return true;
-  };
-  const assertCanSendToJid = async (
-    jid: string,
-    currentSock: WASocket,
-    readinessOptions?: { rememberReady?: boolean; useVerifiedReady?: boolean },
-  ) => {
-    if (!isDirectUserJid(jid)) {
-      return;
-    }
-    if (readinessOptions?.useVerifiedReady && consumeVerifiedSendReady(jid, currentSock)) {
-      return;
-    }
-    const state =
-      getActiveReachoutTimelock(reachoutTimeLock) ?? (await fetchReachoutTimeLock(currentSock));
-    const activeState = getActiveReachoutTimelock(state);
-    if (activeState) {
-      throw new Error(formatReachoutTimelockError(activeState));
-    }
-    if (readinessOptions?.rememberReady && state) {
-      // The top-level direct send checks readiness before typing; consume this
-      // same socket/JID/version proof at the native send so inactive accounts
-      // are not queried twice for one outbound action.
-      rememberVerifiedSendReady(jid, currentSock);
-    }
-  };
-  const assertCanSendTo = async (to: string) => {
-    const currentSock = getCurrentSock();
-    if (!currentSock) {
-      throw new Error(RECONNECT_IN_PROGRESS_ERROR);
-    }
-    const jid = options.authDir
-      ? toWhatsappJidWithLid(to, { authDir: options.authDir })
-      : toWhatsappJid(to);
-    await assertCanSendToJid(jid, currentSock, { rememberReady: true });
-  };
-
-  const sendTrackedMessage = async (
-    jid: string,
-    content: AnyMessageContent,
-    sendOptions?: MiscMessageGenerationOptions,
-  ) => {
-    let lastErr: unknown = new Error(RECONNECT_IN_PROGRESS_ERROR);
-    for (let attempt = 1; ; attempt++) {
-      const currentSock = getCurrentSock();
-      if (currentSock) {
-        try {
-          await assertCanSendToJid(jid, currentSock, { useVerifiedReady: true });
-          const result = await createWhatsAppSocketOperationTimeoutAdapter(
-            currentSock,
-            sendOperationTimeoutMs,
-            {
-              onSendMessageTimeout: ({ jid: timedOutJid, promise }) => {
-                trackLateAcceptedSend(timedOutJid, promise);
-              },
-            },
-          ).sendMessage(jid, content, sendOptions);
-          rememberOutboundMessage(jid, result);
-          return result;
-        } catch (err) {
-          if (!shouldRetryDisconnect() || !isRetryableSendDisconnectError(err)) {
-            throw err;
-          }
-          lastErr = err;
-          if (
-            shouldClearSocketRefAfterSendFailure(err) &&
-            options.socketRef?.current === currentSock
-          ) {
-            options.socketRef.current = null;
-          }
-        }
-      } else if (!shouldRetryDisconnect()) {
-        throw lastErr;
-      }
-
-      if (attempt >= sendRetryMaxAttempts) {
-        throw lastErr;
-      }
-      const delayMs = computeBackoff(disconnectRetryPolicy, attempt);
-      logWhatsAppVerbose(
-        options.verbose,
-        `Waiting ${delayMs}ms for WhatsApp reconnect before retrying send to ${jid}: ${formatError(lastErr)}`,
-      );
-      try {
-        await sleepWithAbort(delayMs, options.disconnectRetryAbortSignal);
-      } catch {
-        throw lastErr;
-      }
-    }
-  };
-  const sendApiSocketOperations: WhatsAppSocketOperationAdapter = {
-    sendMessage: (jid, content, sendOptions) => sendTrackedMessage(jid, content, sendOptions),
-    sendPresenceUpdate: async (presenceLocal, jid) => {
-      const currentSock = getCurrentSock();
-      if (!currentSock) {
-        throw new Error(RECONNECT_IN_PROGRESS_ERROR);
-      }
-      return await createWhatsAppSocketOperationTimeoutAdapter(
-        currentSock,
-        sendOperationTimeoutMs,
-      ).sendPresenceUpdate(presenceLocal, jid);
-    },
-  };
 
   type NormalizedInboundMessage = {
     id?: string;
@@ -878,11 +558,7 @@ export async function attachWebInboxToSocket(
     }
     const { id, remoteJid, participant } = target;
     try {
-      await withWhatsAppSocketOperationTimeout(
-        "readMessages",
-        (getCurrentSock() ?? sock).readMessages([{ remoteJid, id, participant, fromMe: false }]),
-        sendOperationTimeoutMs,
-      );
+      await socketSession.markRead(target);
       const suffix = participant ? ` (participant ${participant})` : "";
       logWhatsAppVerbose(options.verbose, `Marked message ${id} as read for ${remoteJid}${suffix}`);
     } catch (err) {
@@ -1042,7 +718,7 @@ export async function attachWebInboxToSocket(
       }
       try {
         await assertCanSendToJid(chatJid, currentSock);
-        await sendApiSocketOperations.sendPresenceUpdate("composing", chatJid);
+        await socketOperations.sendPresenceUpdate("composing", chatJid);
       } catch (err) {
         logWhatsAppVerbose(options.verbose, `Presence update failed: ${String(err)}`);
       }
@@ -1484,51 +1160,17 @@ export async function attachWebInboxToSocket(
       void durableInboundMonitor.stop();
     }
   };
-  const handleConnectionUpdate = (update: Partial<import("baileys").ConnectionState>) => {
-    try {
-      if ("reachoutTimeLock" in update) {
-        rememberReachoutTimeLock(update.reachoutTimeLock);
-      }
-      if (update.connection === "close") {
-        if (options.socketRef?.current === sock) {
-          options.socketRef.current = null;
-        }
-        const status = getStatusCode(update.lastDisconnect?.error);
-        resolveClose({
-          status,
-          isLoggedOut: status === LOGGED_OUT_STATUS,
-          error: update.lastDisconnect?.error,
-        });
-      }
-    } catch (err) {
-      inboundLogger.error({ error: String(err) }, "connection.update handler error");
-      resolveClose({ status: undefined, isLoggedOut: false, error: err });
-    }
-  };
-  const attachSockListener = (event: string, listener: (...args: unknown[]) => void) =>
-    attachEmitterListener(
-      sock.ev as unknown as {
-        on: (event: string, listener: (...args: unknown[]) => void) => void;
-        off?: (event: string, listener: (...args: unknown[]) => void) => void;
-        removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
-      },
-      event,
-      listener,
-    );
-  const detachMessagesUpsert = attachSockListener(
+  const detachMessagesUpsert = socketSession.listen(
     "messages.upsert",
     handleMessagesUpsertEvent as unknown as (...args: unknown[]) => void,
   );
-  const detachConnectionUpdate = attachSockListener(
-    "connection.update",
-    handleConnectionUpdate as unknown as (...args: unknown[]) => void,
-  );
 
   durableInboundMonitor.start();
+  socketSession.start();
   groupMetadata.start();
 
   const sendApi = createWebSendApi({
-    sock: sendApiSocketOperations,
+    sock: socketOperations,
     defaultAccountId: options.accountId,
     resolveOutboundMentions: ({ jid, text }) => groupMetadata.resolveOutboundMentions(jid, text),
     authDir: options.authDir,
@@ -1538,22 +1180,16 @@ export async function attachWebInboxToSocket(
     close: async () => {
       try {
         detachMessagesUpsert();
-        detachConnectionUpdate();
+        socketSession.stop();
         await drainInboundBeforeSocketCloseWithTimeout();
       } catch (err) {
         logWhatsAppVerbose(options.verbose, `Inbound close drain failed: ${String(err)}`);
       }
-      try {
-        closeInboundMonitorSocket(sock);
-      } catch (err) {
-        logWhatsAppVerbose(options.verbose, `Socket close failed: ${String(err)}`);
-      }
+      socketSession.closeSocket();
     },
-    onClose,
-    signalClose: (reason?: WebListenerCloseReason) => {
-      resolveClose(reason ?? { status: undefined, isLoggedOut: false, error: "closed" });
-    },
-    assertSendReady: assertCanSendTo,
+    onClose: socketSession.onClose,
+    signalClose: socketSession.signalClose,
+    assertSendReady: socketSession.assertSendReady,
     sendComposingTo: sendApi.sendComposingTo,
     sendMessage: sendApi.sendMessage,
     sendPoll: sendApi.sendPoll,

@@ -41,12 +41,17 @@ function createOwner(params: {
   reconnectCache?: WhatsAppGroupMetadataCache;
   baileysCache?: WhatsAppBaileysGroupMetadataCache;
 }) {
+  const emitter = params.sock.ev as unknown as EventEmitter;
   return createWhatsAppGroupMetadataCacheOwner({
     sock: params.sock,
     getCurrentSock: () => params.sock,
     resolveInboundJid: async (jid) => jid?.replace("@s.whatsapp.net", "") ?? null,
     reconnectCache: params.reconnectCache,
     baileysCache: params.baileysCache,
+    listen: (event, listener) => {
+      emitter.on(event, listener);
+      return () => emitter.off(event, listener);
+    },
     logVerbose: vi.fn(),
     logHydrationWarning: vi.fn(),
   });
