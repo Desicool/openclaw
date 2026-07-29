@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
-import { sha256Hex } from "../../infra/crypto-digest.js";
 import { removePathWithinRoot } from "../../infra/fs-safe-remove.js";
 import { root } from "../../infra/fs-safe.js";
 import {
@@ -10,7 +9,6 @@ import {
   getNodeSqliteKysely,
 } from "../../infra/kysely-sync.js";
 import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
-import { withOpenClawStateLease } from "../../state/openclaw-state-lease.js";
 import { normalizeSkillIndexName } from "../discovery/skill-index.js";
 import {
   assertInsideWorkspace,
@@ -21,6 +19,7 @@ import {
   readWorkspaceSupportFile,
 } from "../lifecycle/workspace-skill-write.js";
 import { stripProposalFrontmatterForSkill } from "./frontmatter.js";
+import { hashSkillProposalContent } from "./proposal-hash.js";
 import { hashSkillProposalRevision } from "./revision-hash.js";
 import {
   assertProposalId,
@@ -60,14 +59,18 @@ const WORKSHOP_REL_DIR = "skill-workshop";
 const PROPOSALS_REL_DIR = path.join(WORKSHOP_REL_DIR, "proposals");
 const MAX_PROPOSAL_BYTES = 1024 * 1024;
 const MAX_PROPOSAL_SUPPORT_FILES_TOTAL_BYTES = 2 * 1024 * 1024;
-const TARGET_LEASE_MS = 60_000;
-const TARGET_LEASE_WAIT_MS = 5_000;
 export {
   MAX_PROPOSAL_SUPPORT_FILES,
   validateSkillProposalRecord,
   validateSkillProposalRollback,
 } from "./store-record.js";
-export { readSkillProposalRollback, writeSkillProposalRollback } from "./store-sqlite-rollback.js";
+export { hashSkillProposalContent } from "./proposal-hash.js";
+export {
+  clearSkillProposalRollback,
+  readSkillProposalRollback,
+  writeSkillProposalRollback,
+} from "./store-sqlite-rollback.js";
+export { withSkillProposalTargetLock } from "./target-lock.js";
 
 type SkillProposalLookupScope = {
   agentId?: string;
@@ -84,10 +87,6 @@ export function createSkillProposalId(name: string, now = new Date()): string {
   const date = now.toISOString().slice(0, 10).replaceAll("-", "");
   const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
   return `${normalized.slice(0, 60)}-${date}-${suffix}`;
-}
-
-export function hashSkillProposalContent(content: string): string {
-  return sha256Hex(content);
 }
 
 function contentSizeBytes(content: string): number {
@@ -367,26 +366,6 @@ export async function updateSkillProposalRecord(params: {
     },
     databaseOptions(params.store),
     { operationLabel: "skill-workshop.proposal.update" },
-  );
-}
-
-export async function withSkillProposalTargetLock<T>(
-  record: SkillProposalRecord,
-  fn: () => Promise<T>,
-  options: SkillWorkshopStoreOptions = {},
-): Promise<T> {
-  ensureSkillWorkshopSchema(options);
-  return await withOpenClawStateLease(
-    {
-      scope: "skill-workshop-target",
-      key: hashSkillProposalContent(record.target.skillFile),
-      database: { scope: "shared", options: databaseOptions(options) },
-      leaseMs: TARGET_LEASE_MS,
-      waitMs: TARGET_LEASE_WAIT_MS,
-      leaseLabel: "Skill Workshop target lease",
-      operationLabel: "skill-workshop.target-lease",
-    },
-    async () => await fn(),
   );
 }
 
