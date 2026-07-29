@@ -12,7 +12,10 @@ import {
 import { createSkillProposalEvent } from "./plugin-hooks.js";
 import { listSkillProposalEvents, listSkillProposals, proposeCreateSkill } from "./service.js";
 import { parseSkillProposalEvaluation } from "./store-record.js";
-import { commitPendingSkillProposalTransition } from "./store-sqlite-transition.js";
+import {
+  commitPendingSkillProposalTransition,
+  readCommittedSkillProposalTransition,
+} from "./store-sqlite-transition.js";
 import { updateSkillProposalRecord } from "./store.js";
 
 let testState: OpenClawTestState;
@@ -42,14 +45,16 @@ describe("Skill Workshop SQLite store", () => {
       updatedAt: "2026-07-29T00:00:00.000Z",
       appliedAt: "2026-07-29T00:00:00.000Z",
     };
+    const event = createSkillProposalEvent({ record: applied, type: "applied" });
 
-    expect(
-      commitPendingSkillProposalTransition({
-        expected: proposal.record,
-        record: applied,
-        operationLabel: "skill-workshop.test.commit",
-      }),
-    ).toMatchObject({ state: "committed" });
+    const committed = commitPendingSkillProposalTransition({
+      expected: proposal.record,
+      record: applied,
+      event,
+      operationLabel: "skill-workshop.test.commit",
+    });
+    expect(committed).toMatchObject({ state: "committed", event: { eventId: event.eventId } });
+    expect(readCommittedSkillProposalTransition({ record: applied, event })).toEqual(committed);
     expect(
       commitPendingSkillProposalTransition({
         expected: proposal.record,

@@ -24,11 +24,13 @@ import { readSkillProposalTargetTreeSha256 } from "./proposal-bundle.js";
 import { hashSkillProposalContent } from "./proposal-hash.js";
 import { scanProposalBundle } from "./proposal-scan.js";
 import { hashSkillProposalRevision } from "./revision-hash.js";
+import type { NewSkillProposalEvent } from "./store-sqlite-event.js";
 import { readStoredProposal } from "./store-sqlite-record.js";
 import { clearSkillProposalRollback, writeSkillProposalRollback } from "./store-sqlite-rollback.js";
 import type { SkillWorkshopStoreOptions } from "./store-sqlite-schema.js";
 import {
   commitPendingSkillProposalTransition,
+  readCommittedSkillProposalTransition,
   type PendingSkillProposalTransitionCommit,
 } from "./store-sqlite-transition.js";
 import { withSkillProposalTargetLock } from "./target-lock.js";
@@ -324,32 +326,35 @@ export async function applySkillProposalTransition(
           operationLabel: "skill-workshop.apply.commit",
         });
       } catch (error) {
-        const recovered = await recoverAfterApplyCommitFailure({
+        const recoveredEvent = await recoverAfterApplyCommitFailure({
           error,
           expected: record,
           applied,
+          event: eventInput,
           mutation,
           env: input.env,
           workspaceDir: input.workspaceDir,
         });
-        if (!recovered) {
+        if (!recoveredEvent) {
           throw error;
         }
-        commit = { state: "committed" as const };
+        commit = { state: "committed" as const, event: recoveredEvent };
       }
       if (commit.state === "conflict") {
         const error = new Error("Skill proposal changed before apply status commit.");
-        const recovered = await recoverAfterApplyCommitFailure({
+        const recoveredEvent = await recoverAfterApplyCommitFailure({
           error,
           expected: record,
           applied,
+          event: eventInput,
           mutation,
           env: input.env,
           workspaceDir: input.workspaceDir,
         });
-        if (!recovered) {
+        if (!recoveredEvent) {
           throw error;
         }
+        commit = { state: "committed" as const, event: recoveredEvent };
       }
 
       bumpSkillsSnapshotVersion({
@@ -601,21 +606,29 @@ async function recoverAfterApplyCommitFailure(params: {
   error: unknown;
   expected: SkillProposalRecord;
   applied: SkillProposalRecord;
+  event: NewSkillProposalEvent;
   mutation: PreparedWorkspaceSkillMutation;
   env?: NodeJS.ProcessEnv;
   workspaceDir: string;
-}): Promise<boolean> {
+}): Promise<SkillProposalEvent | null> {
+  const committed = readCommittedSkillProposalTransition({
+    record: params.applied,
+    event: params.event,
+    store: storeOptions(params.env),
+  });
+  if (committed) {
+    return committed.event ?? null;
+  }
   const authoritative = readStoredProposal(params.expected.id, storeOptions(params.env));
-  if (
-    authoritative?.record.status === "applied" &&
-    hashSkillProposalRevision(authoritative.record) === hashSkillProposalRevision(params.applied)
-  ) {
-    return true;
+  if (authoritative?.record.status === "applied") {
+    throw new Error("Applied Skill Workshop transition is missing its committed event.", {
+      cause: params.error,
+    });
   }
   requiredApplyStatus("apply_failed");
   const stillApplied = await isWorkspaceSkillMutationApplied(params.mutation).catch(() => false);
   if (!stillApplied) {
-    return false;
+    return null;
   }
   try {
     try {
@@ -640,7 +653,7 @@ async function recoverAfterApplyCommitFailure(params: {
     expectedRecordJson: JSON.stringify(params.expected),
     store: storeOptions(params.env),
   }).catch(() => false);
-  return false;
+  return null;
 }
 
 function requiredApplyStatus(outcome: SkillProposalApplyOutcome): SkillProposalStatus {

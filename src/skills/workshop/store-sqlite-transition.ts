@@ -1,7 +1,15 @@
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
-import { appendSkillProposalEvent, type NewSkillProposalEvent } from "./store-sqlite-event.js";
-import { parseSkillProposalRow, updateProposal } from "./store-sqlite-record.js";
+import {
+  appendSkillProposalEvent,
+  readStoredSkillProposalEvent,
+  type NewSkillProposalEvent,
+} from "./store-sqlite-event.js";
+import {
+  parseSkillProposalRow,
+  readStoredProposal,
+  updateProposal,
+} from "./store-sqlite-record.js";
 import {
   databaseOptions,
   ensureSkillWorkshopSchema,
@@ -53,4 +61,26 @@ export function commitPendingSkillProposalTransition(params: {
     databaseOptions(params.store),
     { operationLabel: params.operationLabel },
   );
+}
+
+export function readCommittedSkillProposalTransition(params: {
+  record: SkillProposalRecord;
+  event: NewSkillProposalEvent;
+  store?: SkillWorkshopStoreOptions;
+}): Extract<PendingSkillProposalTransitionCommit, { state: "committed" }> | null {
+  const stored = readStoredProposal(params.record.id, params.store);
+  if (!stored || stored.row.record_json !== JSON.stringify(params.record)) {
+    return null;
+  }
+  const event = readStoredSkillProposalEvent(params.event.eventId, params.store);
+  if (
+    !event ||
+    event.proposalId !== params.event.proposalId ||
+    event.proposedVersion !== params.event.proposedVersion ||
+    event.revisionHash !== params.event.revisionHash ||
+    event.type !== params.event.type
+  ) {
+    return null;
+  }
+  return { state: "committed", event };
 }
