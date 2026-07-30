@@ -12,6 +12,25 @@
         "type": "object",
         "additionalProperties": true,
         "properties": {
+          "requireMention": { "type": "boolean" },
+          "mentionPatterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "groups": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "requireMention": { "type": "boolean" },
+                "mentionPatterns": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          },
           "accounts": {
             "type": "object",
             "additionalProperties": {
