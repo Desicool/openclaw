@@ -661,6 +661,68 @@ describe("handleClickClackInbound", () => {
     expect(dispatch.mock.calls[0]?.[0].ctxPayload.GroupSystemPrompt).toContain("sessions_send");
   });
 
+  it.each([
+    { body: "@research investigate this", shouldDispatch: true },
+    { body: "@service investigate this", shouldDispatch: false },
+  ])(
+    "evaluates $body against the managed discussion agent before dispatch",
+    async ({ body, shouldDispatch }) => {
+      const runtime = createRuntime();
+      setClickClackRuntime(runtime);
+      getClickClackDiscussionBindingStore(runtime).set("agent:research:main", {
+        accountId: "default",
+        agentId: "research",
+        sessionId: "session-id",
+        serverBaseUrl: "http://127.0.0.1:8080",
+        externalRef: "openclaw:test:research-mentions",
+        externalUrl: "",
+        workspaceRef: "wsp_1",
+        workspaceId: "wsp_1",
+        channelId: "chn_1",
+        channelRouteId: "discussion-route",
+        workspaceRouteId: "workspace-route",
+        section: "Sessions",
+        archived: false,
+        label: "Research mentions",
+      });
+
+      await handleClickClackInbound({
+        account: createAgentAccount({
+          agentId: "service-bot",
+          requireMention: true,
+          discussions: { enabled: true, workspace: "wsp_1", section: "Sessions" },
+        }),
+        config: {
+          agents: {
+            entries: {
+              research: { groupChat: { mentionPatterns: ["@research"] } },
+              "service-bot": { groupChat: { mentionPatterns: ["@service"] } },
+            },
+          },
+          channels: {
+            clickclack: {
+              enabled: true,
+              baseUrl: "http://127.0.0.1:8080",
+              token: "test-token-placeholder",
+              workspace: "wsp_1",
+              discussions: { enabled: true, workspace: "wsp_1" },
+            },
+          },
+        } satisfies CoreConfig,
+        message: createMessage({ body }),
+      });
+
+      const dispatch = vi.mocked(runtime.channel.inbound.dispatch);
+      expect(dispatch).toHaveBeenCalledTimes(shouldDispatch ? 1 : 0);
+      if (shouldDispatch) {
+        expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+          route: { agentId: "research" },
+          ctxPayload: { WasMentioned: true },
+        });
+      }
+    },
+  );
+
   it("drops an old bound channel after the main session is replaced", async () => {
     const runtime = createRuntime();
     setClickClackRuntime(runtime);
