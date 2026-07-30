@@ -29,11 +29,11 @@ function buildLocalMentionRegexes(params: {
   }
   const cfg = params.cfg;
   const syntheticCfg = {
-    ...(cfg ?? {}),
+    ...cfg,
     messages: {
-      ...(cfg?.messages ?? {}),
+      ...cfg?.messages,
       groupChat: {
-        ...(cfg?.messages?.groupChat ?? {}),
+        ...cfg?.messages?.groupChat,
         mentionPatterns: params.mentionPatterns,
       },
     },
