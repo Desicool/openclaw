@@ -35,9 +35,7 @@ export function resolveClickClackGroupPolicy(params: {
   };
   const wildcard = account.groups?.["*"];
   const channelKey = channelId?.trim();
-  const exact = channelKey
-    ? Object.entries(account.groups ?? {}).find(([key]) => key.trim() === channelKey)?.[1]
-    : undefined;
+  const exact = channelKey ? account.groups?.[channelKey] : undefined;
   // Channel rules are partial overrides. Resolve each field independently so
   // an exact channel rule can inherit unspecified fields from the wildcard
   // rule before falling back to the account-level policy.

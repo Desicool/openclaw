@@ -117,16 +117,12 @@ describe("resolveClickClackGroupPolicy", () => {
     expect(result.requireMention).toBe(false);
   });
 
-  it("trims channel id keys", () => {
-    // Edge case: leading/trailing whitespace is trimmed during resolution
-    // but our test passes raw channelId as is; exact match requires
-    // the trimmed key. The resolver does not trim; the caller must trim.
-    // Validating that untrimmed exact match works.
+  it("trims inbound channel ids before lookup", () => {
     const result = resolveClickClackGroupPolicy({
       account: {
-        groups: { "chn_exact ": { requireMention: true } },
+        groups: { chn_exact: { requireMention: true } },
       },
-      channelId: "chn_exact ",
+      channelId: " chn_exact ",
     });
     expect(result.requireMention).toBe(true);
   });
