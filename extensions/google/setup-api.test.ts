@@ -753,7 +753,7 @@ describe("google gemini cli backend auth bridge", () => {
             token: "bearer-token",
           },
         } as never),
-      ).rejects.toThrow(/OAuth or API-key auth profiles/);
+      ).rejects.toThrow(/Google AI Studio API-key profile/);
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
@@ -772,7 +772,33 @@ describe("google gemini cli backend auth bridge", () => {
           modelId: "gemini-3.1-flash-lite",
           authProfileId: "google-gemini-cli:missing",
         } as never),
-      ).rejects.toThrow(/no credential material/);
+      ).rejects.toThrow(/Open Models settings and connect Google with an AI Studio API key/);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes incomplete legacy Gemini OAuth profiles to supported Google setup", async () => {
+    const backend = buildGoogleGeminiCliBackend();
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-test-workspace-"));
+
+    try {
+      await expect(
+        backend.prepareExecution?.({
+          workspaceDir,
+          agentDir: path.join(workspaceDir, "agent"),
+          provider: "google-gemini-cli",
+          modelId: "gemini-3.1-flash-lite",
+          authProfileId: "google-gemini-cli:legacy",
+          authCredential: {
+            type: "oauth",
+            provider: "google-gemini-cli",
+            access: "expired-access-token",
+          },
+        } as never),
+      ).rejects.toThrow(
+        /OAuth profile is incomplete and cannot be repaired by OpenClaw.*AI Studio API key/,
+      );
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
