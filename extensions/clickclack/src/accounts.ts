@@ -17,7 +17,12 @@ import {
   resolveSecretInputString,
 } from "openclaw/plugin-sdk/secret-input";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { ClickClackAccountConfig, CoreConfig, ResolvedClickClackAccount } from "./types.js";
+import type {
+  ClickClackAccountConfig,
+  ClickClackGroupConfig,
+  CoreConfig,
+  ResolvedClickClackAccount,
+} from "./types.js";
 
 const DEFAULT_RECONNECT_MS = 1_500;
 const MIN_RECONNECT_MS = 100;
@@ -31,7 +36,7 @@ const {
 } = createAccountListHelpers<ClickClackAccountConfig>("clickclack", {
   normalizeAccountId,
   omitKeys: ["defaultAccount"],
-  nestedObjectKeys: ["discussions"],
+  nestedObjectKeys: ["discussions", "groups"],
   hasImplicitDefaultAccount: (cfg) => {
     const channel = cfg.channels?.clickclack;
     return Boolean(
@@ -194,6 +199,22 @@ export function resolveClickClackAccount(params: {
       ...(controlUrlBase ? { controlUrlBase } : {}),
       section: merged.discussions?.section?.trim() || DEFAULT_DISCUSSIONS_SECTION,
     },
+    requireMention: merged.requireMention === true,
+    mentionPatterns: merged.mentionPatterns ?? [],
+    groups: Object.entries(merged.groups ?? {}).reduce<Record<string, ClickClackGroupConfig>>(
+      (acc, [key, val]) => {
+        const normalizedKey = key.trim();
+        if (!normalizedKey) {
+          return acc;
+        }
+        acc[normalizedKey] = {
+          ...(val.requireMention !== undefined ? { requireMention: val.requireMention } : {}),
+          ...(val.mentionPatterns !== undefined ? { mentionPatterns: val.mentionPatterns } : {}),
+        };
+        return acc;
+      },
+      {},
+    ),
     config: {
       ...merged,
       allowFrom: merged.allowFrom ?? ["*"],

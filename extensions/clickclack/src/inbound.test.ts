@@ -138,6 +138,9 @@ function createAgentAccount(
     agentActivity: false,
     commandMenu: true,
     discussions: { enabled: false, workspace: "wsp_1", section: "Sessions" },
+    requireMention: false,
+    mentionPatterns: [],
+    groups: {},
     config: {
       allowFrom: ["*"],
     },
@@ -209,6 +212,9 @@ describe("handleClickClackInbound", () => {
       commandMenu: true,
       discussions: { enabled: false, workspace: "wsp_1", section: "Sessions" },
       config: {},
+      requireMention: false,
+      mentionPatterns: [],
+      groups: {},
     } satisfies ResolvedClickClackAccount;
 
     await handleClickClackInbound({
@@ -1034,5 +1040,43 @@ describe("handleClickClackInbound", () => {
 
     expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
     expect(runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unmentioned group message when mention gating is enabled", async () => {
+    const runtime = createRuntime();
+    setClickClackRuntime(runtime);
+
+    await handleClickClackInbound({
+      account: createAgentAccount({
+        requireMention: true,
+        mentionPatterns: ["<@usr_bot>"],
+        botUserId: "usr_bot",
+      }),
+      config: {} satisfies CoreConfig,
+      message: createMessage({ body: "hello everyone" }),
+    });
+
+    expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+    expect(runtime.agent.runEmbeddedAgent).not.toHaveBeenCalled();
+    expect(runtime.llm.complete).not.toHaveBeenCalled();
+    expect(sendClickClackTextMock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a group message when the configured bot mention matches", async () => {
+    const runtime = createRuntime();
+    setClickClackRuntime(runtime);
+
+    await handleClickClackInbound({
+      account: createAgentAccount({
+        requireMention: true,
+        botUserId: "usr_bot",
+      }),
+      config: {} satisfies CoreConfig,
+      message: createMessage({ body: "<@usr_bot> please help" }),
+    });
+
+    const dispatchTurn = vi.mocked(runtime.channel.inbound.dispatch);
+    expect(dispatchTurn).toHaveBeenCalledTimes(1);
+    expect(dispatchTurn.mock.calls[0]?.[0].ctxPayload.WasMentioned).toBe(true);
   });
 });

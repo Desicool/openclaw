@@ -473,6 +473,11 @@ describe("ClickClack gateway", () => {
     mocks.resolveClickClackInboundAccess.mockResolvedValue({
       shouldDispatch: false,
       commandAuthorized: false,
+      mentionFacts: {
+        canDetectMention: true,
+        wasMentioned: false,
+        hasAnyMention: false,
+      },
     });
     const abort = new AbortController();
     const ctx = createGatewayContext(abort.signal);
@@ -486,6 +491,9 @@ describe("ClickClack gateway", () => {
       expect(mocks.resolveClickClackInboundAccess).toHaveBeenCalledTimes(1),
     );
     expect(mocks.handleClickClackInbound).not.toHaveBeenCalled();
+    expect(ctx.log?.info).toHaveBeenCalledWith(
+      expect.stringContaining("skipped ClickClack message before agent dispatch"),
+    );
     abort.abort();
     await run;
   });

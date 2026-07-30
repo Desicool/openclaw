@@ -7,7 +7,11 @@ import {
   type StableChannelIngressIdentityParams,
 } from "openclaw/plugin-sdk/channel-ingress-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { normalizeAgentId } from "openclaw/plugin-sdk/routing";
+import { resolveClickClackGroupPolicy } from "./group-policy.js";
+import { resolveClickClackMentionFacts } from "./mention-facts.js";
 import { getClickClackRuntime } from "./runtime.js";
+import { buildClickClackTarget } from "./target.js";
 import type { ClickClackMessage, CoreConfig, ResolvedClickClackAccount } from "./types.js";
 
 const CHANNEL_ID = "clickclack" as const;
@@ -37,6 +41,13 @@ const clickClackIngressIdentity = {
 export type ClickClackInboundAccess = {
   shouldDispatch: boolean;
   commandAuthorized: boolean;
+  /** Whether the resolved group policy required a direct mention. */
+  requireMention?: boolean;
+  mentionFacts: {
+    canDetectMention: boolean;
+    wasMentioned: boolean;
+    hasAnyMention?: boolean;
+  };
 };
 
 /**
@@ -51,10 +62,48 @@ export async function resolveClickClackInboundAccess(params: {
   const runtime = getClickClackRuntime();
   const isDirect = Boolean(params.message.direct_conversation_id);
   const cfg = params.config as OpenClawConfig;
+  const target = buildClickClackTarget(
+    isDirect
+      ? { chatType: "direct", kind: "dm", id: params.message.author_id }
+      : { chatType: "group", kind: "channel", id: params.message.channel_id ?? "" },
+  );
+  const route = runtime.channel.routing.resolveAgentRoute({
+    cfg,
+    channel: CHANNEL_ID,
+    accountId: params.account.accountId,
+    peer: {
+      kind: isDirect ? "direct" : "channel",
+      id: target,
+    },
+  });
+  const agentId = normalizeAgentId(params.account.agentId ?? route.agentId);
   const shouldCheckCommand = runtime.channel.commands.shouldComputeCommandAuthorized(
     params.message.body,
     cfg,
   );
+
+  // Resolve group policy and mention facts for the channel.
+  const effectiveGroupPolicy = resolveClickClackGroupPolicy({
+    account: params.account,
+    channelId: params.message.channel_id,
+  });
+  const mentionFacts = resolveClickClackMentionFacts({
+    isDirect,
+    body: params.message.body,
+    mentionPatterns: effectiveGroupPolicy.mentionPatterns,
+    botUserId: params.account.botUserId,
+    cfg,
+    agentId,
+    channelId: params.message.channel_id,
+  });
+  const allowTextCommands =
+    params.account.replyMode === "agent" &&
+    runtime.channel.commands.shouldHandleTextCommands({
+      cfg,
+      surface: CHANNEL_ID,
+      commandSource: "text",
+    });
+
   const resolved = await resolveStableChannelMessageIngress({
     channelId: CHANNEL_ID,
     accountId: params.account.accountId,
@@ -70,6 +119,13 @@ export async function resolveClickClackInboundAccess(params: {
     allowFrom: params.account.allowFrom,
     dmPolicy: "allowlist",
     groupPolicy: "allowlist",
+    mentionFacts,
+    policy: {
+      activation: {
+        requireMention: effectiveGroupPolicy.requireMention,
+        allowTextCommands,
+      },
+    },
     command: shouldCheckCommand
       ? {
           cfg,
@@ -83,5 +139,11 @@ export async function resolveClickClackInboundAccess(params: {
     commandAuthorized: resolved.commandAccess.requested
       ? resolved.commandAccess.authorized
       : resolved.senderAccess.allowed,
+    requireMention: effectiveGroupPolicy.requireMention,
+    mentionFacts: mentionFacts as {
+      canDetectMention: boolean;
+      wasMentioned: boolean;
+      hasAnyMention?: boolean;
+    },
   };
 }

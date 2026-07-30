@@ -274,10 +274,7 @@ export async function handleClickClackInbound(params: {
     message: { body, bodyForAgent: message.body, rawBody: message.body, commandBody: message.body },
     access: {
       commands: { authorized: access.commandAuthorized },
-      mentions: {
-        canDetectMention: !isDirect,
-        wasMentioned: !isDirect,
-      },
+      mentions: access.mentionFacts,
     },
     extra: {
       GroupChannel: message.channel_id,
