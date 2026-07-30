@@ -11,11 +11,13 @@ import {
 } from "openclaw/plugin-sdk/channel-mention-gating";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 
-export type ClickClackMentionFacts = {
+type ClickClackMentionFacts = {
   canDetectMention: boolean;
   wasMentioned: boolean;
   hasAnyMention?: boolean;
 };
+
+const CLICKCLACK_MENTION_PATTERN = /(?:^|[^a-z0-9_@-])@([a-z0-9][a-z0-9_-]{1,31})(?![a-z0-9_-])/giu;
 
 function buildLocalMentionRegexes(params: {
   cfg?: OpenClawConfig;
@@ -42,10 +44,10 @@ function buildLocalMentionRegexes(params: {
   });
 }
 
-function resolveNativeMentionIds(body: string): string[] {
-  return [...body.matchAll(/<@([^>\\s]+)>/gi)]
+function resolveMentionHandles(body: string): string[] {
+  return [...body.matchAll(CLICKCLACK_MENTION_PATTERN)]
     .map((match) => match[1]?.toLowerCase())
-    .filter((id): id is string => Boolean(id));
+    .filter((handle): handle is string => Boolean(handle));
 }
 
 /**
@@ -56,20 +58,20 @@ function resolveNativeMentionIds(body: string): string[] {
  *   (DMs bypass mention gating).
  * - Group messages: canDetectMention: true when body text is available.
  * - Checks the message body against shared and account-local mention patterns.
- * - If botUserId is provided and the message body contains the native
- *   ClickClack user mention syntax (<@user_id>), treat it as a mention.
+ * - If botHandle is provided and the message body contains its ClickClack
+ *   `@handle`, treat it as a mention.
  * - Plain display names do not count unless explicitly configured as a pattern.
  */
 export function resolveClickClackMentionFacts(params: {
   isDirect: boolean;
   body?: string;
   mentionPatterns: string[];
-  botUserId?: string;
+  botHandle?: string;
   cfg?: OpenClawConfig;
   agentId?: string;
   channelId?: string;
 }): ClickClackMentionFacts {
-  const { isDirect, body, mentionPatterns, botUserId, cfg, agentId, channelId } = params;
+  const { isDirect, body, mentionPatterns, botHandle, cfg, agentId, channelId } = params;
 
   if (isDirect) {
     return {
@@ -99,15 +101,16 @@ export function resolveClickClackMentionFacts(params: {
   const bodyForRegex = normalizeMentionText(body);
   const hasConfiguredMention = mentionRegexes.some((regex) => regex.test(bodyForRegex));
 
-  const nativeMentionIds = resolveNativeMentionIds(body);
-  const botId = botUserId?.toLowerCase();
-  const hasNativeMention = botId ? nativeMentionIds.includes(botId) : false;
-  const hasAnyNativeMention = nativeMentionIds.length > 0;
-  const wasMentioned = hasNativeMention || hasConfiguredMention;
+  const mentionHandles = resolveMentionHandles(body);
+  const normalizedBotHandle = botHandle?.replace(/^@/u, "").trim().toLowerCase();
+  const hasHandleMention = normalizedBotHandle
+    ? mentionHandles.includes(normalizedBotHandle)
+    : false;
+  const wasMentioned = hasHandleMention || hasConfiguredMention;
 
   return {
     canDetectMention: true,
     wasMentioned,
-    hasAnyMention: hasAnyNativeMention || hasConfiguredMention,
+    hasAnyMention: mentionHandles.length > 0 || hasConfiguredMention,
   };
 }

@@ -91,7 +91,7 @@ export async function resolveClickClackInboundAccess(params: {
     isDirect,
     body: params.message.body,
     mentionPatterns: effectiveGroupPolicy.mentionPatterns,
-    botUserId: params.account.botUserId,
+    botHandle: params.account.botHandle,
     cfg,
     agentId,
     channelId: params.message.channel_id,
@@ -140,10 +140,6 @@ export async function resolveClickClackInboundAccess(params: {
       ? resolved.commandAccess.authorized
       : resolved.senderAccess.allowed,
     requireMention: effectiveGroupPolicy.requireMention,
-    mentionFacts: mentionFacts as {
-      canDetectMention: boolean;
-      wasMentioned: boolean;
-      hasAnyMention?: boolean;
-    },
+    mentionFacts,
   };
 }

@@ -438,7 +438,7 @@ DMs are never gated by `requireMention`. When a DM arrives, the mention gate is 
 ClickClack mentions are detected when:
 
 - The message body matches any pattern in `mentionPatterns` (each pattern is a regular expression).
-- The message contains a native ClickClack mention tag (`<@bot_user_id>`) and `botUserId` is configured or auto-detected.
+- The message contains the bot's ClickClack `@handle`. The gateway reads the handle from the authenticated bot identity at startup.
 
 Plain display names (e.g. `Blackbird`) are **not** treated as mentions unless they are explicitly configured as a pattern.
 
@@ -452,7 +452,7 @@ Plain display names (e.g. `Blackbird`) are **not** treated as mentions unless th
       token: { source: "env", provider: "default", id: "CLICKCLACK_BOT_TOKEN" },
       workspace: "default",
       requireMention: true,
-      mentionPatterns: ["<@usr_abc>", "@mybot", "\\bBlackbird\\b"],
+      mentionPatterns: ["\\bBlackbird\\b"],
       groups: {
         "*": { requireMention: true },
         chn_command_and_control: { requireMention: false },

@@ -73,6 +73,7 @@ export type ResolvedClickClackAccount = {
   token: string;
   workspace: string;
   botUserId?: string;
+  botHandle?: string;
   agentId?: string;
   replyMode: "agent" | "model";
   model?: string;

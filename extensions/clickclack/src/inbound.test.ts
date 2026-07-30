@@ -1049,8 +1049,7 @@ describe("handleClickClackInbound", () => {
     await handleClickClackInbound({
       account: createAgentAccount({
         requireMention: true,
-        mentionPatterns: ["<@usr_bot>"],
-        botUserId: "usr_bot",
+        botHandle: "blackbird",
       }),
       config: {} satisfies CoreConfig,
       message: createMessage({ body: "hello everyone" }),
@@ -1062,21 +1061,41 @@ describe("handleClickClackInbound", () => {
     expect(sendClickClackTextMock).not.toHaveBeenCalled();
   });
 
-  it("dispatches a group message when the configured bot mention matches", async () => {
+  it("dispatches a group message when its ClickClack bot handle is mentioned", async () => {
     const runtime = createRuntime();
     setClickClackRuntime(runtime);
 
     await handleClickClackInbound({
       account: createAgentAccount({
         requireMention: true,
-        botUserId: "usr_bot",
+        botHandle: "blackbird",
       }),
       config: {} satisfies CoreConfig,
-      message: createMessage({ body: "<@usr_bot> please help" }),
+      message: createMessage({ body: "@blackbird please help" }),
     });
 
     const dispatchTurn = vi.mocked(runtime.channel.inbound.dispatch);
     expect(dispatchTurn).toHaveBeenCalledTimes(1);
     expect(dispatchTurn.mock.calls[0]?.[0].ctxPayload.WasMentioned).toBe(true);
+  });
+
+  it("does not bypass mention gating for a command mentioning another ClickClack user", async () => {
+    const runtime = createRuntime();
+    vi.mocked(runtime.channel.commands.shouldComputeCommandAuthorized).mockReturnValue(true);
+    vi.mocked(runtime.channel.commands.shouldHandleTextCommands).mockReturnValue(true);
+    vi.mocked(runtime.channel.text.hasControlCommand).mockReturnValue(true);
+    setClickClackRuntime(runtime);
+
+    await handleClickClackInbound({
+      account: createAgentAccount({
+        requireMention: true,
+        botHandle: "blackbird",
+      }),
+      config: {} satisfies CoreConfig,
+      message: createMessage({ body: "/status @alice" }),
+    });
+
+    expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+    expect(runtime.agent.runEmbeddedAgent).not.toHaveBeenCalled();
   });
 });

@@ -196,6 +196,7 @@ export async function startClickClackGatewayAccount(
     ...configuredAccount,
     workspace: workspaceId,
     botUserId: configuredAccount.botUserId ?? me.id,
+    botHandle: me.handle,
   };
   const processIncomingEvent = (event: ClickClackEvent) =>
     processEvent({

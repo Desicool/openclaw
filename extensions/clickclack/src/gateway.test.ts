@@ -490,6 +490,14 @@ describe("ClickClack gateway", () => {
     await waitForGatewayState(() =>
       expect(mocks.resolveClickClackInboundAccess).toHaveBeenCalledTimes(1),
     );
+    expect(mocks.resolveClickClackInboundAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: expect.objectContaining({
+          botHandle: "bot",
+          botUserId: "bot-user",
+        }),
+      }),
+    );
     expect(mocks.handleClickClackInbound).not.toHaveBeenCalled();
     expect(ctx.log?.info).toHaveBeenCalledWith(
       expect.stringContaining("skipped ClickClack message before agent dispatch"),
