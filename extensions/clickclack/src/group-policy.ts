@@ -4,12 +4,12 @@
  * Pure helper – no side effects, no runtime imports.
  */
 
-export type ClickClackGroupPolicy = {
+type ClickClackGroupPolicy = {
   requireMention: boolean;
   mentionPatterns: string[];
 };
 
-export type ClickClackAccountGroupPolicyParams = {
+type ClickClackAccountGroupPolicyParams = {
   requireMention?: boolean;
   mentionPatterns?: string[];
   groups?: Record<string, { requireMention?: boolean; mentionPatterns?: string[] }>;

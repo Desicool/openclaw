@@ -36,7 +36,7 @@ const {
 } = createAccountListHelpers<ClickClackAccountConfig>("clickclack", {
   normalizeAccountId,
   omitKeys: ["defaultAccount"],
-  nestedObjectKeys: ["discussions", "groups"],
+  nestedObjectKeys: ["discussions"],
   hasImplicitDefaultAccount: (cfg) => {
     const channel = cfg.channels?.clickclack;
     return Boolean(
@@ -51,6 +51,26 @@ const {
 
 export { DEFAULT_ACCOUNT_ID, listClickClackAccountIds, resolveDefaultClickClackAccountId };
 
+function mergeClickClackGroups(
+  ...sources: Array<Record<string, ClickClackGroupConfig> | undefined>
+): Record<string, ClickClackGroupConfig> {
+  const merged = new Map<string, ClickClackGroupConfig>();
+  for (const source of sources) {
+    for (const [rawKey, value] of Object.entries(source ?? {})) {
+      const key = rawKey.trim();
+      if (!key) {
+        continue;
+      }
+      merged.set(key, {
+        ...merged.get(key),
+        ...(value.requireMention !== undefined ? { requireMention: value.requireMention } : {}),
+        ...(value.mentionPatterns !== undefined ? { mentionPatterns: value.mentionPatterns } : {}),
+      });
+    }
+  }
+  return Object.fromEntries(merged);
+}
+
 export function resolveClickClackAccountConfig(
   cfg: CoreConfig,
   accountId: string,
@@ -58,22 +78,29 @@ export function resolveClickClackAccountConfig(
   const channel = cfg.channels?.clickclack;
   const merged = resolveMergedClickClackAccountConfig(cfg, accountId);
   const account = resolveNormalizedAccountEntry(channel?.accounts, accountId, normalizeAccountId);
+  const mergedWithGroups =
+    channel?.groups || account?.groups
+      ? {
+          ...merged,
+          groups: mergeClickClackGroups(channel?.groups, account?.groups),
+        }
+      : merged;
   const accountTokenFile = account?.tokenFile?.trim();
   if (accountTokenFile) {
     return {
-      ...merged,
+      ...mergedWithGroups,
       token: account?.token,
       tokenFile: accountTokenFile,
     };
   }
   if (hasConfiguredAccountValue(account?.token)) {
     return {
-      ...merged,
+      ...mergedWithGroups,
       token: account?.token,
       tokenFile: undefined,
     };
   }
-  return merged;
+  return mergedWithGroups;
 }
 
 function resolveClickClackToken(params: {
@@ -201,20 +228,7 @@ export function resolveClickClackAccount(params: {
     },
     requireMention: merged.requireMention === true,
     mentionPatterns: merged.mentionPatterns ?? [],
-    groups: Object.entries(merged.groups ?? {}).reduce<Record<string, ClickClackGroupConfig>>(
-      (acc, [key, val]) => {
-        const normalizedKey = key.trim();
-        if (!normalizedKey) {
-          return acc;
-        }
-        acc[normalizedKey] = {
-          ...(val.requireMention !== undefined ? { requireMention: val.requireMention } : {}),
-          ...(val.mentionPatterns !== undefined ? { mentionPatterns: val.mentionPatterns } : {}),
-        };
-        return acc;
-      },
-      {},
-    ),
+    groups: mergeClickClackGroups(merged.groups),
     config: {
       ...merged,
       allowFrom: merged.allowFrom ?? ["*"],

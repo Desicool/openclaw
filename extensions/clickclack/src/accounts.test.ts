@@ -34,6 +34,42 @@ describe("ClickClack account resolution", () => {
     expect(resolveClickClackAccount({ cfg }).token).toBe("test-token-placeholder");
   });
 
+  it("merges partial named-account group overrides with the root group policy", () => {
+    const cfg = {
+      channels: {
+        clickclack: {
+          baseUrl: "https://app.clickclack.chat",
+          workspace: "wsp_1",
+          token: "test-token-placeholder",
+          groups: {
+            " chn_1 ": {
+              requireMention: true,
+              mentionPatterns: ["@root-bot"],
+            },
+          },
+          accounts: {
+            work: {
+              groups: {
+                chn_1: {
+                  requireMention: false,
+                },
+              },
+            },
+          },
+        },
+      },
+    } satisfies CoreConfig;
+
+    const account = resolveClickClackAccount({ cfg, accountId: "work" });
+    expect(account.groups).toEqual({
+      chn_1: {
+        requireMention: false,
+        mentionPatterns: ["@root-bot"],
+      },
+    });
+    expect(account.config.groups).toEqual(account.groups);
+  });
+
   it("does not synthesize a partial top-level default account from inherited credentials", () => {
     const cfg = {
       channels: {
