@@ -105,7 +105,17 @@ describe("isolated setup inference detection", () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body)).toEqual({ ok: true, status: "live" });
     expect(elapsedMs).toBeLessThan(500);
-    await expect(pending).resolves.toEqual(fallback);
+    const detection = await pending;
+    expect(detection).toMatchObject({
+      candidates: fallback.candidates,
+      unavailableCandidates: fallback.unavailableCandidates,
+      manualProviders: fallback.manualProviders,
+      authOptions: fallback.authOptions,
+      recommendedInstalls: fallback.recommendedInstalls,
+      workspace: fallback.workspace,
+      setupComplete: fallback.setupComplete,
+    });
+    expect(detection.prepareOptions ?? []).toEqual([]);
     expect(performance.now() - pendingStartedAt).toBeLessThan(1_000);
   });
 
