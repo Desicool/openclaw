@@ -182,7 +182,23 @@ describe("Buzz bus lifecycle", () => {
     expect(relayMocks.connect).not.toHaveBeenCalled();
   });
 
-  it("closes a connected relay when authentication fails", async () => {
+  it("closes the relay and aborts NIP-11 discovery when authentication fails", async () => {
+    let fetchSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            fetchSignal = init?.signal ?? undefined;
+            fetchSignal?.addEventListener(
+              "abort",
+              () => reject(fetchSignal?.reason ?? new Error("aborted")),
+              { once: true },
+            );
+          }),
+      ),
+    );
+
     await expect(
       startBuzzBus({
         accountId: ACCOUNT_ID,
@@ -195,6 +211,42 @@ describe("Buzz bus lifecycle", () => {
 
     expect(relayMocks.connect).toHaveBeenCalledOnce();
     expect(relayMocks.close).toHaveBeenCalledOnce();
+    expect(fetchSignal?.aborted).toBe(true);
+  });
+
+  it("bounds stalled Buzz relay session setup", async () => {
+    vi.useFakeTimers();
+    relayMocks.auth.mockResolvedValue("ok");
+    let fetchSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            fetchSignal = init?.signal ?? undefined;
+            fetchSignal?.addEventListener(
+              "abort",
+              () => reject(fetchSignal?.reason ?? new Error("aborted")),
+              { once: true },
+            );
+          }),
+      ),
+    );
+    const start = startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage: async () => {},
+    });
+    const rejection = expect(start).rejects.toThrow("Timed out setting up Buzz relay session");
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+
+    expect(fetchSignal?.aborted).toBe(true);
+    expect(relayMocks.close).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 
   it("publishes and closes a standalone authenticated send", async () => {

@@ -2,6 +2,7 @@ import { type EventTemplate, finalizeEvent, Relay, type VerifiedEvent } from "no
 
 const AUTH_CHALLENGE_TIMEOUT_MS = 20_000;
 const AUTH_CHALLENGE_POLL_MS = 25;
+const RELAY_SESSION_SETUP_TIMEOUT_MS = 20_000;
 const HEX_PUBLIC_KEY_PATTERN = /^[0-9a-f]{64}$/u;
 const BUZZ_RELAY_SOFTWARE = "https://github.com/block/buzz";
 // Buzz `just dev` uses private key 1 when auth tokens are disabled, but omits
@@ -131,15 +132,33 @@ export async function connectAuthenticatedBuzzRelaySession(params: {
   signal?: AbortSignal;
 }): Promise<AuthenticatedBuzzRelaySession> {
   const relay = new Relay(params.relayUrl, { enableReconnect: false });
+  const setupAbort = new AbortController();
+  const signal = params.signal
+    ? AbortSignal.any([params.signal, setupAbort.signal])
+    : setupAbort.signal;
+  let setupTimedOut = false;
+  const setupTimeout = setTimeout(() => {
+    setupTimedOut = true;
+    setupAbort.abort(new Error("Timed out setting up Buzz relay session"));
+  }, RELAY_SESSION_SETUP_TIMEOUT_MS);
+  const authPromise = connectAndAuthenticateBuzzRelay({ ...params, relay, signal });
+  const relayIdentityPromise = resolveBuzzRelayPublicKey({
+    relayUrl: params.relayUrl,
+    signal,
+  });
   try {
-    const [, relayPublicKey] = await Promise.all([
-      connectAndAuthenticateBuzzRelay({ ...params, relay }),
-      resolveBuzzRelayPublicKey(params),
-    ]);
+    const [, relayPublicKey] = await Promise.all([authPromise, relayIdentityPromise]);
     return { relay, relayPublicKey };
   } catch (error) {
+    setupAbort.abort(error);
     relay.close();
+    await Promise.allSettled([authPromise, relayIdentityPromise]);
+    if (setupTimedOut && !params.signal?.aborted) {
+      throw new Error("Timed out setting up Buzz relay session", { cause: error });
+    }
     throw error;
+  } finally {
+    clearTimeout(setupTimeout);
   }
 }
 
