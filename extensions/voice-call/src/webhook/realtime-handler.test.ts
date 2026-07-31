@@ -1727,6 +1727,124 @@ describe("RealtimeCallHandler path routing", () => {
     }
   });
 
+  it("does not share a native consult with a replacement realtime session", async () => {
+    const callbacks: RealtimeBridgeRequest[] = [];
+    const oldSubmitToolResult = vi.fn();
+    const replacementSubmitToolResult = vi.fn();
+    const bridges = [
+      makeBridge({
+        supportsToolResultContinuation: true,
+        submitToolResult: oldSubmitToolResult,
+      }),
+      makeBridge({
+        supportsToolResultContinuation: true,
+        submitToolResult: replacementSubmitToolResult,
+      }),
+    ];
+    const createBridge = vi.fn((request: RealtimeBridgeRequest) => {
+      callbacks.push(request);
+      const bridge = bridges[callbacks.length - 1];
+      if (!bridge) {
+        throw new Error("unexpected replacement bridge");
+      }
+      return bridge;
+    });
+    const handler = makeHandler(undefined, {
+      manager: {
+        getCallByProviderCallId: vi.fn((providerCallId: string) => makeCallRecord(providerCallId)),
+      },
+      realtimeProvider: makeRealtimeProvider(createBridge),
+    });
+    const oldResult = createDeferred<{ text: string }>();
+    const replacementResult = createDeferred<{ text: string }>();
+    const consult = vi
+      .fn()
+      .mockImplementationOnce(() => oldResult.promise)
+      .mockImplementationOnce(() => replacementResult.promise);
+    handler.registerToolHandler("openclaw_agent_consult", consult);
+    const oldServer = await startRealtimeServer(handler);
+    let replacementServer: Awaited<ReturnType<typeof startRealtimeServer>> | undefined;
+    let oldWs: WebSocket | undefined;
+
+    try {
+      oldWs = await connectWs(oldServer.url);
+      oldWs.send(
+        JSON.stringify({
+          event: "start",
+          start: { streamSid: "MZ-native-old", callSid: "CA-native-old" },
+        }),
+      );
+      await waitForRealtimeTest(() => {
+        expect(callbacks).toHaveLength(1);
+      });
+      callbacks[0]?.onToolCall?.({
+        itemId: "item-native-old",
+        callId: "native-old",
+        name: "openclaw_agent_consult",
+        args: { question: "Check the old deployment." },
+      });
+      await waitForRealtimeTest(() => {
+        expect(consult).toHaveBeenCalledTimes(1);
+        expect(oldSubmitToolResult).toHaveBeenCalledTimes(1);
+      });
+
+      replacementServer = await startRealtimeServer(handler);
+      const replacementWs = await connectWs(replacementServer.url);
+      try {
+        replacementWs.send(
+          JSON.stringify({
+            event: "start",
+            start: { streamSid: "MZ-native-replacement", callSid: "CA-native-replacement" },
+          }),
+        );
+        await waitForRealtimeTest(() => {
+          expect(callbacks).toHaveLength(2);
+        });
+        callbacks[1]?.onToolCall?.({
+          itemId: "item-native-replacement",
+          callId: "native-replacement",
+          name: "openclaw_agent_consult",
+          args: { question: "Check the new deployment." },
+        });
+        await waitForRealtimeTest(() => {
+          expect(consult).toHaveBeenCalledTimes(2);
+        });
+
+        oldResult.resolve({ text: "The old deployment is healthy." });
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+        expect(oldSubmitToolResult).toHaveBeenCalledTimes(1);
+
+        replacementResult.resolve({ text: "The new deployment is healthy." });
+        await waitForRealtimeTest(() => {
+          expect(replacementSubmitToolResult).toHaveBeenLastCalledWith(
+            "native-replacement",
+            { text: "The new deployment is healthy." },
+            undefined,
+          );
+        });
+      } finally {
+        if (
+          replacementWs.readyState !== WebSocket.CLOSED &&
+          replacementWs.readyState !== WebSocket.CLOSING
+        ) {
+          replacementWs.close();
+        }
+      }
+    } finally {
+      if (
+        oldWs &&
+        oldWs.readyState !== WebSocket.CLOSED &&
+        oldWs.readyState !== WebSocket.CLOSING
+      ) {
+        oldWs.close();
+      }
+      await replacementServer?.close();
+      await oldServer.close();
+    }
+  });
+
   it("does not carry a final transcript into the next direct voice turn", async () => {
     let callbacks:
       | {
