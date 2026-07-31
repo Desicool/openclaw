@@ -16,7 +16,11 @@ import {
 } from "../../app/context.ts";
 import { importCustomThemeFromUrl } from "../../app/custom-theme.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
-import { resetServerUiPref, resolveServerUiPrefState } from "../../app/server-prefs.ts";
+import {
+  resetServerUiPref,
+  resolveServerUiPrefState,
+  type ServerUiPrefState,
+} from "../../app/server-prefs.ts";
 import {
   loadSettings,
   normalizeCatalogOpenTarget,
@@ -24,6 +28,7 @@ import {
   normalizeChatSendShortcut,
   patchSettings,
   UI_APPEARANCE_DEFAULTS,
+  type ChatSendShortcut,
   type UiSettings,
 } from "../../app/settings.ts";
 import { startThemeTransition } from "../../app/theme-transition.ts";
@@ -690,13 +695,63 @@ export class ConfigPage extends OpenClawLightDomElement {
     void i18n.setLocale(locale);
   }
 
+  private currentLocalePref(): ServerUiPrefState<string> {
+    return resolveServerUiPrefState(
+      this.context.runtimeConfig.state.configSnapshot?.config,
+      "locale",
+      this.context.gateway.connection.gatewayUrl,
+      this.settings,
+    );
+  }
+
+  private currentThemePref(): ServerUiPrefState<ThemeName> {
+    return resolveServerUiPrefState(
+      this.context.runtimeConfig.state.configSnapshot?.config,
+      "theme",
+      this.context.gateway.connection.gatewayUrl,
+      this.settings,
+    );
+  }
+
+  private currentThemeModePref(): ServerUiPrefState<ThemeMode> {
+    return resolveServerUiPrefState(
+      this.context.runtimeConfig.state.configSnapshot?.config,
+      "themeMode",
+      this.context.gateway.connection.gatewayUrl,
+      this.settings,
+    );
+  }
+
+  private currentChatSendShortcutPref(): ServerUiPrefState<ChatSendShortcut> {
+    return resolveServerUiPrefState(
+      this.context.runtimeConfig.state.configSnapshot?.config,
+      "chatSendShortcut",
+      this.context.gateway.connection.gatewayUrl,
+      this.settings,
+    );
+  }
+
   private resetLocale() {
-    this.settings = resetServerUiPref("locale");
-    void i18n.useSystemLocale();
+    this.settings = resetServerUiPref("locale", this.currentLocalePref());
+    if (isSupportedLocale(this.settings.locale)) {
+      void i18n.setLocale(this.settings.locale);
+    } else {
+      void i18n.useSystemLocale();
+    }
   }
 
   private resetSyncedAppearancePref(key: "theme" | "themeMode" | "chatSendShortcut") {
-    this.settings = resetServerUiPref(key);
+    switch (key) {
+      case "theme":
+        this.settings = resetServerUiPref("theme", this.currentThemePref());
+        break;
+      case "themeMode":
+        this.settings = resetServerUiPref("themeMode", this.currentThemeModePref());
+        break;
+      case "chatSendShortcut":
+        this.settings = resetServerUiPref("chatSendShortcut", this.currentChatSendShortcutPref());
+        break;
+    }
     this.context.theme.refresh();
   }
 
@@ -853,13 +908,19 @@ export class ConfigPage extends OpenClawLightDomElement {
     const controlUiConfig = asConfigRecord(gatewayConfig?.controlUi);
     const agentsDefaults = asConfigRecord(asConfigRecord(configObject.agents)?.defaults);
     const prefScope = this.context.gateway.connection.gatewayUrl;
-    const themePref = resolveServerUiPrefState(configObject, "theme", prefScope);
-    const themeModePref = resolveServerUiPrefState(configObject, "themeMode", prefScope);
-    const localePref = resolveServerUiPrefState(configObject, "locale", prefScope);
+    const themePref = resolveServerUiPrefState(configObject, "theme", prefScope, this.settings);
+    const themeModePref = resolveServerUiPrefState(
+      configObject,
+      "themeMode",
+      prefScope,
+      this.settings,
+    );
+    const localePref = resolveServerUiPrefState(configObject, "locale", prefScope, this.settings);
     const chatSendShortcutPref = resolveServerUiPrefState(
       configObject,
       "chatSendShortcut",
       prefScope,
+      this.settings,
     );
     const sessionObserverBusy =
       !configState.connected ||
@@ -907,10 +968,19 @@ export class ConfigPage extends OpenClawLightDomElement {
         "",
       theme: this.settings.theme,
       themeOverridden: themePref.overridden,
+      themeProvenance: themePref.provenance,
+      themeResetValue: themePref.resetValue ?? UI_APPEARANCE_DEFAULTS.theme,
       themeMode: this.settings.themeMode,
       themeModeOverridden: themeModePref.overridden,
+      themeModeProvenance: themeModePref.provenance,
+      themeModeResetValue: themeModePref.resetValue ?? UI_APPEARANCE_DEFAULTS.themeMode,
       systemLocale: i18n.getSystemLocale(),
       localeOverride: isSupportedLocale(localePref.value) ? localePref.value : undefined,
+      localeOverridden: localePref.overridden,
+      localeProvenance: localePref.provenance,
+      localeResetValue: isSupportedLocale(localePref.resetValue)
+        ? localePref.resetValue
+        : undefined,
       onLocaleChange: (locale) => this.setLocale(locale),
       resetLocale: () => this.resetLocale(),
       setTheme: (theme, transitionContext) => this.setTheme(theme, transitionContext),
@@ -982,6 +1052,9 @@ export class ConfigPage extends OpenClawLightDomElement {
       onOpenLobsterdex: () => this.context.navigate("lobsterdex"),
       chatSendShortcut: normalizeChatSendShortcut(this.settings.chatSendShortcut),
       chatSendShortcutOverridden: chatSendShortcutPref.overridden,
+      chatSendShortcutProvenance: chatSendShortcutPref.provenance,
+      chatSendShortcutResetValue:
+        chatSendShortcutPref.resetValue ?? UI_APPEARANCE_DEFAULTS.chatSendShortcut,
       setChatSendShortcut: (value) => this.setSetting("chatSendShortcut", value),
       resetChatSendShortcut: () => this.resetSyncedAppearancePref("chatSendShortcut"),
       chatFollowUpMode: this.settings.chatFollowUpMode,

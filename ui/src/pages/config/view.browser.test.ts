@@ -49,10 +49,17 @@ describe("config view", () => {
     version: "2026.3.11",
     theme: "claw" as ThemeName,
     themeOverridden: false,
+    themeProvenance: "default" as const,
+    themeResetValue: "claw" as ThemeName,
     themeMode: "system" as ThemeMode,
     themeModeOverridden: false,
+    themeModeProvenance: "default" as const,
+    themeModeResetValue: "system" as ThemeMode,
     systemLocale: "en" as const,
     localeOverride: undefined,
+    localeOverridden: false,
+    localeProvenance: "default" as const,
+    localeResetValue: undefined,
     onLocaleChange: vi.fn(),
     resetLocale: vi.fn(),
     setTheme: vi.fn(),
@@ -83,6 +90,8 @@ describe("config view", () => {
     setShowAdvancedSettings: vi.fn(),
     chatSendShortcut: "enter" as const,
     chatSendShortcutOverridden: false,
+    chatSendShortcutProvenance: "default" as const,
+    chatSendShortcutResetValue: "enter" as const,
     setChatSendShortcut: vi.fn(),
     resetChatSendShortcut: vi.fn(),
     chatFollowUpMode: undefined,
@@ -152,6 +161,7 @@ describe("config view", () => {
       includeSections: ["__appearance__"],
       systemLocale: "de",
       localeOverride: "fr",
+      localeOverridden: true,
     });
     const select = queryRequired(
       container,
@@ -1546,6 +1556,7 @@ describe("config view", () => {
       includeSections: ["__appearance__"],
       systemLocale: "de",
       localeOverride: "pt-BR",
+      localeOverridden: true,
       resetLocale,
       theme: "knot",
       themeOverridden: true,
@@ -1623,12 +1634,15 @@ describe("config view", () => {
       includeSections: ["__appearance__"],
       theme: "claw",
       themeOverridden: true,
+      themeProvenance: "synced",
       resetTheme,
       themeMode: "system",
       themeModeOverridden: true,
+      themeModeProvenance: "synced",
       resetThemeMode,
       chatSendShortcut: "enter",
       chatSendShortcutOverridden: true,
+      chatSendShortcutProvenance: "synced",
       resetChatSendShortcut,
     });
     const themeSection = queryRequired(container, "#settings-appearance-theme", HTMLElement);
@@ -1659,6 +1673,59 @@ describe("config view", () => {
     expect(resetTheme).toHaveBeenCalledOnce();
     expect(resetThemeMode).toHaveBeenCalledOnce();
     expect(resetChatSendShortcut).toHaveBeenCalledOnce();
+  });
+
+  it("renders rejected theme and locale edits as resettable browser-only fallbacks", () => {
+    const resetLocale = vi.fn();
+    const resetTheme = vi.fn();
+    const { container } = renderConfigView({
+      activeSection: "__appearance__",
+      includeSections: ["__appearance__"],
+      localeOverride: "fr",
+      localeOverridden: true,
+      localeProvenance: "device-local",
+      localeResetValue: "de",
+      resetLocale,
+      theme: "knot",
+      themeOverridden: true,
+      themeProvenance: "device-local",
+      themeResetValue: "claw",
+      resetTheme,
+    });
+    const languageRow = queryRequired(container, "#settings-language .settings-row", HTMLElement);
+    const themeSection = queryRequired(container, "#settings-appearance-theme", HTMLElement);
+    const themeDescription = queryRequired(
+      themeSection,
+      ":scope > .settings-section__desc",
+      HTMLElement,
+    );
+
+    expect(languageRow.textContent).toContain("Default: Deutsch (German)");
+    expect(languageRow.textContent).toContain("Stored in this browser only");
+    expect(languageRow.textContent).not.toContain("Synced across your devices");
+    expect(
+      (
+        languageRow.querySelector('wa-option[value="fr"]') as HTMLElement & {
+          selected: boolean;
+        }
+      ).selected,
+    ).toBe(true);
+    expect(themeDescription.textContent).toContain("Default: Claw");
+    expect(themeDescription.textContent).toContain("Stored in this browser only");
+    expect(themeDescription.textContent).not.toContain("Synced across your devices");
+    expect(
+      themeSection.querySelector(".settings-theme-card--knot")?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    languageRow.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    themeSection
+      .querySelector<HTMLButtonElement>(
+        ":scope > .settings-section__header button[aria-label='Reset to default']",
+      )
+      ?.click();
+
+    expect(resetLocale).toHaveBeenCalledOnce();
+    expect(resetTheme).toHaveBeenCalledOnce();
   });
 
   it("labels synced and browser-only Chat preferences per row", () => {

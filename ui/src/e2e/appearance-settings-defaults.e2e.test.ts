@@ -342,4 +342,92 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       await context.close();
     }
   });
+
+  it("keeps rejected edits browser-local and resets them without another server write", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1440 },
+    });
+    const page = await context.newPage();
+    const initialPrefs = { locale: "en", theme: "claw" };
+    const gateway = await installMockGateway(page, {
+      methodResponses: {
+        "config.get": configResponse(initialPrefs, "appearance-rejected-1"),
+      },
+    });
+
+    try {
+      const response = await page.goto(`${server.baseUrl}settings/appearance`);
+      expect(response?.status()).toBe(200);
+      await waitForControlUiSettingsTakeover(page);
+      await gateway.waitForRequest("config.get");
+
+      const languageRow = page.locator("#settings-language .settings-row");
+      const languageSelect = languageRow.locator("wa-select");
+      const themeSection = page.locator("#settings-appearance-theme");
+      const themeDescription = themeSection.locator(":scope > .settings-section__desc");
+
+      await expect.poll(() => selectValue(languageSelect)).toBe("en");
+      await expect
+        .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
+        .toBe("true");
+
+      await gateway.deferNext("config.patch");
+      await themeSection.locator(".settings-theme-card--knot").click();
+      await waitForRequestCount(gateway, "config.patch", 1);
+      expect(
+        patchPrefs((await gateway.getRequests("config.patch"))[0] as MockGatewayRequest),
+      ).toEqual({ theme: "knot" });
+      await gateway.rejectDeferred("config.patch", {
+        code: "INVALID_REQUEST",
+        message: "mock validation failure",
+      });
+
+      await expect
+        .poll(() => themeSection.locator(".settings-theme-card--knot").getAttribute("aria-pressed"))
+        .toBe("true");
+      await expect.poll(() => themeDescription.textContent()).toContain("Default: Claw");
+      await expect
+        .poll(() => themeDescription.textContent())
+        .toContain("Stored in this browser only");
+
+      await gateway.deferNext("config.patch");
+      await languageSelect.evaluate((element) => {
+        const select = element as HTMLElement & { value: string };
+        select.value = "fr";
+        select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      });
+      await waitForRequestCount(gateway, "config.patch", 2);
+      expect(
+        patchPrefs((await gateway.getRequests("config.patch"))[1] as MockGatewayRequest),
+      ).toEqual({ locale: "fr" });
+      await gateway.rejectDeferred("config.patch", {
+        code: "INVALID_REQUEST",
+        message: "mock validation failure",
+      });
+
+      await expect.poll(() => selectValue(languageSelect)).toBe("fr");
+      await expect.poll(() => languageRow.textContent()).toContain("Par défaut : Anglais");
+      await expect
+        .poll(() => languageRow.textContent())
+        .toContain("Stocké uniquement dans ce navigateur");
+
+      await themeSection
+        .locator(":scope > .settings-section__header")
+        .locator("button.btn--icon")
+        .click();
+      await languageRow.locator("button.btn--icon").click();
+
+      await expect
+        .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
+        .toBe("true");
+      await expect.poll(() => selectValue(languageSelect)).toBe("en");
+      await expect.poll(() => page.locator("html").getAttribute("lang")).toBe("en");
+      await page.waitForTimeout(100);
+      expect(await gateway.getRequests("config.patch")).toHaveLength(2);
+    } finally {
+      await context.close();
+    }
+  });
 });

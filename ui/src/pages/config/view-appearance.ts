@@ -134,15 +134,30 @@ export function renderAppearanceSection(
     },
   ];
   const themeDefaultState = renderSettingsDefaultState({
-    value: t("configView.themes.claw.label"),
+    value:
+      themeOptions.find((option) => option.id === props.themeResetValue)?.label ??
+      t("configView.themes.claw.label"),
     overridden: props.themeOverridden,
     onReset: props.resetTheme,
   });
   const themeModeDefaultState = renderSettingsDefaultState({
-    value: t("common.system"),
+    value:
+      props.themeModeResetValue === "light"
+        ? t("common.light")
+        : props.themeModeResetValue === "dark"
+          ? t("common.dark")
+          : t("common.system"),
     overridden: props.themeModeOverridden,
     onReset: props.resetThemeMode,
   });
+  const themeProvenance =
+    props.themeProvenance === "device-local"
+      ? t("quickSettings.personal.browserOnly")
+      : t("configView.syncedHint");
+  const themeModeProvenance =
+    props.themeModeProvenance === "device-local"
+      ? t("quickSettings.personal.browserOnly")
+      : t("configView.syncedHint");
   const textScaleDefaultState = renderSettingsDefaultState({
     value: `${UI_APPEARANCE_DEFAULTS.textScale}%`,
     overridden: props.textScaleOverridden,
@@ -162,7 +177,7 @@ export function renderAppearanceSection(
         </div>
         <p class="settings-section__desc">
           ${t("configView.appearance.chooseTheme")} ${themeDefaultState.description}
-          ${t("configView.syncedHint")}
+          ${themeProvenance}
         </p>
         <div class="settings-group">
           <div class="settings-row settings-row--stacked">
@@ -203,7 +218,7 @@ export function renderAppearanceSection(
           </div>
           ${renderSettingsRow({
             title: t("common.colorMode"),
-            description: html`${themeModeDefaultState.description} ${t("configView.syncedHint")}`,
+            description: html`${themeModeDefaultState.description} ${themeModeProvenance}`,
             stacked: true,
             control: html`
               ${themeModeDefaultState.action}

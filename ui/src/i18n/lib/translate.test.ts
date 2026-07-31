@@ -89,6 +89,80 @@ describe("I18nManager pending locale retry", () => {
     expect(loadTranslation).not.toHaveBeenCalled();
   });
 
+  it("deduplicates an in-flight target and permits retry after the shared load settles", async () => {
+    const { internals, loadTranslation, manager } = createManager();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const firstLoad = deferred<TranslationMap | null>();
+    loadTranslation.mockReturnValueOnce(firstLoad.promise).mockResolvedValueOnce(german);
+
+    const first = manager.setLocale("de");
+    const second = manager.setLocale("de");
+
+    expect(loadTranslation).toHaveBeenCalledExactlyOnceWith("de");
+    firstLoad.reject(new Error("gateway unavailable"));
+    await Promise.all([first, second]);
+    expect(internals.pendingLocale).toBe("de");
+
+    manager.retryPendingLocale();
+    await vi.waitFor(() => expect(manager.getLocale()).toBe("de"));
+
+    expect(loadTranslation).toHaveBeenCalledTimes(2);
+    expect(internals.pendingLocale).toBeNull();
+  });
+
+  it("shares one successful in-flight load across same-target callers", async () => {
+    const { loadTranslation, manager } = createManager();
+    const localeLoad = deferred<TranslationMap | null>();
+    const subscriber = vi.fn();
+    manager.subscribe(subscriber);
+    loadTranslation.mockReturnValueOnce(localeLoad.promise);
+
+    const first = manager.setLocale("de");
+    const second = manager.setLocale("de");
+
+    expect(loadTranslation).toHaveBeenCalledExactlyOnceWith("de");
+    localeLoad.resolve(german);
+    await Promise.all([first, second]);
+
+    expect(manager.getLocale()).toBe("de");
+    expect(subscriber).toHaveBeenCalledExactlyOnceWith("de");
+  });
+
+  it("lets the latest System request clear persistence during a shared load", async () => {
+    const { loadTranslation, manager } = createManager();
+    vi.stubGlobal("navigator", { language: "de-DE" } as Navigator);
+    localStorage.setItem("openclaw.i18n.locale", "es");
+    const localeLoad = deferred<TranslationMap | null>();
+    loadTranslation.mockReturnValueOnce(localeLoad.promise);
+
+    const explicit = manager.setLocale("de");
+    const system = manager.useSystemLocale();
+
+    expect(loadTranslation).toHaveBeenCalledExactlyOnceWith("de");
+    localeLoad.resolve(german);
+    await Promise.all([explicit, system]);
+
+    expect(manager.getLocale()).toBe("de");
+    expect(localStorage.getItem("openclaw.i18n.locale")).toBeNull();
+  });
+
+  it("lets the latest explicit request persist during a shared System load", async () => {
+    const { loadTranslation, manager } = createManager();
+    vi.stubGlobal("navigator", { language: "de-DE" } as Navigator);
+    const localeLoad = deferred<TranslationMap | null>();
+    loadTranslation.mockReturnValueOnce(localeLoad.promise);
+
+    const system = manager.useSystemLocale();
+    const explicit = manager.setLocale("de");
+
+    expect(loadTranslation).toHaveBeenCalledExactlyOnceWith("de");
+    localeLoad.resolve(german);
+    await Promise.all([system, explicit]);
+
+    expect(manager.getLocale()).toBe("de");
+    expect(localStorage.getItem("openclaw.i18n.locale")).toBe("de");
+  });
+
   it("clears an abandoned pending target after another locale succeeds", async () => {
     const { internals, loadTranslation, manager } = createManager();
     vi.spyOn(console, "error").mockImplementation(() => {});

@@ -2,7 +2,7 @@ import { html } from "lit";
 import "../../components/web-awesome-select.ts";
 import { SUPPORTED_LOCALES, t, type Locale } from "../../i18n/index.ts";
 
-function languageLabel(locale: Locale) {
+export function languageLabel(locale: Locale) {
   const key = locale.replace(/-([a-zA-Z])/g, (_, character) => character.toUpperCase());
   return t(`languages.${key}`);
 }

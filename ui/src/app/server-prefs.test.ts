@@ -122,14 +122,20 @@ describe("server pref extraction", () => {
 
     expect(resolveServerUiPrefState(config, "theme")).toEqual({
       overridden: true,
+      provenance: "synced",
+      resetValue: "claw",
       value: "claw",
     });
     expect(resolveServerUiPrefState(config, "themeMode")).toEqual({
       overridden: true,
+      provenance: "synced",
+      resetValue: "system",
       value: "system",
     });
     expect(resolveServerUiPrefState(config, "chatSendShortcut")).toEqual({
       overridden: true,
+      provenance: "synced",
+      resetValue: "enter",
       value: "enter",
     });
   });
@@ -416,8 +422,55 @@ describe("pushServerUiPrefs", () => {
     expect(readPending(scope)).toEqual({ theme: null });
     expect(resolveServerUiPrefState(configWithPrefs({ theme: "claw" }), "theme", scope)).toEqual({
       overridden: false,
-      value: undefined,
+      provenance: "default",
+      resetValue: "claw",
+      value: "claw",
     });
+  });
+
+  it("retains rejected theme and locale edits as device-local state with local-only reset", async () => {
+    const scope = "ws://gw";
+    const config = configWithPrefs({ theme: "claw", locale: "de" });
+    applyServerUiPrefs(config, { scope, onApplied: vi.fn() });
+    const beforeLocalEdit = loadSettings();
+    const retained = patchSettings({ theme: "knot", locale: "fr" });
+    const prefs = changedServerUiPrefs(beforeLocalEdit, retained);
+    const afterCommit = vi.fn();
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => {
+      throw new Error("invalid config");
+    });
+
+    pushServerUiPrefs(createClient(request, scope), prefs ?? {}, { afterCommit });
+
+    await vi.waitFor(() =>
+      expect(afterCommit).toHaveBeenCalledWith({
+        needsRefresh: false,
+        retainedLocal: true,
+      }),
+    );
+    const themeState = resolveServerUiPrefState(config, "theme", scope);
+    const localeState = resolveServerUiPrefState(config, "locale", scope);
+    expect(themeState).toEqual({
+      overridden: true,
+      provenance: "device-local",
+      resetValue: "claw",
+      value: "knot",
+    });
+    expect(localeState).toEqual({
+      overridden: true,
+      provenance: "device-local",
+      resetValue: "de",
+      value: "fr",
+    });
+
+    const beforeThemeReset = loadSettings();
+    const themeReset = resetServerUiPref("theme", themeState);
+    expect(changedServerUiPrefs(beforeThemeReset, themeReset)).toBeNull();
+    expect(themeReset.theme).toBe("claw");
+    const beforeLocaleReset = loadSettings();
+    const localeReset = resetServerUiPref("locale", localeState);
+    expect(changedServerUiPrefs(beforeLocaleReset, localeReset)).toBeNull();
+    expect(localeReset.locale).toBe("de");
   });
 
   it("sends one hash-free patch and acknowledges lastSeen plus pending", async () => {

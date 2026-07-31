@@ -2,6 +2,7 @@ import type { SystemInfoResult } from "../../../../packages/gateway-protocol/src
 import type { QueueMode } from "../../../../src/auto-reply/reply/queue/types.js";
 import type { ConfigUiHints, ModelCatalogEntry } from "../../api/types.ts";
 import type { NativeNotificationsPermission } from "../../app/native-notifications.ts";
+import type { ServerUiPrefProvenance } from "../../app/server-prefs.ts";
 import type { ChatFollowUpMode, ChatSendShortcut, CatalogOpenTarget } from "../../app/settings.ts";
 import type { ThemeTransitionContext } from "../../app/theme-transition.ts";
 import type { ThemeMode, ThemeName } from "../../app/theme.ts";
@@ -89,10 +90,17 @@ export type ConfigProps = {
   version: string;
   theme: ThemeName;
   themeOverridden: boolean;
+  themeProvenance: ServerUiPrefProvenance;
+  themeResetValue: ThemeName;
   themeMode: ThemeMode;
   themeModeOverridden: boolean;
+  themeModeProvenance: ServerUiPrefProvenance;
+  themeModeResetValue: ThemeMode;
   systemLocale: Locale;
   localeOverride?: Locale;
+  localeOverridden: boolean;
+  localeProvenance: ServerUiPrefProvenance;
+  localeResetValue?: Locale;
   onLocaleChange: (locale: Locale | undefined) => void;
   resetLocale: () => void;
   setTheme: (theme: ThemeName, context?: ThemeTransitionContext) => void;
@@ -139,6 +147,8 @@ export type ConfigProps = {
   onOpenLobsterdex?: () => void;
   chatSendShortcut: ChatSendShortcut;
   chatSendShortcutOverridden: boolean;
+  chatSendShortcutProvenance: ServerUiPrefProvenance;
+  chatSendShortcutResetValue: ChatSendShortcut;
   setChatSendShortcut: (value: ChatSendShortcut) => void;
   resetChatSendShortcut: () => void;
   chatFollowUpMode: ChatFollowUpMode | undefined;

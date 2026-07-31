@@ -23,7 +23,7 @@ import {
   renderSettingsToggleRow,
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
-import { renderLanguageSelect } from "./language-select.ts";
+import { languageLabel, renderLanguageSelect } from "./language-select.ts";
 import { renderSessionObserverSettings } from "./session-observer-settings.ts";
 import { renderSettingsSelectRow } from "./settings-select-row.ts";
 import { APPEARANCE_SETTINGS_TARGET_IDS } from "./settings-targets.ts";
@@ -31,10 +31,14 @@ import type { ConfigProps } from "./view-types.ts";
 
 export function renderLanguageSection(props: ConfigProps) {
   const defaultState = renderSettingsDefaultState({
-    value: t("common.system"),
-    overridden: props.localeOverride !== undefined,
+    value: props.localeResetValue ? languageLabel(props.localeResetValue) : t("common.system"),
+    overridden: props.localeOverridden,
     onReset: props.resetLocale,
   });
+  const provenance =
+    props.localeProvenance === "device-local"
+      ? t("quickSettings.personal.browserOnly")
+      : t("configView.syncedHint");
   return html`
     <section id=${APPEARANCE_SETTINGS_TARGET_IDS.language} class="settings-section">
       <div class="settings-section__header">
@@ -43,7 +47,7 @@ export function renderLanguageSection(props: ConfigProps) {
       <div class="settings-group">
         ${renderSettingsRow({
           title: t("quickSettings.language"),
-          description: html`${defaultState.description} ${t("configView.syncedHint")}`,
+          description: html`${defaultState.description} ${provenance}`,
           control: html`
             ${defaultState.action}
             ${renderLanguageSelect(props.localeOverride, props.systemLocale, props.onLocaleChange)}
@@ -182,10 +186,17 @@ export function renderChatPreferencesSection(
     onReset: () => props.setChatMessageMaxWidth(undefined),
   });
   const sendShortcutDefaultState = renderSettingsDefaultState({
-    value: t("chat.sendShortcutEnter"),
+    value:
+      props.chatSendShortcutResetValue === "modifier-enter"
+        ? t("chat.sendShortcutModifierEnter")
+        : t("chat.sendShortcutEnter"),
     overridden: props.chatSendShortcutOverridden,
     onReset: props.resetChatSendShortcut,
   });
+  const sendShortcutProvenance =
+    props.chatSendShortcutProvenance === "device-local"
+      ? t("quickSettings.personal.browserOnly")
+      : t("configView.syncedHint");
   const catalogTargetDefaultState = renderSettingsDefaultState({
     value: t("chat.catalogOpenTargetViewer"),
     overridden: props.catalogOpenTarget !== UI_APPEARANCE_DEFAULTS.catalogOpenTarget,
@@ -214,7 +225,7 @@ export function renderChatPreferencesSection(
           title: t("chat.sendShortcut"),
           value: props.chatSendShortcut,
           setting: "send-shortcut",
-          description: html`${sendShortcutDefaultState.description} ${t("configView.syncedHint")}`,
+          description: html`${sendShortcutDefaultState.description} ${sendShortcutProvenance}`,
           actions: sendShortcutDefaultState.action,
           options: [
             { value: "enter", label: t("chat.sendShortcutEnter") },
