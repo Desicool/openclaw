@@ -103,7 +103,7 @@ const SYNCED_PREFS = {
   }),
 } as const;
 type SyncedPrefKey = keyof typeof SYNCED_PREFS;
-export type ResettableServerUiPrefKey =
+type ResettableServerUiPrefKey =
   | "theme"
   | "themeMode"
   | "locale"
