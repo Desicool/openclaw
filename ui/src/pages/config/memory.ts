@@ -96,6 +96,7 @@ const MEMORY_PANEL_ID = "memory-settings-panel";
 const MEMORY_DOCS_URL = "https://docs.openclaw.ai/concepts/memory";
 
 const MEMORY_ENGINE_OFF = "";
+const MEMORY_BACKEND_INVALID = "__invalid__";
 
 function engineHintKey(selection: MemoryEngineSelection): string {
   switch (selection.kind) {
@@ -208,13 +209,23 @@ function renderBackendSection(props: MemoryViewProps) {
   if (props.backendSelection === null) {
     return nothing;
   }
+  const invalid = props.backendSelection.kind === "invalid";
   const backend = props.backendSelection.backend;
   const defaultState = renderSettingsDefaultState({
     value: t("memoryPage.backend.builtin"),
-    overridden: props.backendSelection.kind === "pinned",
+    overridden: props.backendSelection.kind !== "default",
     disabled: props.backendBusy,
     onReset: props.onBackendReset,
   });
+  const controlValue = invalid ? MEMORY_BACKEND_INVALID : backend;
+  const options: Array<{
+    value: MemoryBackend | typeof MEMORY_BACKEND_INVALID;
+    label: unknown;
+  }> = [
+    ...(invalid ? [{ value: MEMORY_BACKEND_INVALID, label: t("memoryPage.backend.invalid") }] : []),
+    { value: "builtin", label: t("memoryPage.backend.builtin") },
+    { value: "qmd", label: t("memoryPage.backend.qmd") },
+  ];
   // Anchor target for settings search: `backend` is curated out of the schema
   // editor, so it has no `#config-section-*` id of its own to scroll to.
   return html`<div id=${MEMORY_BACKEND_ANCHOR_ID}>
@@ -223,23 +234,26 @@ function renderBackendSection(props: MemoryViewProps) {
       renderSettingsRow({
         title: t("memoryPage.backend.rowTitle"),
         description: html`
-          ${backend === "qmd"
-            ? t("memoryPage.backend.qmdHint")
-            : t("memoryPage.backend.builtinHint")}
+          ${invalid
+            ? t("memoryPage.backend.invalidHint")
+            : backend === "qmd"
+              ? t("memoryPage.backend.qmdHint")
+              : t("memoryPage.backend.builtinHint")}
           ${defaultState.description}
         `,
         stacked: true,
         control: html`
           ${defaultState.action}
-          ${renderSettingsSegmented<MemoryBackend>({
-            value: backend,
-            options: [
-              { value: "builtin", label: t("memoryPage.backend.builtin") },
-              { value: "qmd", label: t("memoryPage.backend.qmd") },
-            ],
+          ${renderSettingsSegmented<MemoryBackend | typeof MEMORY_BACKEND_INVALID>({
+            value: controlValue,
+            options,
             disabled: props.backendBusy,
             ariaLabel: t("memoryPage.backend.rowTitle"),
-            onChange: (value) => props.onBackendChange(value),
+            onChange: (value) => {
+              if (value !== MEMORY_BACKEND_INVALID) {
+                props.onBackendChange(value);
+              }
+            },
           })}
         `,
       }),

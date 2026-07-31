@@ -15,7 +15,8 @@ export type MemoryTab = MemoryRouteTab;
 export type MemoryBackend = "builtin" | "qmd";
 export type MemoryBackendSelection =
   | { kind: "default"; backend: "builtin" }
-  | { kind: "pinned"; backend: MemoryBackend };
+  | { kind: "pinned"; backend: MemoryBackend }
+  | { kind: "invalid"; backend: null; value: unknown };
 
 /**
  * How `plugins.slots.memory` reads today, mirroring resolveSlotSelection in
@@ -147,10 +148,14 @@ export function resolveMemoryBackendSelection(
   if (selectedEngineId(resolveMemoryEngineSelection(configObject)) !== MEMORY_CORE_PLUGIN_ID) {
     return null;
   }
-  const backend = asConfigRecord(configObject.memory)?.backend;
+  const memory = asConfigRecord(configObject.memory);
+  if (!memory || !Object.hasOwn(memory, "backend")) {
+    return { kind: "default", backend: "builtin" };
+  }
+  const backend = memory.backend;
   return backend === "builtin" || backend === "qmd"
     ? { kind: "pinned", backend }
-    : { kind: "default", backend: "builtin" };
+    : { kind: "invalid", backend: null, value: backend };
 }
 
 export function resolveMemoryBackend(configObject: Record<string, unknown>): MemoryBackend | null {

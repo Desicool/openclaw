@@ -245,6 +245,27 @@ describe("renderMemory", () => {
     expect(backendRow?.querySelector('button[aria-label="Reset to default"]')).not.toBeNull();
   });
 
+  it("keeps a malformed explicit backend visible and repairable", () => {
+    const onBackendReset = vi.fn();
+    const container = renderInto(
+      createProps({
+        backendSelection: { kind: "invalid", backend: null, value: "retired-backend" },
+        onBackendReset,
+      }),
+    );
+    const backendRow = [...container.querySelectorAll(".settings-row")].find((row) =>
+      row.textContent?.includes("Retrieval backend"),
+    );
+    const active = backendRow?.querySelector("wa-radio.settings-segmented__btn--active");
+
+    expect(backendRow?.textContent).toContain("Invalid configured value");
+    expect(backendRow?.textContent).toContain("Default: Built-in");
+    expect(backendRow?.textContent).not.toContain("Using default: Built-in");
+    expect(active?.getAttribute("value")).toBe("__invalid__");
+    backendRow?.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    expect(onBackendReset).toHaveBeenCalledOnce();
+  });
+
   it("routes engine and backend restore actions to their reset callbacks", () => {
     const onEngineReset = vi.fn();
     const onBackendReset = vi.fn();
@@ -495,6 +516,14 @@ describe("resolveMemoryBackend", () => {
       kind: "pinned",
       backend: "qmd",
     });
+    for (const value of ["retired-backend", null, { name: "qmd" }]) {
+      expect(resolveMemoryBackendSelection({ memory: { backend: value } })).toEqual({
+        kind: "invalid",
+        backend: null,
+        value,
+      });
+    }
+    expect(resolveMemoryBackend({ memory: { backend: "retired-backend" } })).toBeNull();
   });
 });
 

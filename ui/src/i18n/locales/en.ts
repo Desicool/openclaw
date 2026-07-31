@@ -2448,8 +2448,11 @@ export const en: TranslationMap = {
       rowTitle: "Retrieval backend",
       builtin: "Built-in",
       qmd: "QMD",
+      invalid: "Invalid configured value",
       builtinHint: "Memory files are indexed and searched by OpenClaw itself.",
       qmdHint: "Retrieval is delegated to QMD. Its settings appear below.",
+      invalidHint:
+        "The configured memory.backend value is invalid. Choose a backend or reset it to use the default.",
     },
     addons: {
       title: "Add-ons",

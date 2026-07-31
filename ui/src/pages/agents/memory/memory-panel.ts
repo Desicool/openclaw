@@ -466,7 +466,10 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     const dreaming = this.dreaming;
     const configState = this.context.runtimeConfig.state;
     const configuredDreaming = resolveConfiguredDreaming(currentConfigObject(configState));
-    const dreamingOn = dreaming.dreamingStatus?.enabled ?? configuredDreaming.enabled;
+    // The status RPC can complete after config switches the engine Off. Keep the
+    // cached payload for a future refresh, but never present it as current runtime state.
+    const dreamingStatus = configuredDreaming.engineOff ? null : dreaming.dreamingStatus;
+    const dreamingOn = dreamingStatus?.enabled ?? configuredDreaming.enabled;
     const loading = dreaming.dreamingStatusLoading || dreaming.dreamingModeSaving;
     const defaultState = renderSettingsDefaultState({
       value: t("common.enabled"),
@@ -511,16 +514,16 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         viewState: this.viewState,
         active: dreamingOn,
         selectedAgentId,
-        shortTermCount: dreaming.dreamingStatus?.shortTermCount ?? 0,
-        groundedSignalCount: dreaming.dreamingStatus?.groundedSignalCount ?? 0,
-        totalSignalCount: dreaming.dreamingStatus?.totalSignalCount ?? 0,
-        promotedCount: dreaming.dreamingStatus?.promotedToday ?? 0,
-        phases: dreaming.dreamingStatus?.phases ?? undefined,
-        shortTermEntries: dreaming.dreamingStatus?.shortTermEntries ?? [],
-        promotedEntries: dreaming.dreamingStatus?.promotedEntries ?? [],
+        shortTermCount: dreamingStatus?.shortTermCount ?? 0,
+        groundedSignalCount: dreamingStatus?.groundedSignalCount ?? 0,
+        totalSignalCount: dreamingStatus?.totalSignalCount ?? 0,
+        promotedCount: dreamingStatus?.promotedToday ?? 0,
+        phases: dreamingStatus?.phases ?? undefined,
+        shortTermEntries: dreamingStatus?.shortTermEntries ?? [],
+        promotedEntries: dreamingStatus?.promotedEntries ?? [],
         dreamingOf: null,
-        nextCycle: resolveDreamingNextCycle(dreaming.dreamingStatus),
-        timezone: dreaming.dreamingStatus?.timezone ?? null,
+        nextCycle: resolveDreamingNextCycle(dreamingStatus),
+        timezone: dreamingStatus?.timezone ?? null,
         statusLoading: dreaming.dreamingStatusLoading,
         statusError: dreaming.dreamingStatusError,
         modeSaving: dreaming.dreamingModeSaving,

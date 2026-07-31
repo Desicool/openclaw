@@ -366,6 +366,57 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
     expect(container.querySelector('button[aria-label="Reset to default"]')).not.toBeNull();
   });
 
+  it("does not present cached runtime status after the memory engine switches Off", () => {
+    const context = contextWithGateway({} as GatewayBrowserClient, true, {
+      plugins: { slots: { memory: "none" } },
+    });
+    const page = document.createElement("openclaw-agent-memory-panel") as TestMemoryPanel;
+    page.context = context;
+    page.agentId = "main";
+    page.dreaming.dreamingStatus = {
+      enabled: true,
+      promotedToday: 7,
+      timezone: "Mars/Base",
+      phases: {
+        light: { enabled: true, cron: "* * * * *", managedCronPresent: true },
+        deep: {
+          enabled: true,
+          cron: "* * * * *",
+          managedCronPresent: true,
+          limit: 1,
+          minScore: 0,
+          minRecallCount: 0,
+          minUniqueQueries: 0,
+          recencyHalfLifeDays: 1,
+        },
+        rem: {
+          enabled: true,
+          cron: "* * * * *",
+          managedCronPresent: true,
+          lookbackDays: 1,
+          limit: 1,
+          minPatternStrength: 0,
+        },
+      },
+    } as NonNullable<DreamingState["dreamingStatus"]>;
+    const container = document.createElement("div");
+
+    render(page.render(), container);
+
+    const toggle = container.querySelector<HTMLButtonElement>(".dreams__phase-toggle");
+    expect(toggle?.textContent).toContain("Off");
+    expect(toggle?.classList.contains("dreams__phase-toggle--on")).toBe(false);
+    expect(container.querySelector(".dreams__status-label")?.textContent).toContain("Idle");
+    expect(container.textContent).toContain("0 promoted");
+    expect(container.textContent).not.toContain("7 promoted");
+    expect(container.textContent).not.toContain("Mars/Base");
+    expect(
+      [...container.querySelectorAll(".dreams__phase-next")].every(
+        (phase) => phase.textContent?.trim() === "—",
+      ),
+    ).toBe(true);
+  });
+
   it("omits default provenance and reset when engine Off has no latent override", () => {
     const context = contextWithGateway({} as GatewayBrowserClient, true, {
       plugins: { slots: { memory: "none" } },
