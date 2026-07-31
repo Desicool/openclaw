@@ -10,7 +10,11 @@ const gatewayMocks = vi.hoisted(() => ({
   busSendTyping: vi.fn(async () => undefined),
   sendBuzzTextOneShot: vi.fn(async () => "standalone-event-id"),
   onMessage: undefined as
-    | ((message: import("./message-event.js").BuzzInboundMessage, bus: BuzzBus) => Promise<void>)
+    | ((
+        message: import("./message-event.js").BuzzInboundMessage,
+        bus: BuzzBus,
+        signal: AbortSignal,
+      ) => Promise<void>)
     | undefined,
   onMessageError: undefined as ((error: Error) => void) | undefined,
   onFatalError: undefined as ((error: Error) => void) | undefined,
@@ -83,6 +87,7 @@ describe("Buzz gateway lifecycle", () => {
         onMessage: (
           message: import("./message-event.js").BuzzInboundMessage,
           bus: BuzzBus,
+          signal: AbortSignal,
         ) => Promise<void>;
         onMessageError?: (error: Error) => void;
         onFatalError?: (error: Error) => void;

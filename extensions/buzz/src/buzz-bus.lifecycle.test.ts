@@ -108,7 +108,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
   };
 });
 
-import { sendBuzzTextOneShot, startBuzzBus } from "./buzz-bus.js";
+import { sendBuzzTextOneShot, startBuzzBus, type BuzzBus } from "./buzz-bus.js";
 import {
   BUZZ_DIFF_MESSAGE_KIND,
   BUZZ_INBOUND_MESSAGE_KINDS,
@@ -490,6 +490,49 @@ describe("Buzz bus lifecycle", () => {
     releaseMessages?.();
     await Promise.all(onMessage.mock.results.map((result) => result.value));
     await close;
+    expect(relayMocks.close).toHaveBeenCalledOnce();
+  });
+
+  it("aborts active inbound dispatch before waiting for bus shutdown", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.roomHistoryEvents = [
+      {
+        id: "d".repeat(64),
+        kind: 9,
+        pubkey: SENDER_PUBLIC_KEY,
+        created_at: 1_700_000_000,
+        content: "historical message",
+        sig: "e".repeat(128),
+        tags: [["h", CHANNEL_ID]],
+      },
+    ];
+    let dispatchSignal: AbortSignal | undefined;
+    const onMessage = vi.fn(
+      async (_message: BuzzInboundMessage, _bus: BuzzBus, signal: AbortSignal) => {
+        dispatchSignal = signal;
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage,
+    });
+
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledOnce());
+    expect(dispatchSignal?.aborted).toBe(false);
+
+    await bus.close();
+
+    expect(dispatchSignal?.aborted).toBe(true);
     expect(relayMocks.close).toHaveBeenCalledOnce();
   });
 

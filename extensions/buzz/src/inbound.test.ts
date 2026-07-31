@@ -55,6 +55,10 @@ function createMessage(overrides: Partial<BuzzInboundMessage> = {}): BuzzInbound
   };
 }
 
+function createSignal(): AbortSignal {
+  return new AbortController().signal;
+}
+
 function createBus(): BuzzBus {
   return {
     publicKey: BOT_PUBLIC_KEY,
@@ -88,15 +92,18 @@ describe("handleBuzzInbound", () => {
   it("accepts a native Nostr public-key mention", async () => {
     const runtime = createPluginRuntimeMock();
     setBuzzRuntime(runtime);
+    const signal = createSignal();
 
     await handleBuzzInbound({
       account: createAccount(),
       cfg: {} satisfies OpenClawConfig,
       bus: createBus(),
       message: createMessage({ mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+      signal,
     });
 
     expect(runtime.channel.inbound.dispatch).toHaveBeenCalledTimes(1);
+    expect(firstDispatch(runtime).replyOptions?.abortSignal).toBe(signal);
     expect(firstDispatch(runtime).ctxPayload).toMatchObject({
       WasMentioned: true,
       SenderId: SENDER_PUBLIC_KEY,
@@ -158,6 +165,7 @@ describe("handleBuzzInbound", () => {
       cfg: {} satisfies OpenClawConfig,
       bus,
       message: createMessage(),
+      signal: createSignal(),
     });
 
     expect(firstDispatch(runtime).ctxPayload).toMatchObject({
@@ -178,6 +186,7 @@ describe("handleBuzzInbound", () => {
       cfg: {} satisfies OpenClawConfig,
       bus: createBus(),
       message: createMessage({ text: "@openclaw status" }),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.inbound.dispatch).toHaveBeenCalledTimes(1);
@@ -193,6 +202,7 @@ describe("handleBuzzInbound", () => {
       cfg: {} satisfies OpenClawConfig,
       bus: createBus(),
       message: createMessage(),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
@@ -210,6 +220,7 @@ describe("handleBuzzInbound", () => {
       cfg: {} satisfies OpenClawConfig,
       bus: createBus(),
       message: createMessage({ mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
@@ -231,6 +242,7 @@ describe("handleBuzzInbound", () => {
       message: createMessage({
         text: "/status",
       }),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.inbound.dispatch).toHaveBeenCalledTimes(1);
@@ -251,6 +263,7 @@ describe("handleBuzzInbound", () => {
       cfg: {} satisfies OpenClawConfig,
       bus: createBus(),
       message: createMessage({ text: "/status" }),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
@@ -270,6 +283,7 @@ describe("handleBuzzInbound", () => {
         threadId: "event-root",
         mentionedPubkeys: [BOT_PUBLIC_KEY],
       }),
+      signal: createSignal(),
     });
 
     const dispatch = firstDispatch(runtime);
@@ -327,6 +341,7 @@ describe("handleBuzzInbound", () => {
           truncated: true,
         },
       }),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.commands.shouldComputeCommandAuthorized).not.toHaveBeenCalled();
@@ -365,6 +380,7 @@ describe("handleBuzzInbound", () => {
           truncated: false,
         },
       }),
+      signal: createSignal(),
     });
 
     expect(runtime.channel.mentions.matchesMentionPatterns).not.toHaveBeenCalled();
@@ -380,6 +396,7 @@ describe("handleBuzzInbound", () => {
       cfg: {} satisfies OpenClawConfig,
       bus: createBus(),
       message: createMessage({ mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+      signal: createSignal(),
     });
 
     const dispatch = firstDispatch(runtime);

@@ -97,12 +97,12 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
         channelIds,
         since: sessionSince,
         signal: ctx.abortSignal,
-        onMessage: async (message, sessionBus) => {
+        onMessage: async (message, sessionBus, signal) => {
           // Subscription filters reduce traffic, but relay events remain untrusted.
           if (!isConfiguredBuzzChannel(configuredChannelIds, message.channelId)) {
             return;
           }
-          await handleBuzzInbound({ account, cfg: ctx.cfg, bus: sessionBus, message });
+          await handleBuzzInbound({ account, cfg: ctx.cfg, bus: sessionBus, message, signal });
         },
         onMessageError: (error) => {
           ctx.log?.error?.(`[${account.accountId}] Buzz message failed: ${error.message}`);

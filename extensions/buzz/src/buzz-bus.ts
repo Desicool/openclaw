@@ -510,7 +510,7 @@ export async function startBuzzBus(options: {
   authTag?: string;
   channelIds: string[];
   since?: number;
-  onMessage: (message: BuzzInboundMessage, bus: BuzzBus) => Promise<void>;
+  onMessage: (message: BuzzInboundMessage, bus: BuzzBus, signal: AbortSignal) => Promise<void>;
   onMessageError?: (error: Error) => void;
   onFatalError?: (error: Error) => void;
   onDedupeError?: (error: Error) => void;
@@ -578,6 +578,7 @@ export async function startBuzzBus(options: {
       await directoryRelay?.refreshRooms(options.channelIds);
     },
     sendText: async ({ channelId, text, threadId, replyToId }) => {
+      signal.throwIfAborted();
       const event = buildBuzzTextEvent({ secretKey, channelId, text, threadId, replyToId });
       await relay.publish(event);
       return event.id;
@@ -597,10 +598,10 @@ export async function startBuzzBus(options: {
       await relay.send(JSON.stringify(["EVENT", event]));
     },
     close: async () => {
-      // A replacement bus must not overlap handlers admitted by this relay
-      // generation. Let those handlers finish while their reply socket is live.
-      await dispatchQueue.close();
       lifecycleAbort.abort(new Error("Buzz bus closed"));
+      // Agent turns receive this generation signal. Abort them before draining
+      // so reconnect and Gateway shutdown do not wait on stale work.
+      await dispatchQueue.close();
       stopPresenceHeartbeat();
       directoryRelay?.close();
       replayGuard.clearMemory();
@@ -630,7 +631,7 @@ export async function startBuzzBus(options: {
         // only by active workers, so replay cannot create unbounded in-flight state.
         const admission = dispatchQueue.enqueue(async () => {
           await replayGuard.processGuarded(event, async () => {
-            await options.onMessage(message, bus);
+            await options.onMessage(message, bus, signal);
           });
         });
         if (admission === "overflow") {
@@ -722,8 +723,8 @@ export async function startBuzzBus(options: {
   } catch (error) {
     // Every failed startup must release the socket before ownership returns to
     // the gateway-level reconnect loop.
-    await dispatchQueue.close();
     lifecycleAbort.abort(error);
+    await dispatchQueue.close();
     directoryRelay?.close();
     relay.close();
     throw error;

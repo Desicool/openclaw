@@ -22,9 +22,10 @@ export async function handleBuzzInbound(params: {
   cfg: OpenClawConfig;
   bus: BuzzBus;
   message: BuzzInboundMessage;
+  signal: AbortSignal;
 }) {
   const runtime = getBuzzRuntime();
-  const { account, cfg, bus, message } = params;
+  const { account, cfg, bus, message, signal } = params;
   const channelId = parseBuzzTarget(message.channelId);
   const target = buildBuzzTarget(channelId);
   const textForAgent = formatBuzzMessageForAgent(message);
@@ -160,6 +161,9 @@ export async function handleBuzzInbound(params: {
       onError: (error) => {
         throw error instanceof Error ? error : new Error(String(error));
       },
+    },
+    replyOptions: {
+      abortSignal: signal,
     },
     replyPipeline: {
       typing: {
