@@ -231,9 +231,10 @@ describe("config form scalar integrity", () => {
       container.querySelector<HTMLButtonElement>("button[aria-label='Reset to default']"),
       "number reset",
     ).click();
-    expect(onPatch).toHaveBeenCalledWith(["retries"], undefined);
-    expect(onRemove).not.toHaveBeenCalled();
+    expect(onRemove).toHaveBeenCalledWith(["retries"]);
+    expect(onPatch).not.toHaveBeenCalled();
 
+    onRemove.mockClear();
     render(
       renderSelect({
         schema: { type: "string", default: "balanced" },
@@ -257,7 +258,8 @@ describe("config form scalar integrity", () => {
     expect(select.selectedOptions[0]?.textContent?.trim()).toBe("fast");
     select.value = "__unset__";
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(onPatch).toHaveBeenCalledWith(["mode"], undefined);
+    expect(onRemove).toHaveBeenCalledWith(["mode"]);
+    expect(onPatch).not.toHaveBeenCalled();
 
     render(
       renderSelect({

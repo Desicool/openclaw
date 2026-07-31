@@ -286,7 +286,7 @@ export function renderSchemaDefaultDescription(
 export function renderRestoreDefaultButton(
   params: Pick<
     ConfigNodeRenderParams,
-    "schema" | "value" | "path" | "disabled" | "isRequired" | "onPatch"
+    "schema" | "value" | "path" | "disabled" | "isRequired" | "onPatch" | "onRemove"
   >,
 ): TemplateResult | typeof nothing {
   if (params.schema.default === undefined || params.value === undefined) {
@@ -303,6 +303,10 @@ export function renderRestoreDefaultButton(
           event.stopPropagation();
           if (params.isRequired) {
             params.onPatch(params.path, structuredClone(params.schema.default));
+            return;
+          }
+          if (params.onRemove) {
+            params.onRemove(params.path);
             return;
           }
           params.onPatch(params.path, undefined);

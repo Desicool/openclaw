@@ -194,6 +194,7 @@ describe("config form collection defaults", () => {
   it("shows and restores a top-level object default without nesting the section", () => {
     const container = document.createElement("div");
     const onPatch = vi.fn();
+    const onRemove = vi.fn();
     const schema = {
       type: "object" as const,
       title: "Settings",
@@ -213,6 +214,7 @@ describe("config form collection defaults", () => {
           unsupported: new Set(),
           disabled: false,
           onPatch,
+          onRemove,
         },
         renderNode,
       ),
@@ -222,9 +224,11 @@ describe("config form collection defaults", () => {
     expect(container.textContent).toContain('Default: {"mode":"balanced"}');
     expect(container.querySelector("details")).toBeNull();
     resetButton(container).click();
-    expect(onPatch).toHaveBeenCalledWith(["settings"], undefined);
+    expect(onRemove).toHaveBeenCalledWith(["settings"]);
+    expect(onPatch).not.toHaveBeenCalled();
 
     onPatch.mockClear();
+    onRemove.mockClear();
     render(
       renderObject(
         {
@@ -235,6 +239,7 @@ describe("config form collection defaults", () => {
           unsupported: new Set(),
           disabled: false,
           onPatch,
+          onRemove,
         },
         renderNode,
       ),
@@ -249,6 +254,7 @@ describe("config form collection defaults", () => {
         .placeholder,
     ).toBe("Default: balanced");
     expect(onPatch).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
   });
 
   it("conceals a sensitive top-level object default", () => {

@@ -494,7 +494,9 @@ export function renderSelect(
           const accepted =
             params.isRequired && schema.default !== undefined
               ? onPatch(path, structuredClone(schema.default))
-              : onPatch(path, undefined);
+              : params.onRemove
+                ? params.onRemove(path)
+                : onPatch(path, undefined);
           if (accepted === false) {
             target.value = selectedValue;
           }
