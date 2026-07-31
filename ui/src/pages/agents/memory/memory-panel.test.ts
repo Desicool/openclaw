@@ -94,6 +94,7 @@ function contextWithGateway(
       removeFormValue: vi.fn(),
       waitForPendingWrites: vi.fn(async () => undefined),
       save: vi.fn(async () => true),
+      patch: vi.fn(async () => true),
       subscribe,
     },
   } as unknown as ApplicationContext;
@@ -266,19 +267,22 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
       overridden: true,
     });
 
-    expect(context.runtimeConfig.removeFormValue).toHaveBeenCalledWith([
-      "plugins",
-      "entries",
-      "memory-core",
-      "config",
-      "dreaming",
-      "enabled",
-    ]);
-    expect(context.runtimeConfig.save).toHaveBeenCalledOnce();
+    expect(context.runtimeConfig.patch).toHaveBeenCalledWith({
+      raw: {
+        plugins: {
+          entries: {
+            "memory-core": { config: { dreaming: { enabled: null } } },
+          },
+        },
+      },
+      note: "Dreaming settings reset to the plugin default.",
+    });
+    expect(context.runtimeConfig.removeFormValue).not.toHaveBeenCalled();
+    expect(context.runtimeConfig.save).not.toHaveBeenCalled();
     expect(context.runtimeConfig.refresh).toHaveBeenCalledOnce();
   });
 
-  it("does not refresh the stale override when saving a reset fails", async () => {
+  it("does not refresh the stale override when the minimal reset patch fails", async () => {
     const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
     const context = contextWithGateway(client, true, {
       plugins: {
@@ -287,7 +291,7 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
         },
       },
     });
-    vi.mocked(context.runtimeConfig.save).mockResolvedValue(false);
+    vi.mocked(context.runtimeConfig.patch).mockResolvedValue(false);
     const page = createPage(context);
     document.body.append(page);
     await page.updateComplete;
@@ -298,8 +302,9 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
       overridden: true,
     });
 
-    expect(context.runtimeConfig.removeFormValue).toHaveBeenCalledOnce();
-    expect(context.runtimeConfig.save).toHaveBeenCalledOnce();
+    expect(context.runtimeConfig.patch).toHaveBeenCalledOnce();
+    expect(context.runtimeConfig.removeFormValue).not.toHaveBeenCalled();
+    expect(context.runtimeConfig.save).not.toHaveBeenCalled();
     expect(context.runtimeConfig.refresh).not.toHaveBeenCalled();
   });
 

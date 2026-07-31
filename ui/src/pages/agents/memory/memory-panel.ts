@@ -376,15 +376,16 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     const { pluginId } = resolveConfiguredDreaming(currentConfigObject(runtimeConfig.state));
     this.dreaming.dreamingModeSaving = true;
     try {
-      runtimeConfig.removeFormValue([
-        "plugins",
-        "entries",
-        pluginId,
-        "config",
-        "dreaming",
-        "enabled",
-      ]);
-      const saved = await runtimeConfig.save();
+      const saved = await runtimeConfig.patch({
+        raw: {
+          plugins: {
+            entries: {
+              [pluginId]: { config: { dreaming: { enabled: null } } },
+            },
+          },
+        },
+        note: "Dreaming settings reset to the plugin default.",
+      });
       return (
         saved && this.isTaskScopeCurrent(scope) && this.context.runtimeConfig === runtimeConfig
       );

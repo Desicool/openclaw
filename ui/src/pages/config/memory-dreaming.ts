@@ -276,6 +276,13 @@ function normalizeStorageMode(value: unknown): StorageMode {
   return STORAGE_MODES.find((mode) => mode === value) ?? DEFAULT_STORAGE_MODE;
 }
 
+function resolveDreamingModelDefault(dreaming: Record<string, unknown> | null): string {
+  const model = readAtPath(dreaming, ["execution", "defaults", "model"]);
+  return typeof model === "string" && model.trim()
+    ? model.trim()
+    : t("memoryPage.dreaming.model.default");
+}
+
 /** Parses an edited number against its manifest bounds; null means "do not write". */
 function parseDreamingNumber(raw: string, bounds: DreamingNumberBounds): number | null {
   const parsed = Number(raw);
@@ -305,11 +312,13 @@ function renderField(props: DreamingSettingsProps, spec: DreamingFieldSpec) {
         ? String(spec.defaultValue)
         : spec.path[0] === "timezone"
           ? (props.timezoneDefault ?? t("memoryPage.dreaming.timezone.default"))
-          : spec.defaultValue
-            ? spec.defaultValue
-            : spec.defaultLabelKey
-              ? t(spec.defaultLabelKey)
-              : "";
+          : spec.path[0] === "model"
+            ? resolveDreamingModelDefault(props.dreaming)
+            : spec.defaultValue
+              ? spec.defaultValue
+              : spec.defaultLabelKey
+                ? t(spec.defaultLabelKey)
+                : "";
   const defaultState = renderSettingsDefaultState({
     value: defaultValue,
     overridden,

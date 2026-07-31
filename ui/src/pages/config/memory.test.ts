@@ -125,6 +125,49 @@ describe("renderMemory", () => {
     expect(values).toContain("");
   });
 
+  it.each([
+    { selection: { kind: "off" } as const, value: "Off" },
+    {
+      selection: { kind: "pinned", engineId: "memory-core" } as const,
+      value: "memory-core",
+    },
+  ])("keeps reset available without a catalog for $selection.kind", ({ selection, value }) => {
+    const onEngineReset = vi.fn();
+    const container = renderInto(
+      createProps({
+        engineOptions: [],
+        engineSelection: selection,
+        engineState: "unknown",
+        onEngineReset,
+      }),
+    );
+
+    expect(container.textContent).toContain(`Default: OpenClaw Memory`);
+    expect(container.textContent).toContain(value);
+    container.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    expect(onEngineReset).toHaveBeenCalledOnce();
+  });
+
+  it("disables catalog-free reset when the effective mutation gate is closed", () => {
+    const onEngineReset = vi.fn();
+    const container = renderInto(
+      createProps({
+        engineOptions: [],
+        engineSelection: { kind: "off" },
+        engineState: "unknown",
+        engineBusy: true,
+        onEngineReset,
+      }),
+    );
+    const reset = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Reset to default"]',
+    );
+
+    expect(reset?.disabled).toBe(true);
+    reset?.click();
+    expect(onEngineReset).not.toHaveBeenCalled();
+  });
+
   it("reports whether the engine came from config or from the slot default", () => {
     const auto = renderInto(createProps());
     expect(auto.textContent).toContain("falls back to its default owner");

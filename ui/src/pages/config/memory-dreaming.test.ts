@@ -109,6 +109,27 @@ describe("renderDreamingSettings", () => {
     expect(container.querySelector('button[aria-label="Reset to default"]')).toBeNull();
   });
 
+  it("shows the advanced execution model as the inherited model default", () => {
+    const onPatch = vi.fn();
+    const container = renderInto(
+      {
+        model: "anthropic/claude-sonnet",
+        execution: { defaults: { model: "openai/gpt-5.6" } },
+      },
+      onPatch,
+    );
+    const row = rowFor(container, "Dreaming model");
+
+    expect(row.textContent).toContain("Default: openai/gpt-5.6");
+    row.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    expect(onPatch).toHaveBeenCalledWith(["model"], undefined);
+
+    const inherited = renderInto({ execution: { defaults: { model: "openai/gpt-5.6" } } });
+    expect(rowFor(inherited, "Dreaming model").textContent).toContain(
+      "Using default: openai/gpt-5.6",
+    );
+  });
+
   it("resets explicit dreaming values by removing their owning config keys", () => {
     const onPatch = vi.fn();
     const container = renderInto(

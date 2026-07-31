@@ -17,7 +17,6 @@ import { listSelectableAgents, normalizeAgentLabel } from "../../lib/agents/disp
 import { currentConfigObject } from "../../lib/config/index.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import {
-  dreamingConfigPath,
   loadPluginCatalog,
   setPluginEnabled,
   type PluginCatalogItem,
@@ -32,6 +31,7 @@ import {
 import "./memory-dreaming-page.ts";
 import "./memory-memories.ts";
 import {
+  dreamingConfigPath,
   resetMemoryBackend,
   resetMemoryEngine,
   resolveDreamingTimezoneDefault,

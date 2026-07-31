@@ -113,15 +113,28 @@ function renderEngineSection(props: MemoryViewProps) {
   // plugin loads. A segmented control states that up front instead of leaving it
   // to a post-save toast.
   const engineId = selectedEngineId(props.engineSelection);
+  const defaultEngine =
+    props.engineOptions.find((option) => option.id === DEFAULT_MEMORY_ENGINE_ID)?.label ??
+    t("memoryPage.engine.openClawMemory");
+  const defaultState = renderSettingsDefaultState({
+    value: defaultEngine,
+    overridden: props.engineSelection.kind !== "auto",
+    disabled: props.engineBusy,
+    onReset: props.onEngineReset,
+  });
   if (props.engineOptions.length === 0) {
     return renderSettingsSection(
       { title: t("memoryPage.engine.title"), description: t("memoryPage.engine.description") },
       renderSettingsRow({
         title: t("memoryPage.engine.rowTitle"),
-        description: t("memoryPage.engine.catalogUnavailable"),
-        control: renderSettingsValue(engineId ?? t("memoryPage.engine.off"), {
-          mono: true,
-        }),
+        description: html`
+          ${t("memoryPage.engine.catalogUnavailable")} ${t(engineHintKey(props.engineSelection))}
+          ${defaultState.description}
+        `,
+        control: html`
+          ${defaultState.action}
+          ${renderSettingsValue(engineId ?? t("memoryPage.engine.off"), { mono: true })}
+        `,
       }),
     );
   }
@@ -134,15 +147,6 @@ function renderEngineSection(props: MemoryViewProps) {
     })),
     { value: MEMORY_ENGINE_OFF, label: t("memoryPage.engine.off") },
   ];
-  const defaultEngine =
-    props.engineOptions.find((option) => option.id === DEFAULT_MEMORY_ENGINE_ID)?.label ??
-    t("memoryPage.engine.openClawMemory");
-  const defaultState = renderSettingsDefaultState({
-    value: defaultEngine,
-    overridden: props.engineSelection.kind !== "auto",
-    disabled: props.engineBusy,
-    onReset: props.onEngineReset,
-  });
   return renderSettingsSection(
     { title: t("memoryPage.engine.title"), description: t("memoryPage.engine.description") },
     html`

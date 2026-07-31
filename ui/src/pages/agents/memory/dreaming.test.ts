@@ -1022,7 +1022,7 @@ describe("dreaming controller", () => {
     });
   });
 
-  it('falls back to memory-core when selected memory slot is "none"', () => {
+  it('falls back to memory-core config but stays operationally off when the slot is "none"', () => {
     expect(
       resolveConfiguredDreaming({
         plugins: {
@@ -1042,8 +1042,16 @@ describe("dreaming controller", () => {
       }),
     ).toEqual({
       pluginId: "memory-core",
-      enabled: true,
+      enabled: false,
       overridden: true,
+    });
+  });
+
+  it("keeps the default enabled while the default engine is active", () => {
+    expect(resolveConfiguredDreaming({ plugins: { slots: {} } })).toEqual({
+      pluginId: "memory-core",
+      enabled: true,
+      overridden: false,
     });
   });
 
