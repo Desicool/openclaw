@@ -53,16 +53,30 @@ import { configFieldId, hintForPath, type JsonSchema } from "./config-form.share
 import { renderSettingsEmpty } from "./settings-ui.ts";
 
 const UNSET_ARRAY_SOURCE_IDENTITY = Symbol("unset-array-source");
+const UNSET_MAP_SOURCE_IDENTITY = Symbol("unset-map-source");
+
+function collectionDefaultPresentation(params: ConfigNodeRenderParams, effectiveValue: unknown) {
+  const redacted = getSensitiveRenderState({
+    path: params.path,
+    value: effectiveValue,
+    hints: params.hints,
+    revealSensitive: params.revealSensitive ?? false,
+    isSensitivePathRevealed: params.isSensitivePathRevealed,
+  }).isRedacted;
+  return {
+    description: redacted ? nothing : renderSchemaDefaultDescription(params.schema, params.value),
+    action: renderRestoreDefaultButton({
+      ...params,
+      disabled: params.disabled || redacted,
+    }),
+  };
+}
 
 function openCollectionDraft(event: Event, draftId: string): void {
   const block = (event.currentTarget as HTMLElement).closest(".cfg-block");
   const draft = Array.from(block?.children ?? []).find((child) => child.id === draftId);
-  const openDraft = (draft as Partial<ConfigFormCollectionDraft> | undefined)?.openDraft;
-  if (typeof openDraft === "function") {
-    openDraft.call(draft);
-  }
+  (draft as Partial<ConfigFormCollectionDraft> | undefined)?.openDraft?.call(draft);
 }
-const UNSET_MAP_SOURCE_IDENTITY = Symbol("unset-map-source");
 
 export function renderObject(
   params: ConfigNodeRenderParams,
@@ -97,6 +111,7 @@ export function renderObject(
     fallback && typeof fallback === "object" && !Array.isArray(fallback)
       ? (fallback as Record<string, unknown>)
       : {};
+  const defaultPresentation = collectionDefaultPresentation(params, fallback);
   const entries = objectPropertyKeys(schema)
     .map((key) => [key, objectPropertySchema(schema, key)] as const)
     .filter((entry): entry is readonly [string, ConfigNodeRenderParams["schema"]] =>
@@ -206,14 +221,12 @@ export function renderObject(
           <span class="settings-row__title">${label}</span>
           ${help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
           ${schema.default !== undefined
-            ? html`<span class="settings-row__desc"
-                >${renderSchemaDefaultDescription(schema, value)}</span
-              >`
+            ? html`<span class="settings-row__desc">${defaultPresentation.description}</span>`
             : nothing}
           ${renderTags(tags)}
         </div>
         <div class="settings-row__control">
-          ${renderRestoreDefaultButton(params)}
+          ${defaultPresentation.action}
           <span class="settings-row__chevron cfg-object__chevron">${icons.chevronDown}</span>
         </div>
       </summary>
@@ -271,6 +284,7 @@ export function renderArray(
     : Array.isArray(schema.default)
       ? schema.default
       : UNSET_ARRAY_SOURCE_IDENTITY;
+  const defaultPresentation = collectionDefaultPresentation(params, arrayValue);
   const rowIdentities = rowIdentitiesForArray(arrayValue);
   const {
     minItems: minimumItems,
@@ -352,9 +366,7 @@ export function renderArray(
           ${showLabel ? html`<span class="settings-row__title">${label}</span>` : nothing}
           ${showLabel && help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
           ${showLabel && schema.default !== undefined
-            ? html`<span class="settings-row__desc"
-                >${renderSchemaDefaultDescription(schema, value)}</span
-              >`
+            ? html`<span class="settings-row__desc">${defaultPresentation.description}</span>`
             : nothing}
           ${renderTags(tags)}
         </div>
@@ -364,7 +376,7 @@ export function renderArray(
               count: String(arrayValue.length),
             })}</span
           >
-          ${renderRestoreDefaultButton(params)}
+          ${defaultPresentation.action}
           <button
             type="button"
             class="btn btn--sm"

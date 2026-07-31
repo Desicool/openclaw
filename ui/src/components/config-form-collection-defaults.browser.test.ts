@@ -132,6 +132,65 @@ describe("config form collection defaults", () => {
     expect(onPatch).not.toHaveBeenCalled();
   });
 
+  it("conceals sensitive collection defaults and disables restore until revealed", () => {
+    const container = document.createElement("div");
+    const onPatch = vi.fn();
+    const hints = {
+      "settings.profile": { sensitive: true },
+      "settings.tokens": { sensitive: true },
+    };
+
+    render(
+      renderObject(
+        {
+          schema: {
+            type: "object",
+            title: "Profile",
+            default: { apiKey: "default-secret" },
+            properties: { apiKey: { type: "string" } },
+          },
+          value: { apiKey: "authored-secret" },
+          path: ["settings", "profile"],
+          hints,
+          unsupported: new Set(),
+          disabled: false,
+          revealSensitive: false,
+          onPatch,
+        },
+        renderNode,
+      ),
+      container,
+    );
+
+    expect(container.textContent).not.toContain("default-secret");
+    expect(resetButton(container).disabled).toBe(true);
+
+    render(
+      renderArray(
+        {
+          schema: {
+            type: "array",
+            title: "Tokens",
+            items: { type: "string" },
+            default: ["default-token"],
+          },
+          value: ["authored-token"],
+          path: ["settings", "tokens"],
+          hints,
+          unsupported: new Set(),
+          disabled: false,
+          revealSensitive: false,
+          onPatch,
+        },
+        renderNode,
+      ),
+      container,
+    );
+
+    expect(container.textContent).not.toContain("default-token");
+    expect(resetButton(container).disabled).toBe(true);
+  });
+
   it("removes an optional object as one value and keeps inherited children inherited", () => {
     const container = document.createElement("div");
     const onPatch = vi.fn();
