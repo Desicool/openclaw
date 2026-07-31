@@ -23,6 +23,7 @@ import {
   createBuzzReplayDispatchQueue,
   resolveBuzzRoomHistoryLimit,
 } from "./replay-dispatch.js";
+import { startBuzzRoomMembershipNotifications } from "./room-membership-notification.js";
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import {
   BUZZ_ROOM_SYSTEM_KIND,
@@ -591,13 +592,11 @@ export async function startBuzzBus(options: {
         threadId,
         replyToId,
       });
-      // Typing is ephemeral. Use the active socket without acknowledgement or replay.
       await relay.send(JSON.stringify(["EVENT", event]));
     },
     close: async () => {
       lifecycleAbort.abort(new Error("Buzz bus closed"));
-      // Agent turns receive this generation signal. Abort them before draining
-      // so reconnect and Gateway shutdown do not wait on stale work.
+      // Abort this generation's agent turns before draining stale work.
       await dispatchQueue.close();
       stopPresenceHeartbeat();
       directoryRelay?.close();
@@ -607,8 +606,6 @@ export async function startBuzzBus(options: {
   };
 
   try {
-    // Archive state determines the room subscription set, so load relay-signed
-    // metadata before opening membership and message subscriptions.
     await queryBuzzDirectoryRooms({
       relay,
       relayPublicKey,
@@ -617,7 +614,15 @@ export async function startBuzzBus(options: {
       signal,
     });
     const activeChannelIds = directory.activeRoomIds();
-    const subscribedRoomIds = new Set(activeChannelIds);
+    startBuzzRoomMembershipNotifications({
+      relay,
+      relayPublicKey,
+      botPublicKey: publicKey,
+      configuredRoomIds: options.channelIds,
+      since: sessionStartedAt,
+      signal,
+      onFatalError: reportFatalError,
+    });
     const membershipTracker =
       activeChannelIds.length > 0
         ? await createBuzzRoomMembershipTracker({
@@ -636,9 +641,8 @@ export async function startBuzzBus(options: {
               if (!message || !isMember(message.channelId, event.pubkey)) {
                 return;
               }
-              // Relay reconnects can replay signed events. Only admitted room
-              // members reach the bounded dispatch queue. Dedupe claims are acquired
-              // only by active workers, so replay cannot create unbounded in-flight state.
+              // Admit only room members to bounded workers; claim replay dedupe inside
+              // each worker so queued history cannot create unbounded in-flight state.
               const admission = dispatchQueue.enqueue(async () => {
                 await replayGuard.processGuarded(event, async () => {
                   await options.onMessage(message, bus, signal);
@@ -678,19 +682,17 @@ export async function startBuzzBus(options: {
       relay,
       relayPublicKey,
       state: directory,
-      subscribedRoomIds,
+      subscribedRoomIds: new Set(activeChannelIds),
       signal,
       onError: options.onDirectoryError,
       onFatalError: reportFatalError,
     });
     directoryRelay.replaceProfilePublicKeys(directory.profilePublicKeys());
-    // Presence belongs to the socket lifetime; Buzz clears it after the final socket closes.
     stopPresenceHeartbeat = startBuzzPresenceHeartbeat({
       relay,
       secretKey,
       onError: options.onPresenceError,
     });
-    // Profile metadata is presentation-only and must not delay channel readiness.
     if (options.profileName?.trim()) {
       void syncBuzzProfile({
         relay,
@@ -720,7 +722,6 @@ export async function startBuzzBus(options: {
 
     return bus;
   } catch (error) {
-    // Failed startup must release the socket before the Gateway reconnect loop resumes.
     lifecycleAbort.abort(error);
     await dispatchQueue.close();
     directoryRelay?.close();

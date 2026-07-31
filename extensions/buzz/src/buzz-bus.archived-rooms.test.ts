@@ -60,6 +60,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
 });
 
 import { startBuzzBus } from "./buzz-bus.js";
+import { BUZZ_MEMBER_ADDED_NOTIFICATION_KIND } from "./room-membership-notification.js";
 
 const PRIVATE_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 const BOT_PUBLIC_KEY = getPublicKey(Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")));
@@ -134,6 +135,11 @@ describe("Buzz archived room lifecycle", () => {
     expect(relayMocks.subscriptions.some((entry) => subscriptionIncludesKind(entry, 9))).toBe(
       false,
     );
+    expect(
+      relayMocks.subscriptions.some((entry) =>
+        subscriptionIncludesKind(entry, BUZZ_MEMBER_ADDED_NOTIFICATION_KIND),
+      ),
+    ).toBe(true);
     expect(bus.directory.activeRoomIds()).toEqual([]);
     expect(bus.directory.listGroups({})).toEqual([]);
     await bus.close();
@@ -192,18 +198,26 @@ describe("Buzz archived room lifecycle", () => {
       onMessage: async () => {},
       onFatalError,
     });
-    relayMocks.roomMetadataEvents = [
-      roomMetadata({ id: "room-metadata-active", createdAt: 1_700_000_001, archived: false }),
-    ];
-
-    await bus.refreshDirectory();
+    relayMocks.subscriptions
+      .find((entry) => subscriptionIncludesKind(entry, BUZZ_MEMBER_ADDED_NOTIFICATION_KIND))
+      ?.handlers.onevent({
+        id: "restore-room",
+        kind: BUZZ_MEMBER_ADDED_NOTIFICATION_KIND,
+        pubkey: RELAY_PUBLIC_KEY,
+        created_at: 1_700_000_001,
+        content: JSON.stringify({ type: "member_added", channel_id: CHANNEL_ID }),
+        sig: "e".repeat(128),
+        tags: [
+          ["p", BOT_PUBLIC_KEY],
+          ["h", CHANNEL_ID],
+        ],
+      });
 
     expect(onFatalError).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: `Buzz room ${CHANNEL_ID} archive status changed; rebuilding subscriptions`,
+        message: `Buzz room ${CHANNEL_ID} membership changed; rebuilding subscriptions`,
       }),
     );
-    expect(relayMocks.close).toHaveBeenCalledOnce();
     await bus.close();
   });
 });

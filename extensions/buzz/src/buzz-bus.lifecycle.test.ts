@@ -380,7 +380,8 @@ describe("Buzz bus lifecycle", () => {
     });
 
     expect(relayMocks.subscriptions[0]?.filter.kinds).toEqual([39_000]);
-    expect(relayMocks.subscriptions[1]?.filter.kinds).toEqual([39_002]);
+    expect(relayMocks.subscriptions[1]?.filter.kinds).toEqual([44_100, 44_101]);
+    expect(relayMocks.subscriptions[2]?.filter.kinds).toEqual([39_002]);
     for (const kind of [9, 9_002, 40_099]) {
       const roomFilters = relayMocks.subscriptions
         .filter((entry) => subscriptionIncludesKind(entry, kind))

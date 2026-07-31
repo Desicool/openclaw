@@ -2,10 +2,10 @@ import type { Event, Relay } from "nostr-tools";
 import { connectAuthenticatedBuzzRelaySession, parseBuzzAuthTag } from "./relay-auth.js";
 import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { discoverBuzzRoomsOnRelay, type BuzzDiscoveredRoom } from "./room-discovery.js";
+import { BUZZ_MEMBER_ADDED_NOTIFICATION_KIND } from "./room-membership-notification.js";
 import { BUZZ_CHANNEL_ID_PATTERN } from "./target.js";
 import { decodeBuzzPrivateKey, resolveBuzzPublicKey } from "./types.js";
 
-const MEMBER_ADDED_KIND = 44100;
 const DEFAULT_WAIT_TIMEOUT_MS = 90_000;
 const DISCOVERY_RETRY_DELAYS_MS = [0, 500, 1_500] as const;
 const DISCOVERY_POLL_INTERVAL_MS = 2_000;
@@ -147,7 +147,7 @@ export async function waitForBuzzRoomAccess(params: {
         relay,
         [
           {
-            kinds: [MEMBER_ADDED_KIND],
+            kinds: [BUZZ_MEMBER_ADDED_NOTIFICATION_KIND],
             "#p": [publicKey],
             since: Math.floor(Date.now() / 1000) - 30,
           },
@@ -155,7 +155,7 @@ export async function waitForBuzzRoomAccess(params: {
         {
           onevent: (event) => {
             if (
-              event.kind !== MEMBER_ADDED_KIND ||
+              event.kind !== BUZZ_MEMBER_ADDED_NOTIFICATION_KIND ||
               seenEvents.has(event.id) ||
               !hasTag(event, "p", publicKey) ||
               !hasValidRoomTag(event)
