@@ -727,7 +727,8 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     sectionOrder: [],
   };
   let inFlight: Promise<void> | null = null;
-  let queuedRefresh: SessionRefreshOptions | null = null;
+  let queuedExplicitRefresh: SessionRefreshOptions | null = null;
+  let eventRefreshQueued = false;
   let eventRefreshTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   let eventRefreshDeadline: number | null = null;
   let canonicalListRevision = 0;
@@ -975,6 +976,33 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     }
   };
 
+  const clearEventRefreshTimer = () => {
+    if (eventRefreshTimer !== null) {
+      globalThis.clearTimeout(eventRefreshTimer);
+      eventRefreshTimer = null;
+    }
+    eventRefreshDeadline = null;
+  };
+
+  const takeNextQueuedRefresh = (): SessionRefreshOptions | null => {
+    const explicitRefresh = queuedExplicitRefresh;
+    queuedExplicitRefresh = null;
+    if (explicitRefresh) {
+      // A replacement that has not started yet observes every earlier event.
+      // Appends still need a canonical replacement after their requested page.
+      if (explicitRefresh.append !== true) {
+        clearEventRefreshTimer();
+        eventRefreshQueued = false;
+      }
+      return explicitRefresh;
+    }
+    if (!eventRefreshQueued) {
+      return null;
+    }
+    eventRefreshQueued = false;
+    return { ...lastListOptions, force: true };
+  };
+
   const drainRefreshQueue = async (options: SessionRefreshOptions) => {
     const epoch = connectionEpoch;
     let next: SessionRefreshOptions | null = options;
@@ -983,17 +1011,18 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       if (disposed || connectionEpoch !== epoch) {
         return;
       }
-      next = queuedRefresh;
-      queuedRefresh = null;
+      next = takeNextQueuedRefresh();
     }
   };
 
-  const clearEventRefreshTimer = () => {
-    if (eventRefreshTimer !== null) {
-      globalThis.clearTimeout(eventRefreshTimer);
-      eventRefreshTimer = null;
-    }
-    eventRefreshDeadline = null;
+  const startRefresh = (options: SessionRefreshOptions) => {
+    const request = drainRefreshQueue(options).finally(() => {
+      if (inFlight === request) {
+        inFlight = null;
+      }
+    });
+    inFlight = request;
+    return request;
   };
 
   const refresh = (options: SessionRefreshOptions = {}) => {
@@ -1003,7 +1032,10 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     if (inFlight) {
       // An explicit queued refresh subsumes any older event invalidation.
       clearEventRefreshTimer();
-      queuedRefresh = options;
+      queuedExplicitRefresh = options;
+      if (options.append !== true) {
+        eventRefreshQueued = false;
+      }
       return inFlight;
     }
     const hasListOverrides = Object.entries(options).some(
@@ -1014,13 +1046,18 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     }
     // An explicit refresh that will issue a request must run now.
     clearEventRefreshTimer();
-    const request = drainRefreshQueue(options).finally(() => {
-      if (inFlight === request) {
-        inFlight = null;
-      }
-    });
-    inFlight = request;
-    return request;
+    return startRefresh(options);
+  };
+
+  const refreshFromEvent = () => {
+    if (gateway.snapshot.phase !== "connected" || !gateway.snapshot.client || disposed) {
+      return Promise.resolve();
+    }
+    if (inFlight) {
+      eventRefreshQueued = true;
+      return inFlight;
+    }
+    return startRefresh({ ...lastListOptions, force: true });
   };
 
   const flushEventRefresh = () => {
@@ -1028,7 +1065,7 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       return;
     }
     clearEventRefreshTimer();
-    void refresh({ ...lastListOptions, force: true });
+    void refreshFromEvent();
   };
 
   const scheduleEventRefresh = () => {
@@ -1044,7 +1081,7 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     eventRefreshTimer = globalThis.setTimeout(() => {
       eventRefreshTimer = null;
       eventRefreshDeadline = null;
-      void refresh({ ...lastListOptions, force: true });
+      void refreshFromEvent();
     }, delay);
   };
 
@@ -1818,7 +1855,8 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       invalidateGroupsLoad();
       swarmActivity.clear();
       inFlight = null;
-      queuedRefresh = null;
+      queuedExplicitRefresh = null;
+      eventRefreshQueued = false;
       rollbackPendingModelPatches();
       preparedWorkSessionKeys.clear();
       pullRequestSummaries.clear();
@@ -2010,7 +2048,8 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       invalidateGroupsLoad();
       connectionConnected = false;
       inFlight = null;
-      queuedRefresh = null;
+      queuedExplicitRefresh = null;
+      eventRefreshQueued = false;
       subscribedClient = null;
       pendingModelPatches.clear();
       preparedWorkSessionKeys.clear();
