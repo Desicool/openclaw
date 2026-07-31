@@ -984,6 +984,11 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     eventRefreshDeadline = null;
   };
 
+  const absorbPendingEventRefresh = () => {
+    clearEventRefreshTimer();
+    eventRefreshQueued = false;
+  };
+
   const takeNextQueuedRefresh = (): SessionRefreshOptions | null => {
     const explicitRefresh = queuedExplicitRefresh;
     queuedExplicitRefresh = null;
@@ -991,8 +996,7 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       // A replacement that has not started yet observes every earlier event.
       // Appends still need a canonical replacement after their requested page.
       if (explicitRefresh.append !== true) {
-        clearEventRefreshTimer();
-        eventRefreshQueued = false;
+        absorbPendingEventRefresh();
       }
       return explicitRefresh;
     }
@@ -1030,12 +1034,9 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       return Promise.resolve();
     }
     if (inFlight) {
-      // An explicit queued refresh subsumes any older event invalidation.
-      clearEventRefreshTimer();
+      // Keep event invalidation pending until the queued request actually
+      // starts: a later explicit call can still replace this request.
       queuedExplicitRefresh = options;
-      if (options.append !== true) {
-        eventRefreshQueued = false;
-      }
       return inFlight;
     }
     const hasListOverrides = Object.entries(options).some(
@@ -1044,8 +1045,9 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     if (state.result && !options.force && !hasListOverrides) {
       return Promise.resolve();
     }
-    // An explicit refresh that will issue a request must run now.
-    clearEventRefreshTimer();
+    if (options.append !== true) {
+      absorbPendingEventRefresh();
+    }
     return startRefresh(options);
   };
 

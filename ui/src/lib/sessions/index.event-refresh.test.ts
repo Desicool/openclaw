@@ -253,12 +253,27 @@ describe("event-driven session list refresh", () => {
     },
   );
 
-  it("keeps event invalidation after a queued append refresh", async () => {
+  it.each([
+    {
+      timing: "after the append is queued",
+      eventBeforeAppend: false,
+      queueReplacementFirst: false,
+    },
+    {
+      timing: "before the append is queued",
+      eventBeforeAppend: true,
+      queueReplacementFirst: false,
+    },
+    {
+      timing: "before a queued replacement is replaced by the append",
+      eventBeforeAppend: true,
+      queueReplacementFirst: true,
+    },
+  ])("keeps event invalidation $timing", async ({ eventBeforeAppend, queueReplacementFirst }) => {
     vi.useFakeTimers();
     const firstList = deferred<SessionsListResult>();
     const secondList = deferred<SessionsListResult>();
     const secondListStarted = deferred<void>();
-    const thirdListStarted = deferred<void>();
     let listCalls = 0;
     const request = vi.fn(async (method: string) => {
       if (method !== "sessions.list") {
@@ -272,9 +287,6 @@ describe("event-driven session list refresh", () => {
         secondListStarted.resolve();
         return await secondList.promise;
       }
-      if (listCalls === 3) {
-        thirdListStarted.resolve();
-      }
       return sessionsResult(listCalls);
     });
     const { sessions, emitEvent } = createHarness(
@@ -283,6 +295,12 @@ describe("event-driven session list refresh", () => {
 
     try {
       const initialRefresh = sessions.refresh({ agentId: "main", limit: 25, force: true });
+      if (eventBeforeAppend) {
+        emitEvent(sessionChangedEvent("agent:main:later-event"));
+      }
+      if (queueReplacementFirst) {
+        void sessions.refresh({ agentId: "discarded", force: true });
+      }
       const appendRefresh = sessions.refresh({
         agentId: "main",
         limit: 25,
@@ -290,7 +308,9 @@ describe("event-driven session list refresh", () => {
         append: true,
         force: true,
       });
-      emitEvent(sessionChangedEvent("agent:main:later-event"));
+      if (!eventBeforeAppend) {
+        emitEvent(sessionChangedEvent("agent:main:later-event"));
+      }
       await vi.advanceTimersByTimeAsync(SESSION_EVENT_REFRESH_DEBOUNCE_MS);
 
       firstList.resolve(sessionsResult(1));
@@ -302,15 +322,13 @@ describe("event-driven session list refresh", () => {
       });
 
       secondList.resolve(sessionsResult(2));
-      await thirdListStarted.promise;
+      await Promise.all([initialRefresh, appendRefresh]);
+      expect(request).toHaveBeenCalledTimes(3);
       expect(request.mock.calls[2]?.[1]).toMatchObject({
         agentId: "main",
         limit: 25,
       });
       expect(request.mock.calls[2]?.[1]).not.toHaveProperty("offset");
-
-      await Promise.all([initialRefresh, appendRefresh]);
-      expect(request).toHaveBeenCalledTimes(3);
     } finally {
       firstList.resolve(sessionsResult(1));
       secondList.resolve(sessionsResult(2));
