@@ -49,7 +49,9 @@ openclaw directory groups members --channel buzz --group-id buzz:<ROOM_UUID>
 ```
 
 Buzz profile and room names are used as display labels, while public keys and
-room UUIDs remain the stable identities.
+room UUIDs remain the stable identities. Archived rooms are omitted; an
+archive or restore event rebuilds only the Buzz connection's room
+subscriptions and does not stop the Gateway.
 
 Send a test message:
 

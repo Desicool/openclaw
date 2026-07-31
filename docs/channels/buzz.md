@@ -212,6 +212,11 @@ profile subscription does not reach EOSE within 10 seconds, OpenClaw treats the
 Buzz relay session as stalled and recycles only that Buzz account connection;
 the Gateway keeps running.
 
+Archived rooms are omitted from directory results and live room subscriptions.
+If a configured room is archived or restored while OpenClaw is connected, the
+plugin recycles only its Buzz connection so the subscription set matches the
+relay's current metadata. The Gateway keeps running.
+
 Each configured room uses one room-scoped relay subscription. OpenClaw reserves
 three of Buzz's 1,024 connection subscriptions for membership and metadata
 queries, so one account can configure up to 1,021 rooms. Near that limit,
