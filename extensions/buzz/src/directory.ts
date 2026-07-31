@@ -41,6 +41,7 @@ function createConfiguredDirectoryState(params: DirectoryConfigParams): {
 
 async function loadBuzzDirectoryState(
   params: DirectoryConfigParams,
+  options: { refreshRooms: boolean },
 ): Promise<BuzzDirectoryState | null> {
   const configured = createConfiguredDirectoryState(params);
   if (!configured || !configured.account.configured || configured.channelIds.length === 0) {
@@ -48,7 +49,9 @@ async function loadBuzzDirectoryState(
   }
   const activeBus = getActiveBuzzBus(configured.account.accountId);
   if (activeBus) {
-    await activeBus.refreshDirectory();
+    if (options.refreshRooms) {
+      await activeBus.refreshDirectory();
+    }
     return activeBus.directory;
   }
 
@@ -90,14 +93,14 @@ async function loadBuzzDirectoryState(
 export async function getBuzzDirectorySelf(
   params: DirectoryConfigParams,
 ): Promise<ChannelDirectoryEntry | null> {
-  return (await loadBuzzDirectoryState(params))?.self() ?? null;
+  return (await loadBuzzDirectoryState(params, { refreshRooms: false }))?.self() ?? null;
 }
 
 export async function listBuzzDirectoryPeersLive(
   params: DirectoryConfigParams,
 ): Promise<ChannelDirectoryEntry[]> {
   return (
-    (await loadBuzzDirectoryState(params))?.listPeers({
+    (await loadBuzzDirectoryState(params, { refreshRooms: false }))?.listPeers({
       query: params.query,
       limit: params.limit,
     }) ?? []
@@ -108,7 +111,7 @@ export async function listBuzzDirectoryGroupsLive(
   params: DirectoryConfigParams,
 ): Promise<ChannelDirectoryEntry[]> {
   return (
-    (await loadBuzzDirectoryState(params))?.listGroups({
+    (await loadBuzzDirectoryState(params, { refreshRooms: true }))?.listGroups({
       query: params.query,
       limit: params.limit,
     }) ?? []
@@ -122,7 +125,7 @@ export async function listBuzzDirectoryGroupMembers(params: {
   limit?: number | null;
 }): Promise<ChannelDirectoryEntry[]> {
   return (
-    (await loadBuzzDirectoryState(params))?.listGroupMembers({
+    (await loadBuzzDirectoryState(params, { refreshRooms: false }))?.listGroupMembers({
       groupId: params.groupId,
       limit: params.limit,
     }) ?? []

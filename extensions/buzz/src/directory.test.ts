@@ -9,6 +9,19 @@ const relayMocks = vi.hoisted(() => ({
   filters: [] as Filter[],
   subscribe: vi.fn(),
 }));
+const gatewayMocks = vi.hoisted(() => ({
+  activeBus: undefined as
+    | {
+        directory: {
+          listGroups: (params: { query?: string | null; limit?: number | null }) => unknown[];
+          listGroupMembers: (params: { groupId: string; limit?: number | null }) => unknown[];
+          listPeers: (params: { query?: string | null; limit?: number | null }) => unknown[];
+          self: () => unknown;
+        };
+        refreshDirectory: () => Promise<void>;
+      }
+    | undefined,
+}));
 
 vi.mock("nostr-tools", async (importOriginal) => {
   const actual = await importOriginal<typeof import("nostr-tools")>();
@@ -36,7 +49,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
 });
 
 vi.mock("./gateway.js", () => ({
-  getActiveBuzzBus: () => undefined,
+  getActiveBuzzBus: () => gatewayMocks.activeBus,
 }));
 
 const PRIVATE_KEY = "11".repeat(32);
@@ -60,6 +73,7 @@ describe("Buzz live directory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     relayMocks.filters.length = 0;
+    gatewayMocks.activeBus = undefined;
     relayMocks.subscribe.mockImplementation(
       (
         filter: Filter,
@@ -144,5 +158,41 @@ describe("Buzz live directory", () => {
     ]);
     expect(relayMocks.auth).toHaveBeenCalledOnce();
     expect(relayMocks.close).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes only room listings when an active bus already owns directory state", async () => {
+    const refreshDirectory = vi.fn(async () => {});
+    const self = vi.fn(() => ({ kind: "user", id: BOT_PUBLIC_KEY, name: "OpenClaw" }));
+    const listPeers = vi.fn(() => [{ kind: "user", id: MEMBER_PUBLIC_KEY, name: "Alice" }]);
+    const listGroups = vi.fn(() => [{ kind: "group", id: `buzz:${ROOM_ID}`, name: "Engineering" }]);
+    const listGroupMembers = vi.fn(() => [{ kind: "user", id: MEMBER_PUBLIC_KEY, name: "Alice" }]);
+    gatewayMocks.activeBus = {
+      directory: { self, listPeers, listGroups, listGroupMembers },
+      refreshDirectory,
+    };
+    const {
+      getBuzzDirectorySelf,
+      listBuzzDirectoryGroupMembers,
+      listBuzzDirectoryGroupsLive,
+      listBuzzDirectoryPeersLive,
+    } = await import("./directory.js");
+    const cfg = {
+      channels: {
+        buzz: {
+          relayUrl: "wss://buzz.example.com",
+          privateKey: PRIVATE_KEY,
+          groups: { [ROOM_ID]: {} },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    await getBuzzDirectorySelf({ cfg, accountId: "default" });
+    await listBuzzDirectoryPeersLive({ cfg, accountId: "default" });
+    await listBuzzDirectoryGroupMembers({ cfg, accountId: "default", groupId: ROOM_ID });
+    expect(refreshDirectory).not.toHaveBeenCalled();
+
+    await listBuzzDirectoryGroupsLive({ cfg, accountId: "default" });
+    expect(refreshDirectory).toHaveBeenCalledOnce();
+    expect(relayMocks.connect).not.toHaveBeenCalled();
   });
 });
