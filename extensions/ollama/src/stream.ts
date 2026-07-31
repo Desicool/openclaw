@@ -46,7 +46,7 @@ import {
   createOllamaVisibleContentSanitizer,
   sanitizeOllamaFinalVisibleContent,
 } from "./sanitizers/visible-content.js";
-
+import { checkNdjsonRecordCap } from "./stream-ndjson-cap.js";
 const log = createSubsystemLogger("ollama-stream");
 
 export const OLLAMA_NATIVE_BASE_URL = OLLAMA_DEFAULT_BASE_URL;
@@ -1090,13 +1090,14 @@ export async function* parseNdjsonStream(
 ): AsyncGenerator<OllamaChatResponse> {
   const decoder = new TextDecoder();
   let buffer = "";
-
+  let pendingRecordBytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
         break;
       }
+      pendingRecordBytes = checkNdjsonRecordCap(value, pendingRecordBytes);
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";

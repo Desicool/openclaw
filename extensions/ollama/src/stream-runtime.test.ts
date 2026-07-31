@@ -1300,6 +1300,40 @@ async function expectNoParsedChunks(reader: ReadableStreamDefaultReader<Uint8Arr
 }
 
 describe("parseNdjsonStream", () => {
+  it("cancels an oversized unterminated record", async () => {
+    const oversizedRecord = new Uint8Array(16 * 1024 * 1024 + 1).fill(0x20);
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(oversizedRecord);
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const reader = stream.getReader();
+
+    await expect(expectNoParsedChunks(reader)).rejects.toThrow(
+      "Ollama NDJSON record exceeds 16777216 bytes",
+    );
+    expect(canceled).toBe(true);
+    expect(stream.locked).toBe(false);
+  });
+
+  it("resets the record limit after each newline", async () => {
+    const legalRecord = new Uint8Array(9 * 1024 * 1024 + 1).fill(0x20);
+    legalRecord[legalRecord.length - 1] = 0x0a;
+    const reader = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(legalRecord);
+        controller.enqueue(legalRecord);
+        controller.close();
+      },
+    }).getReader();
+
+    await expectNoParsedChunks(reader);
+  });
+
   it("does not log a dangling surrogate for a malformed complete line", async () => {
     const prefix = "x".repeat(119);
     const reader = mockNdjsonReader([`${prefix}😀tail`]);
