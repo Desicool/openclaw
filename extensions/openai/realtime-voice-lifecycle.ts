@@ -89,7 +89,7 @@ export class OpenAIRealtimeVoiceLifecycle {
     if (state.phase === "terminal") {
       return false;
     }
-    if (state.phase === "idle") {
+    if (!("controller" in state)) {
       this.state = {
         phase: "terminal",
         terminalOutcome: "completed",
