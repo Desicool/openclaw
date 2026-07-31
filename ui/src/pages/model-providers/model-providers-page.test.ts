@@ -237,7 +237,7 @@ describe("ModelProvidersPage agent scope", () => {
     const { context, runtimeConfig } = createHarness("main");
     runtimeConfig.state.configForm = {
       agents: { defaults: { thinkingDefault: 42, fastModeDefault: "bogus" } },
-    };
+    } as unknown as typeof runtimeConfig.state.configForm;
     const page = appendPage(context);
     await vi.waitFor(() => expect(page.querySelector("#settings-model-behavior")).not.toBeNull());
 

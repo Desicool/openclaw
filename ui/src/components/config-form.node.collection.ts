@@ -56,7 +56,13 @@ import { renderSettingsEmpty } from "./settings-ui.ts";
 const UNSET_ARRAY_SOURCE_IDENTITY = Symbol("unset-array-source");
 const UNSET_MAP_SOURCE_IDENTITY = Symbol("unset-map-source");
 
-function collectionDefaultPresentation(params: ConfigNodeRenderParams, effectiveValue: unknown) {
+function collectionDefaultPresentation(
+  params: ConfigNodeRenderParams,
+  effectiveValue: unknown,
+): {
+  description: TemplateResult | typeof nothing;
+  action: TemplateResult | typeof nothing;
+} {
   const redacted = getSensitiveRenderState({
     path: params.path,
     value: effectiveValue,
