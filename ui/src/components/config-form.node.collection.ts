@@ -11,7 +11,7 @@ import {
   rowIdentitiesForArray,
 } from "./config-form-array-identity.ts";
 import {
-  openConfigFormCollectionDraft,
+  ConfigFormCollectionDraft,
   type ConfigFormCollectionDraftCommit,
   type ConfigFormCollectionDraftProps,
 } from "./config-form-collection-draft.ts";
@@ -53,6 +53,15 @@ import { configFieldId, hintForPath, type JsonSchema } from "./config-form.share
 import { renderSettingsEmpty } from "./settings-ui.ts";
 
 const UNSET_ARRAY_SOURCE_IDENTITY = Symbol("unset-array-source");
+
+function openCollectionDraft(event: Event, draftId: string): void {
+  const block = (event.currentTarget as HTMLElement).closest(".cfg-block");
+  const draft = Array.from(block?.children ?? []).find((child) => child.id === draftId);
+  const openDraft = (draft as Partial<ConfigFormCollectionDraft> | undefined)?.openDraft;
+  if (typeof openDraft === "function") {
+    openDraft.call(draft);
+  }
+}
 const UNSET_MAP_SOURCE_IDENTITY = Symbol("unset-map-source");
 
 export function renderObject(
@@ -136,6 +145,9 @@ export function renderObject(
     }
     if (!canApplyObjectCandidate(schema, objectValue, candidate)) {
       return false;
+    }
+    if (inherited) {
+      return onPatch(path, candidate) !== false;
     }
     const accepted =
       childValue === undefined && onRemove ? onRemove(childPath) : onPatch(childPath, childValue);
@@ -361,10 +373,10 @@ export function renderArray(
             @click=${(event: Event) => {
               if (atomicCandidate) {
                 if (onPatch(path, atomicCandidate) === false) {
-                  openConfigFormCollectionDraft(event, draftId);
+                  openCollectionDraft(event, draftId);
                 }
               } else if (requiresDraft) {
-                openConfigFormCollectionDraft(event, draftId);
+                openCollectionDraft(event, draftId);
               } else if (autoCandidate) {
                 appendArrayRowIdentities(
                   autoCandidate,
@@ -373,7 +385,7 @@ export function renderArray(
                 );
                 if (onPatch(path, autoCandidate) === false) {
                   discardArrayRowIdentities(autoCandidate);
-                  openConfigFormCollectionDraft(event, draftId);
+                  openCollectionDraft(event, draftId);
                 }
               }
             }}
@@ -548,7 +560,7 @@ function renderMapField(
             ?disabled=${disabled}
             @click=${(event: Event) => {
               if (entryDefault === NO_SAFE_DEFAULT) {
-                openConfigFormCollectionDraft(event, draftId);
+                openCollectionDraft(event, draftId);
                 return;
               }
               const nextValue = { ...value };
@@ -560,7 +572,7 @@ function renderMapField(
               }
               nextValue[key] = entryDefault;
               if (onPatch(path, nextValue) === false) {
-                openConfigFormCollectionDraft(event, draftId);
+                openCollectionDraft(event, draftId);
               }
             }}
           >

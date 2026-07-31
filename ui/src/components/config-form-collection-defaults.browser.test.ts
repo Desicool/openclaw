@@ -230,6 +230,17 @@ describe("config form collection defaults", () => {
     ).toBe("Default: balanced");
     expect(inheritedProfile.querySelector("button[aria-label='Reset to default']")).toBeNull();
     expect(onRemove).not.toHaveBeenCalled();
+
+    const modeInput = expectElement(
+      modeRow.querySelector<HTMLInputElement>("input"),
+      "inherited mode input",
+    );
+    modeInput.value = "custom";
+    modeInput.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect(onPatch).toHaveBeenCalledWith(["settings", "profile"], {
+      enabled: true,
+      mode: "custom",
+    });
   });
 
   it("deep-clones required collection defaults before restoring them", () => {

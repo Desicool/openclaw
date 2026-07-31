@@ -21,12 +21,6 @@ export type ConfigFormCollectionDraftCommit = {
   value: unknown;
 };
 
-export function openConfigFormCollectionDraft(event: Event, draftId: string): void {
-  const block = (event.currentTarget as HTMLElement).closest(".cfg-block");
-  const draft = Array.from(block?.children ?? []).find((child) => child.id === draftId);
-  (draft as Partial<ConfigFormCollectionDraft> | undefined)?.openDraft?.();
-}
-
 export class ConfigFormCollectionDraft extends OpenClawLightDomElement {
   @property({ attribute: false }) props?: ConfigFormCollectionDraftProps;
 
