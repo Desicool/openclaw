@@ -32,7 +32,7 @@ async function queryBuzzDirectoryBatch(params: {
   params.signal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     let settled = false;
-    let subscription: BuzzSubscription | undefined;
+    const subscriptionRef: { current?: BuzzSubscription } = {};
     const finish = (error?: unknown) => {
       if (settled) {
         return;
@@ -40,7 +40,7 @@ async function queryBuzzDirectoryBatch(params: {
       settled = true;
       clearTimeout(timeout);
       params.signal?.removeEventListener("abort", onAbort);
-      subscription?.close(DIRECTORY_QUERY_COMPLETE_REASON);
+      subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
       if (error === undefined) {
         resolve();
       } else {
@@ -58,7 +58,7 @@ async function queryBuzzDirectoryBatch(params: {
       BUZZ_DIRECTORY_QUERY_TIMEOUT_MS,
     );
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    subscription = params.relay.subscribe([params.filter], {
+    subscriptionRef.current = params.relay.subscribe([params.filter], {
       onevent: params.onEvent,
       oneose: () => finish(),
       onclose: (reason) => {
@@ -68,7 +68,7 @@ async function queryBuzzDirectoryBatch(params: {
       },
     });
     if (settled) {
-      subscription.close(DIRECTORY_QUERY_COMPLETE_REASON);
+      subscriptionRef.current.close(DIRECTORY_QUERY_COMPLETE_REASON);
     }
     if (params.signal?.aborted) {
       onAbort();
