@@ -751,6 +751,45 @@ describe("config form renderer", () => {
     expect(container.textContent).toContain('Default: ["+15550000000"]');
   });
 
+  it("does not repeat array header metadata on nested array items", () => {
+    const container = document.createElement("div");
+    const analysis = analyzeConfigSchema({
+      type: "object",
+      properties: {
+        groups: {
+          type: "array",
+          default: [["root-default"]],
+          items: {
+            type: "array",
+            default: ["nested-default"],
+            items: { type: "string" },
+          },
+        },
+      },
+    });
+    render(
+      renderConfigForm({
+        schema: analysis.schema,
+        uiHints: { groups: { help: "Group sender ids." } },
+        unsupportedPaths: analysis.unsupportedPaths,
+        value: { groups: [["first"], ["second"]] },
+        onPatch: vi.fn(),
+      }),
+      container,
+    );
+
+    const descriptions = Array.from(container.querySelectorAll(".settings-row__desc")).map((node) =>
+      node.textContent?.trim(),
+    );
+    expect(descriptions.filter((description) => description === "Group sender ids.")).toHaveLength(
+      1,
+    );
+    expect(
+      descriptions.filter((description) => description === 'Default: [["root-default"]]'),
+    ).toHaveLength(1);
+    expect(descriptions.some((description) => description?.includes("nested-default"))).toBe(false);
+  });
+
   it("renders section help when the top-level hint has a docs URL", () => {
     const container = document.createElement("div");
     render(

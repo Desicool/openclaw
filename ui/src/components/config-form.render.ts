@@ -232,6 +232,7 @@ export function renderConfigForm(props: ConfigFormProps) {
         unsupported,
         disabled: props.disabled ?? false,
         showLabel: false,
+        showHeaderMeta: true,
         searchCriteria,
         revealSensitive: props.revealSensitive ?? false,
         isSensitivePathRevealed: props.isSensitivePathRevealed,

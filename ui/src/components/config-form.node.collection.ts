@@ -237,6 +237,7 @@ export function renderArray(
     onToggleSensitivePath,
   } = params;
   const showLabel = params.showLabel ?? true;
+  const showHeaderMeta = params.showHeaderMeta ?? showLabel;
   const { label, help, tags } = resolveFieldMeta(path, schema, hints);
   const selfMatched =
     searchCriteria && hasSearchCriteria(searchCriteria)
@@ -347,8 +348,10 @@ export function renderArray(
       <div class="settings-row">
         <div class="settings-row__text">
           ${showLabel ? html`<span class="settings-row__title">${label}</span>` : nothing}
-          ${help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
-          ${schema.default !== undefined
+          ${showHeaderMeta && help
+            ? html`<span class="settings-row__desc">${help}</span>`
+            : nothing}
+          ${showHeaderMeta && schema.default !== undefined
             ? html`<span class="settings-row__desc">${defaultPresentation.description}</span>`
             : nothing}
           ${renderTags(tags)}

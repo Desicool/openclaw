@@ -44,6 +44,8 @@ export type ConfigNodeRenderParams = {
   rowIdentity?: unknown;
   structuredDraftOwner?: boolean;
   showLabel?: boolean;
+  /** Section shells own the title while collection rows still own help/default metadata. */
+  showHeaderMeta?: boolean;
   searchCriteria?: ConfigSearchCriteria;
   revealSensitive?: boolean;
   isSensitivePathRevealed?: (path: Array<string | number>) => boolean;
