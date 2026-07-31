@@ -39,6 +39,18 @@ Restart the Gateway if it was already running.
 openclaw channels status --probe
 ```
 
+Inspect the current bot, approved rooms, and room members:
+
+```bash
+openclaw directory self --channel buzz
+openclaw directory peers list --channel buzz
+openclaw directory groups list --channel buzz
+openclaw directory groups members --channel buzz --group-id buzz:<ROOM_UUID>
+```
+
+Buzz profile and room names are used as display labels, while public keys and
+room UUIDs remain the stable identities.
+
 Send a test message:
 
 ```bash
@@ -53,7 +65,8 @@ openclaw message send \
 - Never give OpenClaw a human owner's private key.
 - The generated bot private key is stored in OpenClaw configuration; only its public key is displayed.
 - Treat Buzz messages as untrusted agent input.
-- Currently supported: text conversations in group rooms.
+- Currently supported: text conversations, threads, typing, and directory
+  lookup in group rooms.
 - Not yet supported: DMs, media, reactions, or creating rooms from OpenClaw.
 
 Full documentation: https://docs.openclaw.ai/channels/buzz
