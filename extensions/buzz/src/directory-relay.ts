@@ -13,12 +13,14 @@ const PROFILE_SUBSCRIPTION_FAILED_REASON = "directory profile subscription gener
 const DIRECTORY_SHUTDOWN_REASON = "directory shutdown";
 const DIRECTORY_QUERY_COMPLETE_REASON = "directory query complete";
 const DIRECTORY_QUERY_TIMEOUT_MS = 10_000;
+const PROFILE_SUBSCRIPTION_READY_TIMEOUT_MS = 10_000;
 
 type BuzzSubscription = ReturnType<Relay["prepareSubscription"]>;
 type ProfileSubscriptionGeneration = {
   subscriptions: BuzzSubscription[];
   pendingReady: number;
   opening: boolean;
+  readyTimeout?: ReturnType<typeof setTimeout>;
 };
 
 function chunkValues<T>(values: readonly T[], size: number): T[][] {
@@ -197,8 +199,11 @@ export function startBuzzDirectoryRelay(params: {
     if (!current) {
       return;
     }
+    if (current.readyTimeout) {
+      clearTimeout(current.readyTimeout);
+    }
     for (const subscription of current.subscriptions) {
-      if (subscription !== skip) {
+      if (subscription !== skip && !subscription.closed) {
         subscription.close(reason);
       }
     }
@@ -226,6 +231,12 @@ export function startBuzzDirectoryRelay(params: {
       pendingReady: authorChunks.length,
       opening: true,
     };
+    generation.readyTimeout = setTimeout(() => {
+      if (profileGeneration !== generation || generation.pendingReady === 0) {
+        return;
+      }
+      reportFatalError(new Error("Timed out loading Buzz profile subscriptions"));
+    }, PROFILE_SUBSCRIPTION_READY_TIMEOUT_MS);
     profileGeneration = generation;
     try {
       for (const authors of authorChunks) {
@@ -236,6 +247,10 @@ export function startBuzzDirectoryRelay(params: {
           }
           ready = true;
           generation.pendingReady -= 1;
+          if (generation.pendingReady === 0 && generation.readyTimeout) {
+            clearTimeout(generation.readyTimeout);
+            generation.readyTimeout = undefined;
+          }
           if (!generation.opening && generation.pendingReady === 0) {
             applyQueuedProfilePublicKeys();
           }
@@ -258,7 +273,14 @@ export function startBuzzDirectoryRelay(params: {
             onclose: (reason) => {
               if (profileGeneration === generation) {
                 queuedProfilePublicKeys = undefined;
-                closeProfileGeneration(PROFILE_SUBSCRIPTION_FAILED_REASON, subscription);
+                if (reason === "relay connection closed by us") {
+                  if (generation.readyTimeout) {
+                    clearTimeout(generation.readyTimeout);
+                  }
+                  profileGeneration = undefined;
+                } else {
+                  closeProfileGeneration(PROFILE_SUBSCRIPTION_FAILED_REASON, subscription);
+                }
               }
               if (
                 reason !== PROFILE_SUBSCRIPTION_REPLACED_REASON &&

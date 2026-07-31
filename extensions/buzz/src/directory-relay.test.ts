@@ -149,6 +149,57 @@ describe("Buzz directory relay", () => {
     );
   });
 
+  it("recycles the owning relay when profile subscriptions never reach EOSE", async () => {
+    vi.useFakeTimers();
+    const subscriptions: SubscriptionRecord[] = [];
+    const relayClose = vi.fn();
+    const onFatalError = vi.fn();
+    const relay = {
+      close: relayClose,
+      idleSince: undefined,
+      ongoingOperations: 0,
+      prepareSubscription: vi.fn(
+        (
+          filters: Filter[],
+          handlers: SubscriptionRecord["handlers"],
+        ): ReturnType<Relay["prepareSubscription"]> => {
+          const close = vi.fn();
+          subscriptions.push({ filters, handlers, close });
+          return {
+            id: `sub:${subscriptions.length}`,
+            close,
+          } as ReturnType<Relay["prepareSubscription"]>;
+        },
+      ),
+      send: vi.fn(async () => {}),
+    } as unknown as Relay;
+    const directory = startBuzzDirectoryRelay({
+      relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
+      state: new BuzzDirectoryState({
+        publicKey: BOT_PUBLIC_KEY,
+        fallbackProfileName: "OpenClaw",
+        channelIds: [],
+      }),
+      onFatalError,
+    });
+
+    directory.replaceProfilePublicKeys([BOT_PUBLIC_KEY, FIRST_MEMBER_PUBLIC_KEY]);
+    directory.replaceProfilePublicKeys([BOT_PUBLIC_KEY, SECOND_MEMBER_PUBLIC_KEY]);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(onFatalError).toHaveBeenCalledOnce();
+    expect(onFatalError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Timed out loading Buzz profile subscriptions" }),
+    );
+    expect(subscriptions).toHaveLength(1);
+    expect(subscriptions[0]?.close).not.toHaveBeenCalled();
+    expect(relayClose).toHaveBeenCalledOnce();
+
+    directory.close();
+    vi.useRealTimers();
+  });
+
   it("defers query cleanup until the relay confirms EOSE", async () => {
     const abort = new AbortController();
     let handlers: SubscriptionRecord["handlers"] | undefined;
