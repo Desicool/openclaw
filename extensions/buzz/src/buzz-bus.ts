@@ -193,7 +193,7 @@ async function createBuzzRoomMembershipTracker(params: {
   };
 
   let initialized = false;
-  let historicalComplete = false;
+  const historicalRooms = new Set<string>();
   const bufferedEvents: BufferedSystemEvent[] = [];
   const seenEventIds = new Map<string, true>();
   const blockedRooms = new Set<string>();
@@ -360,42 +360,50 @@ async function createBuzzRoomMembershipTracker(params: {
   const historicalTimeout = setTimeout(() => {
     rejectHistorical?.(new Error("Timed out loading Buzz room membership changes"));
   }, MEMBERSHIP_READY_TIMEOUT_MS);
-  const subscriptions = [
+  // Buzz indexes live channel fan-out under one server-resolved room scope.
+  // A multi-room #h filter becomes global and cannot receive channel events.
+  const subscriptions = params.channelIds.map((channelId) =>
     params.relay.subscribe(
       [
         {
           kinds: [BUZZ_ROOM_SYSTEM_KIND],
-          "#h": params.channelIds,
+          "#h": [channelId],
           since: params.since,
         },
       ],
       {
         onevent: (event) => {
           if (!initialized) {
-            bufferedEvents.push({ event, historical: !historicalComplete });
+            bufferedEvents.push({ event, historical: !historicalRooms.has(channelId) });
             return;
           }
           void handleSystemEvent(event)?.catch(reportSystemEventError);
         },
         oneose: () => {
-          historicalComplete = true;
-          resolveHistorical?.();
+          historicalRooms.add(channelId);
+          if (historicalRooms.size === params.channelIds.length) {
+            resolveHistorical?.();
+          }
         },
         onclose: (reason) => {
-          if (!historicalComplete) {
-            rejectHistorical?.(new Error(`Buzz membership subscription closed: ${reason}`));
+          if (!historicalRooms.has(channelId)) {
+            rejectHistorical?.(
+              new Error(`Buzz membership subscription closed for ${channelId}: ${reason}`),
+            );
           } else if (
             reason !== "shutdown" &&
             reason !== "relay connection closed by us" &&
             reason !== MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON &&
             !params.signal?.aborted
           ) {
-            params.onFatalError?.(new Error(`Buzz membership subscription closed: ${reason}`));
+            params.onFatalError?.(
+              new Error(`Buzz membership subscription closed for ${channelId}: ${reason}`),
+            );
           }
         },
       },
     ),
-  ];
+  );
 
   try {
     await historicalReady;
@@ -579,39 +587,49 @@ export async function startBuzzBus(options: {
     directoryRelay.replaceProfilePublicKeys(directory.profilePublicKeys());
 
     subscriptions.push(
-      relay.subscribe(
-        [
+      ...options.channelIds.map((channelId) =>
+        relay.subscribe(
+          [
+            {
+              kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
+              "#h": [channelId],
+              since: options.since ?? sessionStartedAt,
+            },
+          ],
           {
-            kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
-            "#h": options.channelIds,
-            since: options.since ?? sessionStartedAt,
+            onevent: (event) => {
+              if (event.pubkey === publicKey) {
+                return;
+              }
+              const message = parseBuzzMessageEvent(event);
+              if (
+                !message ||
+                message.channelId !== channelId ||
+                !membershipTracker.isMember(channelId, event.pubkey)
+              ) {
+                return;
+              }
+              // Relay reconnects can replay signed events. Only admitted room
+              // members reach the persistent dedupe store or agent pipeline.
+              void replayGuard
+                .processGuarded(event, async () => {
+                  await options.onMessage(message, bus);
+                })
+                .catch((error: unknown) => {
+                  options.onMessageError?.(
+                    error instanceof Error ? error : new Error(String(error)),
+                  );
+                });
+            },
+            onclose: (reason) => {
+              if (reason !== "shutdown" && reason !== "relay connection closed by us") {
+                options.onFatalError?.(
+                  new Error(`Buzz subscription closed for ${channelId}: ${reason}`),
+                );
+              }
+            },
           },
-        ],
-        {
-          onevent: (event) => {
-            if (event.pubkey === publicKey) {
-              return;
-            }
-            const message = parseBuzzMessageEvent(event);
-            if (!message || !membershipTracker.isMember(message.channelId, event.pubkey)) {
-              return;
-            }
-            // Relay reconnects can replay signed events. Only admitted room
-            // members reach the persistent dedupe store or agent pipeline.
-            void replayGuard
-              .processGuarded(event, async () => {
-                await options.onMessage(message, bus);
-              })
-              .catch((error: unknown) => {
-                options.onMessageError?.(error instanceof Error ? error : new Error(String(error)));
-              });
-          },
-          onclose: (reason) => {
-            if (reason !== "shutdown" && reason !== "relay connection closed by us") {
-              options.onFatalError?.(new Error(`Buzz subscription closed: ${reason}`));
-            }
-          },
-        },
+        ),
       ),
     );
     // Buzz presence is a separate ephemeral protocol, not a property of the

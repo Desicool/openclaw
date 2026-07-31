@@ -91,6 +91,7 @@ const PRIVATE_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1
 const SENDER_PRIVATE_KEY = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
 const ACCOUNT_ID = "default";
 const CHANNEL_ID = "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c";
+const SECOND_CHANNEL_ID = "45cedd86-f853-45b7-8fea-812b7fe63d7a";
 const BOT_PUBLIC_KEY = getPublicKey(Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")));
 const SENDER_PUBLIC_KEY = getPublicKey(Uint8Array.from(Buffer.from(SENDER_PRIVATE_KEY, "hex")));
 const tempDirs = new Set<string>();
@@ -233,6 +234,36 @@ describe("Buzz bus lifecycle", () => {
     await bus.sendTyping({ channelId: CHANNEL_ID });
 
     expect(relayMocks.send).not.toHaveBeenCalled();
+    await bus.close();
+  });
+
+  it("opens room-scoped live subscriptions for every configured room", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.membershipEvents.push({
+      ...relayMocks.membershipEvents[0]!,
+      id: "membership-2",
+      tags: [
+        ["d", SECOND_CHANNEL_ID],
+        ["p", BOT_PUBLIC_KEY, "", "bot"],
+        ["p", SENDER_PUBLIC_KEY, "", "member"],
+      ],
+    });
+
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID, SECOND_CHANNEL_ID],
+      onMessage: async () => {},
+    });
+
+    for (const kind of [9, 40_099]) {
+      const roomFilters = relayMocks.subscriptions
+        .filter((entry) => entry.filter.kinds?.includes(kind))
+        .map((entry) => entry.filter["#h"]);
+      expect(roomFilters).toEqual([[CHANNEL_ID], [SECOND_CHANNEL_ID]]);
+    }
+
     await bus.close();
   });
 
