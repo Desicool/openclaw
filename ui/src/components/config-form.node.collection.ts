@@ -502,6 +502,8 @@ export function renderArray(
                     revealSensitive,
                     isSensitivePathRevealed,
                     onToggleSensitivePath,
+                    // Inherited rows stay visually unset, but edits materialize the
+                    // complete effective array through patchArrayItem at the parent path.
                     onPatch: patchArrayItem,
                   })}
                 `;

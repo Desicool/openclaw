@@ -130,6 +130,67 @@ describe("config form collection defaults", () => {
     expect(inheritedInputs.map((input) => input.placeholder)).toEqual(["Default: a", "Default: b"]);
     expect(container.querySelector("button[aria-label='Reset to default']")).toBeNull();
     expect(onPatch).not.toHaveBeenCalled();
+
+    inheritedInputs[1]!.value = "custom";
+    inheritedInputs[1]!.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect(onPatch).toHaveBeenCalledWith(["values"], ["a", "custom"]);
+  });
+
+  it("authors a nested inherited array item without dropping sibling defaults", () => {
+    const container = document.createElement("div");
+    const onPatch = vi.fn();
+    const schema = {
+      type: "array" as const,
+      default: [
+        { name: "alpha", details: { label: "one", note: "keep-one" } },
+        { name: "beta", details: { label: "two", note: "keep-two" } },
+      ],
+      items: {
+        type: "object" as const,
+        properties: {
+          name: { type: "string" as const, title: "Name" },
+          details: {
+            type: "object" as const,
+            title: "Details",
+            properties: {
+              label: { type: "string" as const, title: "Label" },
+              note: { type: "string" as const, title: "Note" },
+            },
+          },
+        },
+      },
+    };
+
+    render(
+      renderArray(
+        {
+          schema,
+          value: undefined,
+          path: ["entries"],
+          hints: {},
+          unsupported: new Set(),
+          disabled: false,
+          onPatch,
+        },
+        renderNode,
+      ),
+      container,
+    );
+
+    const labels = Array.from(
+      container.querySelectorAll<HTMLInputElement>("input[aria-label='Label']"),
+    );
+    expect(labels).toHaveLength(2);
+    labels[0]!.value = "changed";
+    labels[0]!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(onPatch).toHaveBeenCalledExactlyOnceWith(
+      ["entries"],
+      [
+        { name: "alpha", details: { label: "changed", note: "keep-one" } },
+        { name: "beta", details: { label: "two", note: "keep-two" } },
+      ],
+    );
   });
 
   it("conceals sensitive collection defaults and disables restore until revealed", () => {
