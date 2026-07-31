@@ -62,6 +62,9 @@ const MISTRAL_REALTIME_CLOSE_TIMEOUT_MS = 5_000;
 const MISTRAL_REALTIME_MAX_RECONNECT_ATTEMPTS = 5;
 const MISTRAL_REALTIME_RECONNECT_DELAY_MS = 1000;
 const MISTRAL_REALTIME_MAX_QUEUED_BYTES = 2 * 1024 * 1024;
+const MISTRAL_REALTIME_MAX_PARTIAL_TRANSCRIPT_BYTES = 256 * 1024;
+const MISTRAL_REALTIME_PARTIAL_TRANSCRIPT_OVERFLOW_MESSAGE =
+  "Mistral realtime transcription exceeded the 256 KiB in-progress transcript limit";
 
 function readNestedMistralConfig(rawConfig: RealtimeTranscriptionProviderConfig) {
   const raw = readRecord(rawConfig);
@@ -161,15 +164,53 @@ function readErrorDetail(event: MistralRealtimeTranscriptionEvent): string {
   return "Mistral realtime transcription error";
 }
 
+function measureTranscriptDeltaBytes(partialText: string, delta: string): number {
+  const previousCodeUnit = partialText.charCodeAt(partialText.length - 1);
+  const nextCodeUnit = delta.charCodeAt(0);
+  const completesSplitSurrogatePair =
+    previousCodeUnit >= 0xd800 &&
+    previousCodeUnit <= 0xdbff &&
+    nextCodeUnit >= 0xdc00 &&
+    nextCodeUnit <= 0xdfff;
+  // Separate UTF-8 measurements encode split surrogates as two replacement
+  // characters (six bytes); the combined transcript encodes one four-byte code point.
+  return Buffer.byteLength(delta, "utf8") - (completesSplitSurrogatePair ? 2 : 0);
+}
+
 function createMistralRealtimeTranscriptionSession(
   config: MistralRealtimeTranscriptionSessionConfig,
 ): RealtimeTranscriptionSession {
   let partialText = "";
+  let partialBytes = 0;
+  let terminal = false;
+
+  const clearPartial = () => {
+    partialText = "";
+    partialBytes = 0;
+  };
+
+  const failPartialOverflow = (transport: RealtimeTranscriptionWebSocketTransport) => {
+    if (terminal) {
+      return;
+    }
+    terminal = true;
+    clearPartial();
+    transport.closeNow();
+    try {
+      config.onError?.(new Error(MISTRAL_REALTIME_PARTIAL_TRANSCRIPT_OVERFLOW_MESSAGE));
+    } catch {
+      // The terminal provider error already owns the outcome. Do not let an
+      // observer exception re-enter shared error dispatch and emit it twice.
+    }
+  };
 
   const handleEvent = (
     event: MistralRealtimeTranscriptionEvent,
     transport: RealtimeTranscriptionWebSocketTransport,
   ) => {
+    if (terminal) {
+      return;
+    }
     if (event.type === "session.created") {
       transport.sendJson({
         type: "session.update",
@@ -190,23 +231,35 @@ function createMistralRealtimeTranscriptionSession(
     switch (event.type) {
       case "transcription.text.delta":
         if (event.text) {
+          const deltaBytes = measureTranscriptDeltaBytes(partialText, event.text);
+          if (deltaBytes > MISTRAL_REALTIME_MAX_PARTIAL_TRANSCRIPT_BYTES - partialBytes) {
+            failPartialOverflow(transport);
+            return;
+          }
           partialText += event.text;
+          partialBytes += deltaBytes;
           config.onPartial?.(partialText);
         }
         return;
       case "transcription.segment":
         if (event.text) {
           config.onTranscript?.(event.text);
-          partialText = "";
+          clearPartial();
         }
         return;
-      case "transcription.done":
-        if (partialText.trim()) {
-          config.onTranscript?.(partialText);
-          partialText = "";
+      case "transcription.done": {
+        terminal = true;
+        const transcript = partialText;
+        clearPartial();
+        try {
+          if (transcript.trim()) {
+            config.onTranscript?.(transcript);
+          }
+        } finally {
+          transport.closeNow();
         }
-        transport.closeNow();
         return;
+      }
       case "error":
         config.onError?.(new Error(readErrorDetail(event)));
 
