@@ -6,6 +6,7 @@ import {
 import { registerClientVoiceConsultRun } from "../talk/client-voice-session.js";
 import type { RealtimeVoiceToolResultOptions } from "../talk/provider-types.js";
 import { abortChatRunById } from "./chat-abort.js";
+import { formatError } from "./server-utils.js";
 import {
   cancelForcedConsults,
   submitForcedTalkRealtimeRelayToolResult,
@@ -105,6 +106,21 @@ export function closeRelaySession(session: RelaySession, reason: "completed" | "
       final: true,
     }),
   });
+}
+
+/** Releases every realtime relay session owned by a disconnected gateway connection. */
+export function closeTalkRealtimeRelaySessionsForConnection(connId: string): void {
+  for (const session of relaySessions.values()) {
+    if (session.connId === connId) {
+      try {
+        closeRelaySession(session, "completed");
+      } catch (error) {
+        session.context.logGateway.warn(
+          `failed to close realtime relay session after connection disconnect: ${formatError(error)}`,
+        );
+      }
+    }
+  }
 }
 
 function pruneExpiredRelaySessions(nowMs = Date.now()): void {

@@ -25,6 +25,7 @@ import { createChatRunState } from "./server-chat-state.js";
 import {
   acknowledgeTalkRealtimeRelayMark,
   cancelTalkRealtimeRelayTurn,
+  closeTalkRealtimeRelaySessionsForConnection,
   createTalkRealtimeRelaySession as createTalkRealtimeRelaySessionRaw,
   ensureTalkRealtimeRelayVoiceSession,
   flushTalkRealtimeRelayVoiceWrites,
@@ -91,6 +92,87 @@ describe("talk realtime gateway relay", () => {
       }),
     };
   }
+
+  it("closes only realtime relays owned by the disconnected connection", () => {
+    const bridgeCloses: Array<ReturnType<typeof vi.fn>> = [];
+    const bridgeAudioSends: Array<ReturnType<typeof vi.fn>> = [];
+    const provider = createIdleRelayProvider();
+    provider.createBridge = () => {
+      const close = vi.fn();
+      const sendAudio = vi.fn();
+      bridgeCloses.push(close);
+      bridgeAudioSends.push(sendAudio);
+      return {
+        connect: vi.fn(async () => undefined),
+        sendAudio,
+        setMediaTimestamp: vi.fn(),
+        handleBargeIn: vi.fn(),
+        submitToolResult: vi.fn(),
+        acknowledgeMark: vi.fn(),
+        close,
+        isConnected: vi.fn(() => true),
+      };
+    };
+    const logGateway = { warn: vi.fn() };
+    const context = {
+      broadcastToConnIds: vi.fn(),
+      chatAbortControllers: new Map(),
+      getRuntimeConfig: () => ({}),
+      logGateway,
+    } as never;
+    const createSession = (connId: string) =>
+      createTalkRealtimeRelaySession({
+        context,
+        connId,
+        provider,
+        providerConfig: {},
+        instructions: "brief",
+        tools: [],
+      });
+    const firstOwned = createSession("conn-owner");
+    const secondOwned = createSession("conn-owner");
+    const unrelated = createSession("conn-other");
+    bridgeCloses[0]?.mockImplementationOnce(() => {
+      throw new Error("provider close failed");
+    });
+
+    expect(() => closeTalkRealtimeRelaySessionsForConnection("conn-owner")).not.toThrow();
+    closeTalkRealtimeRelaySessionsForConnection("conn-owner");
+
+    expect(bridgeCloses[0]).toHaveBeenCalledOnce();
+    expect(bridgeCloses[1]).toHaveBeenCalledOnce();
+    expect(bridgeCloses[2]).not.toHaveBeenCalled();
+    expect(logGateway.warn).toHaveBeenCalledWith(
+      "failed to close realtime relay session after connection disconnect: provider close failed",
+    );
+    expect(() =>
+      sendTalkRealtimeRelayAudio({
+        relaySessionId: firstOwned.relaySessionId,
+        connId: "conn-owner",
+        audioBase64: "AQI=",
+      }),
+    ).toThrow("Unknown realtime relay session");
+    expect(() =>
+      sendTalkRealtimeRelayAudio({
+        relaySessionId: secondOwned.relaySessionId,
+        connId: "conn-owner",
+        audioBase64: "AQI=",
+      }),
+    ).toThrow("Unknown realtime relay session");
+
+    sendTalkRealtimeRelayAudio({
+      relaySessionId: unrelated.relaySessionId,
+      connId: "conn-other",
+      audioBase64: "AQI=",
+    });
+    expect(bridgeAudioSends[2]).toHaveBeenCalledOnce();
+    stopTalkRealtimeRelaySession({
+      relaySessionId: unrelated.relaySessionId,
+      connId: "conn-other",
+    });
+    closeTalkRealtimeRelaySessionsForConnection("conn-other");
+    expect(bridgeCloses[2]).toHaveBeenCalledOnce();
+  });
 
   it("injects the host agent runner only into gateway-relay bridge creation", () => {
     let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
