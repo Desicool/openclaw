@@ -287,6 +287,33 @@ describe("talk realtime gateway relay", () => {
     });
   });
 
+  it("ignores a provider close before relay registration", () => {
+    const provider = createIdleRelayProvider();
+    provider.createBridge = (request) => {
+      request.onClose?.("error");
+      return createIdleRelayProvider().createBridge(request);
+    };
+
+    const session = createTalkRealtimeRelaySession({
+      context: {
+        broadcastToConnIds: vi.fn(),
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}),
+        logGateway: { warn: vi.fn() },
+      } as never,
+      connId: "conn-early-close",
+      provider,
+      providerConfig: {},
+      instructions: "brief",
+      tools: [],
+    });
+
+    stopTalkRealtimeRelaySession({
+      relaySessionId: session.relaySessionId,
+      connId: "conn-early-close",
+    });
+  });
+
   it("appends finalized relay transcripts to the canonical agent session", async () => {
     const envSnapshot = captureEnv(["OPENCLAW_STATE_DIR"]);
     const tempDir = await fs.realpath(

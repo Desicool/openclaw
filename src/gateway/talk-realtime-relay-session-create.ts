@@ -432,7 +432,7 @@ export function createTalkRealtimeRelaySession(
     },
     onClose: (reason) => {
       const active = relaySessions.get(relaySessionId);
-      if (active !== relayRef.current) {
+      if (!active || active !== relayRef.current) {
         return;
       }
       active.harness.close();
