@@ -75,6 +75,25 @@ function replaceConnection(
   pane.connectedClient = client;
 }
 
+function installReplacementConnection(
+  pane: SharingPane,
+  state: ChatPageHost,
+  row: GatewaySessionRow,
+) {
+  const request = vi.fn();
+  const sessions = {
+    refreshReplacement: vi.fn(),
+  } as unknown as SessionCapability;
+  replaceConnection(pane, state, { request } as unknown as GatewayBrowserClient, sessions);
+  const cacheKey = pane.sessionSharingCacheKey(row.key);
+  const sharingState: ChatSessionSharingState = {
+    loading: false,
+    result: sharingResult(row),
+  };
+  pane.sessionSharingStates = new Map([[cacheKey, sharingState]]);
+  return { cacheKey, request, sessions, sharingState };
+}
+
 const mutations = [
   {
     name: "visibility",
@@ -115,22 +134,7 @@ describe.each(mutations)("chat pane $name mutation connection ownership", (mutat
         expect.objectContaining({ sessionKey: row.key }),
       );
 
-      const nextRequest = vi.fn();
-      const nextSessions = {
-        refreshReplacement: vi.fn(),
-      } as unknown as SessionCapability;
-      replaceConnection(
-        pane,
-        state,
-        { request: nextRequest } as unknown as GatewayBrowserClient,
-        nextSessions,
-      );
-      const cacheKey = pane.sessionSharingCacheKey(row.key);
-      const replacementState: ChatSessionSharingState = {
-        loading: false,
-        result: sharingResult(row),
-      };
-      pane.sessionSharingStates = new Map([[cacheKey, replacementState]]);
+      const replacement = installReplacementConnection(pane, state, row);
 
       if (completion === "resolve") {
         response.resolve({});
@@ -139,9 +143,9 @@ describe.each(mutations)("chat pane $name mutation connection ownership", (mutat
       }
       await pending;
 
-      expect(nextRequest).not.toHaveBeenCalled();
-      expect(nextSessions.refreshReplacement).not.toHaveBeenCalled();
-      expect(pane.sessionSharingStates.get(cacheKey)).toBe(replacementState);
+      expect(replacement.request).not.toHaveBeenCalled();
+      expect(replacement.sessions.refreshReplacement).not.toHaveBeenCalled();
+      expect(pane.sessionSharingStates.get(replacement.cacheKey)).toBe(replacement.sharingState);
     },
   );
 
@@ -169,6 +173,132 @@ describe.each(mutations)("chat pane $name mutation connection ownership", (mutat
       error: `Error: ${mutation.name} failed`,
     });
     expect(sessions.refreshReplacement).not.toHaveBeenCalled();
+  });
+});
+
+describe("chat pane sharing mutation phase ownership", () => {
+  it.each(["resolve", "reject"] as const)(
+    "drops a stale visibility session refresh when it later %s",
+    async (completion) => {
+      const refreshed = createDeferred<void>();
+      const request = vi.fn(async (method: string) => {
+        if (method === "session.visibility.set") {
+          return {};
+        }
+        throw new Error(`unexpected old-connection request: ${method}`);
+      });
+      const oldSessions = {
+        refreshReplacement: vi.fn(() => refreshed.promise),
+      } as unknown as SessionCapability;
+      const { pane: testPane, state } = createTestChatPane({
+        client: { request } as unknown as GatewayBrowserClient,
+        sessions: oldSessions,
+      });
+      const pane = testPane as SharingPane;
+      const row = sessionRow();
+      const pending = pane.setSessionVisibility(row, "shared");
+      await vi.waitFor(() => {
+        expect(oldSessions.refreshReplacement).toHaveBeenCalledWith("main");
+      });
+
+      const replacement = installReplacementConnection(pane, state, row);
+      if (completion === "resolve") {
+        refreshed.resolve();
+      } else {
+        refreshed.reject(new Error("old session refresh failed"));
+      }
+      await pending;
+
+      expect(replacement.request).not.toHaveBeenCalled();
+      expect(replacement.sessions.refreshReplacement).not.toHaveBeenCalled();
+      expect(pane.sessionSharingStates.get(replacement.cacheKey)).toBe(replacement.sharingState);
+    },
+  );
+
+  it.each(
+    mutations.flatMap((mutation) =>
+      (["resolve", "reject"] as const).map((completion) => ({
+        ...mutation,
+        completion,
+      })),
+    ),
+  )(
+    "drops a stale $name sharing reload when it later $completion",
+    async ({ completion, invoke, method, name }) => {
+      const listed = createDeferred<SessionMembersListResult>();
+      const request = vi.fn((requestMethod: string) => {
+        if (requestMethod === method) {
+          return Promise.resolve({});
+        }
+        if (requestMethod === "session.members.list") {
+          return listed.promise;
+        }
+        throw new Error(`unexpected old-connection request: ${requestMethod}`);
+      });
+      const oldSessions = {
+        refreshReplacement: vi.fn(async () => undefined),
+      } as unknown as SessionCapability;
+      const { pane: testPane, state } = createTestChatPane({
+        client: { request } as unknown as GatewayBrowserClient,
+        sessions: oldSessions,
+      });
+      const pane = testPane as SharingPane;
+      const row = sessionRow();
+      const pending = invoke(pane, row);
+      await vi.waitFor(() => {
+        expect(request).toHaveBeenCalledWith(
+          "session.members.list",
+          expect.objectContaining({ sessionKey: row.key }),
+        );
+      });
+
+      const replacement = installReplacementConnection(pane, state, row);
+      if (completion === "resolve") {
+        listed.resolve(sharingResult(row));
+      } else {
+        listed.reject(new Error(`old ${name} sharing reload failed`));
+      }
+      await pending;
+
+      expect(oldSessions.refreshReplacement).toHaveBeenCalledTimes(name === "visibility" ? 1 : 0);
+      expect(replacement.request).not.toHaveBeenCalled();
+      expect(replacement.sessions.refreshReplacement).not.toHaveBeenCalled();
+      expect(pane.sessionSharingStates.get(replacement.cacheKey)).toBe(replacement.sharingState);
+    },
+  );
+
+  it("drops a stale member session refresh failure", async () => {
+    const refreshed = createDeferred<void>();
+    const row = sessionRow();
+    const request = vi.fn(async (method: string) => {
+      if (method === "session.members.list") {
+        return sharingResult(row);
+      }
+      if (method === "session.members.add") {
+        return {};
+      }
+      throw new Error(`unexpected old-connection request: ${method}`);
+    });
+    const oldSessions = {
+      refreshReplacement: vi.fn(() => refreshed.promise),
+    } as unknown as SessionCapability;
+    const { pane: testPane, state } = createTestChatPane({
+      client: { request } as unknown as GatewayBrowserClient,
+      sessions: oldSessions,
+    });
+    const pane = testPane as SharingPane;
+    const pending = pane.setSessionMember(row, "identity-alice", true);
+    await vi.waitFor(() => {
+      expect(oldSessions.refreshReplacement).toHaveBeenCalledWith("main");
+    });
+
+    const replacement = installReplacementConnection(pane, state, row);
+    refreshed.reject(new Error("old member session refresh failed"));
+    await pending;
+
+    expect(replacement.request).not.toHaveBeenCalled();
+    expect(replacement.sessions.refreshReplacement).not.toHaveBeenCalled();
+    expect(pane.sessionSharingStates.get(replacement.cacheKey)).toBe(replacement.sharingState);
   });
 });
 
