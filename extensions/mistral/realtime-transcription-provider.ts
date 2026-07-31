@@ -199,7 +199,7 @@ function createMistralRealtimeTranscriptionSession(
     config.onTranscript?.(text);
   };
 
-  const failPartialOverflow = (transport: RealtimeTranscriptionWebSocketTransport) => {
+  const failTerminal = (error: Error, transport: RealtimeTranscriptionWebSocketTransport) => {
     if (terminal) {
       return;
     }
@@ -207,7 +207,7 @@ function createMistralRealtimeTranscriptionSession(
     clearPartial();
     transport.closeNow();
     try {
-      config.onError?.(new Error(MISTRAL_REALTIME_PARTIAL_TRANSCRIPT_OVERFLOW_MESSAGE));
+      config.onError?.(error);
     } catch {
       // The terminal provider error already owns the outcome. Do not let an
       // observer exception re-enter shared error dispatch and emit it twice.
@@ -243,7 +243,10 @@ function createMistralRealtimeTranscriptionSession(
         if (event.text) {
           const deltaBytes = measureTranscriptDeltaBytes(partialText, event.text);
           if (deltaBytes > MISTRAL_REALTIME_MAX_PARTIAL_TRANSCRIPT_BYTES - partialBytes) {
-            failPartialOverflow(transport);
+            failTerminal(
+              new Error(MISTRAL_REALTIME_PARTIAL_TRANSCRIPT_OVERFLOW_MESSAGE),
+              transport,
+            );
             return;
           }
           partialText += event.text;
@@ -273,8 +276,8 @@ function createMistralRealtimeTranscriptionSession(
         return;
       }
       case "error":
-        config.onError?.(new Error(readErrorDetail(event)));
-
+        failTerminal(new Error(readErrorDetail(event)), transport);
+        return;
       default:
     }
   };
