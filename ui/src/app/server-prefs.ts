@@ -590,6 +590,8 @@ async function drainPendingPrefs(writer: ServerUiPrefsWriter, epoch: number): Pr
         return;
       }
       // Connected viewer-scope or validation failures degrade silently to device-local state.
+      // LAST_SEEN still owns the authoritative server value per key, so identical
+      // refreshes and reloads preserve this local edit; only a server delta replaces it.
       removeBatch(batch);
       settlePendingStorage(batch);
       afterCommit?.({ needsRefresh: false, retainedLocal: true });

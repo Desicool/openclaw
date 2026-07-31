@@ -530,6 +530,49 @@ describe("pushServerUiPrefs", () => {
     expect(followUpReset.chatFollowUpMode).toBe("queue");
   });
 
+  it("retains a rejected local edit until that server key actually changes", async () => {
+    const scope = "ws://gw";
+    const initialConfig = configWithPrefs({ theme: "claw", locale: "de" });
+    const onApplied = vi.fn();
+    applyServerUiPrefs(initialConfig, { scope, onApplied });
+    const beforeLocalEdit = loadSettings();
+    const retained = patchSettings({ theme: "knot" });
+    const prefs = changedServerUiPrefs(beforeLocalEdit, retained);
+    const afterCommit = vi.fn();
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => {
+      throw new Error("invalid config");
+    });
+
+    pushServerUiPrefs(createClient(request, scope), prefs ?? {}, { afterCommit });
+    await vi.waitFor(() =>
+      expect(afterCommit).toHaveBeenCalledWith({
+        needsRefresh: false,
+        retainedLocal: true,
+      }),
+    );
+
+    expect(
+      applyServerUiPrefs(configWithPrefs({ theme: "claw", locale: "de" }), { scope, onApplied }),
+    ).toBe(false);
+    expect(loadSettings().theme).toBe("knot");
+
+    resetServerUiPrefsSync();
+    expect(
+      applyServerUiPrefs(configWithPrefs({ theme: "claw", locale: "de" }), { scope, onApplied }),
+    ).toBe(false);
+    expect(loadSettings().theme).toBe("knot");
+
+    expect(
+      applyServerUiPrefs(configWithPrefs({ theme: "claw", locale: "fr" }), { scope, onApplied }),
+    ).toBe(true);
+    expect(loadSettings()).toMatchObject({ theme: "knot", locale: "fr" });
+
+    expect(
+      applyServerUiPrefs(configWithPrefs({ theme: "dash", locale: "fr" }), { scope, onApplied }),
+    ).toBe(true);
+    expect(loadSettings().theme).toBe("dash");
+  });
+
   it("sends one hash-free patch and acknowledges lastSeen plus pending", async () => {
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
     const afterCommit = vi.fn();
