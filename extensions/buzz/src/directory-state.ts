@@ -8,14 +8,14 @@ export const BUZZ_ROOM_METADATA_KIND = 39_000;
 export const BUZZ_PROFILE_QUERY_CHUNK_SIZE = 200;
 // Ten live profile subscriptions is a hard process-local ceiling. Members
 // beyond it remain visible by stable public key without retaining metadata.
-export const DEFAULT_BUZZ_DIRECTORY_PROFILE_LIMIT = 2_000;
+const DEFAULT_BUZZ_DIRECTORY_PROFILE_LIMIT = 2_000;
 
 const HEX_PUBLIC_KEY_PATTERN = /^[0-9a-f]{64}$/u;
 const MAX_DIRECTORY_NAME_CHARS = 512;
 const MAX_DIRECTORY_HANDLE_CHARS = 320;
 const MAX_DIRECTORY_URL_CHARS = 4_096;
 
-export type BuzzDirectoryProfile = {
+type BuzzDirectoryProfile = {
   publicKey: string;
   displayName?: string;
   handle?: string;
@@ -24,7 +24,7 @@ export type BuzzDirectoryProfile = {
   eventId: string;
 };
 
-export type BuzzDirectoryRoom = {
+type BuzzDirectoryRoom = {
   roomId: string;
   name?: string;
   createdAt: number;
@@ -96,7 +96,7 @@ function applyQueryAndLimit(
   return result;
 }
 
-export function parseBuzzDirectoryProfileEvent(event: Event): BuzzDirectoryProfile | undefined {
+function parseBuzzDirectoryProfileEvent(event: Event): BuzzDirectoryProfile | undefined {
   const publicKey = event.pubkey.trim().toLowerCase();
   if (event.kind !== BUZZ_PROFILE_KIND || !HEX_PUBLIC_KEY_PATTERN.test(publicKey)) {
     return undefined;
@@ -131,7 +131,7 @@ export function parseBuzzDirectoryProfileEvent(event: Event): BuzzDirectoryProfi
   };
 }
 
-export function parseBuzzDirectoryRoomEvent(event: Event): BuzzDirectoryRoom | undefined {
+function parseBuzzDirectoryRoomEvent(event: Event): BuzzDirectoryRoom | undefined {
   if (event.kind !== BUZZ_ROOM_METADATA_KIND) {
     return undefined;
   }

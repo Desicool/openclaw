@@ -35,7 +35,7 @@ async function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Prom
   });
 }
 
-export function createBuzzAuthSigner(params: {
+function createBuzzAuthSigner(params: {
   secretKey: Uint8Array;
   authTag?: string[];
 }): (template: EventTemplate) => Promise<VerifiedEvent> {
@@ -71,7 +71,7 @@ export async function connectAuthenticatedBuzzRelay(params: {
   }
 }
 
-export async function authenticateBuzzRelay(params: {
+async function authenticateBuzzRelay(params: {
   relay: Relay;
   signAuth: (template: EventTemplate) => Promise<VerifiedEvent>;
   signal?: AbortSignal;

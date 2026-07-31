@@ -4,7 +4,6 @@ import {
   BuzzDirectoryState,
   BUZZ_PROFILE_KIND,
   BUZZ_ROOM_METADATA_KIND,
-  parseBuzzDirectoryProfileEvent,
 } from "./directory-state.js";
 import type { BuzzRoomMembership } from "./room-membership.js";
 
@@ -40,10 +39,31 @@ function membership(members: Array<[string, string?]>): BuzzRoomMembership {
   };
 }
 
+function profileState(): BuzzDirectoryState {
+  const state = new BuzzDirectoryState({
+    publicKey: BOT_PUBLIC_KEY,
+    fallbackProfileName: "OpenClaw",
+    channelIds: [ROOM_ID],
+  });
+  state.replaceMemberships(
+    new Map([
+      [
+        ROOM_ID,
+        membership([
+          [BOT_PUBLIC_KEY, "bot"],
+          [ALICE_PUBLIC_KEY, "member"],
+        ]),
+      ],
+    ]),
+  );
+  return state;
+}
+
 describe("Buzz directory state", () => {
   it("parses Buzz profile precedence without trusting malformed content", () => {
+    const preferred = profileState();
     expect(
-      parseBuzzDirectoryProfileEvent(
+      preferred.applyProfileEvent(
         event({
           kind: BUZZ_PROFILE_KIND,
           pubkey: ALICE_PUBLIC_KEY,
@@ -56,38 +76,46 @@ describe("Buzz directory state", () => {
           }),
         }),
       ),
-    ).toMatchObject({
-      publicKey: ALICE_PUBLIC_KEY,
-      displayName: "Alice",
-      handle: "alice@example.com",
-      avatarUrl: "https://example.com/alice.png",
-    });
+    ).toBe(true);
+    expect(preferred.listPeers({})).toEqual([
+      expect.objectContaining({
+        id: ALICE_PUBLIC_KEY,
+        name: "Alice",
+        handle: "alice@example.com",
+        avatarUrl: "https://example.com/alice.png",
+      }),
+    ]);
+
+    const fallback = profileState();
+    fallback.applyProfileEvent(
+      event({
+        kind: BUZZ_PROFILE_KIND,
+        pubkey: ALICE_PUBLIC_KEY,
+        content: JSON.stringify({ name: "Fallback", image: "https://example.com/fallback.png" }),
+      }),
+    );
+    expect(fallback.listPeers({})).toEqual([
+      expect.objectContaining({
+        name: "Fallback",
+        avatarUrl: "https://example.com/fallback.png",
+      }),
+    ]);
+
+    const emptyPrimary = profileState();
+    emptyPrimary.applyProfileEvent(
+      event({
+        kind: BUZZ_PROFILE_KIND,
+        pubkey: ALICE_PUBLIC_KEY,
+        content: JSON.stringify({ display_name: "", name: "not-used" }),
+      }),
+    );
+    expect(emptyPrimary.listPeers({})[0]?.name).toBe("bbbbbbbb...bbbbbb");
+
     expect(
-      parseBuzzDirectoryProfileEvent(
-        event({
-          kind: BUZZ_PROFILE_KIND,
-          pubkey: ALICE_PUBLIC_KEY,
-          content: JSON.stringify({ name: "Fallback", image: "https://example.com/fallback.png" }),
-        }),
-      ),
-    ).toMatchObject({
-      displayName: "Fallback",
-      avatarUrl: "https://example.com/fallback.png",
-    });
-    expect(
-      parseBuzzDirectoryProfileEvent(
-        event({
-          kind: BUZZ_PROFILE_KIND,
-          pubkey: ALICE_PUBLIC_KEY,
-          content: JSON.stringify({ display_name: "", name: "not-used" }),
-        }),
-      )?.displayName,
-    ).toBeUndefined();
-    expect(
-      parseBuzzDirectoryProfileEvent(
+      profileState().applyProfileEvent(
         event({ kind: BUZZ_PROFILE_KIND, pubkey: ALICE_PUBLIC_KEY, content: "{" }),
       ),
-    ).toBeUndefined();
+    ).toBe(false);
   });
 
   it("keeps stable public-key ids while applying current profiles and room metadata", () => {
