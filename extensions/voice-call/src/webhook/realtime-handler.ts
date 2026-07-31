@@ -1507,6 +1507,13 @@ export class RealtimeCallHandler {
         const result = await forcedConsult.promise.catch((error: unknown) => ({
           error: formatErrorMessage(error),
         }));
+        if (
+          forcedConsult.cancelled ||
+          forcedConsult.owner !== bridge ||
+          this.forcedConsultsByCallId.get(callId) !== forcedConsult
+        ) {
+          return;
+        }
         await submitFinalToolResult(result);
         return;
       }

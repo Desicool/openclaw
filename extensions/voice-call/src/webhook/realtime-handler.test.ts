@@ -1644,6 +1644,13 @@ describe("RealtimeCallHandler path routing", () => {
       );
       const stalePendingRun = vi.fn();
       oldCoordinator.schedule(stalePendingHandle, 60_000, stalePendingRun);
+      callbacks[0]?.onToolCall?.({
+        itemId: "item-old-native",
+        callId: "old-native-consult",
+        name: "openclaw_agent_consult",
+        args: { question: "Check the old deployment." },
+      });
+      expect(consult).toHaveBeenCalledTimes(1);
 
       replacementServer = await startRealtimeServer(handler);
       const replacementWs = await connectWs(replacementServer.url);
