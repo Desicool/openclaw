@@ -542,6 +542,14 @@ export async function startBuzzBus(options: {
   const signal = options.signal
     ? AbortSignal.any([options.signal, lifecycleAbort.signal])
     : lifecycleAbort.signal;
+  let fatalErrorReported = false;
+  const reportFatalError = (error: Error) => {
+    if (signal.aborted || fatalErrorReported) {
+      return;
+    }
+    fatalErrorReported = true;
+    options.onFatalError?.(error);
+  };
   const replayGuard = createChannelReplayGuard<Event>({
     dedupe: {
       pluginId: "buzz",
@@ -634,7 +642,7 @@ export async function startBuzzBus(options: {
             options.onMessageError?.(error instanceof Error ? error : new Error(String(error)));
           });
       },
-      onFatalError: options.onFatalError,
+      onFatalError: reportFatalError,
       onMembershipsChanged: (memberships) => {
         if (directory.replaceMemberships(memberships)) {
           directoryRelay?.replaceProfilePublicKeys(directory.profilePublicKeys());
@@ -661,6 +669,7 @@ export async function startBuzzBus(options: {
       state: directory,
       signal,
       onError: options.onDirectoryError,
+      onFatalError: reportFatalError,
     });
     directoryRelay.replaceProfilePublicKeys(directory.profilePublicKeys());
     // Buzz presence is a separate ephemeral protocol, not a property of the

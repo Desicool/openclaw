@@ -33,6 +33,7 @@ async function queryBuzzDirectoryBatch(params: {
   relay: Relay;
   filter: Filter;
   onEvent: (event: Event) => void;
+  onTimeout?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<void> {
   params.signal?.throwIfAborted();
@@ -42,7 +43,11 @@ async function queryBuzzDirectoryBatch(params: {
     const timeout = setTimeout(() => {
       const error = new Error("Timed out loading Buzz directory snapshot");
       finish(error);
-      params.relay.close();
+      if (params.onTimeout) {
+        params.onTimeout(error);
+      } else {
+        params.relay.close();
+      }
     }, DIRECTORY_QUERY_TIMEOUT_MS);
     const subscriptionRef: { current?: BuzzSubscription } = {};
     const finish = (error?: unknown) => {
@@ -102,6 +107,7 @@ export async function queryBuzzDirectoryProfiles(params: {
   relay: Relay;
   state: BuzzDirectoryState;
   publicKeys: string[];
+  onTimeout?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<void> {
   for (const authors of chunkValues(params.publicKeys, BUZZ_PROFILE_QUERY_CHUNK_SIZE)) {
@@ -115,6 +121,7 @@ export async function queryBuzzDirectoryProfiles(params: {
       onEvent: (event) => {
         params.state.applyProfileEvent(event);
       },
+      onTimeout: params.onTimeout,
       signal: params.signal,
     });
   }
@@ -125,6 +132,7 @@ export async function queryBuzzDirectoryRooms(params: {
   relayPublicKey: string;
   state: BuzzDirectoryState;
   channelIds: string[];
+  onTimeout?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<void> {
   for (const roomIds of chunkValues(params.channelIds, BUZZ_ROOM_QUERY_CHUNK_SIZE)) {
@@ -141,6 +149,7 @@ export async function queryBuzzDirectoryRooms(params: {
           params.state.applyRoomEvent(event);
         }
       },
+      onTimeout: params.onTimeout,
       signal: params.signal,
     });
   }
@@ -152,6 +161,7 @@ export function startBuzzDirectoryRelay(params: {
   state: BuzzDirectoryState;
   signal?: AbortSignal;
   onError?: (error: Error) => void;
+  onFatalError?: (error: Error) => void;
 }): {
   replaceProfilePublicKeys: (publicKeys: string[]) => void;
   refreshRooms: (channelIds: string[]) => Promise<void>;
@@ -162,6 +172,7 @@ export function startBuzzDirectoryRelay(params: {
   let queuedProfilePublicKeys: string[] | undefined;
   const pendingRoomIds = new Set<string>();
   let refreshInFlight: Promise<void> | undefined;
+  let fatalErrorReported = false;
 
   const reportError = (error: unknown) => {
     if (closed || params.signal?.aborted) {
@@ -170,6 +181,14 @@ export function startBuzzDirectoryRelay(params: {
     params.onError?.(
       error instanceof Error ? error : new Error("Buzz directory refresh failed", { cause: error }),
     );
+  };
+  const reportFatalError = (error: Error) => {
+    if (closed || params.signal?.aborted || fatalErrorReported) {
+      return;
+    }
+    fatalErrorReported = true;
+    params.onFatalError?.(error);
+    params.relay.close();
   };
 
   const closeProfileGeneration = (reason: string, skip?: BuzzSubscription) => {
@@ -298,6 +317,7 @@ export function startBuzzDirectoryRelay(params: {
           relayPublicKey: params.relayPublicKey,
           state: params.state,
           channelIds: nextRoomIds,
+          onTimeout: reportFatalError,
           signal: params.signal,
         });
       }

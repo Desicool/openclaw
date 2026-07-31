@@ -219,4 +219,44 @@ describe("Buzz directory relay", () => {
     expect(relayClose).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
+
+  it("reports a fatal bus error before recycling a stalled active directory relay", async () => {
+    vi.useFakeTimers();
+    const subscriptionClose = vi.fn();
+    const relayClose = vi.fn();
+    const onFatalError = vi.fn();
+    const relay = {
+      close: relayClose,
+      idleSince: undefined,
+      ongoingOperations: 0,
+      prepareSubscription: vi.fn(
+        (): ReturnType<Relay["prepareSubscription"]> =>
+          ({ id: "sub:1", close: subscriptionClose }) as ReturnType<Relay["prepareSubscription"]>,
+      ),
+      send: vi.fn(async () => {}),
+    } as unknown as Relay;
+    const directory = startBuzzDirectoryRelay({
+      relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
+      state: new BuzzDirectoryState({
+        publicKey: BOT_PUBLIC_KEY,
+        fallbackProfileName: "OpenClaw",
+        channelIds: [],
+      }),
+      onFatalError,
+    });
+    const refresh = directory.refreshRooms(["7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c"]);
+    const rejection = expect(refresh).rejects.toThrow("Timed out loading Buzz directory snapshot");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+
+    expect(onFatalError).toHaveBeenCalledOnce();
+    expect(onFatalError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Timed out loading Buzz directory snapshot" }),
+    );
+    expect(subscriptionClose).not.toHaveBeenCalled();
+    expect(relayClose).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
 });
