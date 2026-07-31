@@ -78,6 +78,7 @@ async function pullOllamaModelCore(params: {
     clearTimeout(responseTimeout);
     try {
       if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
         return { ok: false, message: `Failed to download ${modelName} (HTTP ${response.status})` };
       }
       if (!response.body) {
@@ -135,6 +136,8 @@ async function pullOllamaModelCore(params: {
         for (const line of lines) {
           const parsed = parseLine(line);
           if (!parsed.ok) {
+            // Ollama can report an error before closing the stream; discard the unread tail.
+            await reader.cancel().catch(() => undefined);
             return parsed;
           }
         }
