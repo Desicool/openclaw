@@ -5,6 +5,7 @@ import path from "node:path";
  * Tests talk realtime relay event forwarding and connection cleanup.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { setActiveEmbeddedRun } from "../agents/embedded-agent-runner/runs.js";
 import { testing as embeddedRunTesting } from "../agents/embedded-agent-runner/runs.test-support.js";
 import {
@@ -37,6 +38,7 @@ import {
 } from "./talk-realtime-relay.js";
 
 const activeRelaySessions = new Map<string, string>();
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function createTalkRealtimeRelaySession(
   params: Parameters<typeof createTalkRealtimeRelaySessionRaw>[0],
@@ -93,7 +95,10 @@ describe("talk realtime gateway relay", () => {
     };
   }
 
-  it("closes only realtime relays owned by the disconnected connection", () => {
+  it("closes only realtime relays owned by the disconnected connection", async () => {
+    const envSnapshot = captureEnv(["OPENCLAW_STATE_DIR"]);
+    const tempDir = await fs.realpath(tempDirs.make("openclaw-relay-disconnect-"));
+    setTestEnvValue("OPENCLAW_STATE_DIR", tempDir);
     const bridgeCloses: Array<ReturnType<typeof vi.fn>> = [];
     const bridgeAudioSends: Array<ReturnType<typeof vi.fn>> = [];
     const provider = createIdleRelayProvider();
@@ -113,65 +118,98 @@ describe("talk realtime gateway relay", () => {
         isConnected: vi.fn(() => true),
       };
     };
-    const logGateway = { warn: vi.fn() };
-    const context = {
-      broadcastToConnIds: vi.fn(),
-      chatAbortControllers: new Map(),
-      getRuntimeConfig: () => ({}),
-      logGateway,
-    } as never;
-    const createSession = (connId: string) =>
-      createTalkRealtimeRelaySession({
-        context,
-        connId,
-        provider,
-        providerConfig: {},
-        instructions: "brief",
-        tools: [],
-      });
-    const firstOwned = createSession("conn-owner");
-    const secondOwned = createSession("conn-owner");
-    const unrelated = createSession("conn-other");
-    bridgeCloses[0]?.mockImplementationOnce(() => {
-      throw new Error("provider close failed");
-    });
-
-    expect(() => closeTalkRealtimeRelaySessionsForConnection("conn-owner")).not.toThrow();
-    closeTalkRealtimeRelaySessionsForConnection("conn-owner");
-
-    expect(bridgeCloses[0]).toHaveBeenCalledOnce();
-    expect(bridgeCloses[1]).toHaveBeenCalledOnce();
-    expect(bridgeCloses[2]).not.toHaveBeenCalled();
-    expect(logGateway.warn).toHaveBeenCalledWith(
-      "failed to close realtime relay session after connection disconnect: provider close failed",
-    );
-    expect(() =>
-      sendTalkRealtimeRelayAudio({
+    try {
+      const logGateway = { warn: vi.fn() };
+      const broadcastToConnIds = vi.fn();
+      const context = {
+        broadcastToConnIds,
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}),
+        logGateway,
+      } as never;
+      const createSession = (connId: string) =>
+        createTalkRealtimeRelaySession({
+          context,
+          connId,
+          provider,
+          providerConfig: {},
+          instructions: "brief",
+          tools: [],
+        });
+      const firstOwned = createSession("conn-owner");
+      const secondOwned = createSession("conn-owner");
+      const unrelated = createSession("conn-other");
+      ensureTalkRealtimeRelayVoiceSession({
         relaySessionId: firstOwned.relaySessionId,
         connId: "conn-owner",
-        audioBase64: "AQI=",
-      }),
-    ).toThrow("Unknown realtime relay session");
-    expect(() =>
-      sendTalkRealtimeRelayAudio({
-        relaySessionId: secondOwned.relaySessionId,
-        connId: "conn-owner",
-        audioBase64: "AQI=",
-      }),
-    ).toThrow("Unknown realtime relay session");
+        sessionKey: "agent:main:main",
+      });
+      expect(clientVoiceSessionTesting.readRecord("main", firstOwned.relaySessionId)).toMatchObject(
+        {
+          status: "open",
+        },
+      );
+      bridgeCloses[0]?.mockImplementationOnce(() => {
+        throw new Error("provider close failed");
+      });
 
-    sendTalkRealtimeRelayAudio({
-      relaySessionId: unrelated.relaySessionId,
-      connId: "conn-other",
-      audioBase64: "AQI=",
-    });
-    expect(bridgeAudioSends[2]).toHaveBeenCalledOnce();
-    stopTalkRealtimeRelaySession({
-      relaySessionId: unrelated.relaySessionId,
-      connId: "conn-other",
-    });
-    closeTalkRealtimeRelaySessionsForConnection("conn-other");
-    expect(bridgeCloses[2]).toHaveBeenCalledOnce();
+      expect(() => closeTalkRealtimeRelaySessionsForConnection("conn-owner")).not.toThrow();
+      closeTalkRealtimeRelaySessionsForConnection("conn-owner");
+
+      expect(bridgeCloses[0]).toHaveBeenCalledOnce();
+      expect(bridgeCloses[1]).toHaveBeenCalledOnce();
+      expect(bridgeCloses[2]).not.toHaveBeenCalled();
+      expect(logGateway.warn).toHaveBeenCalledWith(
+        "failed to close realtime relay session after connection disconnect: provider close failed",
+      );
+      await vi.waitFor(() =>
+        expect(
+          clientVoiceSessionTesting.readRecord("main", firstOwned.relaySessionId)?.status,
+        ).toBe("closed"),
+      );
+      expect(
+        broadcastToConnIds.mock.calls.some(
+          ([event, payload]) =>
+            event === "talk.event" &&
+            payload.relaySessionId === firstOwned.relaySessionId &&
+            payload.type === "close" &&
+            payload.talkEvent?.type === "session.closed" &&
+            payload.talkEvent.final === true,
+        ),
+      ).toBe(true);
+      expect(() =>
+        sendTalkRealtimeRelayAudio({
+          relaySessionId: firstOwned.relaySessionId,
+          connId: "conn-owner",
+          audioBase64: "AQI=",
+        }),
+      ).toThrow("Unknown realtime relay session");
+      expect(() =>
+        sendTalkRealtimeRelayAudio({
+          relaySessionId: secondOwned.relaySessionId,
+          connId: "conn-owner",
+          audioBase64: "AQI=",
+        }),
+      ).toThrow("Unknown realtime relay session");
+
+      sendTalkRealtimeRelayAudio({
+        relaySessionId: unrelated.relaySessionId,
+        connId: "conn-other",
+        audioBase64: "AQI=",
+      });
+      expect(bridgeAudioSends[2]).toHaveBeenCalledOnce();
+      stopTalkRealtimeRelaySession({
+        relaySessionId: unrelated.relaySessionId,
+        connId: "conn-other",
+      });
+      closeTalkRealtimeRelaySessionsForConnection("conn-other");
+      expect(bridgeCloses[2]).toHaveBeenCalledOnce();
+    } finally {
+      clientVoiceSessionTesting.reset();
+      closeOpenClawAgentDatabasesForTest();
+      closeOpenClawStateDatabaseForTest();
+      envSnapshot.restore();
+    }
   });
 
   it("injects the host agent runner only into gateway-relay bridge creation", () => {
