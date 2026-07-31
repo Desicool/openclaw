@@ -225,4 +225,35 @@ describe("Buzz live directory", () => {
     expect(refreshDirectory).toHaveBeenCalledOnce();
     expect(relayMocks.connect).not.toHaveBeenCalled();
   });
+
+  it("returns the active directory snapshot when room metadata refresh fails", async () => {
+    const refreshDirectory = vi.fn(async () => {
+      throw new Error("relay stalled");
+    });
+    gatewayMocks.activeBus = {
+      directory: {
+        self: () => null,
+        listPeers: () => [],
+        listGroupMembers: () => [],
+        listGroups: () => [{ kind: "group", id: `buzz:${ROOM_ID}`, name: "Cached Engineering" }],
+      },
+      refreshDirectory,
+    };
+    const { listBuzzDirectoryGroupsLive } = await import("./directory.js");
+
+    await expect(
+      listBuzzDirectoryGroupsLive({
+        cfg: {
+          channels: {
+            buzz: {
+              relayUrl: "wss://buzz.example.com",
+              privateKey: PRIVATE_KEY,
+              groups: { [ROOM_ID]: {} },
+            },
+          },
+        } as unknown as OpenClawConfig,
+        accountId: "default",
+      }),
+    ).resolves.toEqual([{ kind: "group", id: `buzz:${ROOM_ID}`, name: "Cached Engineering" }]);
+  });
 });

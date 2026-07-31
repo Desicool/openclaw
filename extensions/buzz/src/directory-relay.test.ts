@@ -107,6 +107,48 @@ describe("Buzz directory relay", () => {
     expect(subscriptions).toHaveLength(1);
   });
 
+  it("closes sibling profile subscriptions when one chunk fails", () => {
+    const subscriptions: SubscriptionRecord[] = [];
+    const relay = {
+      idleSince: undefined,
+      ongoingOperations: 0,
+      prepareSubscription: vi.fn(
+        (
+          filters: Filter[],
+          handlers: SubscriptionRecord["handlers"],
+        ): ReturnType<Relay["prepareSubscription"]> => {
+          const close = vi.fn();
+          subscriptions.push({ filters, handlers, close });
+          return {
+            id: `sub:${subscriptions.length}`,
+            close,
+          } as ReturnType<Relay["prepareSubscription"]>;
+        },
+      ),
+      send: vi.fn(async () => {}),
+    } as unknown as Relay;
+    const directory = startBuzzDirectoryRelay({
+      relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
+      state: new BuzzDirectoryState({
+        publicKey: BOT_PUBLIC_KEY,
+        fallbackProfileName: "OpenClaw",
+        channelIds: [],
+      }),
+    });
+
+    directory.replaceProfilePublicKeys(
+      Array.from({ length: 201 }, (_, index) => index.toString(16).padStart(64, "0")),
+    );
+    expect(subscriptions).toHaveLength(2);
+
+    subscriptions[0]?.handlers.onclose("relay rejected subscription");
+
+    expect(subscriptions[1]?.close).toHaveBeenCalledWith(
+      "directory profile subscription generation failed",
+    );
+  });
+
   it("defers query cleanup until the relay confirms EOSE", async () => {
     const abort = new AbortController();
     let handlers: SubscriptionRecord["handlers"] | undefined;
@@ -143,5 +185,38 @@ describe("Buzz directory relay", () => {
 
     handlers?.oneose();
     expect(close).toHaveBeenCalledWith("directory query complete");
+  });
+
+  it("recycles the relay instead of closing a query before EOSE", async () => {
+    vi.useFakeTimers();
+    const subscriptionClose = vi.fn();
+    const relayClose = vi.fn();
+    const relay = {
+      close: relayClose,
+      idleSince: undefined,
+      ongoingOperations: 0,
+      prepareSubscription: vi.fn(
+        (): ReturnType<Relay["prepareSubscription"]> =>
+          ({ id: "sub:1", close: subscriptionClose }) as ReturnType<Relay["prepareSubscription"]>,
+      ),
+      send: vi.fn(async () => {}),
+    } as unknown as Relay;
+    const query = queryBuzzDirectoryRooms({
+      relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
+      state: new BuzzDirectoryState({
+        publicKey: BOT_PUBLIC_KEY,
+        fallbackProfileName: "OpenClaw",
+        channelIds: [],
+      }),
+      channelIds: ["7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c"],
+    });
+
+    const rejection = expect(query).rejects.toThrow("Timed out loading Buzz directory snapshot");
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+    expect(subscriptionClose).not.toHaveBeenCalled();
+    expect(relayClose).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });

@@ -50,7 +50,12 @@ async function loadBuzzDirectoryState(
   const activeBus = getActiveBuzzBus(configured.account.accountId);
   if (activeBus) {
     if (options.refreshRooms) {
-      await activeBus.refreshDirectory();
+      try {
+        await activeBus.refreshDirectory();
+      } catch {
+        // A stalled metadata refresh recycles the relay session. Directory
+        // reads can still return the last complete in-memory snapshot.
+      }
     }
     return activeBus.directory;
   }

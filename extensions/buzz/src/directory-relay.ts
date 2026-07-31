@@ -9,8 +9,10 @@ import { openBuzzRelaySubscription } from "./relay-subscription.js";
 
 const BUZZ_ROOM_QUERY_CHUNK_SIZE = 1_000;
 const PROFILE_SUBSCRIPTION_REPLACED_REASON = "directory profile subscription replaced";
+const PROFILE_SUBSCRIPTION_FAILED_REASON = "directory profile subscription generation failed";
 const DIRECTORY_SHUTDOWN_REASON = "directory shutdown";
 const DIRECTORY_QUERY_COMPLETE_REASON = "directory query complete";
+const DIRECTORY_QUERY_TIMEOUT_MS = 10_000;
 
 type BuzzSubscription = ReturnType<Relay["prepareSubscription"]>;
 type ProfileSubscriptionGeneration = {
@@ -37,12 +39,18 @@ async function queryBuzzDirectoryBatch(params: {
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let receivedEose = false;
+    const timeout = setTimeout(() => {
+      const error = new Error("Timed out loading Buzz directory snapshot");
+      finish(error);
+      params.relay.close();
+    }, DIRECTORY_QUERY_TIMEOUT_MS);
     const subscriptionRef: { current?: BuzzSubscription } = {};
     const finish = (error?: unknown) => {
       if (settled) {
         return;
       }
       settled = true;
+      clearTimeout(timeout);
       params.signal?.removeEventListener("abort", onAbort);
       if (receivedEose) {
         subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
@@ -159,14 +167,16 @@ export function startBuzzDirectoryRelay(params: {
     );
   };
 
-  const closeProfileGeneration = (reason: string) => {
+  const closeProfileGeneration = (reason: string, skip?: BuzzSubscription) => {
     const current = profileGeneration;
     profileGeneration = undefined;
     if (!current) {
       return;
     }
     for (const subscription of current.subscriptions) {
-      subscription.close(reason);
+      if (subscription !== skip) {
+        subscription.close(reason);
+      }
     }
   };
 
@@ -206,7 +216,8 @@ export function startBuzzDirectoryRelay(params: {
             applyQueuedProfilePublicKeys();
           }
         };
-        const subscription = openBuzzRelaySubscription(
+        let subscription: BuzzSubscription;
+        subscription = openBuzzRelaySubscription(
           params.relay,
           [
             {
@@ -222,11 +233,12 @@ export function startBuzzDirectoryRelay(params: {
             oneose: markReady,
             onclose: (reason) => {
               if (profileGeneration === generation) {
-                profileGeneration = undefined;
                 queuedProfilePublicKeys = undefined;
+                closeProfileGeneration(PROFILE_SUBSCRIPTION_FAILED_REASON, subscription);
               }
               if (
                 reason !== PROFILE_SUBSCRIPTION_REPLACED_REASON &&
+                reason !== PROFILE_SUBSCRIPTION_FAILED_REASON &&
                 reason !== DIRECTORY_SHUTDOWN_REASON &&
                 reason !== "relay connection closed by us"
               ) {
