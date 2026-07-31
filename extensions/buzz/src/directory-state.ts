@@ -6,8 +6,8 @@ import { buildBuzzTarget, parseBuzzTarget } from "./target.js";
 export const BUZZ_PROFILE_KIND = 0;
 export const BUZZ_ROOM_METADATA_KIND = 39_000;
 export const BUZZ_PROFILE_QUERY_CHUNK_SIZE = 200;
-// Ten live profile subscriptions is a hard process-local ceiling. Members
-// beyond it remain visible by stable public key without retaining metadata.
+// Ten live profile subscriptions is the normal process-local ceiling. The bus
+// lowers it near the relay subscription limit; omitted profiles keep stable IDs.
 const DEFAULT_BUZZ_DIRECTORY_PROFILE_LIMIT = 2_000;
 
 const HEX_PUBLIC_KEY_PATTERN = /^[0-9a-f]{64}$/u;
@@ -179,10 +179,12 @@ export class BuzzDirectoryState {
     this.#configuredRoomIds = new Set(params.channelIds.map(parseBuzzTarget));
     const requestedProfileLimit = params.profileLimit ?? DEFAULT_BUZZ_DIRECTORY_PROFILE_LIMIT;
     this.#profileLimit =
-      Number.isFinite(requestedProfileLimit) && requestedProfileLimit > 0
+      Number.isFinite(requestedProfileLimit) && requestedProfileLimit >= 0
         ? Math.floor(requestedProfileLimit)
         : DEFAULT_BUZZ_DIRECTORY_PROFILE_LIMIT;
-    this.#profilePublicKeys.add(this.#publicKey);
+    if (this.#profileLimit > 0) {
+      this.#profilePublicKeys.add(this.#publicKey);
+    }
   }
 
   replaceMemberships(memberships: ReadonlyMap<string, BuzzRoomMembership>): boolean {
@@ -199,10 +201,13 @@ export class BuzzDirectoryState {
       }
     }
     memberPublicKeys.delete(this.#publicKey);
-    const nextProfilePublicKeys = new Set<string>([
-      this.#publicKey,
-      ...[...memberPublicKeys].toSorted().slice(0, this.#profileLimit - 1),
-    ]);
+    const nextProfilePublicKeys =
+      this.#profileLimit === 0
+        ? new Set<string>()
+        : new Set<string>([
+            this.#publicKey,
+            ...[...memberPublicKeys].toSorted().slice(0, this.#profileLimit - 1),
+          ]);
     const profileSelectionChanged =
       nextProfilePublicKeys.size !== this.#profilePublicKeys.size ||
       [...nextProfilePublicKeys].some((publicKey) => !this.#profilePublicKeys.has(publicKey));

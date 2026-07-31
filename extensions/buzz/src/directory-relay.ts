@@ -150,6 +150,11 @@ export function startBuzzDirectoryRelay(params: {
     if (closed || params.signal?.aborted) {
       return;
     }
+    const previousSubscriptions = profileSubscriptions;
+    profileSubscriptions = [];
+    for (const subscription of previousSubscriptions) {
+      subscription.close(PROFILE_SUBSCRIPTION_REPLACED_REASON);
+    }
     const nextSubscriptions: BuzzSubscription[] = [];
     try {
       for (const authors of chunkValues(publicKeys, BUZZ_PROFILE_QUERY_CHUNK_SIZE)) {
@@ -187,11 +192,7 @@ export function startBuzzDirectoryRelay(params: {
       reportError(error);
       return;
     }
-    const previousSubscriptions = profileSubscriptions;
     profileSubscriptions = nextSubscriptions;
-    for (const subscription of previousSubscriptions) {
-      subscription.close(PROFILE_SUBSCRIPTION_REPLACED_REASON);
-    }
   };
 
   const refreshRooms = (channelIds: string[]): Promise<void> => {

@@ -19,6 +19,7 @@ import {
   parseBuzzRoomMembershipChangeEvent,
   type BuzzRoomMembership,
 } from "./room-membership.js";
+import { resolveBuzzSubscriptionBudget } from "./subscription-budget.js";
 import { decodeBuzzPrivateKey, resolveBuzzPublicKey } from "./types.js";
 
 const PRESENCE_KIND = 20_001;
@@ -177,12 +178,16 @@ async function createBuzzRoomMembershipTracker(params: {
   channelIds: string[];
   botPublicKey: string;
   since: number;
+  messageSince: number;
+  onMessageEvent: (
+    event: Event,
+    isMember: (channelId: string, publicKey: string) => boolean,
+  ) => void;
   onFatalError?: (error: Error) => void;
   onMembershipsChanged?: (memberships: ReadonlyMap<string, BuzzRoomMembership>) => void;
   onRoomMetadataChanged?: (channelId: string) => void;
   signal?: AbortSignal;
 }): Promise<{
-  isMember: (channelId: string, publicKey: string) => boolean;
   memberships: () => ReadonlyMap<string, BuzzRoomMembership>;
   subscriptions: Array<ReturnType<Relay["subscribe"]>>;
 }> {
@@ -202,7 +207,12 @@ async function createBuzzRoomMembershipTracker(params: {
   const deniedMembers = new Map<string, Set<string>>();
   const pendingMemberships = new Map<string, Map<string, ExpectedMembership>>();
   const refreshes = new Map<string, RefreshState>();
+  let membershipQueryTail = Promise.resolve();
   let memberships = new Map<string, BuzzRoomMembership>();
+  const isMember = (channelId: string, publicKey: string) =>
+    !blockedRooms.has(channelId) &&
+    !deniedMembers.get(channelId)?.has(publicKey.trim().toLowerCase()) &&
+    memberships.get(channelId)?.members.has(publicKey.trim().toLowerCase()) === true;
 
   const markSystemEventSeen = (eventId: string): boolean => {
     if (seenEventIds.has(eventId)) {
@@ -224,6 +234,23 @@ async function createBuzzRoomMembershipTracker(params: {
     params.onFatalError?.(error instanceof Error ? error : new Error(String(error)));
     params.relay.close();
   };
+  const queryMembership = (channelId: string): Promise<BuzzRoomMembership | undefined> => {
+    const query = membershipQueryTail.then(async () =>
+      (
+        await queryBuzzRoomMemberships({
+          relay: params.relay,
+          channelIds: [channelId],
+          timeoutMs: 3_000,
+          signal: params.signal,
+        })
+      ).get(channelId),
+    );
+    membershipQueryTail = query.then(
+      () => undefined,
+      () => undefined,
+    );
+    return query;
+  };
 
   const refreshMembership = async (channelId: string, state: RefreshState): Promise<void> => {
     const baseline = memberships.get(channelId);
@@ -239,14 +266,7 @@ async function createBuzzRoomMembershipTracker(params: {
       }
       let refreshed: BuzzRoomMembership | undefined;
       try {
-        refreshed = (
-          await queryBuzzRoomMemberships({
-            relay: params.relay,
-            channelIds: [channelId],
-            timeoutMs: 3_000,
-            signal: params.signal,
-          })
-        ).get(channelId);
+        refreshed = await queryMembership(channelId);
       } catch (error) {
         if (params.signal?.aborted) {
           throw error;
@@ -356,6 +376,13 @@ async function createBuzzRoomMembershipTracker(params: {
     }
     return refreshMembershipOnce(channelId);
   };
+  const handleRoomEvent = (event: Event) => {
+    if (BUZZ_INBOUND_MESSAGE_KINDS.includes(event.kind)) {
+      params.onMessageEvent(event, isMember);
+      return;
+    }
+    void handleSystemEvent(event)?.catch(reportSystemEventError);
+  };
 
   let resolveHistorical: (() => void) | undefined;
   let rejectHistorical: ((error: Error) => void) | undefined;
@@ -376,6 +403,11 @@ async function createBuzzRoomMembershipTracker(params: {
           "#h": [channelId],
           since: params.since,
         },
+        {
+          kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
+          "#h": [channelId],
+          since: params.messageSince,
+        },
       ],
       {
         onevent: (event) => {
@@ -383,7 +415,7 @@ async function createBuzzRoomMembershipTracker(params: {
             bufferedEvents.push({ event, historical: !historicalRooms.has(channelId) });
             return;
           }
-          void handleSystemEvent(event)?.catch(reportSystemEventError);
+          handleRoomEvent(event);
         },
         oneose: () => {
           historicalRooms.add(channelId);
@@ -435,19 +467,14 @@ async function createBuzzRoomMembershipTracker(params: {
   // Each room subscription reaches EOSE before the snapshot query starts, so
   // the snapshot owns historical state. Only events received after that room's
   // EOSE can be newer than the loaded snapshot and need an in-memory overlay.
-  const liveEvents = bufferedEvents
-    .filter((entry) => !entry.historical)
-    .map((entry) => entry.event);
-  for (const event of liveEvents) {
-    void handleSystemEvent(event)?.catch(reportSystemEventError);
-  }
   initialized = true;
+  for (const { event, historical } of bufferedEvents) {
+    if (!historical || BUZZ_INBOUND_MESSAGE_KINDS.includes(event.kind)) {
+      handleRoomEvent(event);
+    }
+  }
 
   return {
-    isMember: (channelId, publicKey) =>
-      !blockedRooms.has(channelId) &&
-      !deniedMembers.get(channelId)?.has(publicKey.trim().toLowerCase()) &&
-      memberships.get(channelId)?.members.has(publicKey.trim().toLowerCase()) === true,
     memberships: () => memberships,
     subscriptions,
   };
@@ -495,6 +522,7 @@ export async function startBuzzBus(options: {
   onDirectoryError?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<BuzzBus> {
+  const subscriptionBudget = resolveBuzzSubscriptionBudget(options.channelIds.length);
   const secretKey = decodeBuzzPrivateKey(options.privateKey);
   const publicKey = resolveBuzzPublicKey(options.privateKey);
   const authTag = parseBuzzAuthTag(options.authTag ?? "");
@@ -528,6 +556,7 @@ export async function startBuzzBus(options: {
     publicKey,
     fallbackProfileName: options.profileName ?? "OpenClaw",
     channelIds: options.channelIds,
+    profileLimit: subscriptionBudget.profileLimit,
   });
   let directoryRelay: ReturnType<typeof startBuzzDirectoryRelay> | undefined;
   let stopPresenceHeartbeat = () => {};
@@ -574,6 +603,25 @@ export async function startBuzzBus(options: {
       channelIds: options.channelIds,
       botPublicKey: publicKey,
       since: sessionStartedAt,
+      messageSince: options.since ?? sessionStartedAt,
+      onMessageEvent: (event, isMember) => {
+        if (event.pubkey === publicKey) {
+          return;
+        }
+        const message = parseBuzzMessageEvent(event);
+        if (!message || !isMember(message.channelId, event.pubkey)) {
+          return;
+        }
+        // Relay reconnects can replay signed events. Only admitted room
+        // members reach the persistent dedupe store or agent pipeline.
+        void replayGuard
+          .processGuarded(event, async () => {
+            await options.onMessage(message, bus);
+          })
+          .catch((error: unknown) => {
+            options.onMessageError?.(error instanceof Error ? error : new Error(String(error)));
+          });
+      },
       onFatalError: options.onFatalError,
       onMembershipsChanged: (memberships) => {
         if (directory.replaceMemberships(memberships)) {
@@ -602,53 +650,6 @@ export async function startBuzzBus(options: {
       onError: options.onDirectoryError,
     });
     directoryRelay.replaceProfilePublicKeys(directory.profilePublicKeys());
-
-    subscriptions.push(
-      ...options.channelIds.map((channelId) =>
-        relay.subscribe(
-          [
-            {
-              kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
-              "#h": [channelId],
-              since: options.since ?? sessionStartedAt,
-            },
-          ],
-          {
-            onevent: (event) => {
-              if (event.pubkey === publicKey) {
-                return;
-              }
-              const message = parseBuzzMessageEvent(event);
-              if (
-                !message ||
-                message.channelId !== channelId ||
-                !membershipTracker.isMember(channelId, event.pubkey)
-              ) {
-                return;
-              }
-              // Relay reconnects can replay signed events. Only admitted room
-              // members reach the persistent dedupe store or agent pipeline.
-              void replayGuard
-                .processGuarded(event, async () => {
-                  await options.onMessage(message, bus);
-                })
-                .catch((error: unknown) => {
-                  options.onMessageError?.(
-                    error instanceof Error ? error : new Error(String(error)),
-                  );
-                });
-            },
-            onclose: (reason) => {
-              if (reason !== "shutdown" && reason !== "relay connection closed by us") {
-                options.onFatalError?.(
-                  new Error(`Buzz subscription closed for ${channelId}: ${reason}`),
-                );
-              }
-            },
-          },
-        ),
-      ),
-    );
     // Buzz presence is a separate ephemeral protocol, not a property of the
     // authenticated socket. The relay clears it when the final socket closes.
     stopPresenceHeartbeat = startBuzzPresenceHeartbeat({

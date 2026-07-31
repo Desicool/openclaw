@@ -209,6 +209,12 @@ connection and in-memory snapshot. A standalone directory command opens one
 bounded authenticated connection, loads the current snapshot, and closes it.
 Directory failures do not reconnect or terminate the Gateway.
 
+Each configured room uses one room-scoped relay subscription. OpenClaw reserves
+three of Buzz's 1,024 connection subscriptions for membership and metadata
+queries, so one account can configure up to 1,021 rooms. Near that limit,
+optional member profile subscriptions are reduced first; directory entries
+continue to work with stable public keys and deterministic fallback labels.
+
 Unique current room names can resolve as outbound targets through OpenClaw's
 shared directory lookup. The canonical `buzz:<ROOM_UUID>` target remains the
 safest choice for automation and for rooms with duplicate names.

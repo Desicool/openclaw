@@ -17,6 +17,7 @@ const relayMocks = vi.hoisted(() => ({
   profileEvents: [] as Event[],
   subscriptions: [] as Array<{
     filter: Filter;
+    filters: Filter[];
     handlers: {
       onevent: (event: Event) => void;
       oneose?: () => void;
@@ -49,7 +50,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
         },
       ) {
         const filter = filters[0] ?? {};
-        relayMocks.subscriptions.push({ filter, handlers });
+        relayMocks.subscriptions.push({ filter, filters, handlers });
         if (filter.kinds?.includes(39002)) {
           for (const event of relayMocks.membershipEvents) {
             handlers.onevent(event);
@@ -98,6 +99,13 @@ const tempDirs = new Set<string>();
 let previousStateDir: string | undefined;
 let stateDir: string;
 
+function subscriptionIncludesKind(
+  subscription: (typeof relayMocks.subscriptions)[number],
+  kind: number,
+): boolean {
+  return subscription.filters.some((filter) => filter.kinds?.includes(kind));
+}
+
 describe("Buzz bus lifecycle", () => {
   beforeEach(() => {
     previousStateDir = process.env.OPENCLAW_STATE_DIR;
@@ -141,6 +149,20 @@ describe("Buzz bus lifecycle", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
     tempDirs.clear();
+  });
+
+  it("rejects an over-capacity room set before opening the relay", async () => {
+    await expect(
+      startBuzzBus({
+        accountId: ACCOUNT_ID,
+        relayUrl: "wss://buzz.example.com",
+        privateKey: PRIVATE_KEY,
+        channelIds: Array.from({ length: 1_022 }, (_, index) => `room-${index}`),
+        onMessage: async () => {},
+      }),
+    ).rejects.toThrow("Buzz supports at most 1021 configured rooms per account");
+
+    expect(relayMocks.connect).not.toHaveBeenCalled();
   });
 
   it("closes a connected relay when authentication fails", async () => {
@@ -259,10 +281,13 @@ describe("Buzz bus lifecycle", () => {
 
     for (const kind of [9, 9_002, 40_099]) {
       const roomFilters = relayMocks.subscriptions
-        .filter((entry) => entry.filter.kinds?.includes(kind))
-        .map((entry) => entry.filter["#h"]);
+        .filter((entry) => subscriptionIncludesKind(entry, kind))
+        .map((entry) => entry.filters.find((filter) => filter.kinds?.includes(kind))?.["#h"]);
       expect(roomFilters).toEqual([[CHANNEL_ID], [SECOND_CHANNEL_ID]]);
     }
+    expect(
+      relayMocks.subscriptions.filter((entry) => subscriptionIncludesKind(entry, 40_099)),
+    ).toHaveLength(2);
 
     await bus.close();
   });
@@ -304,7 +329,7 @@ describe("Buzz bus lifecycle", () => {
       },
     ];
     relayMocks.subscriptions
-      .find((entry) => entry.filter.kinds?.includes(9_002))
+      .find((entry) => subscriptionIncludesKind(entry, 9_002))
       ?.handlers.onevent({
         id: "edit-metadata-1",
         kind: 9_002,
@@ -426,7 +451,7 @@ describe("Buzz bus lifecycle", () => {
       },
     ];
     relayMocks.subscriptions
-      .find((entry) => entry.filter.kinds?.includes(40_099))
+      .find((entry) => subscriptionIncludesKind(entry, 40_099))
       ?.handlers.onevent({
         id: "system-join-1",
         kind: 40_099,
@@ -487,7 +512,7 @@ describe("Buzz bus lifecycle", () => {
     );
 
     const messageSubscription = relayMocks.subscriptions.find((entry) =>
-      entry.filter.kinds?.includes(9),
+      subscriptionIncludesKind(entry, 9),
     );
     messageSubscription?.handlers.onevent(event);
     messageSubscription?.handlers.onevent(event);
@@ -510,9 +535,11 @@ describe("Buzz bus lifecycle", () => {
       onMessage,
     });
     const messageSubscription = relayMocks.subscriptions.find((entry) =>
-      entry.filter.kinds?.includes(9),
+      subscriptionIncludesKind(entry, 9),
     );
-    expect(messageSubscription?.filter.kinds).toEqual([...BUZZ_INBOUND_MESSAGE_KINDS]);
+    expect(messageSubscription?.filters.find((filter) => filter.kinds?.includes(9))?.kinds).toEqual(
+      [...BUZZ_INBOUND_MESSAGE_KINDS],
+    );
 
     const richEvent = finalizeEvent(
       {
@@ -585,7 +612,7 @@ describe("Buzz bus lifecycle", () => {
     );
 
     relayMocks.subscriptions
-      .find((entry) => entry.filter.kinds?.includes(9))
+      .find((entry) => subscriptionIncludesKind(entry, 9))
       ?.handlers.onevent(event);
 
     await vi.waitFor(() => expect(onMessageError).toHaveBeenCalledWith(expect.any(Error)));
@@ -623,7 +650,7 @@ describe("Buzz bus lifecycle", () => {
       onMessage: firstOnMessage,
     });
     relayMocks.subscriptions
-      .find((entry) => entry.filter.kinds?.includes(9))
+      .find((entry) => subscriptionIncludesKind(entry, 9))
       ?.handlers.onevent(event);
     await vi.waitFor(() => expect(firstOnMessage).toHaveBeenCalledOnce());
     await firstBus.close();
@@ -637,7 +664,7 @@ describe("Buzz bus lifecycle", () => {
       onMessage: secondOnMessage,
     });
     relayMocks.subscriptions
-      .findLast((entry) => entry.filter.kinds?.includes(9))
+      .findLast((entry) => subscriptionIncludesKind(entry, 9))
       ?.handlers.onevent(event);
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100);

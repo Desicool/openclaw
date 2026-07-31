@@ -240,4 +240,33 @@ describe("Buzz directory state", () => {
     expect(state.resolveSenderName(ALICE_PUBLIC_KEY)).toBe("Winning tie");
     expect(state.resolveSenderName(BOB_PUBLIC_KEY)).toBe("cccccccc...cccccc");
   });
+
+  it("keeps stable fallback identities when the relay budget leaves no profile slots", () => {
+    const state = new BuzzDirectoryState({
+      publicKey: BOT_PUBLIC_KEY,
+      fallbackProfileName: "OpenClaw",
+      channelIds: [ROOM_ID],
+      profileLimit: 0,
+    });
+    state.replaceMemberships(
+      new Map([
+        [
+          ROOM_ID,
+          membership([
+            [BOT_PUBLIC_KEY, "bot"],
+            [ALICE_PUBLIC_KEY, "member"],
+          ]),
+        ],
+      ]),
+    );
+
+    expect(state.profilePublicKeys()).toEqual([]);
+    expect(state.self()).toEqual(expect.objectContaining({ id: BOT_PUBLIC_KEY, name: "OpenClaw" }));
+    expect(state.listPeers({})).toEqual([
+      expect.objectContaining({
+        id: ALICE_PUBLIC_KEY,
+        name: `${ALICE_PUBLIC_KEY.slice(0, 8)}...${ALICE_PUBLIC_KEY.slice(-6)}`,
+      }),
+    ]);
+  });
 });
