@@ -435,6 +435,25 @@ describe("Buzz bus lifecycle", () => {
     await bus.close();
   });
 
+  it("leaves room subscription shutdown to the relay", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage: async () => {},
+    });
+    const roomSubscription = relayMocks.subscriptions.find((entry) =>
+      subscriptionIncludesKind(entry, 9),
+    );
+
+    await bus.close();
+
+    expect(roomSubscription?.close).not.toHaveBeenCalled();
+    expect(relayMocks.close).toHaveBeenCalledOnce();
+  });
+
   it("refreshes relay-signed room metadata after a live edit", async () => {
     relayMocks.auth.mockResolvedValue("ok");
     relayMocks.roomMetadataEvents = [

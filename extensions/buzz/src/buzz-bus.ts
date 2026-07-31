@@ -196,7 +196,6 @@ async function createBuzzRoomMembershipTracker(params: {
   signal?: AbortSignal;
 }): Promise<{
   memberships: () => ReadonlyMap<string, BuzzRoomMembership>;
-  subscriptions: Array<ReturnType<Relay["prepareSubscription"]>>;
 }> {
   type ExpectedMembership = "present" | "absent";
   type RefreshState = {
@@ -470,7 +469,6 @@ async function createBuzzRoomMembershipTracker(params: {
 
   return {
     memberships: () => memberships,
-    subscriptions,
   };
 }
 
@@ -553,7 +551,6 @@ export async function startBuzzBus(options: {
     authTag,
     signal,
   });
-  const subscriptions: Array<ReturnType<Relay["prepareSubscription"]>> = [];
   const directory = new BuzzDirectoryState({
     publicKey,
     fallbackProfileName: options.profileName ?? "OpenClaw",
@@ -591,9 +588,6 @@ export async function startBuzzBus(options: {
       lifecycleAbort.abort(new Error("Buzz bus closed"));
       stopPresenceHeartbeat();
       directoryRelay?.close();
-      for (const subscription of subscriptions) {
-        subscription.close("shutdown");
-      }
       replayGuard.clearMemory();
       relay.close();
     },
@@ -644,7 +638,6 @@ export async function startBuzzBus(options: {
       },
       signal,
     });
-    subscriptions.push(...membershipTracker.subscriptions);
     directory.replaceMemberships(membershipTracker.memberships());
     directoryRelay = startBuzzDirectoryRelay({
       relay,
