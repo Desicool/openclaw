@@ -110,7 +110,11 @@ class LabsPage extends OpenClawLightDomElement {
     const featureState = resolveLabFeatureState(config, feature);
     const resetPatch =
       enabled === featureState.defaultEnabled ? labFeatureResetPatch(config, feature) : null;
-    void this.updateFeature(feature, enabled, resetPatch ?? labFeatureMergePatch(feature, enabled));
+    void this.updateFeature(
+      feature,
+      enabled,
+      resetPatch ?? labFeatureMergePatch(config, feature, enabled),
+    );
   }
 
   private resetFeature(feature: LabFeature) {

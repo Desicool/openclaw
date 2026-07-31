@@ -53,6 +53,9 @@ type LabFeatureState = {
   overridden: boolean;
 };
 
+const LOCAL_MODEL_LEAN_FEATURE_ID = "localModelLean";
+const LOCAL_MODEL_LEAN_AUTO_MODEL_PATH = ["wizard", "localModelLeanAutoModel"] as const;
+
 export const LAB_FEATURES = [
   {
     id: "codeMode",
@@ -189,6 +192,33 @@ function recordAtPath(config: Record<string, unknown>, path: readonly string[]):
   return current;
 }
 
+function defaultModelRef(config: Record<string, unknown>): string | undefined {
+  const model = recordAtPath(config, ["agents", "defaults", "model"]);
+  if (typeof model === "string") {
+    return model;
+  }
+  if (!model || typeof model !== "object" || Array.isArray(model)) {
+    return undefined;
+  }
+  const primary = (model as Record<string, unknown>).primary;
+  return typeof primary === "string" ? primary : undefined;
+}
+
+function onboardingOwnsLocalModelLean(
+  config: Record<string, unknown>,
+  feature: LabFeature,
+): boolean {
+  if (feature.id !== LOCAL_MODEL_LEAN_FEATURE_ID) {
+    return false;
+  }
+  const autoModel = recordAtPath(config, LOCAL_MODEL_LEAN_AUTO_MODEL_PATH);
+  return (
+    typeof autoModel === "string" &&
+    defaultModelRef(config) === autoModel &&
+    recordAtPath(config, feature.configPath) === true
+  );
+}
+
 function readEnabledFromParent(feature: LabFeature, parent: unknown): boolean {
   const key = feature.configPath.at(-1);
   if (feature.readEnabled) {
@@ -243,6 +273,11 @@ export function resolveLabFeatureState(
   feature: LabFeature,
 ): LabFeatureState {
   const source = config ?? {};
+  // Onboarding records this generated value beside the model it belongs to.
+  // Treat the pair as one inherited default so Labs never mislabels or detaches it.
+  if (onboardingOwnsLocalModelLean(source, feature)) {
+    return { enabled: true, defaultEnabled: true, overridden: false };
+  }
   const parentPath = feature.configPath.slice(0, -1);
   const key = feature.configPath.at(-1);
   const parent = recordAtPath(source, parentPath);
@@ -268,6 +303,7 @@ export function resolveLabFeatureState(
 }
 
 export function labFeatureMergePatch(
+  config: Record<string, unknown> | null,
   feature: LabFeature,
   enabled: boolean,
 ): Record<string, unknown> {
@@ -281,7 +317,24 @@ export function labFeatureMergePatch(
   for (const segment of feature.configPath.slice(0, -1).toReversed()) {
     patch = { [segment]: patch };
   }
-  return patch as Record<string, unknown>;
+  return releaseLabFeatureOwnership(config, feature, patch as Record<string, unknown>);
+}
+
+function releaseLabFeatureOwnership(
+  config: Record<string, unknown> | null,
+  feature: LabFeature,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  if (
+    feature.id !== LOCAL_MODEL_LEAN_FEATURE_ID ||
+    recordAtPath(config ?? {}, LOCAL_MODEL_LEAN_AUTO_MODEL_PATH) === undefined
+  ) {
+    return patch;
+  }
+  return {
+    ...patch,
+    wizard: { localModelLeanAutoModel: null },
+  };
 }
 
 export function labFeatureResetPatch(
@@ -296,5 +349,5 @@ export function labFeatureResetPatch(
   for (const segment of path.toReversed()) {
     patch = { [segment]: patch };
   }
-  return patch as Record<string, unknown>;
+  return releaseLabFeatureOwnership(config, feature, patch as Record<string, unknown>);
 }

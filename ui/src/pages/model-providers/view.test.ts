@@ -218,6 +218,36 @@ describe("renderModelProviders", () => {
     ).toHaveLength(0);
   });
 
+  it("restores controlled model behavior when a reset is rejected", () => {
+    const viewProps = props({
+      thinkingLevel: "high",
+      fastMode: true,
+    });
+    const container = mount(viewProps);
+    const behavior = container.querySelector("#settings-model-behavior")!;
+    const thinking = settingsRow(behavior, "Thinking").querySelector<SegmentedGroup>(
+      "wa-radio-group",
+    )!;
+    const fastMode = settingsRow(behavior, "Fast mode").querySelector<SegmentedGroup>(
+      "wa-radio-group",
+    )!;
+
+    selectSegment(thinking, "");
+    selectSegment(fastMode, "");
+    render(renderModelProviders(viewProps), container);
+
+    expect(thinking.value).toBe("high");
+    expect(fastMode.value).toBe("on");
+    expect(
+      (thinking.querySelector('wa-radio[value="high"]') as HTMLElement & { checked: boolean })
+        .checked,
+    ).toBe(true);
+    expect(
+      (fastMode.querySelector('wa-radio[value="on"]') as HTMLElement & { checked: boolean })
+        .checked,
+    ).toBe(true);
+  });
+
   it("locks model behavior while shared config work is pending", () => {
     const container = mount(props({ configBusy: true }));
     const behavior = container.querySelector("#settings-model-behavior");
