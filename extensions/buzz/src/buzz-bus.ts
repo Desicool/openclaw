@@ -198,7 +198,6 @@ async function createBuzzRoomMembershipTracker(params: {
   memberships: () => ReadonlyMap<string, BuzzRoomMembership>;
   subscriptions: Array<ReturnType<Relay["prepareSubscription"]>>;
 }> {
-  type BufferedSystemEvent = { event: Event; historical: boolean };
   type ExpectedMembership = "present" | "absent";
   type RefreshState = {
     generation: number;
@@ -206,16 +205,14 @@ async function createBuzzRoomMembershipTracker(params: {
     promise: Promise<void>;
   };
 
-  let initialized = false;
   const historicalRooms = new Set<string>();
-  const bufferedEvents: BufferedSystemEvent[] = [];
   const seenEventIds = new Map<string, true>();
   const blockedRooms = new Set<string>();
   const deniedMembers = new Map<string, Set<string>>();
   const pendingMemberships = new Map<string, Map<string, ExpectedMembership>>();
   const refreshes = new Map<string, RefreshState>();
   let membershipQueryTail = Promise.resolve();
-  let memberships = new Map<string, BuzzRoomMembership>();
+  const memberships = await queryBuzzRoomMemberships(params);
   const isMember = (channelId: string, publicKey: string) =>
     !blockedRooms.has(channelId) &&
     !deniedMembers.get(channelId)?.has(publicKey.trim().toLowerCase()) &&
@@ -391,6 +388,12 @@ async function createBuzzRoomMembershipTracker(params: {
     void handleSystemEvent(event)?.catch(reportSystemEventError);
   };
 
+  for (const channelId of params.channelIds) {
+    if (memberships.get(channelId)?.roles.get(params.botPublicKey) !== "bot") {
+      throw new Error(`Buzz bot does not have the Bot role in configured room ${channelId}`);
+    }
+  }
+
   let resolveHistorical: (() => void) | undefined;
   let rejectHistorical: ((error: Error) => void) | undefined;
   const historicalReady = new Promise<void>((resolve, reject) => {
@@ -402,88 +405,67 @@ async function createBuzzRoomMembershipTracker(params: {
     rejectHistorical?.(error);
     params.relay.close();
   }, MEMBERSHIP_READY_TIMEOUT_MS);
-  // Buzz indexes live channel fan-out under one server-resolved room scope.
-  // A multi-room #h filter becomes global and cannot receive channel events.
-  const subscriptions = params.channelIds.map((channelId) =>
-    openBuzzRelaySubscription(
-      params.relay,
-      [
-        {
-          kinds: [BUZZ_ROOM_SYSTEM_KIND, BUZZ_ROOM_METADATA_EDIT_KIND],
-          "#h": [channelId],
-          since: params.since,
-        },
-        {
-          kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
-          "#h": [channelId],
-          since: params.messageSince,
-        },
-      ],
-      {
-        onevent: (event) => {
-          if (!initialized) {
-            bufferedEvents.push({ event, historical: !historicalRooms.has(channelId) });
-            return;
-          }
-          handleRoomEvent(event);
-        },
-        oneose: () => {
-          historicalRooms.add(channelId);
-          if (historicalRooms.size === params.channelIds.length) {
-            resolveHistorical?.();
-          }
-        },
-        onclose: (reason) => {
-          if (!historicalRooms.has(channelId)) {
-            rejectHistorical?.(
-              new Error(`Buzz membership subscription closed for ${channelId}: ${reason}`),
-            );
-          } else if (
-            reason !== "shutdown" &&
-            reason !== "relay connection closed by us" &&
-            reason !== MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON &&
-            !params.signal?.aborted
-          ) {
-            params.onFatalError?.(
-              new Error(`Buzz membership subscription closed for ${channelId}: ${reason}`),
-            );
-          }
-        },
-      },
-    ),
-  );
-
+  const subscriptions: Array<ReturnType<Relay["prepareSubscription"]>> = [];
   try {
+    // Snapshot membership before room history so startup memory stays bounded.
+    // Buzz emits these filters in order: system changes since session start
+    // update or deny membership before the following message history is handled.
+    for (const channelId of params.channelIds) {
+      subscriptions.push(
+        openBuzzRelaySubscription(
+          params.relay,
+          [
+            {
+              kinds: [BUZZ_ROOM_SYSTEM_KIND, BUZZ_ROOM_METADATA_EDIT_KIND],
+              "#h": [channelId],
+              since: params.since,
+            },
+            {
+              kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
+              "#h": [channelId],
+              since: params.messageSince,
+            },
+          ],
+          {
+            onevent: handleRoomEvent,
+            oneose: () => {
+              historicalRooms.add(channelId);
+              if (historicalRooms.size === params.channelIds.length) {
+                resolveHistorical?.();
+              }
+            },
+            onclose: (reason) => {
+              if (!historicalRooms.has(channelId)) {
+                rejectHistorical?.(
+                  new Error(`Buzz membership subscription closed for ${channelId}: ${reason}`),
+                );
+              } else if (
+                reason !== "shutdown" &&
+                reason !== "relay connection closed by us" &&
+                reason !== MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON &&
+                !params.signal?.aborted
+              ) {
+                params.onFatalError?.(
+                  new Error(`Buzz membership subscription closed for ${channelId}: ${reason}`),
+                );
+              }
+            },
+          },
+        ),
+      );
+    }
     await historicalReady;
-    memberships = await queryBuzzRoomMemberships(params);
   } catch (error) {
-    if (historicalRooms.size === params.channelIds.length && params.relay.connected) {
+    if (params.relay.connected) {
       for (const subscription of subscriptions) {
-        subscription.close(MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON);
+        if (!subscription.closed) {
+          subscription.close(MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON);
+        }
       }
     }
     throw error;
   } finally {
     clearTimeout(historicalTimeout);
-  }
-
-  for (const channelId of params.channelIds) {
-    if (memberships.get(channelId)?.roles.get(params.botPublicKey) !== "bot") {
-      for (const subscription of subscriptions) {
-        subscription.close(MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON);
-      }
-      throw new Error(`Buzz bot does not have the Bot role in configured room ${channelId}`);
-    }
-  }
-
-  // Each room subscription reaches EOSE before the snapshot query starts, so
-  // the snapshot owns historical state. Only events received after that room's
-  // EOSE can be newer than the loaded snapshot and need an in-memory overlay.
-  initialized = true;
-  for (const { event, historical } of bufferedEvents) {
-    if (!historical || isBuzzInboundMessageKind(event.kind)) {
-      handleRoomEvent(event);
-    }
   }
 
   return {

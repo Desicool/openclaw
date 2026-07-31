@@ -9,13 +9,14 @@ const relayMocks = vi.hoisted(() => ({
   auth: vi.fn<() => Promise<string>>(),
   publish: vi.fn<(event: Event) => Promise<string>>(),
   send: vi.fn<(message: string) => Promise<void>>(),
-  subscriptionClose: vi.fn(),
   close: vi.fn(),
   connected: true,
   stallProfileQueryEose: false,
+  stallRoomEoseChannelId: undefined as string | undefined,
   membershipEvents: [] as Event[],
   roomMetadataEvents: [] as Event[],
   profileEvents: [] as Event[],
+  roomHistoryEvents: [] as Event[],
   subscriptions: [] as Array<{
     filter: Filter;
     filters: Filter[];
@@ -24,6 +25,7 @@ const relayMocks = vi.hoisted(() => ({
       oneose?: () => void;
       onclose: (reason: string) => void;
     };
+    close: ReturnType<typeof vi.fn>;
   }>,
 }));
 
@@ -54,14 +56,29 @@ vi.mock("nostr-tools", async (importOriginal) => {
         },
       ) {
         const filter = filters[0] ?? {};
-        relayMocks.subscriptions.push({ filter, filters, handlers });
+        const close = vi.fn();
+        relayMocks.subscriptions.push({ filter, filters, handlers, close });
         if (filter.kinds?.includes(39002)) {
           for (const event of relayMocks.membershipEvents) {
             handlers.onevent(event);
           }
           handlers.oneose?.();
         } else if (filter.kinds?.includes(40099) || filter.kinds?.includes(9002)) {
-          handlers.oneose?.();
+          const roomId = filter["#h"]?.[0];
+          for (const currentFilter of filters) {
+            for (const event of relayMocks.roomHistoryEvents) {
+              const eventRoomId = event.tags.find((tag) => tag[0] === "h")?.[1];
+              if (
+                currentFilter.kinds?.includes(event.kind) &&
+                currentFilter["#h"]?.includes(eventRoomId ?? "")
+              ) {
+                handlers.onevent(event);
+              }
+            }
+          }
+          if (roomId !== relayMocks.stallRoomEoseChannelId) {
+            handlers.oneose?.();
+          }
         } else if (filter.kinds?.includes(39000)) {
           for (const event of relayMocks.roomMetadataEvents) {
             const roomId = event.tags.find((tag) => tag[0] === "d")?.[1];
@@ -83,7 +100,8 @@ vi.mock("nostr-tools", async (importOriginal) => {
         }
         return {
           id: `sub:${relayMocks.subscriptions.length}`,
-          close: relayMocks.subscriptionClose,
+          close,
+          closed: false,
         };
       }
     },
@@ -133,6 +151,7 @@ describe("Buzz bus lifecycle", () => {
     relayMocks.subscriptions.length = 0;
     relayMocks.profileEvents = [];
     relayMocks.roomMetadataEvents = [];
+    relayMocks.roomHistoryEvents = [];
     relayMocks.membershipEvents = [
       {
         id: "membership-1",
@@ -154,6 +173,7 @@ describe("Buzz bus lifecycle", () => {
     relayMocks.send.mockResolvedValue();
     relayMocks.connected = true;
     relayMocks.stallProfileQueryEose = false;
+    relayMocks.stallRoomEoseChannelId = undefined;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -359,6 +379,7 @@ describe("Buzz bus lifecycle", () => {
       onMessage: async () => {},
     });
 
+    expect(relayMocks.subscriptions[0]?.filter.kinds).toEqual([39_002]);
     for (const kind of [9, 9_002, 40_099]) {
       const roomFilters = relayMocks.subscriptions
         .filter((entry) => subscriptionIncludesKind(entry, kind))
@@ -369,6 +390,48 @@ describe("Buzz bus lifecycle", () => {
       relayMocks.subscriptions.filter((entry) => subscriptionIncludesKind(entry, 40_099)),
     ).toHaveLength(2);
 
+    await bus.close();
+  });
+
+  it("dispatches room history without buffering behind another room EOSE", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.membershipEvents.push({
+      ...relayMocks.membershipEvents[0]!,
+      id: "membership-2",
+      tags: [
+        ["d", SECOND_CHANNEL_ID],
+        ["p", BOT_PUBLIC_KEY, "", "bot"],
+        ["p", SENDER_PUBLIC_KEY, "", "member"],
+      ],
+    });
+    relayMocks.roomHistoryEvents = [
+      finalizeEvent(
+        {
+          kind: 9,
+          created_at: 1_700_000_000,
+          content: "historical message",
+          tags: [["h", CHANNEL_ID]],
+        },
+        Uint8Array.from(Buffer.from(SENDER_PRIVATE_KEY, "hex")),
+      ),
+    ];
+    relayMocks.stallRoomEoseChannelId = SECOND_CHANNEL_ID;
+    const onMessage = vi.fn(async (_message: BuzzInboundMessage) => {});
+
+    const start = startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID, SECOND_CHANNEL_ID],
+      onMessage,
+    });
+
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledOnce());
+    const stalledSubscription = relayMocks.subscriptions.find(
+      (entry) => entry.filter["#h"]?.[0] === SECOND_CHANNEL_ID,
+    );
+    stalledSubscription?.handlers.oneose?.();
+    const bus = await start;
     await bus.close();
   });
 
