@@ -7,29 +7,29 @@ import {
   type BuzzRoomMembership,
 } from "./room-membership.js";
 
-const MEMBERSHIP_QUERY_TIMEOUT_MS = 10_000;
 const RELAY_QUERY_EVENT_LIMIT = 1_000;
 const MEMBERSHIP_QUERY_COMPLETE_REASON = "membership snapshot loaded";
 
 async function queryBuzzRoomMembershipBatch(params: {
   relay: Relay;
   channelIds: string[];
-  timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<Map<string, BuzzRoomMembership>> {
   const configuredRooms = new Set(params.channelIds);
   const memberships = new Map<string, BuzzRoomMembership>();
   return await new Promise<Map<string, BuzzRoomMembership>>((resolve, reject) => {
     let settled = false;
+    let receivedEose = false;
     const subscriptionRef: { current?: ReturnType<Relay["prepareSubscription"]> } = {};
     const finish = (error?: unknown) => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timeout);
       params.signal?.removeEventListener("abort", onAbort);
-      subscriptionRef.current?.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
+      if (receivedEose) {
+        subscriptionRef.current?.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
+      }
       if (error === undefined) {
         resolve(memberships);
       } else {
@@ -42,10 +42,6 @@ async function queryBuzzRoomMembershipBatch(params: {
     };
     const onAbort = () =>
       finish(params.signal?.reason ?? new Error("Buzz room membership query aborted"));
-    const timeout = setTimeout(
-      () => finish(new Error("Timed out loading Buzz room membership")),
-      params.timeoutMs ?? MEMBERSHIP_QUERY_TIMEOUT_MS,
-    );
     params.signal?.addEventListener("abort", onAbort, { once: true });
     subscriptionRef.current = openBuzzRelaySubscription(
       params.relay,
@@ -68,7 +64,14 @@ async function queryBuzzRoomMembershipBatch(params: {
           }
           memberships.set(membership.roomId, membership);
         },
-        oneose: () => finish(),
+        oneose: () => {
+          receivedEose = true;
+          if (settled) {
+            subscriptionRef.current?.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
+          } else {
+            finish();
+          }
+        },
         onclose: (reason) => {
           if (reason !== MEMBERSHIP_QUERY_COMPLETE_REASON) {
             finish(new Error(`Buzz room membership query closed: ${reason}`));
@@ -76,7 +79,7 @@ async function queryBuzzRoomMembershipBatch(params: {
         },
       },
     );
-    if (settled) {
+    if (settled && receivedEose) {
       subscriptionRef.current.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
     }
     if (params.signal?.aborted) {
@@ -88,7 +91,6 @@ async function queryBuzzRoomMembershipBatch(params: {
 export async function queryBuzzRoomMemberships(params: {
   relay: Relay;
   channelIds: string[];
-  timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<Map<string, BuzzRoomMembership>> {
   const memberships = new Map<string, BuzzRoomMembership>();

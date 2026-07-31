@@ -241,7 +241,6 @@ async function createBuzzRoomMembershipTracker(params: {
         await queryBuzzRoomMemberships({
           relay: params.relay,
           channelIds: [channelId],
-          timeoutMs: 3_000,
           signal: params.signal,
         })
       ).get(channelId),

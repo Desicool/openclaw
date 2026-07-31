@@ -7,7 +7,6 @@ import {
 } from "./directory-state.js";
 import { openBuzzRelaySubscription } from "./relay-subscription.js";
 
-const BUZZ_DIRECTORY_QUERY_TIMEOUT_MS = 5_000;
 const BUZZ_ROOM_QUERY_CHUNK_SIZE = 1_000;
 const PROFILE_SUBSCRIPTION_REPLACED_REASON = "directory profile subscription replaced";
 const DIRECTORY_SHUTDOWN_REASON = "directory shutdown";
@@ -32,21 +31,22 @@ async function queryBuzzDirectoryBatch(params: {
   relay: Relay;
   filter: Filter;
   onEvent: (event: Event) => void;
-  timeoutMessage: string;
   signal?: AbortSignal;
 }): Promise<void> {
   params.signal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     let settled = false;
+    let receivedEose = false;
     const subscriptionRef: { current?: BuzzSubscription } = {};
     const finish = (error?: unknown) => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timeout);
       params.signal?.removeEventListener("abort", onAbort);
-      subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
+      if (receivedEose) {
+        subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
+      }
       if (error === undefined) {
         resolve();
       } else {
@@ -59,21 +59,24 @@ async function queryBuzzDirectoryBatch(params: {
     };
     const onAbort = () =>
       finish(params.signal?.reason ?? new Error("Buzz directory query aborted"));
-    const timeout = setTimeout(
-      () => finish(new Error(params.timeoutMessage)),
-      BUZZ_DIRECTORY_QUERY_TIMEOUT_MS,
-    );
     params.signal?.addEventListener("abort", onAbort, { once: true });
     subscriptionRef.current = openBuzzRelaySubscription(params.relay, [params.filter], {
       onevent: params.onEvent,
-      oneose: () => finish(),
+      oneose: () => {
+        receivedEose = true;
+        if (settled) {
+          subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
+        } else {
+          finish();
+        }
+      },
       onclose: (reason) => {
         if (reason !== DIRECTORY_QUERY_COMPLETE_REASON) {
           finish(new Error(`Buzz directory query closed: ${reason}`));
         }
       },
     });
-    if (settled) {
+    if (settled && receivedEose) {
       subscriptionRef.current.close(DIRECTORY_QUERY_COMPLETE_REASON);
     }
     if (params.signal?.aborted) {
@@ -99,7 +102,6 @@ export async function queryBuzzDirectoryProfiles(params: {
       onEvent: (event) => {
         params.state.applyProfileEvent(event);
       },
-      timeoutMessage: "Timed out querying Buzz directory profiles",
       signal: params.signal,
     });
   }
@@ -122,7 +124,6 @@ export async function queryBuzzDirectoryRooms(params: {
       onEvent: (event) => {
         params.state.applyRoomEvent(event);
       },
-      timeoutMessage: "Timed out querying Buzz room metadata",
       signal: params.signal,
     });
   }
@@ -215,7 +216,10 @@ export function startBuzzDirectoryRelay(params: {
             },
             oneose: markReady,
             onclose: (reason) => {
-              markReady();
+              if (profileGeneration === generation) {
+                profileGeneration = undefined;
+                queuedProfilePublicKeys = undefined;
+              }
               if (
                 reason !== PROFILE_SUBSCRIPTION_REPLACED_REASON &&
                 reason !== DIRECTORY_SHUTDOWN_REASON &&

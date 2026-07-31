@@ -3,7 +3,6 @@ import { openBuzzRelaySubscription } from "./relay-subscription.js";
 
 const PROFILE_KIND = 0;
 const AGENT_PROFILE_KIND = 10_100;
-const PROFILE_QUERY_TIMEOUT_MS = 5_000;
 const DEFAULT_CHANNEL_ADD_POLICY = "anyone";
 const CHANNEL_ADD_POLICIES = new Set(["anyone", "owner_only", "nobody"]);
 
@@ -57,19 +56,18 @@ async function queryCurrentProfiles(params: {
     const latestByKind = new Map<number, Event>();
     const state: {
       settled: boolean;
-      timeout?: ReturnType<typeof setTimeout>;
+      receivedEose: boolean;
       subscription?: ReturnType<Relay["prepareSubscription"]>;
-    } = { settled: false };
+    } = { settled: false, receivedEose: false };
     const finish = (error?: unknown) => {
       if (state.settled) {
         return;
       }
       state.settled = true;
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-      }
       params.signal?.removeEventListener("abort", onAbort);
-      state.subscription?.close("profile query complete");
+      if (state.receivedEose) {
+        state.subscription?.close("profile query complete");
+      }
       if (error !== undefined) {
         reject(
           error instanceof Error ? error : new Error("Buzz profile query failed", { cause: error }),
@@ -80,10 +78,6 @@ async function queryCurrentProfiles(params: {
     };
     const onAbort = () => finish(params.signal?.reason ?? new Error("Buzz profile query aborted"));
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    state.timeout = setTimeout(
-      () => finish(new Error("Timed out querying the Buzz bot profile")),
-      PROFILE_QUERY_TIMEOUT_MS,
-    );
     state.subscription = openBuzzRelaySubscription(
       params.relay,
       [
@@ -97,7 +91,14 @@ async function queryCurrentProfiles(params: {
             latestByKind.set(event.kind, event);
           }
         },
-        oneose: () => finish(),
+        oneose: () => {
+          state.receivedEose = true;
+          if (state.settled) {
+            state.subscription?.close("profile query complete");
+          } else {
+            finish();
+          }
+        },
         onclose: (reason) => {
           if (reason !== "profile query complete") {
             finish(new Error(`Buzz profile query closed: ${reason}`));
@@ -105,7 +106,7 @@ async function queryCurrentProfiles(params: {
         },
       },
     );
-    if (state.settled) {
+    if (state.settled && state.receivedEose) {
       state.subscription.close("profile query complete");
     }
   });
