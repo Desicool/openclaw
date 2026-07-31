@@ -161,10 +161,18 @@ describe("createRealtimeTranscriptionWebSocketSession", () => {
       },
     });
 
-    for (let index = 0; index < 13_000; index += 1) {
-      session.sendAudio(encodeSequence(index));
+    const shiftSpy = vi.spyOn(Array.prototype, "shift");
+    let shiftCalls = 0;
+    try {
+      for (let index = 0; index < 13_000; index += 1) {
+        session.sendAudio(encodeSequence(index));
+      }
+      session.sendAudio(Buffer.from([0xaa, 0xbb, 0xcc]));
+      shiftCalls = shiftSpy.mock.calls.length;
+    } finally {
+      shiftSpy.mockRestore();
     }
-    session.sendAudio(Buffer.from([0xaa, 0xbb, 0xcc]));
+    expect(shiftCalls).toBe(0);
 
     await session.connect();
     await framesReady.promise;
