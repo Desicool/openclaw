@@ -194,6 +194,74 @@ describe("discoverBuzzRooms", () => {
     expect(relayMocks.subscribe).not.toHaveBeenCalled();
   });
 
+  it("excludes rooms whose latest relay metadata marks them archived", async () => {
+    const publicKey = getPublicKey(Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")));
+    relayMocks.subscribe
+      .mockImplementationOnce(
+        (
+          _filters: unknown,
+          handlers: { onevent: (event: unknown) => void; oneose: () => void },
+        ) => {
+          handlers.onevent({
+            id: "member-a",
+            kind: 39002,
+            pubkey: RELAY_PUBLIC_KEY,
+            created_at: 1,
+            content: "",
+            sig: "sig",
+            tags: [
+              ["d", ROOM_A],
+              ["p", publicKey, "", "bot"],
+            ],
+          });
+          handlers.oneose();
+          return { close: vi.fn() };
+        },
+      )
+      .mockImplementationOnce(
+        (
+          _filters: unknown,
+          handlers: { onevent: (event: unknown) => void; oneose: () => void },
+        ) => {
+          handlers.onevent({
+            id: "a".repeat(64),
+            kind: 39000,
+            pubkey: RELAY_PUBLIC_KEY,
+            created_at: 2,
+            content: "",
+            sig: "sig",
+            tags: [
+              ["d", ROOM_A],
+              ["name", "Old room name"],
+            ],
+          });
+          handlers.onevent({
+            id: "b".repeat(64),
+            kind: 39000,
+            pubkey: RELAY_PUBLIC_KEY,
+            created_at: 3,
+            content: "",
+            sig: "sig",
+            tags: [
+              ["d", ROOM_A],
+              ["name", "Archived room"],
+              ["archived", "true"],
+            ],
+          });
+          handlers.oneose();
+          return { close: vi.fn() };
+        },
+      );
+
+    const { discoverBuzzRooms } = await import("./room-discovery.js");
+    await expect(
+      discoverBuzzRooms({
+        relayUrl: "wss://buzz.example.com",
+        privateKey: PRIVATE_KEY,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   it("recycles the relay when a room query never reaches EOSE", async () => {
     vi.useFakeTimers();
     relayMocks.subscribe.mockReturnValue({ close: vi.fn() });

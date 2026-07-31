@@ -177,6 +177,47 @@ describe("Buzz directory state", () => {
     expect(state.listGroupMembers({ groupId: `buzz:${ROOM_ID}`, limit: 2 })).toHaveLength(2);
   });
 
+  it("excludes rooms whose latest relay metadata marks them archived", () => {
+    const state = profileState();
+    state.applyRoomEvent(
+      event({
+        id: "2".repeat(64),
+        kind: BUZZ_ROOM_METADATA_KIND,
+        pubkey: "d".repeat(64),
+        tags: [
+          ["d", ROOM_ID],
+          ["name", "Archived room"],
+          ["archived", "true"],
+        ],
+      }),
+    );
+
+    expect(state.activeRoomIds()).toEqual([]);
+    expect(state.isRoomArchived(ROOM_ID)).toBe(true);
+    expect(state.listGroups({})).toEqual([]);
+    expect(state.listGroupMembers({ groupId: ROOM_ID })).toEqual([]);
+
+    state.applyRoomEvent(
+      event({
+        id: "1".repeat(64),
+        kind: BUZZ_ROOM_METADATA_KIND,
+        pubkey: "d".repeat(64),
+        created_at: 1_700_000_001,
+        tags: [
+          ["d", ROOM_ID],
+          ["name", "Restored room"],
+          ["archived", "false"],
+        ],
+      }),
+    );
+
+    expect(state.activeRoomIds()).toEqual([ROOM_ID]);
+    expect(state.isRoomArchived(ROOM_ID)).toBe(false);
+    expect(state.listGroups({})).toEqual([
+      expect.objectContaining({ id: `buzz:${ROOM_ID}`, name: "Restored room" }),
+    ]);
+  });
+
   it("uses deterministic latest-event ordering and bounded profile selection", () => {
     const state = new BuzzDirectoryState({
       publicKey: BOT_PUBLIC_KEY,

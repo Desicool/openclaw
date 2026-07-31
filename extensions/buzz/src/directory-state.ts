@@ -28,6 +28,7 @@ type BuzzDirectoryProfile = {
 type BuzzDirectoryRoom = {
   roomId: string;
   name?: string;
+  archived: boolean;
   createdAt: number;
   eventId: string;
 };
@@ -154,6 +155,7 @@ function parseBuzzDirectoryRoomEvent(event: Event): BuzzDirectoryRoom | undefine
       event.tags.find((tag) => tag[0] === "name")?.[1],
       MAX_DIRECTORY_NAME_CHARS,
     ),
+    archived: event.tags.some((tag) => tag[0] === "archived" && tag[1] === "true"),
     createdAt: event.created_at,
     eventId: event.id,
   };
@@ -226,6 +228,14 @@ export class BuzzDirectoryState {
     return [...this.#profilePublicKeys];
   }
 
+  activeRoomIds(): string[] {
+    return [...this.#configuredRoomIds].filter((roomId) => !this.#rooms.get(roomId)?.archived);
+  }
+
+  isRoomArchived(roomId: string): boolean {
+    return this.#rooms.get(parseBuzzTarget(roomId))?.archived === true;
+  }
+
   applyProfileEvent(event: Event): boolean {
     const profile = parseBuzzDirectoryProfileEvent(event);
     if (
@@ -282,7 +292,7 @@ export class BuzzDirectoryState {
   }
 
   listGroups(params: { query?: string | null; limit?: number | null }): ChannelDirectoryEntry[] {
-    const entries = [...this.#configuredRoomIds]
+    const entries = this.activeRoomIds()
       .map((roomId) => this.#buildRoomEntry(roomId))
       .toSorted(compareDirectoryEntries);
     return applyQueryAndLimit(entries, params);
@@ -293,6 +303,9 @@ export class BuzzDirectoryState {
     try {
       roomId = parseBuzzTarget(params.groupId);
     } catch {
+      return [];
+    }
+    if (this.#rooms.get(roomId)?.archived) {
       return [];
     }
     const membership = this.#memberships.get(roomId);

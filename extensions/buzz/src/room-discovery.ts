@@ -132,20 +132,26 @@ export async function discoverBuzzRoomsOnRelay(params: {
   const latestMetadata = new Map<string, Event>();
   for (const event of metadataEvents) {
     const roomId = tagValue(event, "d")?.toLowerCase();
+    const current = roomId ? latestMetadata.get(roomId) : undefined;
     if (
       event.kind !== METADATA_KIND ||
       event.pubkey.toLowerCase() !== params.relayPublicKey ||
       !roomId ||
       !roomIds.includes(roomId) ||
-      (latestMetadata.get(roomId)?.created_at ?? -1) >= event.created_at
+      (current &&
+        (current.created_at > event.created_at ||
+          (current.created_at === event.created_at && current.id <= event.id)))
     ) {
       continue;
     }
     latestMetadata.set(roomId, event);
   }
 
-  return roomIds.map((id) => {
+  return roomIds.flatMap((id) => {
     const metadata = latestMetadata.get(id);
+    if (metadata?.tags.some((tag) => tag[0] === "archived" && tag[1] === "true")) {
+      return [];
+    }
     const name = metadata ? tagValue(metadata, "name")?.trim() : undefined;
     const about = metadata ? tagValue(metadata, "about")?.trim() : undefined;
     const room: BuzzDiscoveredRoom = {
@@ -155,7 +161,7 @@ export async function discoverBuzzRoomsOnRelay(params: {
     if (about) {
       room.about = about;
     }
-    return room;
+    return [room];
   });
 }
 
