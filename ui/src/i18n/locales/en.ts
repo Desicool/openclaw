@@ -1084,6 +1084,7 @@ export const en: TranslationMap = {
     structuredSecretRaw: "Structured value (SecretRef) - use Raw mode to edit",
     structuredSecretFile: "Structured value (SecretRef) - edit the config file directly",
     defaultValue: "Default: {value}",
+    usingDefault: "Using default: {value}",
     resetToDefault: "Reset to default",
     select: "Select...",
     nullValue: "null",

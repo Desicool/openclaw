@@ -49,6 +49,7 @@ export type ConfigNodeRenderParams = {
   isSensitivePathRevealed?: (path: Array<string | number>) => boolean;
   onToggleSensitivePath?: (path: Array<string | number>) => void;
   onPatch: (path: Array<string | number>, value: unknown) => boolean | void;
+  onRemove?: (path: Array<string | number>) => boolean | void;
 };
 
 export type ConfigNodeRenderer = (
@@ -192,6 +193,7 @@ export function renderFieldRow(params: {
   label: unknown;
   help?: unknown;
   helpId?: string;
+  defaultDescription?: unknown;
   tags: string[];
   showLabel: boolean;
   control: TemplateResult | typeof nothing;
@@ -202,8 +204,13 @@ export function renderFieldRow(params: {
   // wildcard segments collapse), so their help is the parent's. Showing it again
   // per item is noise; a row with no label of its own gets no help of its own.
   const help = params.showLabel ? params.help : undefined;
+  const defaultDescription = params.showLabel ? params.defaultDescription : undefined;
   const hasText =
-    params.showLabel || Boolean(help) || params.tags.length > 0 || Boolean(params.error);
+    params.showLabel ||
+    Boolean(help) ||
+    Boolean(defaultDescription) ||
+    params.tags.length > 0 ||
+    Boolean(params.error);
   // Control-only rows (array/map item values) stack so the control gets full width.
   const stacked = params.stacked || !hasText;
   const className = stacked ? "settings-row settings-row--stacked" : "settings-row";
@@ -220,6 +227,9 @@ export function renderFieldRow(params: {
                     >${help}</span
                   >`
                 : nothing}
+              ${defaultDescription
+                ? html`<span class="settings-row__desc">${defaultDescription}</span>`
+                : nothing}
               ${renderTags(params.tags)}
               ${params.error
                 ? html`<span class="cfg-field__error" role="alert">${params.error}</span>`
@@ -231,6 +241,49 @@ export function renderFieldRow(params: {
         ? html`<div class="settings-row__control">${params.control}</div>`
         : nothing}
     </div>
+  `;
+}
+
+export function renderSchemaDefaultDescription(
+  schema: JsonSchema,
+  value: unknown,
+): TemplateResult | typeof nothing {
+  if (schema.default === undefined) {
+    return nothing;
+  }
+  return html`${t(value === undefined ? "configForm.usingDefault" : "configForm.defaultValue", {
+    value: formatUnknownText(schema.default),
+  })}`;
+}
+
+export function renderRestoreDefaultButton(
+  params: Pick<
+    ConfigNodeRenderParams,
+    "schema" | "value" | "path" | "disabled" | "isRequired" | "onPatch"
+  >,
+): TemplateResult | typeof nothing {
+  if (params.schema.default === undefined || params.value === undefined) {
+    return nothing;
+  }
+  return html`
+    <openclaw-tooltip .content=${t("configForm.resetToDefault")}>
+      <button
+        type="button"
+        class="btn btn--icon"
+        aria-label=${t("configForm.resetToDefault")}
+        ?disabled=${params.disabled}
+        @click=${(event: Event) => {
+          event.stopPropagation();
+          if (params.isRequired) {
+            params.onPatch(params.path, structuredClone(params.schema.default));
+            return;
+          }
+          params.onPatch(params.path, undefined);
+        }}
+      >
+        ${icons.refresh}
+      </button>
+    </openclaw-tooltip>
   `;
 }
 

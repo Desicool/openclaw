@@ -166,6 +166,7 @@ export function renderSettingsToggleRow(props: {
   /** Runs synchronously during direct activation for effects gated on user activation. */
   onAct?: (checked: boolean) => void;
   disabled?: boolean;
+  actions?: TemplateResult | typeof nothing;
 }): TemplateResult {
   const notifySwitchActivation = (event: MouseEvent | KeyboardEvent) => {
     const fromInput = event.composedPath().some((node) => node instanceof HTMLInputElement);
@@ -200,6 +201,7 @@ export function renderSettingsToggleRow(props: {
           : nothing}
       </div>
       <div class="settings-row__control">
+        ${props.actions ?? nothing}
         <wa-switch
           class="settings-toggle"
           size="s"

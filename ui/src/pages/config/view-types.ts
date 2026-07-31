@@ -80,6 +80,7 @@ export type ConfigProps = {
   onFormModeChange: (mode: ConfigFormMode) => void;
   onViewStateChange: () => void;
   onFormPatch: (path: Array<string | number>, value: unknown) => void;
+  onFormRemove: (path: Array<string | number>) => void;
   onSectionChange: (section: string | null) => void;
   onSubsectionChange: (section: string | null) => void;
   onSave: () => void;

@@ -41,6 +41,7 @@ describe("config view", () => {
     onFormModeChange: vi.fn(),
     onViewStateChange: vi.fn(),
     onFormPatch: vi.fn(),
+    onFormRemove: vi.fn(),
     onSectionChange: vi.fn(),
     onSave: vi.fn(),
     onRawDiscard: vi.fn(),
@@ -161,6 +162,59 @@ describe("config view", () => {
   function normalizedText(container: HTMLElement): string {
     return container.textContent?.replace(/\s+/g, " ").trim() ?? "";
   }
+
+  it("routes restore-default actions through config removal", () => {
+    const onFormPatch = vi.fn();
+    const onFormRemove = vi.fn();
+    const { container } = renderConfigView({
+      schema: {
+        type: "object",
+        properties: {
+          gateway: {
+            type: "object",
+            title: "Gateway",
+            properties: {
+              retries: { type: "integer", title: "Retries", default: 3 },
+              mode: {
+                type: "string",
+                title: "Mode",
+                default: "balanced",
+                enum: ["balanced", "fast", "careful", "safe", "strict", "custom"],
+              },
+            },
+          },
+        },
+      },
+      uiHints: {
+        "gateway.retries": { advanced: false },
+        "gateway.mode": { advanced: false },
+      },
+      formValue: { gateway: { retries: 9, mode: "custom" } },
+      activeSection: "gateway",
+      onFormPatch,
+      onFormRemove,
+    });
+
+    const retriesRow = Array.from(container.querySelectorAll<HTMLElement>(".settings-row")).find(
+      (row) => row.textContent?.includes("Retries"),
+    );
+    queryRequired(
+      retriesRow ?? container,
+      "button[aria-label='Reset to default']",
+      HTMLButtonElement,
+    ).click();
+    expect(onFormRemove).toHaveBeenCalledWith(["gateway", "retries"]);
+    expect(onFormPatch).not.toHaveBeenCalled();
+
+    const modeRow = Array.from(container.querySelectorAll<HTMLElement>(".settings-row")).find(
+      (row) => row.textContent?.includes("Mode"),
+    );
+    const select = queryRequired(modeRow ?? container, "select", HTMLSelectElement);
+    expect(select.selectedOptions[0]?.textContent?.trim()).toBe("custom");
+    select.value = "__unset__";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onFormRemove).toHaveBeenCalledWith(["gateway", "mode"]);
+  });
 
   it("uses one inline advanced disclosure without mutating config fields", () => {
     const schema = {

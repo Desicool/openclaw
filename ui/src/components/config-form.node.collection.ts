@@ -117,8 +117,8 @@ export function renderObject(
     revealSensitive,
     isSensitivePathRevealed,
     onToggleSensitivePath,
+    onRemove,
   } = params;
-  const showLabel = params.showLabel ?? true;
   const { label, help, tags } = resolveFieldMeta(path, schema, hints);
   const selfMatched =
     searchCriteria && hasSearchCriteria(searchCriteria)
@@ -181,7 +181,9 @@ export function renderObject(
     if (!canApplyObjectCandidate(schema, objectValue, candidate)) {
       return false;
     }
-    return onPatch(childPath, childValue) !== false;
+    const accepted =
+      childValue === undefined && onRemove ? onRemove(childPath) : onPatch(childPath, childValue);
+    return accepted !== false;
   };
 
   const fields = html`
@@ -223,7 +225,7 @@ export function renderObject(
 
   // Top-level objects and label-less contexts emit rows directly into the
   // surrounding settings-group so row dividers stay sibling-driven.
-  if (path.length === 1 || !showLabel) {
+  if (path.length === 1 || params.showLabel === false) {
     return html`${fields}`;
   }
 

@@ -866,6 +866,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       onFormModeChange: (mode) => this.setFormMode(mode),
       onViewStateChange: () => this.requestUpdate(),
       onFormPatch: (path, value) => runtimeConfig.patchForm(path, value),
+      onFormRemove: (path) => runtimeConfig.removeFormValue(path),
       onSectionChange: (section) => this.setActiveSection(section),
       onSubsectionChange: (section) => this.setActiveSubsection(section),
       onSave: () => void runtimeConfig.save(),
