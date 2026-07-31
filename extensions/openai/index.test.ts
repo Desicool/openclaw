@@ -185,6 +185,36 @@ describe("openai plugin", () => {
     );
   });
 
+  it("only cleans up the GPT-Live broker on plugin disable, not session reset/delete/restart", () => {
+    const registerRuntimeLifecycle = vi.fn();
+    plugin.register(
+      createTestPluginApi({
+        id: "openai",
+        name: "OpenAI Provider",
+        source: "test",
+        config: {},
+        runtime: { config: { current: vi.fn(() => ({})) } } as never,
+        registerHttpRoute: vi.fn(),
+        registerRuntimeLifecycle,
+      }),
+    );
+
+    const lifecycle = registerRuntimeLifecycle.mock.calls[0]?.[0] as {
+      cleanup: (ctx: { reason: string }) => Promise<void> | void;
+    };
+    expect(lifecycle).toBeDefined();
+
+    // Session reset/delete/restart must NOT trigger broker cleanup
+    for (const reason of ["reset", "delete", "restart"]) {
+      const result = lifecycle.cleanup({ reason });
+      expect(result).toBeUndefined();
+    }
+
+    // Plugin disable MUST trigger broker cleanup
+    const disableResult = lifecycle.cleanup({ reason: "disable" });
+    expect(disableResult).toBeDefined();
+  });
+
   it("generates PNG buffers from the OpenAI Images API", async () => {
     const { resolveApiKeySpy, postJsonRequestSpy } = mockOpenAIImageApiResponse({
       finalUrl: "https://api.openai.com/v1/images/generations",
