@@ -141,7 +141,7 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
         lastError: null,
       });
       ctx.log?.info?.(
-        `[${account.accountId}] Buzz connected to ${account.relayUrl} for ${channelIds.length} channel(s)`,
+        `[${account.accountId}] Buzz connected to ${account.relayUrl} for ${bus.directory.activeRoomIds().length} channel(s)`,
       );
       const fatalError = await Promise.race([
         waitUntilAbort(ctx.abortSignal).then(() => undefined),
