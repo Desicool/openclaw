@@ -614,6 +614,15 @@ export async function startBuzzBus(options: {
       signal,
     });
     const activeChannelIds = directory.activeRoomIds();
+    directoryRelay = startBuzzDirectoryRelay({
+      relay,
+      relayPublicKey,
+      state: directory,
+      subscribedRoomIds: new Set(activeChannelIds),
+      signal,
+      onError: options.onDirectoryError,
+      onFatalError: reportFatalError,
+    });
     startBuzzRoomMembershipNotifications({
       relay,
       relayPublicKey,
@@ -678,15 +687,6 @@ export async function startBuzzBus(options: {
           })
         : undefined;
     directory.replaceMemberships(membershipTracker?.memberships() ?? new Map());
-    directoryRelay = startBuzzDirectoryRelay({
-      relay,
-      relayPublicKey,
-      state: directory,
-      subscribedRoomIds: new Set(activeChannelIds),
-      signal,
-      onError: options.onDirectoryError,
-      onFatalError: reportFatalError,
-    });
     directoryRelay.replaceProfilePublicKeys(directory.profilePublicKeys());
     stopPresenceHeartbeat = startBuzzPresenceHeartbeat({
       relay,

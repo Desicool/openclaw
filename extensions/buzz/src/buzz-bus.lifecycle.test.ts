@@ -17,6 +17,7 @@ const relayMocks = vi.hoisted(() => ({
   roomMetadataEvents: [] as Event[],
   profileEvents: [] as Event[],
   roomHistoryEvents: [] as Event[],
+  beforeRoomHistoryEvent: undefined as ((event: Event) => void) | undefined,
   subscriptions: [] as Array<{
     filter: Filter;
     filters: Filter[];
@@ -72,6 +73,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
                 currentFilter.kinds?.includes(event.kind) &&
                 currentFilter["#h"]?.includes(eventRoomId ?? "")
               ) {
+                relayMocks.beforeRoomHistoryEvent?.(event);
                 handlers.onevent(event);
               }
             }
@@ -152,6 +154,7 @@ describe("Buzz bus lifecycle", () => {
     relayMocks.profileEvents = [];
     relayMocks.roomMetadataEvents = [];
     relayMocks.roomHistoryEvents = [];
+    relayMocks.beforeRoomHistoryEvent = undefined;
     relayMocks.membershipEvents = [
       {
         id: "membership-1",
@@ -609,6 +612,71 @@ describe("Buzz bus lifecycle", () => {
       });
 
     await vi.waitFor(() => expect(bus.directory.listGroups({})[0]?.name).toBe("Platform"));
+    await bus.close();
+  });
+
+  it("refreshes room metadata edits replayed during startup", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.roomMetadataEvents = [
+      {
+        id: "room-metadata-active",
+        kind: 39_000,
+        pubkey: RELAY_PUBLIC_KEY,
+        created_at: 1_700_000_000,
+        content: "",
+        sig: "e".repeat(128),
+        tags: [
+          ["d", CHANNEL_ID],
+          ["name", "Engineering"],
+        ],
+      },
+    ];
+    relayMocks.roomHistoryEvents = [
+      {
+        id: "archive-room-during-startup",
+        kind: 9_002,
+        pubkey: SENDER_PUBLIC_KEY,
+        created_at: 1_700_000_001,
+        content: "",
+        sig: "e".repeat(128),
+        tags: [["h", CHANNEL_ID]],
+      },
+    ];
+    relayMocks.beforeRoomHistoryEvent = () => {
+      relayMocks.roomMetadataEvents = [
+        {
+          id: "room-metadata-archived",
+          kind: 39_000,
+          pubkey: RELAY_PUBLIC_KEY,
+          created_at: 1_700_000_001,
+          content: "",
+          sig: "e".repeat(128),
+          tags: [
+            ["d", CHANNEL_ID],
+            ["name", "Engineering"],
+            ["archived", "true"],
+          ],
+        },
+      ];
+    };
+    const onFatalError = vi.fn();
+
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage: async () => {},
+      onFatalError,
+    });
+
+    await vi.waitFor(() =>
+      expect(onFatalError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: `Buzz room ${CHANNEL_ID} archive status changed; rebuilding subscriptions`,
+        }),
+      ),
+    );
     await bus.close();
   });
 
