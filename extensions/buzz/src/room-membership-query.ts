@@ -51,43 +51,48 @@ async function queryBuzzRoomMembershipBatch(params: {
     const onAbort = () =>
       finish(params.signal?.reason ?? new Error("Buzz room membership query aborted"));
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    subscriptionRef.current = openBuzzRelaySubscription(
-      params.relay,
-      [
+    try {
+      subscriptionRef.current = openBuzzRelaySubscription(
+        params.relay,
+        [
+          {
+            kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
+            authors: [params.relayPublicKey],
+            "#d": params.channelIds,
+            limit: params.channelIds.length,
+          },
+        ],
         {
-          kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
-          authors: [params.relayPublicKey],
-          "#d": params.channelIds,
-          limit: params.channelIds.length,
+          onevent: (event) => {
+            const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
+            if (
+              !membership ||
+              !configuredRooms.has(membership.roomId) ||
+              !isNewerBuzzRoomMembership(membership, memberships.get(membership.roomId))
+            ) {
+              return;
+            }
+            memberships.set(membership.roomId, membership);
+          },
+          oneose: () => {
+            receivedEose = true;
+            if (settled) {
+              subscriptionRef.current?.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
+            } else {
+              finish();
+            }
+          },
+          onclose: (reason) => {
+            if (reason !== MEMBERSHIP_QUERY_COMPLETE_REASON) {
+              finish(new Error(`Buzz room membership query closed: ${reason}`));
+            }
+          },
         },
-      ],
-      {
-        onevent: (event) => {
-          const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
-          if (
-            !membership ||
-            !configuredRooms.has(membership.roomId) ||
-            !isNewerBuzzRoomMembership(membership, memberships.get(membership.roomId))
-          ) {
-            return;
-          }
-          memberships.set(membership.roomId, membership);
-        },
-        oneose: () => {
-          receivedEose = true;
-          if (settled) {
-            subscriptionRef.current?.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
-          } else {
-            finish();
-          }
-        },
-        onclose: (reason) => {
-          if (reason !== MEMBERSHIP_QUERY_COMPLETE_REASON) {
-            finish(new Error(`Buzz room membership query closed: ${reason}`));
-          }
-        },
-      },
-    );
+      );
+    } catch (error) {
+      finish(error);
+      return;
+    }
     if (settled && receivedEose) {
       subscriptionRef.current.close(MEMBERSHIP_QUERY_COMPLETE_REASON);
     }

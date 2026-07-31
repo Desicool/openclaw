@@ -68,22 +68,27 @@ async function queryBuzzDirectoryBatch(params: {
     const onAbort = () =>
       finish(params.signal?.reason ?? new Error("Buzz directory query aborted"));
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    subscriptionRef.current = openBuzzRelaySubscription(params.relay, [params.filter], {
-      onevent: params.onEvent,
-      oneose: () => {
-        receivedEose = true;
-        if (settled) {
-          subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
-        } else {
-          finish();
-        }
-      },
-      onclose: (reason) => {
-        if (reason !== DIRECTORY_QUERY_COMPLETE_REASON) {
-          finish(new Error(`Buzz directory query closed: ${reason}`));
-        }
-      },
-    });
+    try {
+      subscriptionRef.current = openBuzzRelaySubscription(params.relay, [params.filter], {
+        onevent: params.onEvent,
+        oneose: () => {
+          receivedEose = true;
+          if (settled) {
+            subscriptionRef.current?.close(DIRECTORY_QUERY_COMPLETE_REASON);
+          } else {
+            finish();
+          }
+        },
+        onclose: (reason) => {
+          if (reason !== DIRECTORY_QUERY_COMPLETE_REASON) {
+            finish(new Error(`Buzz directory query closed: ${reason}`));
+          }
+        },
+      });
+    } catch (error) {
+      finish(error);
+      return;
+    }
     if (settled && receivedEose) {
       subscriptionRef.current.close(DIRECTORY_QUERY_COMPLETE_REASON);
     }

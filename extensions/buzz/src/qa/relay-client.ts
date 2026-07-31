@@ -61,41 +61,46 @@ async function loadBuzzQaRoomMembership(params: {
       finish(new Error(`Timed out loading Buzz QA room ${params.roomId} membership.`));
       params.relay.close();
     }, MEMBERSHIP_TIMEOUT_MS);
-    subscriptionRef.current = openBuzzRelaySubscription(
-      params.relay,
-      [
+    try {
+      subscriptionRef.current = openBuzzRelaySubscription(
+        params.relay,
+        [
+          {
+            kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
+            authors: [params.relayPublicKey],
+            "#d": [params.roomId],
+            limit: 1,
+          },
+        ],
         {
-          kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
-          authors: [params.relayPublicKey],
-          "#d": [params.roomId],
-          limit: 1,
+          onevent: (event) => {
+            const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
+            if (
+              membership?.roomId === params.roomId &&
+              isNewerBuzzRoomMembership(membership, latest)
+            ) {
+              latest = membership;
+            }
+          },
+          oneose: () => {
+            receivedEose = true;
+            if (settled) {
+              subscriptionRef.current?.close("membership loaded");
+            } else {
+              finish();
+            }
+          },
+          onclose: (reason) => {
+            if (reason !== "membership loaded") {
+              finish(new Error(`Buzz QA membership subscription closed: ${reason}`));
+            }
+          },
         },
-      ],
-      {
-        onevent: (event) => {
-          const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
-          if (
-            membership?.roomId === params.roomId &&
-            isNewerBuzzRoomMembership(membership, latest)
-          ) {
-            latest = membership;
-          }
-        },
-        oneose: () => {
-          receivedEose = true;
-          if (settled) {
-            subscriptionRef.current?.close("membership loaded");
-          } else {
-            finish();
-          }
-        },
-        onclose: (reason) => {
-          if (reason !== "membership loaded") {
-            finish(new Error(`Buzz QA membership subscription closed: ${reason}`));
-          }
-        },
-      },
-    );
+      );
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     if (settled && receivedEose) {
       subscriptionRef.current.close("membership loaded");
     }

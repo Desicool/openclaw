@@ -59,22 +59,27 @@ async function queryRelay(params: {
       finish(new Error("Timed out querying Buzz room membership"));
       params.relay.close();
     }, params.timeoutMs);
-    state.subscription = openBuzzRelaySubscription(params.relay, [params.filter], {
-      onevent: (event) => events.push(event),
-      oneose: () => {
-        state.receivedEose = true;
-        if (state.settled) {
-          state.subscription?.close("query complete");
-        } else {
-          finish();
-        }
-      },
-      onclose: (reason) => {
-        if (reason !== "query complete") {
-          finish(new Error(`Buzz room query closed: ${reason}`));
-        }
-      },
-    });
+    try {
+      state.subscription = openBuzzRelaySubscription(params.relay, [params.filter], {
+        onevent: (event) => events.push(event),
+        oneose: () => {
+          state.receivedEose = true;
+          if (state.settled) {
+            state.subscription?.close("query complete");
+          } else {
+            finish();
+          }
+        },
+        onclose: (reason) => {
+          if (reason !== "query complete") {
+            finish(new Error(`Buzz room query closed: ${reason}`));
+          }
+        },
+      });
+    } catch (error) {
+      finish(error);
+      return;
+    }
     if (state.settled && state.receivedEose) {
       state.subscription.close("query complete");
     }
