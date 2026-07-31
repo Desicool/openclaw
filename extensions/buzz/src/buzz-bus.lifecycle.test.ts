@@ -477,11 +477,20 @@ describe("Buzz bus lifecycle", () => {
       );
     });
     await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(8));
-    expect(relayMocks.close).toHaveBeenCalled();
+    expect(relayMocks.close).not.toHaveBeenCalled();
+
+    let closed = false;
+    const close = bus.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    expect(relayMocks.close).not.toHaveBeenCalled();
 
     releaseMessages?.();
     await Promise.all(onMessage.mock.results.map((result) => result.value));
-    await bus.close();
+    await close;
+    expect(relayMocks.close).toHaveBeenCalledOnce();
   });
 
   it("leaves room subscription shutdown to the relay", async () => {

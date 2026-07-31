@@ -4,7 +4,7 @@ const REPLAY_HISTORY_MAX_PER_ROOM = 100;
 
 export type BuzzReplayDispatchQueue = {
   enqueue: (task: () => Promise<void>) => "accepted" | "closed" | "overflow";
-  close: () => void;
+  close: () => Promise<void>;
 };
 
 export function createBuzzReplayDispatchQueue(params: {
@@ -14,6 +14,17 @@ export function createBuzzReplayDispatchQueue(params: {
   let pendingHead = 0;
   let active = 0;
   let closed = false;
+  let resolveDrained: (() => void) | undefined;
+  const drained = new Promise<void>((resolve) => {
+    resolveDrained = resolve;
+  });
+
+  const settleDrained = () => {
+    if (closed && active === 0) {
+      resolveDrained?.();
+      resolveDrained = undefined;
+    }
+  };
 
   const compactPending = () => {
     if (pendingHead > 256 && pendingHead * 2 >= pending.length) {
@@ -39,6 +50,7 @@ export function createBuzzReplayDispatchQueue(params: {
         .catch(params.onTaskError)
         .finally(() => {
           active -= 1;
+          settleDrained();
           drain();
         });
     }
@@ -60,10 +72,12 @@ export function createBuzzReplayDispatchQueue(params: {
       pending.push(task);
       return "accepted";
     },
-    close() {
+    async close() {
       closed = true;
       pending.length = 0;
       pendingHead = 0;
+      settleDrained();
+      await drained;
     },
   };
 }

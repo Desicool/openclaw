@@ -597,10 +597,12 @@ export async function startBuzzBus(options: {
       await relay.send(JSON.stringify(["EVENT", event]));
     },
     close: async () => {
+      // A replacement bus must not overlap handlers admitted by this relay
+      // generation. Let those handlers finish while their reply socket is live.
+      await dispatchQueue.close();
       lifecycleAbort.abort(new Error("Buzz bus closed"));
       stopPresenceHeartbeat();
       directoryRelay?.close();
-      dispatchQueue.close();
       replayGuard.clearMemory();
       relay.close();
     },
@@ -632,13 +634,12 @@ export async function startBuzzBus(options: {
           });
         });
         if (admission === "overflow") {
-          dispatchQueue.close();
+          void dispatchQueue.close();
           reportFatalError(
             new Error(
               `Buzz inbound replay exceeded the ${BUZZ_REPLAY_DISPATCH_MAX_PENDING}-message pending limit`,
             ),
           );
-          relay.close();
         }
       },
       onFatalError: reportFatalError,
@@ -721,6 +722,7 @@ export async function startBuzzBus(options: {
   } catch (error) {
     // Every failed startup must release the socket before ownership returns to
     // the gateway-level reconnect loop.
+    await dispatchQueue.close();
     lifecycleAbort.abort(error);
     directoryRelay?.close();
     relay.close();
