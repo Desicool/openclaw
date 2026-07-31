@@ -369,7 +369,30 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   }
 
   private playPcm16(base64: string): void {
-    this.outputQueue.play(base64, this.outputContext, this.session.audio.outputSampleRateHz);
+    if (this.closed) {
+      return;
+    }
+    const result = this.outputQueue.play(
+      base64,
+      this.outputContext,
+      this.session.audio.outputSampleRateHz,
+    );
+    if (result !== "overflow") {
+      return;
+    }
+    this.stopOutput();
+    this.emitTalkEvent({
+      type: "turn.cancelled",
+      final: true,
+      payload: { reason: "playback-overflow" },
+    });
+    this.ctx.callbacks.onStatus?.(
+      "error",
+      "Realtime Talk playback exceeded the browser audio buffer limit",
+    );
+    // Google Live exposes server-driven interruption but no client response-cancel
+    // frame, so closing the session is the only deterministic provider-side stop.
+    this.stop();
   }
 
   private stopOutput(): void {
