@@ -578,6 +578,9 @@ async function ensureSandboxContainerLifecycle(
     try {
       assertPodmanSandboxTarget(existingRegistryEntry.backendTarget, podmanRuntimeInfo!.target);
     } catch (error) {
+      if (existingRegistryEntry.backendTarget.globalArgs.length === 0) {
+        throw error;
+      }
       const recordedEngine = bindPodmanSandboxEngine(existingRegistryEntry.backendTarget);
       const recordedState = await recordedPodmanContainerState(recordedEngine, containerName);
       if (recordedState.exists) {

@@ -27,6 +27,7 @@ const spawnState = vi.hoisted(() => ({
   labelHash: "",
   podmanInfo: "true\tfalse\t\t5.0.0\n",
   podmanConnections: "[]\n",
+  podmanMachines: "[]\n",
 }));
 
 const registryMocks = vi.hoisted(() => ({
@@ -45,6 +46,27 @@ function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-docker-mounts-"));
   tmpDirs.push(dir);
   return dir;
+}
+
+function usePodmanMachine() {
+  spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
+  spawnState.podmanConnections = JSON.stringify([
+    {
+      Name: "podman-machine-default",
+      URI: "ssh://core@127.0.0.1:60000/run/user/501/podman/podman.sock",
+      Identity: "/tmp/podman-machine-default",
+      Default: true,
+    },
+  ]);
+  spawnState.podmanMachines = JSON.stringify([
+    {
+      Name: "podman-machine-default",
+      Running: true,
+      IdentityPath: "/tmp/podman-machine-default",
+      Port: 60000,
+      RemoteUsername: "core",
+    },
+  ]);
 }
 
 vi.mock("./registry.js", () => ({
@@ -102,6 +124,8 @@ async function spawnDockerProcess(commandAndArgs: string[]) {
     stdout = spawnState.podmanInfo;
   } else if (command === "podman" && args[0] === "system") {
     stdout = spawnState.podmanConnections;
+  } else if (command === "podman" && args[0] === "machine") {
+    stdout = spawnState.podmanMachines;
   } else if (args[0] === "rm" && args[1] === "-f") {
     spawnState.containerExists = false;
     spawnState.inspectRunning = false;
@@ -251,6 +275,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     spawnState.labelHash = "";
     spawnState.podmanInfo = "true\tfalse\t\t5.0.0\n";
     spawnState.podmanConnections = "[]\n";
+    spawnState.podmanMachines = "[]\n";
     registryMocks.readRegistryEntry.mockClear();
     registryMocks.removeRegistryEntry.mockClear();
     registryMocks.removeRegistryEntry.mockResolvedValue(undefined);
@@ -774,13 +799,11 @@ describe("ensureSandboxContainer config-hash recreation", () => {
 
   it("rejects a Podman runtime recorded for a different engine target", async () => {
     const cfg = createSandboxConfig([]);
+    usePodmanMachine();
     registryMocks.readRegistryEntry.mockResolvedValue({
       containerName: "oc-test-podman-shared",
       backendId: "podman",
-      backendTarget: {
-        key: `machine:${"a".repeat(32)}`,
-        globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/user/501/podman/podman.sock"],
-      },
+      backendTarget: { key: "local", globalArgs: [] },
       sessionKey: "shared",
       createdAtMs: 1,
       lastUsedAtMs: 1,
@@ -797,11 +820,11 @@ describe("ensureSandboxContainer config-hash recreation", () => {
       }),
     ).rejects.toThrow(/active Podman connection changed/u);
     expect(registryMocks.removeRegistryEntry).not.toHaveBeenCalled();
-    expect(spawnState.calls).toContainEqual(
+    expect(spawnState.calls).not.toContainEqual(
       expect.objectContaining({
         command: "podman",
-        globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/user/501/podman/podman.sock"],
-        args: ["inspect", "-f", "{{.State.Running}}", "oc-test-podman-shared"],
+        globalArgs: [],
+        args: expect.arrayContaining(["inspect"]),
       }),
     );
   });
@@ -1043,15 +1066,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     const cfg = createSandboxConfig([]);
     const workspaceDir = path.join(os.homedir(), "openclaw-podman-workspace");
     cfg.docker.binds = [`${workspaceDir}:/workspace:rw`];
-    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
-    spawnState.podmanConnections = JSON.stringify([
-      {
-        Name: "podman-machine-default",
-        URI: "ssh://core@127.0.0.1/run/user/501/podman/podman.sock",
-        IsMachine: true,
-        Default: true,
-      },
-    ]);
+    usePodmanMachine();
     spawnState.inspectRunning = false;
     registryMocks.readRegistryEntry.mockResolvedValue(null);
 
@@ -1064,21 +1079,15 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     expect(createCall.command).toBe("podman");
     expect(createCall.globalArgs).toEqual([
       "--url",
-      "ssh://core@127.0.0.1/run/user/501/podman/podman.sock",
+      "ssh://core@127.0.0.1:60000/run/user/501/podman/podman.sock",
+      "--identity",
+      "/tmp/podman-machine-default",
     ]);
   });
 
   it("rejects Podman Machine bind sources outside the default home share", async () => {
     const cfg = createSandboxConfig([]);
-    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
-    spawnState.podmanConnections = JSON.stringify([
-      {
-        Name: "podman-machine-default",
-        URI: "ssh://core@127.0.0.1/run/user/501/podman/podman.sock",
-        IsMachine: true,
-        Default: true,
-      },
-    ]);
+    usePodmanMachine();
     spawnState.inspectRunning = false;
     registryMocks.readRegistryEntry.mockResolvedValue(null);
 

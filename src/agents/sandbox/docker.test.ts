@@ -20,6 +20,7 @@ const spawnState = vi.hoisted(() => ({
   infoAvailable: { docker: false, podman: false },
   podmanConnections: "[]\n",
   podmanInfo: "true\tfalse\t\t5.0.0\n",
+  podmanMachines: "[]\n",
   lastOptions: undefined as SpawnCallOptions | undefined,
   executionError: undefined as Error | undefined,
   transportFailure: false,
@@ -62,6 +63,8 @@ async function spawnDockerProcess(commandAndArgs: string[], options?: SpawnCallO
     stderr = `unexpected command: ${command}`;
   } else if (command === "podman" && args[0] === "system") {
     stdout = spawnState.podmanConnections;
+  } else if (command === "podman" && args[0] === "machine") {
+    stdout = spawnState.podmanMachines;
   } else if (args[0] === "info") {
     code = spawnState.infoAvailable[command as "docker" | "podman"] ? 0 : 1;
     if (code === 0 && command === "podman" && args.includes("--format")) {
@@ -117,6 +120,7 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     spawnState.infoAvailable.podman = true;
     spawnState.podmanConnections = "[]\n";
     spawnState.podmanInfo = "true\tfalse\t\t5.0.0\n";
+    spawnState.podmanMachines = "[]\n";
     await loadFreshDockerModuleForTest();
   });
 
@@ -140,9 +144,18 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-default",
-        URI: "ssh://core@127.0.0.1/run/user/501/podman/podman.sock",
-        IsMachine: true,
+        URI: "ssh://core@127.0.0.1:60000/run/user/501/podman/podman.sock",
+        Identity: "/tmp/podman-machine-default",
         Default: true,
+      },
+    ]);
+    spawnState.podmanMachines = JSON.stringify([
+      {
+        Name: "podman-machine-default",
+        Running: true,
+        IdentityPath: "/tmp/podman-machine-default",
+        Port: 60000,
+        RemoteUsername: "core",
       },
     ]);
 
@@ -152,7 +165,12 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
       version: "5.0.0",
       target: {
         key: expect.stringMatching(/^machine:[a-f0-9]{32}$/u),
-        globalArgs: ["--url", "ssh://core@127.0.0.1/run/user/501/podman/podman.sock"],
+        globalArgs: [
+          "--url",
+          "ssh://core@127.0.0.1:60000/run/user/501/podman/podman.sock",
+          "--identity",
+          "/tmp/podman-machine-default",
+        ],
       },
     });
   });
@@ -276,8 +294,16 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
         Name: "podman-machine-first",
         URI: "ssh://core@127.0.0.1:60001/run/user/501/podman/podman.sock",
         Identity: "/tmp/first-machine-key",
-        IsMachine: true,
         Default: true,
+      },
+    ]);
+    spawnState.podmanMachines = JSON.stringify([
+      {
+        Name: "podman-machine-first",
+        Running: true,
+        IdentityPath: "/tmp/first-machine-key",
+        Port: 60001,
+        RemoteUsername: "core",
       },
     ]);
     const first = await resolvePodmanSandboxRuntimeInfo();
@@ -287,8 +313,16 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
         Name: "podman-machine-second",
         URI: "ssh://core@127.0.0.1:60002/run/user/501/podman/podman.sock",
         Identity: "/tmp/second-machine-key",
-        IsMachine: true,
         Default: true,
+      },
+    ]);
+    spawnState.podmanMachines = JSON.stringify([
+      {
+        Name: "podman-machine-second",
+        Running: true,
+        IdentityPath: "/tmp/second-machine-key",
+        Port: 60002,
+        RemoteUsername: "core",
       },
     ]);
 

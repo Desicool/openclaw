@@ -72,6 +72,65 @@ function assertPodmanVersionAtLeast(
   );
 }
 
+async function isPodmanMachineConnection(params: {
+  selectedName: string;
+  uri: string;
+  identity: string;
+}): Promise<boolean> {
+  let uri: URL;
+  try {
+    uri = new URL(params.uri);
+  } catch {
+    return false;
+  }
+  if (uri.protocol !== "ssh:" || !uri.port || !uri.username) {
+    return false;
+  }
+  const result = await execContainer(
+    PODMAN_SANDBOX_ENGINE,
+    ["machine", "list", "--format", "json"],
+    {
+      allowFailure: true,
+      signal: AbortSignal.timeout(SANDBOX_ENGINE_PROBE_TIMEOUT_MS),
+    },
+  );
+  if (result.code !== 0) {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(parsed)) {
+    return false;
+  }
+  const selectedIdentity = params.identity ? path.resolve(params.identity) : "";
+  return parsed.some((entry) => {
+    if (typeof entry !== "object" || entry === null) {
+      return false;
+    }
+    const machine = entry as Record<string, unknown>;
+    const machineName = typeof machine.Name === "string" ? machine.Name : "";
+    const nameMatches =
+      !params.selectedName ||
+      params.selectedName === machineName ||
+      params.selectedName === `${machineName}-root`;
+    const portMatches = String(machine.Port ?? "") === uri.port;
+    const userMatches =
+      typeof machine.RemoteUsername === "string" &&
+      machine.RemoteUsername === decodeURIComponent(uri.username);
+    const machineIdentity =
+      typeof machine.IdentityPath === "string" && machine.IdentityPath
+        ? path.resolve(machine.IdentityPath)
+        : "";
+    const identityMatches =
+      !selectedIdentity || !machineIdentity || selectedIdentity === machineIdentity;
+    return machine.Running === true && nameMatches && portMatches && userMatches && identityMatches;
+  });
+}
+
 async function assertSupportedPodmanConnection(remoteSocketPath: string): Promise<{
   machine: boolean;
   target: SandboxContainerEngineTarget;
@@ -127,10 +186,16 @@ async function assertSupportedPodmanConnection(remoteSocketPath: string): Promis
     throw unsupportedRemoteError();
   }
   if (selectedUri && !selectedUri.startsWith("unix://")) {
-    if (selected?.IsMachine === true) {
-      const identity =
-        process.env.CONTAINER_SSHKEY?.trim() ||
-        (typeof selected.Identity === "string" ? selected.Identity : "");
+    const identity =
+      process.env.CONTAINER_SSHKEY?.trim() ||
+      (typeof selected?.Identity === "string" ? selected.Identity : "");
+    if (
+      await isPodmanMachineConnection({
+        selectedName: typeof selected?.Name === "string" ? selected.Name : "",
+        uri: selectedUri,
+        identity,
+      })
+    ) {
       return {
         machine: true,
         target: {
