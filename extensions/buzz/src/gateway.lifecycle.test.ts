@@ -414,6 +414,7 @@ describe("Buzz gateway lifecycle", () => {
         mentionedPubkeys: [],
       },
       createMockBus(),
+      new AbortController().signal,
     );
     const reconnectStartedAt = Math.floor(Date.now() / 1000);
     gatewayMocks.onFatalError?.(new Error("relay failed"));
