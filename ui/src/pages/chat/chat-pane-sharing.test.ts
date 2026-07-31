@@ -215,57 +215,52 @@ describe("chat pane sharing mutation phase ownership", () => {
     },
   );
 
-  it.each(
-    mutations.flatMap((mutation) =>
-      (["resolve", "reject"] as const).map((completion) => ({
-        ...mutation,
-        completion,
-      })),
-    ),
-  )(
-    "drops a stale $name sharing reload when it later $completion",
-    async ({ completion, invoke, method, name }) => {
-      const listed = createDeferred<SessionMembersListResult>();
-      const request = vi.fn((requestMethod: string) => {
-        if (requestMethod === method) {
-          return Promise.resolve({});
-        }
-        if (requestMethod === "session.members.list") {
-          return listed.promise;
-        }
-        throw new Error(`unexpected old-connection request: ${requestMethod}`);
-      });
-      const oldSessions = {
-        refreshReplacement: vi.fn(async () => undefined),
-      } as unknown as SessionCapability;
-      const { pane: testPane, state } = createTestChatPane({
-        client: { request } as unknown as GatewayBrowserClient,
-        sessions: oldSessions,
-      });
-      const pane = testPane as SharingPane;
-      const row = sessionRow();
-      const pending = invoke(pane, row);
-      await vi.waitFor(() => {
-        expect(request).toHaveBeenCalledWith(
-          "session.members.list",
-          expect.objectContaining({ sessionKey: row.key }),
-        );
-      });
+  describe.each(mutations)("$name sharing reload", ({ invoke, method, name }) => {
+    it.each(["resolve", "reject"] as const)(
+      "drops a stale sharing reload when it later %s",
+      async (completion) => {
+        const listed = createDeferred<SessionMembersListResult>();
+        const request = vi.fn((requestMethod: string) => {
+          if (requestMethod === method) {
+            return Promise.resolve({});
+          }
+          if (requestMethod === "session.members.list") {
+            return listed.promise;
+          }
+          throw new Error(`unexpected old-connection request: ${requestMethod}`);
+        });
+        const oldSessions = {
+          refreshReplacement: vi.fn(async () => undefined),
+        } as unknown as SessionCapability;
+        const { pane: testPane, state } = createTestChatPane({
+          client: { request } as unknown as GatewayBrowserClient,
+          sessions: oldSessions,
+        });
+        const pane = testPane as SharingPane;
+        const row = sessionRow();
+        const pending = invoke(pane, row);
+        await vi.waitFor(() => {
+          expect(request).toHaveBeenCalledWith(
+            "session.members.list",
+            expect.objectContaining({ sessionKey: row.key }),
+          );
+        });
 
-      const replacement = installReplacementConnection(pane, state, row);
-      if (completion === "resolve") {
-        listed.resolve(sharingResult(row));
-      } else {
-        listed.reject(new Error(`old ${name} sharing reload failed`));
-      }
-      await pending;
+        const replacement = installReplacementConnection(pane, state, row);
+        if (completion === "resolve") {
+          listed.resolve(sharingResult(row));
+        } else {
+          listed.reject(new Error(`old ${name} sharing reload failed`));
+        }
+        await pending;
 
-      expect(oldSessions.refreshReplacement).toHaveBeenCalledTimes(name === "visibility" ? 1 : 0);
-      expect(replacement.request).not.toHaveBeenCalled();
-      expect(replacement.sessions.refreshReplacement).not.toHaveBeenCalled();
-      expect(pane.sessionSharingStates.get(replacement.cacheKey)).toBe(replacement.sharingState);
-    },
-  );
+        expect(oldSessions.refreshReplacement).toHaveBeenCalledTimes(name === "visibility" ? 1 : 0);
+        expect(replacement.request).not.toHaveBeenCalled();
+        expect(replacement.sessions.refreshReplacement).not.toHaveBeenCalled();
+        expect(pane.sessionSharingStates.get(replacement.cacheKey)).toBe(replacement.sharingState);
+      },
+    );
+  });
 
   it("drops a stale member session refresh failure", async () => {
     const refreshed = createDeferred<void>();
