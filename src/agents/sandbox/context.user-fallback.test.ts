@@ -66,7 +66,7 @@ describe("resolveSandboxDockerUser", () => {
   });
 
   it("leaves Podman user unset when host ownership IDs are zero", async () => {
-    const docker = {};
+    const docker = { ...baseDocker };
     const resolved = await resolveSandboxDockerUser({
       backend: "podman",
       docker,

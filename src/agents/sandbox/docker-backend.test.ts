@@ -302,6 +302,59 @@ describe("docker sandbox backend manager", () => {
     );
   });
 
+  it("rejects a stale Podman registry target before inspecting the runtime", async () => {
+    const targetError = new Error("active Podman connection changed");
+    dockerMocks.validateSandboxContainerEngineTarget.mockRejectedValueOnce(targetError);
+
+    await expect(
+      podmanSandboxBackendManager.describeRuntime({
+        entry: {
+          containerName: "sandbox-podman",
+          backendId: "podman",
+          backendTarget: {
+            key: `machine:${"a".repeat(32)}`,
+            globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/podman/podman.sock"],
+          },
+          runtimeLabel: "sandbox-podman",
+          sessionKey: "agent:coder:main",
+          createdAtMs: 1,
+          lastUsedAtMs: 1,
+          image: "openclaw-sandbox:bookworm-slim",
+        },
+        config: createConfig(),
+      }),
+    ).rejects.toBe(targetError);
+
+    expect(dockerMocks.containerState).not.toHaveBeenCalled();
+    expect(dockerMocks.execContainer).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale Podman registry target before removing the runtime", async () => {
+    const targetError = new Error("active Podman connection changed");
+    dockerMocks.validateSandboxContainerEngineTarget.mockRejectedValueOnce(targetError);
+
+    await expect(
+      podmanSandboxBackendManager.removeRuntime({
+        entry: {
+          containerName: "sandbox-podman",
+          backendId: "podman",
+          backendTarget: {
+            key: `machine:${"a".repeat(32)}`,
+            globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/podman/podman.sock"],
+          },
+          runtimeLabel: "sandbox-podman",
+          sessionKey: "agent:coder:main",
+          createdAtMs: 1,
+          lastUsedAtMs: 1,
+          image: "openclaw-sandbox:bookworm-slim",
+        },
+        config: createConfig(),
+      }),
+    ).rejects.toBe(targetError);
+
+    expect(dockerMocks.execContainer).not.toHaveBeenCalled();
+  });
+
   it("rejects browser sandboxing on the explicit Podman backend", async () => {
     const config = createConfig();
     config.agents!.defaults!.sandbox!.backend = "podman";

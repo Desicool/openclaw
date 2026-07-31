@@ -45,7 +45,8 @@ function resolvePodmanKeepIdMode(user: string | undefined): string {
       `Rootless Podman sandbox user "${normalized}" must be a numeric UID or UID:GID so keep-id can preserve bind-mount ownership.`,
     );
   }
-  const [, uid, gid] = match;
+  const uid = match[1] ?? "";
+  const gid = match[2];
   const normalizedUid = BigInt(uid).toString();
   const normalizedGid = gid === undefined ? undefined : BigInt(gid).toString();
   if (normalizedUid === "0" || normalizedGid === "0") {
@@ -64,8 +65,9 @@ function assertPodmanVersionAtLeast(
   feature: string,
 ): void {
   const match = /^(\d+)\.(\d+)/u.exec(version.trim());
-  const actual = match ? [Number(match[1]), Number(match[2])] : null;
-  if (actual && (actual[0] > minimum[0] || (actual[0] === minimum[0] && actual[1] >= minimum[1]))) {
+  const actualMajor = match ? Number(match[1]) : Number.NaN;
+  const actualMinor = match ? Number(match[2]) : Number.NaN;
+  if (actualMajor > minimum[0] || (actualMajor === minimum[0] && actualMinor >= minimum[1])) {
     return;
   }
   throw invalidPodmanConfig(
@@ -122,7 +124,11 @@ async function isPodmanMachineConnection(params: {
       !params.selectedName ||
       params.selectedName === machineName ||
       params.selectedName === `${machineName}-root`;
-    const portMatches = String(machine.Port ?? "") === uri.port;
+    const machinePort =
+      typeof machine.Port === "string" || typeof machine.Port === "number"
+        ? String(machine.Port)
+        : "";
+    const portMatches = machinePort === uri.port;
     const connectionUser = decodeURIComponent(uri.username);
     const rootConnection = params.selectedName === `${machineName}-root`;
     const userMatches =
