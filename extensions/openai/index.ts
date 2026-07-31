@@ -12,9 +12,10 @@ import {
   resolveOpenAISystemPromptContribution,
 } from "./prompt-overlay.js";
 import {
-  createOpenAIQuicksilverBrowserSessionBroker,
-  OPENAI_QUICKSILVER_OFFER_PATH,
-} from "./realtime-quicksilver-session.js";
+  acquireOpenAIQuicksilverBrowserSessionBroker,
+  releaseOpenAIQuicksilverBrowserSessionBroker,
+} from "./realtime-quicksilver-session-owner.js";
+import { OPENAI_QUICKSILVER_OFFER_PATH } from "./realtime-quicksilver-session.js";
 import { buildOpenAIRealtimeTranscriptionProvider } from "./realtime-transcription-provider.js";
 import { buildOpenAIRealtimeVoiceProvider } from "./realtime-voice-provider.js";
 import { buildOpenAISpeechProvider } from "./speech-provider.js";
@@ -27,7 +28,7 @@ export default definePluginEntry({
   register(api) {
     const quicksilverSession =
       api.registrationMode === "full"
-        ? createOpenAIQuicksilverBrowserSessionBroker({
+        ? acquireOpenAIQuicksilverBrowserSessionBroker({
             getConfig: () => api.runtime.config.current() as OpenClawConfig,
             logger: api.logger,
           })
@@ -43,13 +44,10 @@ export default definePluginEntry({
         id: "openai-quicksilver-realtime-browser-session",
         description: "Close GPT-Live browser sidebands when the OpenAI plugin stops",
         cleanup: (ctx) => {
-          // Only tear down the process-wide broker when the plugin is actually
-          // being disabled. Session reset/delete/restart cleanup must not close
-          // the shared broker — it remains usable for later GPT-Live sessions.
-          if (ctx.reason === "disable") {
-            return quicksilverSession.cleanup();
+          if (ctx.reason !== "disable") {
+            return undefined;
           }
-          return undefined;
+          return releaseOpenAIQuicksilverBrowserSessionBroker(quicksilverSession);
         },
       });
     }
