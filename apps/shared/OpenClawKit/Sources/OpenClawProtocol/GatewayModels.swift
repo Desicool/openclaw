@@ -9413,6 +9413,7 @@ public struct SystemAgentSetupDetectResult: Codable, Sendable {
     public let unavailablecandidates: [[String: AnyCodable]]?
     public let manualproviders: [[String: AnyCodable]]
     public let authoptions: [[String: AnyCodable]]?
+    public let prepareoptions: [[String: AnyCodable]]?
     public let recommendedinstalls: [[String: AnyCodable]]?
     public let workspace: String
     public let codexappserverdetected: Bool?
@@ -9424,6 +9425,7 @@ public struct SystemAgentSetupDetectResult: Codable, Sendable {
         unavailablecandidates: [[String: AnyCodable]]? = nil,
         manualproviders: [[String: AnyCodable]],
         authoptions: [[String: AnyCodable]]? = nil,
+        prepareoptions: [[String: AnyCodable]]? = nil,
         recommendedinstalls: [[String: AnyCodable]]? = nil,
         workspace: String,
         codexappserverdetected: Bool? = nil,
@@ -9434,6 +9436,7 @@ public struct SystemAgentSetupDetectResult: Codable, Sendable {
         self.unavailablecandidates = unavailablecandidates
         self.manualproviders = manualproviders
         self.authoptions = authoptions
+        self.prepareoptions = prepareoptions
         self.recommendedinstalls = recommendedinstalls
         self.workspace = workspace
         self.codexappserverdetected = codexappserverdetected
@@ -9446,6 +9449,7 @@ public struct SystemAgentSetupDetectResult: Codable, Sendable {
         case unavailablecandidates = "unavailableCandidates"
         case manualproviders = "manualProviders"
         case authoptions = "authOptions"
+        case prepareoptions = "prepareOptions"
         case recommendedinstalls = "recommendedInstalls"
         case workspace
         case codexappserverdetected = "codexAppServerDetected"
