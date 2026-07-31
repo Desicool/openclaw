@@ -1,6 +1,6 @@
 ---
 name: openclaw-autonomous-issue-sweep
-description: "Orchestrate 64 autonomous OpenClaw issue workers newest-to-oldest; find existing PRs, deeply investigate bugs, simplify or refactor, live-test, independently review, land verified fixes, close already-fixed issues, and add only meaningful new evidence."
+description: "Orchestrate 64 autonomous OpenClaw issue workers newest-to-oldest with isolated issue worktrees and resource-bounded parallelism; investigate bugs, simplify or refactor, review, land verified fixes, close already-fixed issues, and add meaningful evidence."
 ---
 
 # OpenClaw Autonomous Issue Sweep
@@ -17,9 +17,11 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
 - Use full-history forks so every subagent inherits the orchestrator's model
   and **xhigh reasoning effort**. Never print, record, or disclose model
   identifiers; redact subprocess banners and diagnostics before reporting.
-- Treat a request to run this workflow as authority to review, fix, refactor,
-  commit, push, create/update PRs, land eligible changes, comment, and close
-  issues individually. Do not ask for routine confirmation again.
+- Treat a request to run this workflow as authority to create lightweight,
+  issue-scoped isolated Git worktrees and `codex/issue-<id>` branches, review,
+  fix, refactor, commit, push, create/update PRs, land eligible changes,
+  comment, and close issues individually. Do not ask for separate worktree or
+  routine-operation confirmation again.
 - Never treat sweep authority as permission to publish releases, bump protocol
   or SQLite schema versions, weaken security, break shipped compatibility,
   change another owner's protected product surface, or execute untrusted code
@@ -36,30 +38,52 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
 ## Coordinate 64 workers safely
 
 1. Assign one subagent to maintain the live open-issue queue in descending
-   `createdAt` order, one to coordinate landing/proof capacity, and the rest to
-   issue investigations. Coordinator agents also investigate when idle.
+   `createdAt` order, one to coordinate landing/proof capacity, and no more
+   than **3** to live issue closures or other GitHub mutations. Assign the
+   remaining slots to issue investigations; idle coordinators also investigate.
 2. Claim issues from the newest unclaimed end only; replenish workers as they
    finish. Parallel completions may arrive out of order, but never knowingly
    start an older unclaimed issue ahead of a newer available issue.
 3. Deduplicate by canonical root cause, not merely by issue number. Let one
    owner fix a shared defect and link related issues/PRs to that outcome.
-4. Freeze the reviewed source SHA for each wave. Designate a single fetch owner;
-   pause shared-ref refreshes while repo-native PR prepare/merge runs.
-5. Never switch a shared checkout branch or edit it while sibling agents use it.
-   Use an existing agent-owned checkout, a repo-native isolated PR worktree, or
-   an explicitly user-authorized new worktree. Otherwise serialize write
-   access; parallel read-only investigations may continue.
-6. Sample checkout/temp-volume free disk, CPU/load, memory pressure, process
-   count, operator-gateway health, actual worker count, and Octopool capacity
-   before each wave and periodically thereafter. Throttle expensive work for
-   sustained pressure or low disk; never kill unrelated operator processes.
-7. Serialize merge operations and each Testbox lease. A lease has one owner and
-   one active command; never reclaim, sync, or change its head during a run.
+4. Freeze the reviewed source SHA for each wave. Serialize only shared Git/ref
+   mutations: fetches, branch/ref changes, `git worktree add`/remove, PR
+   preparation and merges, and main-targeted pushes. Give each mutation a brief
+   coordinator-owned exclusive slot; do not hold it across coding, proof,
+   reviews, remote waits, or other independent issue work.
+5. Give every independent root-cause fix its own isolated, issue-scoped
+   lightweight worktree and `codex/issue-<id>` branch. Create it from the
+   frozen SHA, for example:
+
+   ```bash
+   git worktree add -b "codex/issue-$issue_id" \
+     "$campaign_worktrees/issue-$issue_id" "$frozen_main_sha"
+   ```
+
+   Reuse a repo-native isolated PR worktree when repairing an existing PR;
+   duplicate issues sharing one root cause share its single owner/worktree.
+   Share Git objects; do not clone the repository or install dependencies per
+   worktree merely for isolation. Never edit, switch, reset, or otherwise
+   mutate the shared checkout while sibling workers are active. Once isolated
+   worktrees exist, independent issue owners edit, inspect, and verify in
+   parallel within their own checkout.
+6. Keep all **64** inherited high-effort agents available, but distinguish idle
+   agents from active local tool users. Start with bounded waves of **4–8**
+   concurrently active code/test workers and continuously reduce or expand that
+   limit according to usable CPU/load, memory/swap pressure, checkout and temp
+   free disk, process count, operator-gateway health, and remote-pool capacity.
+   Reserve capacity for the operator; count heavyweight proof proportionally,
+   stop admitting new commands under sustained pressure, and resume in small
+   waves after recovery. Never kill unrelated operator processes.
+7. Serialize merges and each Testbox lease, not independent worktree edits. A
+   lease has one owner and one active command; never reclaim, sync, or change
+   its head during a run.
 8. Respect GitHub rate limits, active assignees, repository ownership, and
    existing contributor work. Do not auto-assign broad-discovery candidates.
 9. Replace finished workers while the queue remains. Record actual active,
-   completed, failed, fixed, landed, closed, commented, and skipped counts;
-   never report launched or finished workers as still running.
+   parked, completed, failed, fixed, landed, verified-closed, queued-for-close,
+   commented, and skipped counts. Persist that campaign checkpoint for resumed
+   workers; never report launched, parked, or finished workers as still running.
 
 ## Conserve GitHub capacity and host resources
 
@@ -79,10 +103,17 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
   merge decisions, or a stale/contradictory cached result. Rate-limit and
   deduplicate worker requests instead of having 64 agents independently fetch
   the same issue, PR, author profile, or CI rollup.
-- Keep disk, load, memory pressure, active lease IDs, provider trust class,
-  checkout ownership, and pool capacity in the orchestration ledger. Slow new
-  assignments, serialize builds/tests, clean only campaign-owned artifacts,
-  and offload heavy proof before resource pressure threatens the host.
+- Keep disk, CPU/load, memory pressure, active lease IDs, provider trust class,
+  issue-worktree ownership, active local tool count, frozen heads, and pool
+  capacity in the orchestration ledger. Dynamically cap concurrent code/test
+  workers instead of serializing every independent fix. Pause or interrupt only
+  campaign-owned work under host pressure, preserve each issue's claim and
+  isolated checkout, then resume from that recorded state when capacity returns.
+  Offload heavy proof before resource pressure threatens the host.
+- Worktree checkout and dependency use must respect free-disk headroom. Reuse
+  shared Git objects and existing trusted dependency installs where safe; route
+  dependency-missing or heavyweight proof to the selected remote box instead
+  of multiplying local installs across issue checkouts.
 - The parent may prewarm a trusted Crabbox/Testbox lease when a concrete heavy
   proof is imminent, then hand its verified lease ID and checkout ownership to
   one subagent at a time. Avoid speculative fleets, respect path-scoped lease
@@ -235,6 +266,10 @@ moves:` item with real evidence or an explicit reason for skipping it.
 - Recheck live state immediately before every mutation; avoid redundant,
   speculative, noisy, or duplicate comments. Handle closures individually and
   follow repository limits on bulk operations.
+- After verifying the canonical landed SHA and preserving contributor credit,
+  remove only that campaign-owned isolated worktree during a brief serialized
+  Git mutation slot. Delete its campaign-owned branch only when no unlanded
+  work depends on it; never prune unrelated worktrees, refs, or user files.
 
 ## Parent-thread reporting
 

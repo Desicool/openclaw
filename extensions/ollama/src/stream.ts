@@ -46,7 +46,7 @@ import {
   createOllamaVisibleContentSanitizer,
   sanitizeOllamaFinalVisibleContent,
 } from "./sanitizers/visible-content.js";
-
+import { checkNdjsonRecordCap } from "./stream-ndjson-cap.js";
 const log = createSubsystemLogger("ollama-stream");
 
 export const OLLAMA_NATIVE_BASE_URL = OLLAMA_DEFAULT_BASE_URL;
@@ -1090,13 +1090,14 @@ export async function* parseNdjsonStream(
 ): AsyncGenerator<OllamaChatResponse> {
   const decoder = new TextDecoder();
   let buffer = "";
-
+  let pendingRecordBytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
         break;
       }
+      pendingRecordBytes = checkNdjsonRecordCap(value, pendingRecordBytes);
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
@@ -1185,6 +1186,9 @@ function createRawOllamaStreamFn(
         if (typeof options?.maxTokens === "number") {
           ollamaOptions.num_predict = options.maxTokens;
         }
+        if (options?.stop && options.stop.length > 0) {
+          ollamaOptions.stop = options.stop;
+        }
         normalizeOllamaGreedySamplingOptions(ollamaOptions);
 
         // Structured-output grammars constrain the same token stream as tool
@@ -1210,7 +1214,8 @@ function createRawOllamaStreamFn(
           options: ollamaOptions,
           requestParams,
         });
-        options?.onPayload?.(body, model);
+        const replacement = await options?.onPayload?.(body, model);
+        const requestBody = replacement === undefined ? body : replacement;
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           ...defaultHeaders,
@@ -1228,7 +1233,7 @@ function createRawOllamaStreamFn(
           init: {
             method: "POST",
             headers,
-            body: JSON.stringify(body),
+            body: JSON.stringify(requestBody),
           },
           policy: ssrfPolicy,
           ...(options?.signal ? { signal: options.signal } : {}),
