@@ -12,7 +12,7 @@ import {
   resetServerUiPrefsSync,
   resolveServerUiPrefState,
 } from "./server-prefs.ts";
-import { loadSettings, patchSettings } from "./settings.ts";
+import { loadSettings, patchSettings, setSettingsChangeListener } from "./settings.ts";
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", createStorageMock());
@@ -20,6 +20,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSettingsChangeListener(null);
   resetServerUiPrefsSync();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -368,6 +369,30 @@ describe("changedServerUiPrefs", () => {
     expect(changedServerUiPrefs(themeMode, shortcut)).toEqual({
       chatSendShortcut: null,
     });
+  });
+
+  it("syncs an authored default-valued reset through the settings listener", async () => {
+    const scope = "ws://gw";
+    const request = vi.fn(async () => ({}));
+    const writer = createServerPrefsWriter(request, scope);
+    setSettingsChangeListener((previous, next) => {
+      const prefs = changedServerUiPrefs(previous, next);
+      if (prefs) {
+        pushServerUiPrefs(writer, prefs);
+      }
+    });
+
+    const state = resolveServerUiPrefState(configWithPrefs({ theme: "claw" }), "theme", scope);
+    resetServerUiPref("theme", state);
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "config.patch",
+        expect.objectContaining({
+          raw: JSON.stringify({ ui: { prefs: { theme: null } } }),
+        }),
+      ),
+    );
   });
 });
 
