@@ -903,7 +903,8 @@ async function smokeGatewayRelayBrowser(browser: Browser): Promise<SmokeResult> 
   const dir = await mkdtemp(path.join(tmpdir(), "openclaw-realtime-talk-"));
   try {
     const { createServer } = await import("vite");
-    const relayModulePath = JSON.stringify(resolveGatewayRelayModulePath());
+    const repoRoot = process.cwd();
+    const relayModulePath = JSON.stringify(resolveGatewayRelayModulePath(repoRoot));
     await writeFile(
       path.join(dir, "index.html"),
       '<!doctype html><meta charset="utf-8"><script type="module" src="/main.ts"></script>',
@@ -911,8 +912,6 @@ async function smokeGatewayRelayBrowser(browser: Browser): Promise<SmokeResult> 
     await writeFile(
       path.join(dir, "main.ts"),
       `
-const { GatewayRelayRealtimeTalkTransport } = await import(${relayModulePath});
-
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const listeners = new Set();
 const requests = [];
@@ -952,6 +951,7 @@ const client = {
 };
 
 try {
+  const { GatewayRelayRealtimeTalkTransport } = await import(${relayModulePath});
   const transport = new GatewayRelayRealtimeTalkTransport(
     {
       provider: "smoke",
@@ -1014,9 +1014,14 @@ try {
 `,
     );
     server = await createServer({
+      configFile: path.join(repoRoot, "ui/vite.config.ts"),
       root: dir,
       logLevel: "silent",
-      server: { host: "127.0.0.1", port: 0 },
+      server: {
+        host: "127.0.0.1",
+        port: 0,
+        fs: { allow: [dir, repoRoot] },
+      },
     });
     await server.listen();
     const address = server.httpServer?.address();
