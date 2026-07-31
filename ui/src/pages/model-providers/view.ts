@@ -6,6 +6,7 @@ import { renderProviderBrandIcon } from "../../components/provider-icon.ts";
 import { renderProviderUsageDetails } from "../../components/provider-usage.ts";
 import {
   renderSettingsEmpty,
+  renderSettingsDefaultState,
   renderSettingsGroup,
   renderSettingsPage,
   renderSettingsRow,
@@ -15,7 +16,7 @@ import {
   renderSettingsValue,
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
-import { BASE_THINKING_LEVELS } from "../../lib/chat/thinking.ts";
+import { BASE_THINKING_LEVELS, formatThinkingOverrideLabel } from "../../lib/chat/thinking.ts";
 import { formatCost, formatTimeMs, formatTokens } from "../../lib/format.ts";
 import { MODEL_SETTINGS_TARGET_IDS } from "../config/settings-targets.ts";
 import "../../styles/model-providers.css";
@@ -44,7 +45,7 @@ type ModelProvidersViewProps = {
   configuredModels: ModelPickerEntry[];
   defaultModels: DefaultModelSelection;
   defaultModelsDirty: boolean;
-  thinkingLevel: string;
+  thinkingLevel: string | undefined;
   fastMode: FastMode | undefined;
   configBusy: boolean;
   unconfiguredProviders: ProviderOption[];
@@ -80,52 +81,88 @@ type ModelProvidersViewProps = {
   onUtilityChange: (model: string | null) => void;
   onDefaultModelsSave: () => void;
   onDefaultModelsReset: () => void;
-  onThinkingChange: (level: string) => void;
+  onThinkingChange: (level: string, element: HTMLElement) => void;
+  onThinkingReset: () => void;
   onFastModeChange: (mode: FastMode) => void;
+  onFastModeReset: () => void;
   onOpenModelSetup: () => void;
 };
 
 // The global default intentionally omits "minimal"; the full list stays
 // available on session-level pickers.
 const THINKING_LEVELS = BASE_THINKING_LEVELS.filter((level) => level !== "minimal");
+const THINKING_LEVEL_SET = new Set<string>(THINKING_LEVELS);
 
 function fastModeOptionValue(value: "auto" | "on" | "off"): FastMode {
   return value === "auto" ? "auto" : value === "on";
 }
 
 function renderModelBehavior(props: ModelProvidersViewProps) {
-  const fastMode = formatFastModeValue(props.fastMode);
+  const thinkingLevels =
+    props.thinkingLevel && !THINKING_LEVEL_SET.has(props.thinkingLevel)
+      ? [...THINKING_LEVELS, props.thinkingLevel]
+      : THINKING_LEVELS;
+  const thinkingDefault = renderSettingsDefaultState({
+    value: t("quickSettings.model.modelPolicy"),
+    overridden: props.thinkingLevel !== undefined,
+    disabled: props.configBusy,
+    onReset: props.onThinkingReset,
+  });
+  const fastDefault = renderSettingsDefaultState({
+    value: t("quickSettings.model.modelPolicy"),
+    overridden: props.fastMode !== undefined,
+    disabled: props.configBusy,
+    onReset: props.onFastModeReset,
+  });
+  const fastMode = props.fastMode === undefined ? "" : formatFastModeValue(props.fastMode);
   return html`
     <div id=${MODEL_SETTINGS_TARGET_IDS.behavior}>
       ${renderSettingsSection({ title: t("quickSettings.model.title") }, [
         renderSettingsRow({
           title: t("quickSettings.model.thinking"),
-          control: renderSettingsSegmented({
-            value: props.thinkingLevel,
-            options: THINKING_LEVELS.map((level) => ({
-              value: level,
-              label: t(`quickSettings.model.thinkingLevels.${level}`),
-            })),
-            disabled: props.configBusy,
-            onChange: props.onThinkingChange,
-          }),
+          description: thinkingDefault.description,
+          control: html`
+            ${renderSettingsSegmented({
+              value: props.thinkingLevel ?? "",
+              options: [
+                { value: "", label: t("quickSettings.model.default") },
+                ...thinkingLevels.map((level) => ({
+                  value: level,
+                  label: THINKING_LEVEL_SET.has(level)
+                    ? t(`quickSettings.model.thinkingLevels.${level}`)
+                    : formatThinkingOverrideLabel(level),
+                })),
+              ],
+              disabled: props.configBusy,
+              onChange: (value, element) =>
+                value === "" ? props.onThinkingReset() : props.onThinkingChange(value, element),
+            })}
+            ${thinkingDefault.action}
+          `,
         }),
         renderSettingsRow({
           title: t("quickSettings.model.fastMode"),
-          control: renderSettingsSegmented<"auto" | "on" | "off">({
-            value: fastMode,
-            options: [
-              { value: "auto", label: t("quickSettings.model.fastModes.auto") },
-              { value: "on", label: t("quickSettings.model.fastModes.fast") },
-              { value: "off", label: t("quickSettings.model.fastModes.standard") },
-            ],
-            disabled: props.configBusy,
-            onChange: (value) => {
-              if (value !== fastMode) {
-                props.onFastModeChange(fastModeOptionValue(value));
-              }
-            },
-          }),
+          description: fastDefault.description,
+          control: html`
+            ${renderSettingsSegmented<"" | "auto" | "on" | "off">({
+              value: fastMode,
+              options: [
+                { value: "", label: t("quickSettings.model.default") },
+                { value: "auto", label: t("quickSettings.model.fastModes.auto") },
+                { value: "on", label: t("quickSettings.model.fastModes.fast") },
+                { value: "off", label: t("quickSettings.model.fastModes.standard") },
+              ],
+              disabled: props.configBusy,
+              onChange: (value) => {
+                if (value === "") {
+                  props.onFastModeReset();
+                } else if (value !== fastMode) {
+                  props.onFastModeChange(fastModeOptionValue(value));
+                }
+              },
+            })}
+            ${fastDefault.action}
+          `,
         }),
       ])}
     </div>

@@ -74,7 +74,9 @@ function props(overrides: Partial<ModelProvidersViewProps> = {}): ModelProviders
     onDefaultModelsSave: () => undefined,
     onDefaultModelsReset: () => undefined,
     onThinkingChange: () => undefined,
+    onThinkingReset: () => undefined,
     onFastModeChange: () => undefined,
+    onFastModeReset: () => undefined,
     onOpenModelSetup: () => undefined,
     ...overrides,
   };
@@ -147,6 +149,7 @@ describe("renderModelProviders", () => {
     expect(thinking?.value).toBe("low");
     expect(fastMode?.value).toBe("auto");
     expect([...fastMode!.querySelectorAll("wa-radio")].map((entry) => text(entry))).toEqual([
+      "Default",
       "Auto",
       "Fast",
       "Standard",
@@ -156,6 +159,63 @@ describe("renderModelProviders", () => {
     selectSegment(fastMode!, "off");
     expect(onThinkingChange).toHaveBeenCalledWith("high", expect.any(HTMLElement));
     expect(onFastModeChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows inherited model policy, restores overrides, and preserves advanced thinking", () => {
+    const onThinkingReset = vi.fn();
+    const onFastModeReset = vi.fn();
+    const container = mount(
+      props({
+        thinkingLevel: "adaptive",
+        fastMode: true,
+        onThinkingReset,
+        onFastModeReset,
+      }),
+    );
+    const behavior = container.querySelector("#settings-model-behavior")!;
+    const thinkingRow = settingsRow(behavior, "Thinking");
+    const fastRow = settingsRow(behavior, "Fast mode");
+
+    expect(thinkingRow.querySelector<SegmentedGroup>("wa-radio-group")?.value).toBe("adaptive");
+    expect(text(thinkingRow)).toContain("Adaptive");
+    expect(text(thinkingRow)).toContain("Default: Model policy");
+    expect(text(fastRow)).toContain("Default: Model policy");
+
+    thinkingRow.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    fastRow.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    expect(onThinkingReset).toHaveBeenCalledOnce();
+    expect(onFastModeReset).toHaveBeenCalledOnce();
+
+    selectSegment(thinkingRow.querySelector<SegmentedGroup>("wa-radio-group")!, "");
+    selectSegment(fastRow.querySelector<SegmentedGroup>("wa-radio-group")!, "");
+    expect(onThinkingReset).toHaveBeenCalledTimes(2);
+    expect(onFastModeReset).toHaveBeenCalledTimes(2);
+
+    render(
+      renderModelProviders(props({ thinkingLevel: undefined, fastMode: undefined })),
+      container,
+    );
+    const inheritedBehavior = container.querySelector("#settings-model-behavior")!;
+    const inheritedThinking = settingsRow(inheritedBehavior, "Thinking");
+    const inheritedFast = settingsRow(inheritedBehavior, "Fast mode");
+    expect(inheritedThinking.querySelector<SegmentedGroup>("wa-radio-group")?.value).toBe("");
+    expect(inheritedFast.querySelector<SegmentedGroup>("wa-radio-group")?.value).toBe("");
+    expect(
+      (
+        inheritedThinking.querySelector('wa-radio[value=""]') as HTMLElement & {
+          checked: boolean;
+        }
+      ).checked,
+    ).toBe(true);
+    expect(
+      (inheritedFast.querySelector('wa-radio[value=""]') as HTMLElement & { checked: boolean })
+        .checked,
+    ).toBe(true);
+    expect(text(inheritedThinking)).toContain("Using default: Model policy");
+    expect(text(inheritedFast)).toContain("Using default: Model policy");
+    expect(
+      inheritedBehavior.querySelectorAll('button[aria-label="Reset to default"]'),
+    ).toHaveLength(0);
   });
 
   it("locks model behavior while shared config work is pending", () => {

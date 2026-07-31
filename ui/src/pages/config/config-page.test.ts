@@ -11,7 +11,11 @@ import type {
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import * as chatModels from "../chat/models.ts";
 import * as realtimeTalk from "../chat/realtime-talk.ts";
-import { ConfigPage, configSelectionFromSearch } from "./config-page.ts";
+import {
+  ConfigPage,
+  configSelectionFromSearch,
+  extractQuickSettingsSecurity,
+} from "./config-page.ts";
 import { configSectionKeysForPage } from "./config-sections.ts";
 import type { ConfigViewState } from "./view.ts";
 
@@ -89,6 +93,31 @@ describe("configSelectionFromSearch", () => {
 
   it("keeps provider models off Agent Defaults", () => {
     expect(configSectionKeysForPage("ai-agents")).toEqual(["agents", "skills", "tools", "session"]);
+  });
+});
+
+describe("extractQuickSettingsSecurity", () => {
+  it("preserves provenance for inherited security defaults", () => {
+    expect(extractQuickSettingsSecurity({})).toMatchObject({
+      browserEnabled: true,
+      browserEnabledOverridden: false,
+      toolProfile: "full",
+      toolProfileOverridden: false,
+    });
+  });
+
+  it("distinguishes explicit values that equal the defaults", () => {
+    expect(
+      extractQuickSettingsSecurity({
+        browser: { enabled: true },
+        tools: { profile: "full" },
+      }),
+    ).toMatchObject({
+      browserEnabled: true,
+      browserEnabledOverridden: true,
+      toolProfile: "full",
+      toolProfileOverridden: true,
+    });
   });
 });
 

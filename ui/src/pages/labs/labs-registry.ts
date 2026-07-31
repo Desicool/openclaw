@@ -2,6 +2,7 @@ import { t } from "../../i18n/index.ts";
 
 /** What a lab row writes at its gate. Most gates are booleans; some are modes. */
 type LabFeatureValue = boolean | string;
+type LabFeatureResetScope = "gate" | "parent";
 
 export type LabFeature = {
   id: string;
@@ -37,7 +38,19 @@ export type LabFeature = {
    * whatever a bare enable defaults to.
    */
   enableAlso: Readonly<Record<string, LabFeatureValue>> | null;
+  /**
+   * Ownership boundary for default provenance and reset. Most rows own only
+   * their gate; features whose runtime default depends on any parent config
+   * own and reset that parent as a unit.
+   */
+  resetScope: LabFeatureResetScope;
   restartHint: (() => string) | null;
+};
+
+type LabFeatureState = {
+  enabled: boolean;
+  defaultEnabled: boolean;
+  overridden: boolean;
 };
 
 export const LAB_FEATURES = [
@@ -65,6 +78,7 @@ export const LAB_FEATURES = [
       return true;
     },
     enableAlso: null,
+    resetScope: "gate",
     restartHint: null,
   },
   {
@@ -78,6 +92,7 @@ export const LAB_FEATURES = [
     activeValues: [true],
     readEnabled: null,
     enableAlso: null,
+    resetScope: "gate",
     restartHint: null,
   },
   {
@@ -109,6 +124,7 @@ export const LAB_FEATURES = [
     // form, which is the surface with the weakest recall. Pin the bounded
     // directory instead, so enabling from Labs is the variant we recommend.
     enableAlso: { mode: "directory" },
+    resetScope: "parent",
     restartHint: null,
   },
   {
@@ -124,6 +140,7 @@ export const LAB_FEATURES = [
     // resolveToolLoopDetectionConfig reads this enabled leaf directly.
     readEnabled: null,
     enableAlso: null,
+    resetScope: "gate",
     restartHint: null,
   },
   {
@@ -137,6 +154,7 @@ export const LAB_FEATURES = [
     activeValues: [true],
     readEnabled: null,
     enableAlso: null,
+    resetScope: "gate",
     restartHint: null,
   },
   {
@@ -153,6 +171,7 @@ export const LAB_FEATURES = [
     activeValues: ["direct", "all"],
     readEnabled: null,
     enableAlso: null,
+    resetScope: "gate",
     // startGatewayEventSubscriptions resolves the mode once and bakes it into
     // the recorder, so this outlives the reload plan's `logging: none` rule.
     restartHint: () => t("labsPage.restartRequired"),
@@ -170,16 +189,8 @@ function recordAtPath(config: Record<string, unknown>, path: readonly string[]):
   return current;
 }
 
-export function isLabFeatureEnabled(
-  config: Record<string, unknown> | null,
-  feature: LabFeature,
-): boolean {
-  if (!config) {
-    return false;
-  }
-  const parentPath = feature.configPath.slice(0, -1);
+function readEnabledFromParent(feature: LabFeature, parent: unknown): boolean {
   const key = feature.configPath.at(-1);
-  const parent = recordAtPath(config, parentPath);
   if (feature.readEnabled) {
     return feature.readEnabled(parent);
   }
@@ -194,6 +205,68 @@ export function isLabFeatureEnabled(
   return feature.activeValues.includes((parent as Record<string, unknown>)[key] as LabFeatureValue);
 }
 
+function labFeatureOverridePath(
+  config: Record<string, unknown>,
+  feature: LabFeature,
+): readonly string[] | null {
+  const parentPath = feature.configPath.slice(0, -1);
+  const key = feature.configPath.at(-1);
+  const parent = recordAtPath(config, parentPath);
+  if (!key) {
+    return null;
+  }
+  if (feature.resetScope === "parent") {
+    return parent === undefined ? null : parentPath;
+  }
+  // Boolean/string shorthands own the parent node rather than an `enabled`
+  // child. Resetting the child would replace the shorthand with an empty object.
+  if (
+    key === "enabled" &&
+    parent !== undefined &&
+    (typeof parent !== "object" || parent === null)
+  ) {
+    return parentPath;
+  }
+  if (
+    parent &&
+    typeof parent === "object" &&
+    !Array.isArray(parent) &&
+    Object.hasOwn(parent, key)
+  ) {
+    return feature.configPath;
+  }
+  return null;
+}
+
+export function resolveLabFeatureState(
+  config: Record<string, unknown> | null,
+  feature: LabFeature,
+): LabFeatureState {
+  const source = config ?? {};
+  const parentPath = feature.configPath.slice(0, -1);
+  const key = feature.configPath.at(-1);
+  const parent = recordAtPath(source, parentPath);
+  const overridePath = labFeatureOverridePath(source, feature);
+  let defaultParent = parent;
+  if (overridePath?.length === parentPath.length) {
+    defaultParent = undefined;
+  } else if (
+    overridePath &&
+    key &&
+    parent &&
+    typeof parent === "object" &&
+    !Array.isArray(parent)
+  ) {
+    defaultParent = { ...(parent as Record<string, unknown>) };
+    delete (defaultParent as Record<string, unknown>)[key];
+  }
+  return {
+    enabled: readEnabledFromParent(feature, parent),
+    defaultEnabled: readEnabledFromParent(feature, defaultParent),
+    overridden: overridePath !== null,
+  };
+}
+
 export function labFeatureMergePatch(
   feature: LabFeature,
   enabled: boolean,
@@ -206,6 +279,21 @@ export function labFeatureMergePatch(
     ...(enabled ? feature.enableAlso : null),
   };
   for (const segment of feature.configPath.slice(0, -1).toReversed()) {
+    patch = { [segment]: patch };
+  }
+  return patch as Record<string, unknown>;
+}
+
+export function labFeatureResetPatch(
+  config: Record<string, unknown> | null,
+  feature: LabFeature,
+): Record<string, unknown> | null {
+  const path = labFeatureOverridePath(config ?? {}, feature);
+  if (!path?.length) {
+    return null;
+  }
+  let patch: unknown = null;
+  for (const segment of path.toReversed()) {
     patch = { [segment]: patch };
   }
   return patch as Record<string, unknown>;

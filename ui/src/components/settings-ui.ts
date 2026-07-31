@@ -7,6 +7,7 @@ import "@awesome.me/webawesome/dist/components/radio-group/radio-group.js";
 import "@awesome.me/webawesome/dist/components/switch/switch.js";
 import { html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
+import { t } from "../i18n/index.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link.ts";
 import { icons } from "./icons.ts";
 import "./tooltip.ts";
@@ -221,6 +222,40 @@ export function renderSettingsToggleRow(props: {
       </div>
     </div>
   `;
+}
+
+export function renderSettingsDefaultState(props: {
+  value: string;
+  overridden: boolean;
+  disabled?: boolean;
+  onReset: () => void;
+}): {
+  description: TemplateResult;
+  action: TemplateResult | typeof nothing;
+} {
+  return {
+    description: html`${t(
+      props.overridden ? "configForm.defaultValue" : "configForm.usingDefault",
+      { value: props.value },
+    )}`,
+    action: props.overridden
+      ? html`
+          <button
+            type="button"
+            class="btn btn--icon"
+            title=${t("configForm.resetToDefault")}
+            aria-label=${t("configForm.resetToDefault")}
+            ?disabled=${props.disabled ?? false}
+            @click=${(event: Event) => {
+              event.stopPropagation();
+              props.onReset();
+            }}
+          >
+            ${icons.refresh}
+          </button>
+        `
+      : nothing,
+  };
 }
 
 export function renderSettingsSegmented<T extends string>(props: {

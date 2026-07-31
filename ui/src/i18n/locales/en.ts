@@ -1242,6 +1242,8 @@ export const en: TranslationMap = {
       model: "Model",
       thinking: "Thinking",
       fastMode: "Fast mode",
+      default: "Default",
+      modelPolicy: "Model policy",
       thinkingLevels: {
         off: "Off",
         low: "Low",

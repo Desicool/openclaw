@@ -99,6 +99,7 @@ function createHarness(initialScopeId: string) {
     },
     ensureLoaded: vi.fn(async () => undefined),
     patchForm: vi.fn(),
+    removeFormValue: vi.fn(),
     save: vi.fn(async () => true),
     apply: vi.fn(async () => true),
     discardDraft: vi.fn(async () => undefined),
@@ -188,6 +189,32 @@ describe("ModelProvidersPage agent scope", () => {
       ["agents", "defaults", "fastModeDefault"],
       false,
     );
+  });
+
+  it("removes thinking and fast overrides through the shared config draft", async () => {
+    const { context, runtimeConfig } = createHarness("main");
+    const page = appendPage(context);
+    await vi.waitFor(() => expect(page.querySelector("#settings-model-behavior")).not.toBeNull());
+
+    const groups = page.querySelectorAll<HTMLElement & { value: string }>(
+      "#settings-model-behavior wa-radio-group",
+    );
+    expect(groups).toHaveLength(2);
+    groups[0]!.value = "";
+    groups[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    groups[1]!.value = "";
+    groups[1]!.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(runtimeConfig.removeFormValue).toHaveBeenNthCalledWith(1, [
+      "agents",
+      "defaults",
+      "thinkingDefault",
+    ]);
+    expect(runtimeConfig.removeFormValue).toHaveBeenNthCalledWith(2, [
+      "agents",
+      "defaults",
+      "fastModeDefault",
+    ]);
   });
 
   it("reloads credential status when the agent selector changes", async () => {

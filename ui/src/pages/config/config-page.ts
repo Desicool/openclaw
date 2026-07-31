@@ -152,7 +152,7 @@ function configPageTitle(pageId: ConfigPageId): string {
   return titleForRoute(pageId);
 }
 
-function extractQuickSettingsSecurity(config: unknown): SecurityOverview {
+export function extractQuickSettingsSecurity(config: unknown): SecurityOverview {
   const root =
     asConfigRecord((config as { configForm?: unknown } | null)?.configForm) ??
     asConfigRecord(config);
@@ -162,7 +162,9 @@ function extractQuickSettingsSecurity(config: unknown): SecurityOverview {
       execPolicy: "unknown",
       deviceAuth: false,
       browserEnabled: true,
+      browserEnabledOverridden: false,
       toolProfile: "full",
+      toolProfileOverridden: false,
     };
   }
   const gateway = asConfigRecord(root.gateway);
@@ -191,7 +193,9 @@ function extractQuickSettingsSecurity(config: unknown): SecurityOverview {
     execPolicy: typeof security === "string" && security.trim() ? security.trim() : "allowlist",
     deviceAuth: controlUi?.dangerouslyDisableDeviceAuth !== true,
     browserEnabled: browser?.enabled !== false,
+    browserEnabledOverridden: browser !== null && Object.hasOwn(browser, "enabled"),
     toolProfile: typeof profile === "string" && profile.trim() ? profile.trim() : "full",
+    toolProfileOverridden: Object.hasOwn(tools, "profile"),
   };
 }
 
@@ -1049,9 +1053,22 @@ export class ConfigPage extends OpenClawLightDomElement {
           runtimeState.connected &&
           hasOperatorAdminAccess(this.context.gateway.snapshot.hello?.auth ?? null),
         onPairMobile: () => void this.context.overlays.openDevicePairSetup(),
-        onBrowserEnabledToggle: (enabled) =>
-          runtimeConfig.patchForm(["browser", "enabled"], enabled),
-        onToolProfileChange: (profile) => runtimeConfig.patchForm(["tools", "profile"], profile),
+        onBrowserEnabledToggle: (enabled) => {
+          if (enabled) {
+            runtimeConfig.removeFormValue(["browser", "enabled"]);
+            return;
+          }
+          runtimeConfig.patchForm(["browser", "enabled"], false);
+        },
+        onBrowserEnabledReset: () => runtimeConfig.removeFormValue(["browser", "enabled"]),
+        onToolProfileChange: (profile) => {
+          if (profile === "full") {
+            runtimeConfig.removeFormValue(["tools", "profile"]);
+            return;
+          }
+          runtimeConfig.patchForm(["tools", "profile"], profile);
+        },
+        onToolProfileReset: () => runtimeConfig.removeFormValue(["tools", "profile"]),
         editor: renderConfig({ ...props, embeddedEditor: true }),
       });
     }

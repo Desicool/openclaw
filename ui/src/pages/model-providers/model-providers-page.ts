@@ -586,9 +586,11 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       {};
     const agentsDefaults = asConfigRecord(asConfigRecord(configObject.agents)?.defaults);
     const thinkingLevel =
-      typeof agentsDefaults?.thinkingDefault === "string" ? agentsDefaults.thinkingDefault : "off";
+      typeof agentsDefaults?.thinkingDefault === "string"
+        ? agentsDefaults.thinkingDefault
+        : undefined;
     const fastValue = agentsDefaults?.fastModeDefault;
-    const fastMode = fastValue === "auto" || typeof fastValue === "boolean" ? fastValue : false;
+    const fastMode = fastValue === "auto" || typeof fastValue === "boolean" ? fastValue : undefined;
     const update = this.context.overlays.snapshot;
     // The overlay update states replace General's old configUpdating prop,
     // which config-page derived from this same snapshot (isUpdateBusy); the
@@ -696,8 +698,12 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       },
       onThinkingChange: (level) =>
         runtimeConfig.patchForm(["agents", "defaults", "thinkingDefault"], level),
+      onThinkingReset: () =>
+        runtimeConfig.removeFormValue(["agents", "defaults", "thinkingDefault"]),
       onFastModeChange: (mode: FastMode) =>
         runtimeConfig.patchForm(["agents", "defaults", "fastModeDefault"], mode),
+      onFastModeReset: () =>
+        runtimeConfig.removeFormValue(["agents", "defaults", "fastModeDefault"]),
       onOpenModelSetup: () => this.context.navigate("model-setup"),
     });
     return html`
