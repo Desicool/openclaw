@@ -107,29 +107,29 @@ class LabsPage extends OpenClawLightDomElement {
 
   private setFeatureEnabled(feature: LabFeature, enabled: boolean) {
     const config = this.editableConfig();
-    const state = resolveLabFeatureState(config, feature);
+    const featureState = resolveLabFeatureState(config, feature);
     const resetPatch =
-      enabled === state.defaultEnabled ? labFeatureResetPatch(config, feature) : null;
+      enabled === featureState.defaultEnabled ? labFeatureResetPatch(config, feature) : null;
     void this.updateFeature(feature, enabled, resetPatch ?? labFeatureMergePatch(feature, enabled));
   }
 
   private resetFeature(feature: LabFeature) {
     const config = this.editableConfig();
-    const state = resolveLabFeatureState(config, feature);
+    const featureState = resolveLabFeatureState(config, feature);
     const resetPatch = labFeatureResetPatch(config, feature);
     if (!resetPatch) {
       return;
     }
-    void this.updateFeature(feature, state.defaultEnabled, resetPatch);
+    void this.updateFeature(feature, featureState.defaultEnabled, resetPatch);
   }
 
   private renderFeature(feature: LabFeature) {
     const title = feature.title();
-    const state = resolveLabFeatureState(this.editableConfig(), feature);
+    const featureState = resolveLabFeatureState(this.editableConfig(), feature);
     const canToggle = this.canToggle();
     const defaultState = renderSettingsDefaultState({
-      value: state.defaultEnabled ? t("common.enabled") : t("common.disabled"),
-      overridden: state.overridden,
+      value: featureState.defaultEnabled ? t("common.enabled") : t("common.disabled"),
+      overridden: featureState.overridden,
       disabled: !canToggle,
       onReset: () => this.resetFeature(feature),
     });
