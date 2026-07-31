@@ -1561,15 +1561,18 @@ describe("RealtimeCallHandler path routing", () => {
   });
 
   it("keeps a replacement session's forced consult when the old result resolves late", async () => {
-    const callbacks: Array<{
-      onTranscript?: (role: "user" | "assistant", text: string, isFinal: boolean) => void;
-    }> = [];
+    const callbacks: RealtimeBridgeRequest[] = [];
     const oldSendUserMessage = vi.fn();
     const replacementSendUserMessage = vi.fn();
+    const oldSubmitToolResult = vi.fn();
     const oldCloseBridge = vi.fn();
     const replacementCloseBridge = vi.fn();
     const bridges = [
-      makeBridge({ close: oldCloseBridge, sendUserMessage: oldSendUserMessage }),
+      makeBridge({
+        close: oldCloseBridge,
+        sendUserMessage: oldSendUserMessage,
+        submitToolResult: oldSubmitToolResult,
+      }),
       makeBridge({
         close: replacementCloseBridge,
         sendUserMessage: replacementSendUserMessage,
@@ -1641,6 +1644,24 @@ describe("RealtimeCallHandler path routing", () => {
           expect(consult).toHaveBeenCalledTimes(2);
         });
         expect(clearAudio).toHaveBeenCalledTimes(2);
+
+        callbacks[0]?.onToolCall?.({
+          itemId: "item-stale-native",
+          callId: "stale-native-consult",
+          name: "openclaw_agent_consult",
+          args: { question: "Check the old deployment." },
+        });
+        await waitForRealtimeTest(() => {
+          expect(oldSubmitToolResult).toHaveBeenCalledWith(
+            "stale-native-consult",
+            {
+              status: "cancelled",
+              message: "OpenClaw cancelled this consult before completion. Do not restart it.",
+            },
+            undefined,
+          );
+        });
+        expect(consult).toHaveBeenCalledTimes(2);
 
         const oldClosed = waitForClose(oldWs);
         oldWs.close();

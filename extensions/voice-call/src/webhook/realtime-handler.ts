@@ -271,6 +271,7 @@ type ForcedConsultState = {
   promise: Promise<unknown>;
   sendSpeechPrompt: boolean;
   cancelled: boolean;
+  cancel: () => void;
   completedAt?: number;
 };
 
@@ -1092,6 +1093,7 @@ export class RealtimeCallHandler {
     }
     state.cancelled = true;
     state.sendSpeechPrompt = false;
+    state.cancel();
     this.forcedConsultsByCallId.delete(callId);
   }
 
@@ -1246,6 +1248,7 @@ export class RealtimeCallHandler {
       owner: params.session,
       sendSpeechPrompt: true,
       cancelled: false,
+      cancel: () => coordinator.markCancelled(params.handle),
       promise: Promise.resolve().then(() =>
         params.handler(
           {
@@ -1443,7 +1446,11 @@ export class RealtimeCallHandler {
           coordinator.remove(pending);
         }
       }
-      const forcedConsult = this.forcedConsultsByCallId.get(callId);
+      const forcedConsultState = this.forcedConsultsByCallId.get(callId);
+      const forcedConsult =
+        forcedConsultState?.owner === bridge && !forcedConsultState.cancelled
+          ? forcedConsultState
+          : undefined;
       if (forcedMatch.kind === "already_delivered" && coordinator.isCancelled(forcedMatch.handle)) {
         if (forcedConsult) {
           forcedConsult.sendSpeechPrompt = false;
