@@ -206,7 +206,11 @@ export function startBuzzDirectoryRelay(params: {
       return refreshInFlight;
     }
     refreshInFlight = (async () => {
-      while (pendingRoomIds.size > 0 && !closed && !params.signal?.aborted) {
+      while (pendingRoomIds.size > 0) {
+        if (closed || params.signal?.aborted) {
+          pendingRoomIds.clear();
+          return;
+        }
         const nextRoomIds = [...pendingRoomIds];
         pendingRoomIds.clear();
         await queryBuzzDirectoryRooms({

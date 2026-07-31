@@ -1,5 +1,6 @@
 import type { Event } from "nostr-tools";
 import type { ChannelDirectoryEntry } from "openclaw/plugin-sdk/directory-runtime";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import type { BuzzRoomMembership } from "./room-membership.js";
 import { buildBuzzTarget, parseBuzzTarget } from "./target.js";
 
@@ -39,7 +40,7 @@ function normalizeBoundedString(value: unknown, maxChars: number): string | unde
   if (!trimmed) {
     return undefined;
   }
-  return [...trimmed].slice(0, maxChars).join("");
+  return truncateUtf16Safe(trimmed, maxChars);
 }
 
 function readPreferredString(params: {
@@ -301,14 +302,12 @@ export class BuzzDirectoryState {
     const entries = [...membership.members]
       .map((publicKey) => {
         const entry = this.#buildUserEntry(publicKey);
-        return {
-          ...entry,
-          raw: {
-            publicKey,
-            role: membership.roles.get(publicKey),
-            roomId,
-          },
-        } satisfies ChannelDirectoryEntry;
+        entry.raw = {
+          publicKey,
+          role: membership.roles.get(publicKey),
+          roomId,
+        };
+        return entry;
       })
       .toSorted(compareDirectoryEntries);
     return applyQueryAndLimit(entries, { limit: params.limit });
