@@ -86,7 +86,6 @@ export async function waitForBuzzRoomAccess(params: {
         if (pollTimer) {
           clearInterval(pollTimer);
         }
-        subscriptionRef.current?.close("room access found");
         if (error !== undefined) {
           reject(
             error instanceof Error
@@ -182,9 +181,6 @@ export async function waitForBuzzRoomAccess(params: {
           },
         },
       );
-      if (settled) {
-        subscriptionRef.current.close("room access found");
-      }
     });
   } finally {
     relay.close();

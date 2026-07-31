@@ -29,9 +29,10 @@ async function queryRelay(params: {
     const events: Event[] = [];
     const state: {
       settled: boolean;
+      receivedEose: boolean;
       timeout?: ReturnType<typeof setTimeout>;
       subscription?: ReturnType<Relay["prepareSubscription"]>;
-    } = { settled: false };
+    } = { settled: false, receivedEose: false };
     const finish = (error?: unknown) => {
       if (state.settled) {
         return;
@@ -41,7 +42,9 @@ async function queryRelay(params: {
         clearTimeout(state.timeout);
       }
       params.signal?.removeEventListener("abort", onAbort);
-      state.subscription?.close("query complete");
+      if (state.receivedEose) {
+        state.subscription?.close("query complete");
+      }
       if (error !== undefined) {
         reject(
           error instanceof Error ? error : new Error("Buzz room query failed", { cause: error }),
@@ -52,20 +55,27 @@ async function queryRelay(params: {
     };
     const onAbort = () => finish(params.signal?.reason ?? new Error("Buzz room query aborted"));
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    state.timeout = setTimeout(
-      () => finish(new Error("Timed out querying Buzz room membership")),
-      params.timeoutMs,
-    );
+    state.timeout = setTimeout(() => {
+      finish(new Error("Timed out querying Buzz room membership"));
+      params.relay.close();
+    }, params.timeoutMs);
     state.subscription = openBuzzRelaySubscription(params.relay, [params.filter], {
       onevent: (event) => events.push(event),
-      oneose: () => finish(),
+      oneose: () => {
+        state.receivedEose = true;
+        if (state.settled) {
+          state.subscription?.close("query complete");
+        } else {
+          finish();
+        }
+      },
       onclose: (reason) => {
         if (reason !== "query complete") {
           finish(new Error(`Buzz room query closed: ${reason}`));
         }
       },
     });
-    if (state.settled) {
+    if (state.settled && state.receivedEose) {
       state.subscription.close("query complete");
     }
   });
@@ -176,6 +186,8 @@ export async function discoverBuzzRooms(params: {
       signal,
     });
   } finally {
-    relay.close();
+    if (relay.connected) {
+      relay.close();
+    }
   }
 }

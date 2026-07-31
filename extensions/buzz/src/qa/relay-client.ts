@@ -38,6 +38,7 @@ async function loadBuzzQaRoomMembership(params: {
   return await new Promise<BuzzRoomMembership>((resolve, reject) => {
     let latest: BuzzRoomMembership | undefined;
     let settled = false;
+    let receivedEose = false;
     const subscriptionRef: { current?: ReturnType<Relay["prepareSubscription"]> } = {};
     const finish = (error?: Error) => {
       if (settled) {
@@ -45,7 +46,9 @@ async function loadBuzzQaRoomMembership(params: {
       }
       settled = true;
       clearTimeout(timeout);
-      subscriptionRef.current?.close("membership loaded");
+      if (receivedEose) {
+        subscriptionRef.current?.close("membership loaded");
+      }
       if (error) {
         reject(error);
       } else if (latest) {
@@ -54,10 +57,10 @@ async function loadBuzzQaRoomMembership(params: {
         reject(new Error(`Buzz QA room ${params.roomId} has no membership roster.`));
       }
     };
-    const timeout = setTimeout(
-      () => finish(new Error(`Timed out loading Buzz QA room ${params.roomId} membership.`)),
-      MEMBERSHIP_TIMEOUT_MS,
-    );
+    const timeout = setTimeout(() => {
+      finish(new Error(`Timed out loading Buzz QA room ${params.roomId} membership.`));
+      params.relay.close();
+    }, MEMBERSHIP_TIMEOUT_MS);
     subscriptionRef.current = openBuzzRelaySubscription(
       params.relay,
       [
@@ -78,7 +81,14 @@ async function loadBuzzQaRoomMembership(params: {
             latest = membership;
           }
         },
-        oneose: () => finish(),
+        oneose: () => {
+          receivedEose = true;
+          if (settled) {
+            subscriptionRef.current?.close("membership loaded");
+          } else {
+            finish();
+          }
+        },
         onclose: (reason) => {
           if (reason !== "membership loaded") {
             finish(new Error(`Buzz QA membership subscription closed: ${reason}`));
@@ -86,7 +96,7 @@ async function loadBuzzQaRoomMembership(params: {
         },
       },
     );
-    if (settled) {
+    if (settled && receivedEose) {
       subscriptionRef.current.close("membership loaded");
     }
   });
@@ -213,7 +223,6 @@ export async function createBuzzQaRelayDriver(params: {
     await observerReadyPromise;
   } catch (error) {
     lifecycleAbort.abort(error);
-    subscription.close("shutdown");
     relay.close();
     throw error;
   }

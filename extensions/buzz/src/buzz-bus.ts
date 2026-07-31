@@ -397,7 +397,9 @@ async function createBuzzRoomMembershipTracker(params: {
     rejectHistorical = reject;
   });
   const historicalTimeout = setTimeout(() => {
-    rejectHistorical?.(new Error("Timed out loading Buzz room membership changes"));
+    const error = new Error("Timed out loading Buzz room membership changes");
+    rejectHistorical?.(error);
+    params.relay.close();
   }, MEMBERSHIP_READY_TIMEOUT_MS);
   // Buzz indexes live channel fan-out under one server-resolved room scope.
   // A multi-room #h filter becomes global and cannot receive channel events.
@@ -454,8 +456,10 @@ async function createBuzzRoomMembershipTracker(params: {
     await historicalReady;
     memberships = await queryBuzzRoomMemberships(params);
   } catch (error) {
-    for (const subscription of subscriptions) {
-      subscription.close(MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON);
+    if (historicalRooms.size === params.channelIds.length && params.relay.connected) {
+      for (const subscription of subscriptions) {
+        subscription.close(MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON);
+      }
     }
     throw error;
   } finally {

@@ -9,6 +9,7 @@ import {
 
 const RELAY_QUERY_EVENT_LIMIT = 1_000;
 const MEMBERSHIP_QUERY_COMPLETE_REASON = "membership snapshot loaded";
+const MEMBERSHIP_QUERY_TIMEOUT_MS = 10_000;
 
 async function queryBuzzRoomMembershipBatch(params: {
   relay: Relay;
@@ -21,12 +22,18 @@ async function queryBuzzRoomMembershipBatch(params: {
   return await new Promise<Map<string, BuzzRoomMembership>>((resolve, reject) => {
     let settled = false;
     let receivedEose = false;
+    const timeout = setTimeout(() => {
+      const error = new Error("Timed out loading Buzz room membership snapshot");
+      finish(error);
+      params.relay.close();
+    }, MEMBERSHIP_QUERY_TIMEOUT_MS);
     const subscriptionRef: { current?: ReturnType<Relay["prepareSubscription"]> } = {};
     const finish = (error?: unknown) => {
       if (settled) {
         return;
       }
       settled = true;
+      clearTimeout(timeout);
       params.signal?.removeEventListener("abort", onAbort);
       if (receivedEose) {
         subscriptionRef.current?.close(MEMBERSHIP_QUERY_COMPLETE_REASON);

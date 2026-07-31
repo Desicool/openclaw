@@ -22,9 +22,16 @@ vi.mock("nostr-tools", async (importOriginal) => {
   return {
     ...actual,
     Relay: class {
+      private isConnected = true;
       auth = relayMocks.auth;
-      close = relayMocks.close;
+      close = () => {
+        this.isConnected = false;
+        relayMocks.close();
+      };
       connect = relayMocks.connect;
+      get connected() {
+        return this.isConnected;
+      }
       idleSince: number | undefined;
       ongoingOperations = 0;
       onauth: unknown;
@@ -185,5 +192,23 @@ describe("discoverBuzzRooms", () => {
 
     expect(relayMocks.close).toHaveBeenCalledOnce();
     expect(relayMocks.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("recycles the relay when a room query never reaches EOSE", async () => {
+    vi.useFakeTimers();
+    relayMocks.subscribe.mockReturnValue({ close: vi.fn() });
+
+    const { discoverBuzzRooms } = await import("./room-discovery.js");
+    const discovery = discoverBuzzRooms({
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      timeoutMs: 10_000,
+    });
+
+    const rejection = expect(discovery).rejects.toThrow("Timed out querying Buzz room membership");
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+    expect(relayMocks.close).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });
