@@ -177,8 +177,8 @@ export function extractQuickSettingsSecurity(config: unknown): SecurityOverview 
   }
   const gateway = asConfigRecord(root.gateway);
   const auth = asConfigRecord(gateway?.auth);
-  const tools = asConfigRecord(root.tools) ?? {};
-  const exec = asConfigRecord(tools.exec) ?? {};
+  const tools = asConfigRecord(root.tools);
+  const exec = asConfigRecord(tools?.exec) ?? {};
   const browser = asConfigRecord(root.browser);
   const controlUi = asConfigRecord(gateway?.controlUi);
   let gatewayAuth = "unknown";
@@ -194,7 +194,7 @@ export function extractQuickSettingsSecurity(config: unknown): SecurityOverview 
             ? "trusted-proxy"
             : "none";
   }
-  const profile = tools.profile;
+  const profile = tools?.profile;
   const security = exec.security;
   return {
     gatewayAuth,
@@ -203,7 +203,7 @@ export function extractQuickSettingsSecurity(config: unknown): SecurityOverview 
     browserEnabled: browser?.enabled !== false,
     browserEnabledOverridden: browser !== null && Object.hasOwn(browser, "enabled"),
     toolProfile: typeof profile === "string" && profile.trim() ? profile.trim() : "full",
-    toolProfileOverridden: Object.hasOwn(tools, "profile"),
+    toolProfileOverridden: tools !== null && Object.hasOwn(tools, "profile"),
   };
 }
 
