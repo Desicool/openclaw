@@ -218,10 +218,11 @@ plugin recycles only its Buzz connection so the subscription set matches the
 relay's current metadata. The Gateway keeps running.
 
 Each configured room uses one room-scoped relay subscription. OpenClaw reserves
-three of Buzz's 1,024 connection subscriptions for membership and metadata
-queries, so one account can configure up to 1,021 rooms. Near that limit,
-optional member profile subscriptions are reduced first; directory entries
-continue to work with stable public keys and deterministic fallback labels.
+four of Buzz's 1,024 connection subscriptions for membership notifications and
+concurrent profile, membership, and metadata queries, so one account can
+configure up to 1,020 rooms. Near that limit, optional member profile
+subscriptions are reduced first; directory entries continue to work with stable
+public keys and deterministic fallback labels.
 
 Unique current room names can resolve as outbound targets through OpenClaw's
 shared directory lookup. The canonical `buzz:<ROOM_UUID>` target remains the

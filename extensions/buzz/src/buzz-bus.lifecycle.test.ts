@@ -208,10 +208,10 @@ describe("Buzz bus lifecycle", () => {
         accountId: ACCOUNT_ID,
         relayUrl: "wss://buzz.example.com",
         privateKey: PRIVATE_KEY,
-        channelIds: Array.from({ length: 1_022 }, (_, index) => `room-${index}`),
+        channelIds: Array.from({ length: 1_021 }, (_, index) => `room-${index}`),
         onMessage: async () => {},
       }),
-    ).rejects.toThrow("Buzz supports at most 1021 configured rooms per account");
+    ).rejects.toThrow("Buzz supports at most 1020 configured rooms per account");
 
     expect(relayMocks.connect).not.toHaveBeenCalled();
   });
