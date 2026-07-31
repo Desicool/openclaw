@@ -187,7 +187,7 @@ describe("event-driven session list refresh", () => {
       const secondList = deferred<SessionsListResult>();
       const secondListStarted = deferred<void>();
       let listCalls = 0;
-      const request = vi.fn(async (method: string) => {
+      const request = vi.fn(async (method: string, _params?: unknown) => {
         if (method !== "sessions.list") {
           throw new Error(`Unexpected request: ${method}`);
         }
@@ -275,7 +275,7 @@ describe("event-driven session list refresh", () => {
     const secondList = deferred<SessionsListResult>();
     const secondListStarted = deferred<void>();
     let listCalls = 0;
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method !== "sessions.list") {
         throw new Error(`Unexpected request: ${method}`);
       }
