@@ -1561,6 +1561,10 @@ describe("RealtimeCallHandler path routing", () => {
   });
 
   it("keeps a replacement session's forced consult when the old result resolves late", async () => {
+    const sessionHarnesses: RealtimeVoiceSessionHarness[] = [];
+    realtimeVoiceHarnessTestHooks.onCreate = (harness) => {
+      sessionHarnesses.push(harness);
+    };
     const callbacks: RealtimeBridgeRequest[] = [];
     const oldSendUserMessage = vi.fn();
     const replacementSendUserMessage = vi.fn();
@@ -1626,6 +1630,20 @@ describe("RealtimeCallHandler path routing", () => {
       await waitForRealtimeTest(() => {
         expect(consult).toHaveBeenCalledTimes(1);
       });
+      const oldCoordinator = expectDefined(
+        sessionHarnesses[0],
+        "old voice-call realtime session harness",
+      ).forcedConsults;
+      const oldForcedHandle = expectDefined(
+        oldCoordinator.handles().find((handle) => handle.question === "Check the old deployment."),
+        "old forced consult handle",
+      );
+      const stalePendingHandle = expectDefined(
+        oldCoordinator.prepare("Pending work from the old session."),
+        "stale pending forced consult handle",
+      );
+      const stalePendingRun = vi.fn();
+      oldCoordinator.schedule(stalePendingHandle, 60_000, stalePendingRun);
 
       replacementServer = await startRealtimeServer(handler);
       const replacementWs = await connectWs(replacementServer.url);
@@ -1639,6 +1657,8 @@ describe("RealtimeCallHandler path routing", () => {
         await waitForRealtimeTest(() => {
           expect(callbacks).toHaveLength(2);
         });
+        expect(oldCoordinator.handles()).not.toContainEqual(stalePendingHandle);
+        expect(stalePendingRun).not.toHaveBeenCalled();
         callbacks[1]?.onTranscript?.("user", "Check the new deployment.", true);
         await waitForRealtimeTest(() => {
           expect(consult).toHaveBeenCalledTimes(2);
@@ -1651,24 +1671,11 @@ describe("RealtimeCallHandler path routing", () => {
           name: "openclaw_agent_consult",
           args: { question: "Check the old deployment." },
         });
-        await waitForRealtimeTest(() => {
-          expect(oldSubmitToolResult).toHaveBeenCalledWith(
-            "stale-native-consult",
-            {
-              status: "cancelled",
-              message: "OpenClaw cancelled this consult before completion. Do not restart it.",
-            },
-            undefined,
-          );
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
         });
+        expect(oldSubmitToolResult).not.toHaveBeenCalled();
         expect(consult).toHaveBeenCalledTimes(2);
-
-        const oldClosed = waitForClose(oldWs);
-        oldWs.close();
-        await oldClosed;
-        await waitForRealtimeTest(() => {
-          expect(oldCloseBridge).toHaveBeenCalledTimes(1);
-        });
 
         oldResult.resolve({ text: "The old deployment is healthy." });
         await new Promise<void>((resolve) => {
@@ -1676,6 +1683,15 @@ describe("RealtimeCallHandler path routing", () => {
         });
         expect(clearAudio).toHaveBeenCalledTimes(2);
         expect(oldSendUserMessage).not.toHaveBeenCalled();
+        expect(oldCoordinator.handles()).toContainEqual(oldForcedHandle);
+        expect(oldCoordinator.isCancelled(oldForcedHandle)).toBe(true);
+
+        const oldClosed = waitForClose(oldWs);
+        oldWs.close();
+        await oldClosed;
+        await waitForRealtimeTest(() => {
+          expect(oldCloseBridge).toHaveBeenCalledTimes(1);
+        });
 
         replacementResult.resolve({ text: "The new deployment is healthy." });
         await waitForRealtimeTest(() => {

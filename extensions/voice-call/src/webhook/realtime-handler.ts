@@ -275,6 +275,11 @@ type ForcedConsultState = {
   completedAt?: number;
 };
 
+type ForcedConsultSession = {
+  owner: ActiveRealtimeVoiceBridge;
+  coordinator: RealtimeVoiceSessionHarness["forcedConsults"];
+};
+
 type NativeConsultState = {
   owner: ActiveRealtimeVoiceBridge;
   startedAt: number;
@@ -345,6 +350,7 @@ export class RealtimeCallHandler {
     ReturnType<typeof setTimeout>
   >();
   private readonly forcedConsultsByCallId = new Map<string, ForcedConsultState>();
+  private readonly forcedConsultSessionsByCallId = new Map<string, ForcedConsultSession>();
   private readonly nativeConsultsInFlightByCallId = new Map<string, NativeConsultState>();
   private closePromise: Promise<void> | null = null;
   private closing = false;
@@ -940,7 +946,7 @@ export class RealtimeCallHandler {
         if (nativeConsultOwner.current) {
           this.clearActiveBridgeMappings(callId, callSid, nativeConsultOwner.current);
           this.cancelNativeConsult(callId, nativeConsultOwner.current);
-          this.cancelForcedConsult(callId, nativeConsultOwner.current);
+          this.cancelForcedConsultSession(callId, nativeConsultOwner.current);
         }
         this.clearUserTranscriptState(callId);
         harness.finishOutputAudio(reason);
@@ -977,10 +983,14 @@ export class RealtimeCallHandler {
         emitCallEnd(reason);
       }
     };
-    const previousSession = this.activeBridgesByCallId.get(callId);
-    if (previousSession && previousSession !== session) {
-      this.cancelForcedConsult(callId, previousSession);
+    const previousForcedConsultSession = this.forcedConsultSessionsByCallId.get(callId);
+    if (previousForcedConsultSession && previousForcedConsultSession.owner !== session) {
+      this.cancelForcedConsultSession(callId, previousForcedConsultSession.owner);
     }
+    this.forcedConsultSessionsByCallId.set(callId, {
+      owner: session,
+      coordinator: harness.forcedConsults,
+    });
     this.activeBridgesByCallId.set(callId, session);
     this.activeBridgesByCallId.set(callSid, session);
     this.activeTelephonyClosersByCallId.set(callId, closeTelephony);
@@ -1014,7 +1024,7 @@ export class RealtimeCallHandler {
       } finally {
         this.clearActiveBridgeMappings(callId, callSid, session);
         this.cancelNativeConsult(callId, session);
-        this.cancelForcedConsult(callId, session);
+        this.cancelForcedConsultSession(callId, session);
         this.clearUserTranscriptState(callId);
         harness.close();
         audioPacer.close();
@@ -1095,6 +1105,22 @@ export class RealtimeCallHandler {
     state.sendSpeechPrompt = false;
     state.cancel();
     this.forcedConsultsByCallId.delete(callId);
+  }
+
+  private cancelForcedConsultSession(
+    callId: string,
+    owner: ActiveRealtimeVoiceBridge | undefined,
+  ): void {
+    if (!owner) {
+      return;
+    }
+    const session = this.forcedConsultSessionsByCallId.get(callId);
+    if (!session || session.owner !== owner) {
+      return;
+    }
+    session.coordinator.clearPending();
+    this.cancelForcedConsult(callId, owner);
+    this.forcedConsultSessionsByCallId.delete(callId);
   }
 
   private clearActiveBridgeMappings(
@@ -1188,7 +1214,10 @@ export class RealtimeCallHandler {
     transcript: string;
     clearAudio: () => void;
   }): void {
-    if (this.config.consultPolicy !== "always") {
+    if (
+      this.config.consultPolicy !== "always" ||
+      this.activeBridgesByCallId.get(params.callId) !== params.session
+    ) {
       return;
     }
     const question = params.transcript.trim();
@@ -1290,16 +1319,18 @@ export class RealtimeCallHandler {
         `[voice-call] realtime forced agent consult failed callId=${params.callId} providerCallId=${params.callSid} error=${formatErrorMessage(error)}`,
       );
     } finally {
-      if (state.cancelled || this.forcedConsultsByCallId.get(params.callId) !== state) {
-        coordinator.remove(params.handle);
-      } else {
-        const cleanupTimer = setTimeout(() => {
-          if (this.forcedConsultsByCallId.get(params.callId) === state) {
-            this.forcedConsultsByCallId.delete(params.callId);
-            coordinator.remove(params.handle);
-          }
-        }, FORCED_CONSULT_NATIVE_DEDUPE_MS);
-        cleanupTimer.unref?.();
+      if (!state.cancelled) {
+        if (this.forcedConsultsByCallId.get(params.callId) !== state) {
+          coordinator.remove(params.handle);
+        } else {
+          const cleanupTimer = setTimeout(() => {
+            if (this.forcedConsultsByCallId.get(params.callId) === state) {
+              this.forcedConsultsByCallId.delete(params.callId);
+              coordinator.remove(params.handle);
+            }
+          }, FORCED_CONSULT_NATIVE_DEDUPE_MS);
+          cleanupTimer.unref?.();
+        }
       }
     }
   }
@@ -1438,6 +1469,9 @@ export class RealtimeCallHandler {
       }
     };
     if (name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME) {
+      if (this.activeBridgesByCallId.get(callId) !== bridge) {
+        return;
+      }
       const coordinator = harness.forcedConsults;
       const forcedMatch = coordinator.recordNativeConsult(args, bridgeCallId);
       if (forcedMatch.kind === "none") {
