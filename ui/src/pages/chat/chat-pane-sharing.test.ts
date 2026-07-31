@@ -20,15 +20,8 @@ import type { ChatSessionSharingState } from "./components/chat-session-sharing.
 type SharingPane = TestChatPane & {
   sessionSharingCacheKey: (sessionKey: string) => string;
   sessionSharingStates: Map<string, ChatSessionSharingState>;
-  setSessionMember: (
-    row: GatewaySessionRow,
-    identityId: string,
-    member: boolean,
-  ) => Promise<void>;
-  setSessionVisibility: (
-    row: GatewaySessionRow,
-    visibility: SessionVisibility,
-  ) => Promise<void>;
+  setSessionMember: (row: GatewaySessionRow, identityId: string, member: boolean) => Promise<void>;
+  setSessionVisibility: (row: GatewaySessionRow, visibility: SessionVisibility) => Promise<void>;
 };
 
 type Deferred<T> = {
@@ -86,8 +79,7 @@ const mutations = [
   {
     name: "visibility",
     method: "session.visibility.set",
-    invoke: (pane: SharingPane, row: GatewaySessionRow) =>
-      pane.setSessionVisibility(row, "shared"),
+    invoke: (pane: SharingPane, row: GatewaySessionRow) => pane.setSessionVisibility(row, "shared"),
   },
   {
     name: "member",
