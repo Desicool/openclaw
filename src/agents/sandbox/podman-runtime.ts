@@ -30,6 +30,21 @@ function invalidPodmanConfig(message: string): Error {
   return Object.assign(new Error(message), { code: "INVALID_CONFIG" });
 }
 
+function resolvePodmanKeepIdMode(user: string | undefined): string {
+  const normalized = user?.trim();
+  if (!normalized) {
+    return "keep-id";
+  }
+  const match = /^(\d+)(?::(\d+))?$/u.exec(normalized);
+  if (!match) {
+    throw invalidPodmanConfig(
+      `Rootless Podman sandbox user "${normalized}" must be a numeric UID or UID:GID so keep-id can preserve bind-mount ownership.`,
+    );
+  }
+  const [, uid, gid] = match;
+  return gid ? `keep-id:uid=${uid},gid=${gid}` : `keep-id:uid=${uid}`;
+}
+
 async function assertSupportedPodmanConnection(remoteSocketPath: string): Promise<{
   machine: boolean;
   target: SandboxContainerEngineTarget;
@@ -259,9 +274,9 @@ export function resolvePodmanSandboxCreatePolicy(params: {
     extraCreateArgs.push("--read-only-tmpfs=true");
   }
   if (params.runtimeInfo.rootless) {
-    // keep-id maps the effective workspace-owner user back to the invoking
-    // rootless engine user. Older Podman releases do not override image USER.
-    extraCreateArgs.push("--userns", "keep-id");
+    // Map the invoking engine user to the selected container identity. Plain
+    // keep-id is insufficient when docker.user differs from the host UID/GID.
+    extraCreateArgs.push("--userns", resolvePodmanKeepIdMode(params.cfg.user));
   }
   return { cfg, extraCreateArgs };
 }
@@ -272,7 +287,7 @@ export function resolvePodmanSandboxConfigHash(params: {
   dockerTmpfsSource: SandboxConfig["dockerTmpfsSource"];
 }): string {
   const userMode = params.configuredUser ? "configured-user" : "keep-id";
-  return `${params.genericConfigHash}:podman-runtime-v5:${userMode}:${params.dockerTmpfsSource}`;
+  return `${params.genericConfigHash}:podman-runtime-v6:${userMode}:${params.dockerTmpfsSource}`;
 }
 
 export function resolvePodmanSandboxContainerPrefix(containerPrefix: string): string {

@@ -647,7 +647,9 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     });
 
     expect(createCall.command).toBe("podman");
-    expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual(["keep-id"]);
+    expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual([
+      "keep-id:uid=1001,gid=1002",
+    ]);
     expect(collectDockerFlagValues(createCall.args, "--user")).toEqual(["1001:1002"]);
     expect(createCall.args).toContain("--http-proxy=false");
     expect(createCall.args).toContain("--init");
@@ -677,6 +679,45 @@ describe("ensureSandboxContainer config-hash recreation", () => {
 
     expect(collectDockerFlagValues(createCall.args, "--user")).toEqual(["1001:1002"]);
     expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual([]);
+  });
+
+  it("maps an explicit root user through rootless Podman keep-id", async () => {
+    const cfg = createSandboxConfig([]);
+    cfg.docker.user = "0:0";
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    const createCall = await ensureSandboxCreateCallForTest({
+      cfg,
+      engine: PODMAN_SANDBOX_ENGINE,
+    });
+
+    expect(collectDockerFlagValues(createCall.args, "--user")).toEqual(["0:0"]);
+    expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual(["keep-id:uid=0,gid=0"]);
+  });
+
+  it("rejects nonnumeric users for rootless Podman keep-id", async () => {
+    const cfg = createSandboxConfig([]);
+    cfg.docker.user = "node";
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    await expect(
+      ensureSandboxContainer({
+        engine: PODMAN_SANDBOX_ENGINE,
+        scopeKey: "shared",
+        workspaceDir: "/tmp/workspace",
+        agentWorkspaceDir: "/tmp/workspace",
+        cfg,
+      }),
+    ).rejects.toThrow(/must be a numeric UID or UID:GID/iu);
+
+    expect(spawnState.calls).not.toContainEqual(
+      expect.objectContaining({
+        command: "podman",
+        args: expect.arrayContaining(["create"]),
+      }),
+    );
   });
 
   it("rejects a Podman runtime recorded for a different engine target", async () => {
@@ -902,7 +943,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
       createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
       readOnlyWorkspaceSkillMounts: [],
     });
-    const oldHash = `${genericHash}:podman-runtime-v5:keep-id:default`;
+    const oldHash = `${genericHash}:podman-runtime-v6:keep-id:default`;
     cfg.dockerTmpfsSource = "configured";
     spawnState.inspectRunning = false;
     spawnState.labelHash = oldHash;
