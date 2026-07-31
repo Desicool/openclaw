@@ -410,7 +410,7 @@ describe("pushServerUiPrefs", () => {
     JSON.parse(localStorage.getItem(pendingKey(scope)) ?? "{}") as Record<string, unknown>;
   const createClient = createServerPrefsWriter;
 
-  it("keeps a synced default reset as an offline null intent", () => {
+  it("keeps a synced default reset as a pending offline null intent", () => {
     const scope = "ws://gw";
     const previous = loadSettings();
     const next = resetServerUiPref("theme");
@@ -422,18 +422,49 @@ describe("pushServerUiPrefs", () => {
     expect(readPending(scope)).toEqual({ theme: null });
     expect(resolveServerUiPrefState(configWithPrefs({ theme: "claw" }), "theme", scope)).toEqual({
       overridden: false,
-      provenance: "default",
+      provenance: "pending",
       resetValue: "claw",
       value: "claw",
     });
   });
 
-  it("retains rejected theme and locale edits as device-local state with local-only reset", async () => {
+  it("marks an offline value as pending until the gateway acknowledges it", () => {
     const scope = "ws://gw";
-    const config = configWithPrefs({ theme: "claw", locale: "de" });
+    const beforeLocalEdit = loadSettings();
+    const pending = patchSettings({ chatFollowUpMode: "steer" });
+    const prefs = changedServerUiPrefs(beforeLocalEdit, pending);
+
+    pushServerUiPrefs(createClient(vi.fn(), scope, false), prefs ?? {});
+
+    expect(readPending(scope)).toEqual({ chatFollowUpMode: "steer" });
+    expect(
+      resolveServerUiPrefState(
+        configWithPrefs({ chatFollowUpMode: "queue" }),
+        "chatFollowUpMode",
+        scope,
+      ),
+    ).toEqual({
+      overridden: true,
+      provenance: "pending",
+      resetValue: undefined,
+      value: "steer",
+    });
+  });
+
+  it("retains rejected appearance edits as device-local state with local-only reset", async () => {
+    const scope = "ws://gw";
+    const config = configWithPrefs({
+      theme: "claw",
+      locale: "de",
+      chatFollowUpMode: "queue",
+    });
     applyServerUiPrefs(config, { scope, onApplied: vi.fn() });
     const beforeLocalEdit = loadSettings();
-    const retained = patchSettings({ theme: "knot", locale: "fr" });
+    const retained = patchSettings({
+      theme: "knot",
+      locale: "fr",
+      chatFollowUpMode: "steer",
+    });
     const prefs = changedServerUiPrefs(beforeLocalEdit, retained);
     const afterCommit = vi.fn();
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => {
@@ -450,6 +481,7 @@ describe("pushServerUiPrefs", () => {
     );
     const themeState = resolveServerUiPrefState(config, "theme", scope);
     const localeState = resolveServerUiPrefState(config, "locale", scope);
+    const followUpState = resolveServerUiPrefState(config, "chatFollowUpMode", scope);
     expect(themeState).toEqual({
       overridden: true,
       provenance: "device-local",
@@ -462,6 +494,12 @@ describe("pushServerUiPrefs", () => {
       resetValue: "de",
       value: "fr",
     });
+    expect(followUpState).toEqual({
+      overridden: true,
+      provenance: "device-local",
+      resetValue: "queue",
+      value: "steer",
+    });
 
     const beforeThemeReset = loadSettings();
     const themeReset = resetServerUiPref("theme", themeState);
@@ -471,6 +509,10 @@ describe("pushServerUiPrefs", () => {
     const localeReset = resetServerUiPref("locale", localeState);
     expect(changedServerUiPrefs(beforeLocaleReset, localeReset)).toBeNull();
     expect(localeReset.locale).toBe("de");
+    const beforeFollowUpReset = loadSettings();
+    const followUpReset = resetServerUiPref("chatFollowUpMode", followUpState);
+    expect(changedServerUiPrefs(beforeFollowUpReset, followUpReset)).toBeNull();
+    expect(followUpReset.chatFollowUpMode).toBe("queue");
   });
 
   it("sends one hash-free patch and acknowledges lastSeen plus pending", async () => {

@@ -21,6 +21,7 @@ import {
   renderChatPreferencesSection,
   renderLanguageSection,
   renderLobsterPetSection,
+  serverUiPrefProvenanceHint,
   renderSidebarPreferencesSection,
 } from "./view-appearance-preferences.ts";
 import type { ConfigProps } from "./view-types.ts";
@@ -150,14 +151,8 @@ export function renderAppearanceSection(
     overridden: props.themeModeOverridden,
     onReset: props.resetThemeMode,
   });
-  const themeProvenance =
-    props.themeProvenance === "device-local"
-      ? t("quickSettings.personal.browserOnly")
-      : t("configView.syncedHint");
-  const themeModeProvenance =
-    props.themeModeProvenance === "device-local"
-      ? t("quickSettings.personal.browserOnly")
-      : t("configView.syncedHint");
+  const themeProvenance = serverUiPrefProvenanceHint(props.themeProvenance);
+  const themeModeProvenance = serverUiPrefProvenanceHint(props.themeModeProvenance);
   const textScaleDefaultState = renderSettingsDefaultState({
     value: `${UI_APPEARANCE_DEFAULTS.textScale}%`,
     overridden: props.textScaleOverridden,

@@ -95,8 +95,11 @@ describe("config view", () => {
     setChatSendShortcut: vi.fn(),
     resetChatSendShortcut: vi.fn(),
     chatFollowUpMode: undefined,
+    chatFollowUpModeOverridden: false,
+    chatFollowUpModeProvenance: "default" as const,
     serverQueueMode: "steer" as const,
     setChatFollowUpMode: vi.fn(),
+    resetChatFollowUpMode: vi.fn(),
     catalogOpenTarget: "viewer" as const,
     setCatalogOpenTarget: vi.fn(),
     gatewayUrl: "",
@@ -1728,6 +1731,35 @@ describe("config view", () => {
     expect(resetTheme).toHaveBeenCalledOnce();
   });
 
+  it("shows pending synced preferences without claiming they already synced", () => {
+    const { container } = renderConfigView({
+      activeSection: "__appearance__",
+      includeSections: ["__appearance__"],
+      theme: "claw",
+      themeOverridden: false,
+      themeProvenance: "pending",
+      chatFollowUpMode: "queue",
+      chatFollowUpModeOverridden: true,
+      chatFollowUpModeProvenance: "pending",
+    });
+    const themeSection = queryRequired(container, "#settings-appearance-theme", HTMLElement);
+    const themeDescription = queryRequired(
+      themeSection,
+      ":scope > .settings-section__desc",
+      HTMLElement,
+    );
+    const followUpRow = Array.from(container.querySelectorAll<HTMLElement>(".settings-row")).find(
+      (candidate) =>
+        candidate.querySelector(".settings-row__title")?.textContent?.trim() ===
+        "Follow-ups while the agent is working",
+    );
+
+    expect(themeDescription.textContent).toContain("Waiting to sync through the gateway");
+    expect(themeDescription.textContent).not.toContain("Synced across your devices");
+    expect(followUpRow?.textContent).toContain("Waiting to sync through the gateway");
+    expect(followUpRow?.textContent).not.toContain("Synced across your devices");
+  });
+
   it("labels synced and browser-only Chat preferences per row", () => {
     const { container } = renderConfigView({
       activeSection: "__appearance__",
@@ -2143,12 +2175,15 @@ describe("config view", () => {
 
   it("marks browser follow-up overrides and resets them to the server", () => {
     const setChatFollowUpMode = vi.fn();
+    const resetChatFollowUpMode = vi.fn();
     const { container } = renderConfigView({
       activeSection: "__appearance__",
       includeSections: ["__appearance__"],
       chatFollowUpMode: "queue",
+      chatFollowUpModeOverridden: true,
       serverQueueMode: "steer",
       setChatFollowUpMode,
+      resetChatFollowUpMode,
     });
 
     expect(container.textContent).toContain("Overriding server default (steer)");
@@ -2157,7 +2192,8 @@ describe("config view", () => {
     );
     expect(reset).toBeDefined();
     reset?.click();
-    expect(setChatFollowUpMode).toHaveBeenCalledWith(undefined);
+    expect(resetChatFollowUpMode).toHaveBeenCalledOnce();
+    expect(setChatFollowUpMode).not.toHaveBeenCalled();
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

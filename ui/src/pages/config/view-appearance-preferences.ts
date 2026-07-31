@@ -1,4 +1,5 @@
 import { html, nothing, type TemplateResult } from "lit";
+import type { ServerUiPrefProvenance } from "../../app/server-prefs.ts";
 import {
   normalizeCatalogOpenTarget,
   normalizeChatFollowUpMode,
@@ -29,16 +30,23 @@ import { renderSettingsSelectRow } from "./settings-select-row.ts";
 import { APPEARANCE_SETTINGS_TARGET_IDS } from "./settings-targets.ts";
 import type { ConfigProps } from "./view-types.ts";
 
+export function serverUiPrefProvenanceHint(provenance: ServerUiPrefProvenance): string {
+  if (provenance === "device-local") {
+    return t("quickSettings.personal.browserOnly");
+  }
+  if (provenance === "pending") {
+    return t("configView.syncPendingHint");
+  }
+  return t("configView.syncedHint");
+}
+
 export function renderLanguageSection(props: ConfigProps) {
   const defaultState = renderSettingsDefaultState({
     value: props.localeResetValue ? languageLabel(props.localeResetValue) : t("common.system"),
     overridden: props.localeOverridden,
     onReset: props.resetLocale,
   });
-  const provenance =
-    props.localeProvenance === "device-local"
-      ? t("quickSettings.personal.browserOnly")
-      : t("configView.syncedHint");
+  const provenance = serverUiPrefProvenanceHint(props.localeProvenance);
   return html`
     <section id=${APPEARANCE_SETTINGS_TARGET_IDS.language} class="settings-section">
       <div class="settings-section__header">
@@ -193,10 +201,8 @@ export function renderChatPreferencesSection(
     overridden: props.chatSendShortcutOverridden,
     onReset: props.resetChatSendShortcut,
   });
-  const sendShortcutProvenance =
-    props.chatSendShortcutProvenance === "device-local"
-      ? t("quickSettings.personal.browserOnly")
-      : t("configView.syncedHint");
+  const sendShortcutProvenance = serverUiPrefProvenanceHint(props.chatSendShortcutProvenance);
+  const followUpProvenance = serverUiPrefProvenanceHint(props.chatFollowUpModeProvenance);
   const catalogTargetDefaultState = renderSettingsDefaultState({
     value: t("chat.catalogOpenTargetViewer"),
     overridden: props.catalogOpenTarget !== UI_APPEARANCE_DEFAULTS.catalogOpenTarget,
@@ -235,7 +241,7 @@ export function renderChatPreferencesSection(
         })}
         ${renderSettingsRow({
           title: t("chat.followUpMode"),
-          description: html`${followUpDescription} ${t("configView.syncedHint")}`,
+          description: html`${followUpDescription} ${followUpProvenance}`,
           control: html`
             <select
               class="settings-select"
@@ -259,11 +265,11 @@ export function renderChatPreferencesSection(
                 ${t("chat.followUpModeQueue")}
               </option>
             </select>
-            ${props.chatFollowUpMode
+            ${props.chatFollowUpModeOverridden
               ? html`<button
                   type="button"
                   class="btn btn--sm"
-                  @click=${() => props.setChatFollowUpMode(undefined)}
+                  @click=${props.resetChatFollowUpMode}
                 >
                   ${t("chat.followUpModeReset")}
                 </button>`

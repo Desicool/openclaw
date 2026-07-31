@@ -350,7 +350,11 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       viewport: { height: 900, width: 1440 },
     });
     const page = await context.newPage();
-    const initialPrefs = { locale: "en", theme: "claw" };
+    const initialPrefs = {
+      locale: "en",
+      theme: "claw",
+      chatFollowUpMode: "queue",
+    };
     const gateway = await installMockGateway(page, {
       methodResponses: {
         "config.get": configResponse(initialPrefs, "appearance-rejected-1"),
@@ -367,11 +371,14 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       const languageSelect = languageRow.locator("wa-select");
       const themeSection = page.locator("#settings-appearance-theme");
       const themeDescription = themeSection.locator(":scope > .settings-section__desc");
+      const followUpSelect = page.locator("[data-settings-follow-up-mode]");
+      const followUpRow = page.locator(".settings-row").filter({ has: followUpSelect });
 
       await expect.poll(() => selectValue(languageSelect)).toBe("en");
       await expect
         .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
         .toBe("true");
+      await expect.poll(() => followUpSelect.inputValue()).toBe("queue");
 
       await gateway.deferNext("config.patch");
       await themeSection.locator(".settings-theme-card--knot").click();
@@ -413,19 +420,37 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
         .poll(() => languageRow.textContent())
         .toContain("Stocké uniquement dans ce navigateur");
 
+      await gateway.deferNext("config.patch");
+      await followUpSelect.selectOption("steer");
+      await waitForRequestCount(gateway, "config.patch", 3);
+      expect(
+        patchPrefs((await gateway.getRequests("config.patch"))[2] as MockGatewayRequest),
+      ).toEqual({ chatFollowUpMode: "steer" });
+      await gateway.rejectDeferred("config.patch", {
+        code: "INVALID_REQUEST",
+        message: "mock validation failure",
+      });
+
+      await expect.poll(() => followUpSelect.inputValue()).toBe("steer");
+      await expect
+        .poll(() => followUpRow.textContent())
+        .toContain("Stocké uniquement dans ce navigateur");
+
       await themeSection
         .locator(":scope > .settings-section__header")
         .locator("button.btn--icon")
         .click();
       await languageRow.locator("button.btn--icon").click();
+      await followUpRow.locator("button.btn--sm").click();
 
       await expect
         .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
         .toBe("true");
       await expect.poll(() => selectValue(languageSelect)).toBe("en");
+      await expect.poll(() => followUpSelect.inputValue()).toBe("queue");
       await expect.poll(() => page.locator("html").getAttribute("lang")).toBe("en");
       await page.waitForTimeout(100);
-      expect(await gateway.getRequests("config.patch")).toHaveLength(2);
+      expect(await gateway.getRequests("config.patch")).toHaveLength(3);
     } finally {
       await context.close();
     }

@@ -28,6 +28,7 @@ import {
   normalizeChatSendShortcut,
   patchSettings,
   UI_APPEARANCE_DEFAULTS,
+  type ChatFollowUpMode,
   type ChatSendShortcut,
   type UiSettings,
 } from "../../app/settings.ts";
@@ -731,6 +732,15 @@ export class ConfigPage extends OpenClawLightDomElement {
     );
   }
 
+  private currentChatFollowUpModePref(): ServerUiPrefState<ChatFollowUpMode> {
+    return resolveServerUiPrefState(
+      this.context.runtimeConfig.state.configSnapshot?.config,
+      "chatFollowUpMode",
+      this.context.gateway.connection.gatewayUrl,
+      this.settings,
+    );
+  }
+
   private resetLocale() {
     this.settings = resetServerUiPref("locale", this.currentLocalePref());
     if (isSupportedLocale(this.settings.locale)) {
@@ -740,7 +750,9 @@ export class ConfigPage extends OpenClawLightDomElement {
     }
   }
 
-  private resetSyncedAppearancePref(key: "theme" | "themeMode" | "chatSendShortcut") {
+  private resetSyncedAppearancePref(
+    key: "theme" | "themeMode" | "chatSendShortcut" | "chatFollowUpMode",
+  ) {
     switch (key) {
       case "theme":
         this.settings = resetServerUiPref("theme", this.currentThemePref());
@@ -750,6 +762,9 @@ export class ConfigPage extends OpenClawLightDomElement {
         break;
       case "chatSendShortcut":
         this.settings = resetServerUiPref("chatSendShortcut", this.currentChatSendShortcutPref());
+        break;
+      case "chatFollowUpMode":
+        this.settings = resetServerUiPref("chatFollowUpMode", this.currentChatFollowUpModePref());
         break;
     }
     this.context.theme.refresh();
@@ -907,21 +922,11 @@ export class ConfigPage extends OpenClawLightDomElement {
     const gatewayConfig = asConfigRecord(configObject.gateway);
     const controlUiConfig = asConfigRecord(gatewayConfig?.controlUi);
     const agentsDefaults = asConfigRecord(asConfigRecord(configObject.agents)?.defaults);
-    const prefScope = this.context.gateway.connection.gatewayUrl;
-    const themePref = resolveServerUiPrefState(configObject, "theme", prefScope, this.settings);
-    const themeModePref = resolveServerUiPrefState(
-      configObject,
-      "themeMode",
-      prefScope,
-      this.settings,
-    );
-    const localePref = resolveServerUiPrefState(configObject, "locale", prefScope, this.settings);
-    const chatSendShortcutPref = resolveServerUiPrefState(
-      configObject,
-      "chatSendShortcut",
-      prefScope,
-      this.settings,
-    );
+    const themePref = this.currentThemePref();
+    const themeModePref = this.currentThemeModePref();
+    const localePref = this.currentLocalePref();
+    const chatSendShortcutPref = this.currentChatSendShortcutPref();
+    const chatFollowUpModePref = this.currentChatFollowUpModePref();
     const sessionObserverBusy =
       !configState.connected ||
       configState.configSaving ||
@@ -1058,12 +1063,15 @@ export class ConfigPage extends OpenClawLightDomElement {
       setChatSendShortcut: (value) => this.setSetting("chatSendShortcut", value),
       resetChatSendShortcut: () => this.resetSyncedAppearancePref("chatSendShortcut"),
       chatFollowUpMode: this.settings.chatFollowUpMode,
+      chatFollowUpModeOverridden: chatFollowUpModePref.overridden,
+      chatFollowUpModeProvenance: chatFollowUpModePref.provenance,
       serverQueueMode: configState.configSnapshot
         ? resolveControlUiServerQueueMode(configState.configSnapshot.runtimeConfig, {
             configNeedsApply: configState.configNeedsApply,
           })
         : undefined,
       setChatFollowUpMode: (value) => this.setSetting("chatFollowUpMode", value),
+      resetChatFollowUpMode: () => this.resetSyncedAppearancePref("chatFollowUpMode"),
       catalogOpenTarget: normalizeCatalogOpenTarget(this.settings.catalogOpenTarget),
       setCatalogOpenTarget: (value) => this.setSetting("catalogOpenTarget", value),
       microphone: {

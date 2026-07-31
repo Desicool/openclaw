@@ -1412,6 +1412,7 @@ export const en: TranslationMap = {
       xxl: "XXL",
     },
     syncedHint: "Synced across your devices through the gateway.",
+    syncPendingHint: "Waiting to sync through the gateway.",
     notifications: {
       title: "Push notifications",
       nativeTitle: "Notifications",

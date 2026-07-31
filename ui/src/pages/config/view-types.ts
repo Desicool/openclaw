@@ -152,8 +152,11 @@ export type ConfigProps = {
   setChatSendShortcut: (value: ChatSendShortcut) => void;
   resetChatSendShortcut: () => void;
   chatFollowUpMode: ChatFollowUpMode | undefined;
+  chatFollowUpModeOverridden: boolean;
+  chatFollowUpModeProvenance: ServerUiPrefProvenance;
   serverQueueMode: QueueMode | undefined;
   setChatFollowUpMode: (value: ChatFollowUpMode | undefined) => void;
+  resetChatFollowUpMode: () => void;
   catalogOpenTarget: CatalogOpenTarget;
   setCatalogOpenTarget: (value: CatalogOpenTarget) => void;
   microphone?: SettingsMediaDeviceState;

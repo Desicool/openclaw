@@ -122,7 +122,7 @@ type ServerUiPrefsCommit = {
   needsRefresh: boolean;
   retainedLocal?: boolean;
 };
-export type ServerUiPrefProvenance = "default" | "synced" | "device-local";
+export type ServerUiPrefProvenance = "default" | "pending" | "synced" | "device-local";
 export type ServerUiPrefState<T> = {
   overridden: boolean;
   provenance: ServerUiPrefProvenance;
@@ -173,11 +173,11 @@ export function resolveServerUiPrefState<K extends SyncedPrefKey>(
   if (shadowPrefs && key in shadowPrefs) {
     const shadowValue = shadowPrefs[key];
     if (shadowValue === null) {
-      return localState(productDefault);
+      return { ...localState(productDefault), provenance: "pending" };
     }
     return {
       overridden: true,
-      provenance: "synced",
+      provenance: "pending",
       resetValue: productDefault,
       value: shadowValue as SyncedPrefValue<K>,
     };
