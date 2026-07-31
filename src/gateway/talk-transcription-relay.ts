@@ -15,9 +15,11 @@ import {
   createTalkSessionController,
 } from "../talk/talk-session-controller.js";
 import type { GatewayRequestContext } from "./server-methods/shared-types.js";
+import { formatError } from "./server-utils.js";
 import { decodeTalkRelayAudioBase64 } from "./talk-relay-audio-base64.js";
 import {
   closeExpiredTalkRelaySessions,
+  closeTalkRelaySessionsForConnection,
   requireActiveTalkRelaySession,
 } from "./talk-relay-session-lifecycle.js";
 
@@ -182,16 +184,35 @@ function closeTranscriptionSession(
   session.closed = true;
   transcriptionSessions.delete(session.id);
   clearTimeout(session.cleanupTimer);
-  session.sttSession.close();
-  broadcastToOwner(session.context, session.connId, {
-    transcriptionSessionId: session.id,
-    type: "close",
-    reason,
-    talkEvent: session.talk.emit({
-      type: "session.closed",
-      payload: { reason },
-      final: true,
-    }),
+  try {
+    session.sttSession.close();
+  } finally {
+    // Provider teardown may throw, but the owner-visible terminal event must
+    // still complete so disconnect cleanup cannot leave ambiguous state.
+    broadcastToOwner(session.context, session.connId, {
+      transcriptionSessionId: session.id,
+      type: "close",
+      reason,
+      talkEvent: session.talk.emit({
+        type: "session.closed",
+        payload: { reason },
+        final: true,
+      }),
+    });
+  }
+}
+
+/** Releases every transcription relay owned by a disconnected gateway connection. */
+export function closeTalkTranscriptionRelaySessionsForConnection(connId: string): void {
+  closeTalkRelaySessionsForConnection({
+    sessions: transcriptionSessions.values(),
+    connId,
+    closeSession: (session) => closeTranscriptionSession(session, "completed"),
+    onCloseError: (error, session) => {
+      session.context.logGateway.warn(
+        `failed to close transcription relay session after connection disconnect: ${formatError(error)}`,
+      );
+    },
   });
 }
 
@@ -334,9 +355,16 @@ export function createTalkTranscriptionRelaySession(
   sttSession
     .connect()
     .then(() => {
+      if (transcriptionSessions.get(transcriptionSessionId) !== relay) {
+        return;
+      }
       emit({ transcriptionSessionId, type: "ready" }, { type: "session.ready", payload: null });
     })
     .catch((error: unknown) => {
+      const active = transcriptionSessions.get(transcriptionSessionId);
+      if (active !== relay) {
+        return;
+      }
       emit(
         {
           transcriptionSessionId,
@@ -349,10 +377,7 @@ export function createTalkTranscriptionRelaySession(
           final: true,
         },
       );
-      const active = transcriptionSessions.get(transcriptionSessionId);
-      if (active) {
-        closeTranscriptionSession(active, "error");
-      }
+      closeTranscriptionSession(active, "error");
     });
 
   return {

@@ -41,6 +41,7 @@ import {
 import { decodeTalkRelayAudioBase64 } from "./talk-relay-audio-base64.js";
 import {
   closeExpiredTalkRelaySessions,
+  closeTalkRelaySessionsForConnection,
   requireActiveTalkRelaySession,
 } from "./talk-relay-session-lifecycle.js";
 import { forgetUnifiedTalkSession } from "./talk-session-registry.js";
@@ -115,17 +116,16 @@ export function closeRelaySession(session: RelaySession, reason: "completed" | "
 
 /** Releases every realtime relay session owned by a disconnected gateway connection. */
 export function closeTalkRealtimeRelaySessionsForConnection(connId: string): void {
-  for (const session of relaySessions.values()) {
-    if (session.connId === connId) {
-      try {
-        closeRelaySession(session, "completed");
-      } catch (error) {
-        session.context.logGateway.warn(
-          `failed to close realtime relay session after connection disconnect: ${formatError(error)}`,
-        );
-      }
-    }
-  }
+  closeTalkRelaySessionsForConnection({
+    sessions: relaySessions.values(),
+    connId,
+    closeSession: (session) => closeRelaySession(session, "completed"),
+    onCloseError: (error, session) => {
+      session.context.logGateway.warn(
+        `failed to close realtime relay session after connection disconnect: ${formatError(error)}`,
+      );
+    },
+  });
 }
 
 function pruneExpiredRelaySessions(nowMs = Date.now()): void {

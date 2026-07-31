@@ -16,6 +16,7 @@ const {
   attachWorkerWsMessageHandlerMock,
   broadcastPresenceSnapshotMock,
   closeTalkRealtimeRelaySessionsForConnectionMock,
+  closeTalkTranscriptionRelaySessionsForConnectionMock,
   touchPresenceMock,
   upsertPresenceMock,
 } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ const {
   attachWorkerWsMessageHandlerMock: vi.fn((_params: unknown) => vi.fn()),
   broadcastPresenceSnapshotMock: vi.fn(),
   closeTalkRealtimeRelaySessionsForConnectionMock: vi.fn(),
+  closeTalkTranscriptionRelaySessionsForConnectionMock: vi.fn(),
   touchPresenceMock: vi.fn(),
   upsertPresenceMock: vi.fn(),
 }));
@@ -42,6 +44,10 @@ vi.mock("./presence-events.js", () => ({
 }));
 vi.mock("../talk-realtime-relay.js", () => ({
   closeTalkRealtimeRelaySessionsForConnection: closeTalkRealtimeRelaySessionsForConnectionMock,
+}));
+vi.mock("../talk-transcription-relay.js", () => ({
+  closeTalkTranscriptionRelaySessionsForConnection:
+    closeTalkTranscriptionRelaySessionsForConnectionMock,
 }));
 
 import { attachGatewayWsConnectionHandler } from "./ws-connection.js";
@@ -97,6 +103,7 @@ describe("attachGatewayWsConnectionHandler", () => {
     attachWorkerWsMessageHandlerMock.mockClear();
     broadcastPresenceSnapshotMock.mockReset();
     closeTalkRealtimeRelaySessionsForConnectionMock.mockReset();
+    closeTalkTranscriptionRelaySessionsForConnectionMock.mockReset();
     touchPresenceMock.mockReset();
     upsertPresenceMock.mockReset();
   });
@@ -268,7 +275,7 @@ describe("attachGatewayWsConnectionHandler", () => {
     expect(socket.ping).toHaveBeenCalledOnce();
   });
 
-  it("releases realtime Talk relays when a gateway connection closes", async () => {
+  it("releases connection-owned Talk relays when a gateway connection closes", async () => {
     const { passed, socket } = await connectTestWs();
     const handlerParams = passed as {
       connId: string;
@@ -287,6 +294,10 @@ describe("attachGatewayWsConnectionHandler", () => {
 
     expect(closeTalkRealtimeRelaySessionsForConnectionMock).toHaveBeenCalledOnce();
     expect(closeTalkRealtimeRelaySessionsForConnectionMock).toHaveBeenCalledWith(
+      handlerParams.connId,
+    );
+    expect(closeTalkTranscriptionRelaySessionsForConnectionMock).toHaveBeenCalledOnce();
+    expect(closeTalkTranscriptionRelaySessionsForConnectionMock).toHaveBeenCalledWith(
       handlerParams.connId,
     );
   });

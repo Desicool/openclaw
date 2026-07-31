@@ -103,12 +103,17 @@ describe("talk realtime gateway relay", () => {
     const bridgeAudioSends: Array<ReturnType<typeof vi.fn>> = [];
     const provider = createIdleRelayProvider();
     provider.createBridge = () => {
+      const bridgeIndex = bridgeCloses.length;
       const close = vi.fn();
       const sendAudio = vi.fn();
       bridgeCloses.push(close);
       bridgeAudioSends.push(sendAudio);
       return {
-        connect: vi.fn(async () => undefined),
+        connect: vi.fn(async () => {
+          if (bridgeIndex === 1) {
+            throw new Error("late connect failure");
+          }
+        }),
         sendAudio,
         setMediaTimestamp: vi.fn(),
         handleBargeIn: vi.fn(),
@@ -155,6 +160,8 @@ describe("talk realtime gateway relay", () => {
 
       expect(() => closeTalkRealtimeRelaySessionsForConnection("conn-owner")).not.toThrow();
       closeTalkRealtimeRelaySessionsForConnection("conn-owner");
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(bridgeCloses[0]).toHaveBeenCalledOnce();
       expect(bridgeCloses[1]).toHaveBeenCalledOnce();
@@ -177,6 +184,14 @@ describe("talk realtime gateway relay", () => {
             payload.talkEvent.final === true,
         ),
       ).toBe(true);
+      expect(
+        broadcastToConnIds.mock.calls.some(
+          ([event, payload]) =>
+            event === "talk.event" &&
+            payload.relaySessionId === secondOwned.relaySessionId &&
+            payload.type === "error",
+        ),
+      ).toBe(false);
       expect(() =>
         sendTalkRealtimeRelayAudio({
           relaySessionId: firstOwned.relaySessionId,

@@ -465,6 +465,10 @@ export function createTalkRealtimeRelaySession(
   relay.cleanupTimer.unref?.();
   relaySessions.set(relaySessionId, relay);
   bridge.connect().catch((error: unknown) => {
+    const active = relaySessions.get(relaySessionId);
+    if (active !== relay) {
+      return;
+    }
     const issue = realtimeRelayIssue({
       message: formatErrorMessage(error),
       provider: params.provider.id,
@@ -477,10 +481,7 @@ export function createTalkRealtimeRelaySession(
       payload: issue,
       final: true,
     });
-    const active = relaySessions.get(relaySessionId);
-    if (active) {
-      closeRelaySession(active, "error");
-    }
+    closeRelaySession(active, "error");
   });
 
   return {
