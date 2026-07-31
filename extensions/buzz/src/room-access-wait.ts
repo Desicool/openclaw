@@ -1,4 +1,4 @@
-import type { Event } from "nostr-tools";
+import type { Event, Relay } from "nostr-tools";
 import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
 import { discoverBuzzRoomsOnRelay, type BuzzDiscoveredRoom } from "./room-discovery.js";
 import { BUZZ_CHANNEL_ID_PATTERN } from "./target.js";

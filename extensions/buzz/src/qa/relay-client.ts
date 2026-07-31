@@ -1,4 +1,4 @@
-import { finalizeEvent, type Event } from "nostr-tools";
+import { finalizeEvent, type Event, type Relay } from "nostr-tools";
 import {
   buildBuzzMessageTags,
   parseBuzzMessageEvent,

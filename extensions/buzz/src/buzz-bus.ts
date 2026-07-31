@@ -15,6 +15,7 @@ import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import {
   BUZZ_ROOM_SYSTEM_KIND,
+  isNewerBuzzRoomMembership,
   parseBuzzRoomMembershipChangeEvent,
   type BuzzRoomMembership,
 } from "./room-membership.js";
