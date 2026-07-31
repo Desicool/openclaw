@@ -16,6 +16,7 @@ import { probeLocalCommand } from "./probes.js";
 import {
   listSetupInferenceAuthOptions,
   listSetupInferenceManualProviders,
+  listSetupInferencePrepareOptions,
   supportsSetupTextInference,
 } from "./setup-inference-auth-options.js";
 import {
@@ -64,7 +65,10 @@ function resolveConfiguredCandidateKind(
 export async function listManualSetupInferenceOptions(
   deps: DetectSetupInferenceDeps = {},
 ): Promise<
-  Pick<SetupInferenceDetection, "manualProviders" | "authOptions" | "workspace" | "setupComplete">
+  Pick<
+    SetupInferenceDetection,
+    "manualProviders" | "authOptions" | "prepareOptions" | "workspace" | "setupComplete"
+  >
 > {
   const { readConfigFileSnapshot } = await import("../config/config.js");
   const snapshot = await readConfigFileSnapshot();
@@ -89,6 +93,7 @@ export async function listManualSetupInferenceOptions(
   return {
     manualProviders: listSetupInferenceManualProviders(authChoices),
     authOptions: listSetupInferenceAuthOptions(authChoices),
+    prepareOptions: listSetupInferencePrepareOptions(authChoices),
     workspace,
     // Derived from config only (no probing): a pre-existing default model must
     // keep classifying the install as configured even when scanning declined.
@@ -157,6 +162,7 @@ export async function detectSetupInference(
   );
   const manualProviders = listSetupInferenceManualProviders(authChoices);
   const authOptions = listSetupInferenceAuthOptions(authChoices);
+  const prepareOptions = listSetupInferencePrepareOptions(authChoices);
   unavailableCandidates.push(...deferredUnavailableCandidates);
   const candidates: SetupInferenceCandidate[] = raw.map((candidate) =>
     // Released macOS clients require this field. Keep it false so the wire
@@ -250,6 +256,7 @@ export async function detectSetupInference(
     unavailableCandidates,
     manualProviders,
     authOptions,
+    prepareOptions,
     recommendedInstalls: listRecommendedToolInstalls(),
     workspace,
     ...(configuredModel ? { configuredModel } : {}),
