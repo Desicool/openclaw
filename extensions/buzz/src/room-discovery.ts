@@ -1,5 +1,5 @@
-import { Relay, type Event, type Filter } from "nostr-tools";
-import { authenticateBuzzRelay, createBuzzAuthSigner, parseBuzzAuthTag } from "./relay-auth.js";
+import type { Event, Filter, Relay } from "nostr-tools";
+import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
 import { BUZZ_ROOM_MEMBERSHIP_KIND, parseBuzzRoomMembershipEvent } from "./room-membership.js";
 import { BUZZ_CHANNEL_ID_PATTERN } from "./target.js";
 import { decodeBuzzPrivateKey, resolveBuzzPublicKey } from "./types.js";
@@ -149,18 +149,14 @@ export async function discoverBuzzRooms(params: {
   // Status callers must not wait for a fresh timeout at every relay phase.
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
-  const relay = new Relay(params.relayUrl, { enableReconnect: false });
-  const signAuth = createBuzzAuthSigner({
+  const relay = await connectAuthenticatedBuzzRelay({
+    relayUrl: params.relayUrl,
     secretKey,
     authTag: parseBuzzAuthTag(params.authTag ?? ""),
+    signal,
   });
 
   try {
-    await relay.connect({ abort: signal });
-    // Buzz authorizes historical membership and metadata reads only after NIP-42.
-    await authenticateBuzzRelay({ relay, signAuth, signal });
-    relay.onauth = signAuth;
-
     // Buzz's relay publishes authenticated kind-39002 membership lists for room
     // discovery. Require the explicit Bot role before setup or probes accept a room.
     return await discoverBuzzRoomsOnRelay({

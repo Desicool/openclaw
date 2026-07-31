@@ -1,10 +1,10 @@
-import { Relay, finalizeEvent, type Event } from "nostr-tools";
+import { finalizeEvent, type Event } from "nostr-tools";
 import {
   buildBuzzMessageTags,
   parseBuzzMessageEvent,
   type BuzzInboundMessage,
 } from "../message-event.js";
-import { authenticateBuzzRelay, createBuzzAuthSigner, parseBuzzAuthTag } from "../relay-auth.js";
+import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "../relay-auth.js";
 import {
   BUZZ_ROOM_MEMBERSHIP_KIND,
   isNewerBuzzRoomMembership,
@@ -104,19 +104,17 @@ export async function createBuzzQaRelayDriver(params: {
 }): Promise<BuzzQaRelayDriver> {
   const credentials = params.credentials;
   const secretKey = decodeBuzzPrivateKey(credentials.driverPrivateKey);
-  const relay = new Relay(credentials.relayUrl, { enableReconnect: false });
   const lifecycleAbort = new AbortController();
-  const signAuth = createBuzzAuthSigner({
-    secretKey,
-    authTag: parseBuzzAuthTag(credentials.driverAuthTag ?? ""),
-  });
   let transportError: Error | undefined;
   let messageQueue = Promise.resolve();
   const observedEventIds = new Set<string>();
+  const relay = await connectAuthenticatedBuzzRelay({
+    relayUrl: credentials.relayUrl,
+    secretKey,
+    authTag: parseBuzzAuthTag(credentials.driverAuthTag ?? ""),
+    signal: lifecycleAbort.signal,
+  });
   try {
-    await relay.connect({ abort: lifecycleAbort.signal });
-    await authenticateBuzzRelay({ relay, signAuth, signal: lifecycleAbort.signal });
-    relay.onauth = signAuth;
     assertBuzzQaMembership(
       await loadBuzzQaRoomMembership({ relay, roomId: credentials.roomId }),
       credentials,

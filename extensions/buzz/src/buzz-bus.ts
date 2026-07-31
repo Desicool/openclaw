@@ -1,4 +1,4 @@
-import { Relay, finalizeEvent, type Event } from "nostr-tools";
+import { type Relay, finalizeEvent, type Event } from "nostr-tools";
 import { createChannelReplayGuard } from "openclaw/plugin-sdk/persistent-dedupe";
 import { startBuzzDirectoryRelay } from "./directory-relay.js";
 import { BuzzDirectoryState } from "./directory-state.js";
@@ -11,7 +11,7 @@ import {
   type BuzzInboundMessage,
 } from "./message-event.js";
 import { syncBuzzProfile } from "./profile.js";
-import { authenticateBuzzRelay, createBuzzAuthSigner, parseBuzzAuthTag } from "./relay-auth.js";
+import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
 import {
   BUZZ_ROOM_MEMBERSHIP_KIND,
   BUZZ_ROOM_SYSTEM_KIND,
@@ -140,28 +140,6 @@ function startBuzzPresenceHeartbeat(params: {
     stopped = true;
     clearInterval(timer);
   };
-}
-
-async function connectAuthenticatedBuzzRelay(params: {
-  relayUrl: string;
-  secretKey: Uint8Array;
-  authTag?: string[];
-  signal?: AbortSignal;
-}): Promise<Relay> {
-  const relay = new Relay(params.relayUrl, { enableReconnect: false });
-  const signAuth = createBuzzAuthSigner({
-    secretKey: params.secretKey,
-    authTag: params.authTag,
-  });
-  try {
-    await relay.connect({ abort: params.signal });
-    await authenticateBuzzRelay({ relay, signAuth, signal: params.signal });
-    relay.onauth = signAuth;
-    return relay;
-  } catch (error) {
-    relay.close();
-    throw error;
-  }
 }
 
 async function sleepWithSignal(delayMs: number, signal?: AbortSignal): Promise<void> {

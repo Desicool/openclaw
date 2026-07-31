@@ -1,4 +1,4 @@
-import { type EventTemplate, finalizeEvent, type Relay, type VerifiedEvent } from "nostr-tools";
+import { type EventTemplate, finalizeEvent, Relay, type VerifiedEvent } from "nostr-tools";
 
 const AUTH_CHALLENGE_TIMEOUT_MS = 20_000;
 const AUTH_CHALLENGE_POLL_MS = 25;
@@ -47,6 +47,28 @@ export function createBuzzAuthSigner(params: {
       },
       params.secretKey,
     );
+}
+
+export async function connectAuthenticatedBuzzRelay(params: {
+  relayUrl: string;
+  secretKey: Uint8Array;
+  authTag?: string[];
+  signal?: AbortSignal;
+}): Promise<Relay> {
+  const relay = new Relay(params.relayUrl, { enableReconnect: false });
+  const signAuth = createBuzzAuthSigner({
+    secretKey: params.secretKey,
+    authTag: params.authTag,
+  });
+  try {
+    await relay.connect({ abort: params.signal });
+    await authenticateBuzzRelay({ relay, signAuth, signal: params.signal });
+    relay.onauth = signAuth;
+    return relay;
+  } catch (error) {
+    relay.close();
+    throw error;
+  }
 }
 
 export async function authenticateBuzzRelay(params: {
