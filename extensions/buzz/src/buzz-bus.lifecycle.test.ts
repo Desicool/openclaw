@@ -389,6 +389,11 @@ describe("Buzz bus lifecycle", () => {
     expect(
       relayMocks.subscriptions.filter((entry) => subscriptionIncludesKind(entry, 40_099)),
     ).toHaveLength(2);
+    for (const subscription of relayMocks.subscriptions.filter((entry) =>
+      subscriptionIncludesKind(entry, 9),
+    )) {
+      expect(subscription.filters.find((filter) => filter.kinds?.includes(9))?.limit).toBe(100);
+    }
 
     await bus.close();
   });
@@ -432,6 +437,50 @@ describe("Buzz bus lifecycle", () => {
     );
     stalledSubscription?.handlers.oneose?.();
     const bus = await start;
+    await bus.close();
+  });
+
+  it("bounds replay dispatch when a relay ignores the historical limit", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.roomHistoryEvents = Array.from({ length: 1_033 }, (_, index) => ({
+      id: index.toString(16).padStart(64, "0"),
+      kind: 9,
+      pubkey: SENDER_PUBLIC_KEY,
+      created_at: 1_700_000_000 + index,
+      content: `historical message ${index}`,
+      sig: "e".repeat(128),
+      tags: [["h", CHANNEL_ID]],
+    }));
+    let releaseMessages: (() => void) | undefined;
+    const messageGate = new Promise<void>((resolve) => {
+      releaseMessages = resolve;
+    });
+    const onMessage = vi.fn(async () => {
+      await messageGate;
+    });
+    const onFatalError = vi.fn();
+
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage,
+      onFatalError,
+    });
+
+    await vi.waitFor(() => {
+      expect(onFatalError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Buzz inbound replay exceeded the 1024-message pending limit",
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(8));
+    expect(relayMocks.close).toHaveBeenCalled();
+
+    releaseMessages?.();
+    await Promise.all(onMessage.mock.results.map((result) => result.value));
     await bus.close();
   });
 

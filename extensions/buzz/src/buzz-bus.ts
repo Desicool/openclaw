@@ -18,6 +18,11 @@ import {
   parseBuzzAuthTag,
 } from "./relay-auth.js";
 import { openBuzzRelaySubscription } from "./relay-subscription.js";
+import {
+  BUZZ_REPLAY_DISPATCH_MAX_PENDING,
+  createBuzzReplayDispatchQueue,
+  resolveBuzzRoomHistoryLimit,
+} from "./replay-dispatch.js";
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import {
   BUZZ_ROOM_SYSTEM_KIND,
@@ -186,6 +191,7 @@ async function createBuzzRoomMembershipTracker(params: {
   botPublicKey: string;
   since: number;
   messageSince: number;
+  messageLimit: number;
   onMessageEvent: (
     event: Event,
     isMember: (channelId: string, publicKey: string) => boolean,
@@ -423,6 +429,7 @@ async function createBuzzRoomMembershipTracker(params: {
               kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
               "#h": [channelId],
               since: params.messageSince,
+              limit: params.messageLimit,
             },
           ],
           {
@@ -551,6 +558,11 @@ export async function startBuzzBus(options: {
     authTag,
     signal,
   });
+  const dispatchQueue = createBuzzReplayDispatchQueue({
+    onTaskError: (error) => {
+      options.onMessageError?.(error instanceof Error ? error : new Error(String(error)));
+    },
+  });
   const directory = new BuzzDirectoryState({
     publicKey,
     fallbackProfileName: options.profileName ?? "OpenClaw",
@@ -588,6 +600,7 @@ export async function startBuzzBus(options: {
       lifecycleAbort.abort(new Error("Buzz bus closed"));
       stopPresenceHeartbeat();
       directoryRelay?.close();
+      dispatchQueue.close();
       replayGuard.clearMemory();
       relay.close();
     },
@@ -601,8 +614,9 @@ export async function startBuzzBus(options: {
       botPublicKey: publicKey,
       since: sessionStartedAt,
       messageSince: options.since ?? sessionStartedAt,
+      messageLimit: resolveBuzzRoomHistoryLimit(options.channelIds.length),
       onMessageEvent: (event, isMember) => {
-        if (event.pubkey === publicKey) {
+        if (signal.aborted || event.pubkey === publicKey) {
           return;
         }
         const message = parseBuzzMessageEvent(event);
@@ -610,14 +624,22 @@ export async function startBuzzBus(options: {
           return;
         }
         // Relay reconnects can replay signed events. Only admitted room
-        // members reach the persistent dedupe store or agent pipeline.
-        void replayGuard
-          .processGuarded(event, async () => {
+        // members reach the bounded dispatch queue. Dedupe claims are acquired
+        // only by active workers, so replay cannot create unbounded in-flight state.
+        const admission = dispatchQueue.enqueue(async () => {
+          await replayGuard.processGuarded(event, async () => {
             await options.onMessage(message, bus);
-          })
-          .catch((error: unknown) => {
-            options.onMessageError?.(error instanceof Error ? error : new Error(String(error)));
           });
+        });
+        if (admission === "overflow") {
+          dispatchQueue.close();
+          reportFatalError(
+            new Error(
+              `Buzz inbound replay exceeded the ${BUZZ_REPLAY_DISPATCH_MAX_PENDING}-message pending limit`,
+            ),
+          );
+          relay.close();
+        }
       },
       onFatalError: reportFatalError,
       onMembershipsChanged: (memberships) => {
