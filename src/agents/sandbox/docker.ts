@@ -60,7 +60,7 @@ import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
 import { computeSandboxConfigHash } from "./config-hash.js";
 import { DEFAULT_SANDBOX_IMAGE, SANDBOX_DOCKER_CREATE_ARGS_EPOCH } from "./constants.js";
 import { handleHotSandboxConfigMismatch } from "./current-config.js";
-import { readRegistryEntry, updateRegistry } from "./registry.js";
+import { readRegistryEntry, removeRegistryEntry, updateRegistry } from "./registry.js";
 import { buildSandboxContainerName, slugifySessionKey } from "./shared.js";
 import type { SandboxConfig, SandboxDockerConfig, SandboxWorkspaceAccess } from "./types.js";
 import { validateSandboxSecurity } from "./validate-sandbox-security.js";
@@ -534,7 +534,7 @@ async function ensureSandboxContainerLifecycle(
   const engine = podmanRuntimeInfo
     ? bindPodmanSandboxEngine(podmanRuntimeInfo.target)
     : configuredEngine;
-  const existingRegistryEntry = await readRegistryEntry(containerName);
+  let existingRegistryEntry = await readRegistryEntry(containerName);
   if (engine.id === "podman" && existingRegistryEntry) {
     if (!existingRegistryEntry.backendTarget) {
       throw Object.assign(
@@ -544,7 +544,19 @@ async function ensureSandboxContainerLifecycle(
         { code: "INVALID_CONFIG" },
       );
     }
-    assertPodmanSandboxTarget(existingRegistryEntry.backendTarget, podmanRuntimeInfo!.target);
+    try {
+      assertPodmanSandboxTarget(existingRegistryEntry.backendTarget, podmanRuntimeInfo!.target);
+    } catch (error) {
+      const recordedEngine = bindPodmanSandboxEngine(existingRegistryEntry.backendTarget);
+      const recordedState = await containerState(recordedEngine, containerName);
+      if (recordedState.exists) {
+        throw error;
+      }
+      // A removed or replaced Podman target can leave registry metadata behind.
+      // Drop it only after the recorded target no longer exposes the runtime.
+      await removeRegistryEntry(containerName);
+      existingRegistryEntry = null;
+    }
   }
   const readOnlyWorkspaceSkillMounts = resolveReadOnlyWorkspaceSkillMounts({
     workspaceDir: params.workspaceDir,

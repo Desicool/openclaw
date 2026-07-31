@@ -100,7 +100,7 @@ export async function execContainerRaw(
   if (exitCode !== 0 && !opts?.allowFailure) {
     const message = stderr.length > 0 ? stderr.toString("utf8").trim() : "";
     const error: ExecDockerRawError = Object.assign(
-      new Error(message || `${engine.command} ${args.join(" ")} failed`),
+      new Error(message || `${engine.displayName} command failed (exit ${exitCode})`),
       { code: exitCode, stdout, stderr },
     );
     throw error;

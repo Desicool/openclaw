@@ -30,6 +30,7 @@ const spawnState = vi.hoisted(() => ({
 
 const registryMocks = vi.hoisted(() => ({
   readRegistryEntry: vi.fn(),
+  removeRegistryEntry: vi.fn(),
   updateRegistry: vi.fn(),
 }));
 
@@ -47,6 +48,7 @@ function makeTempDir(): string {
 
 vi.mock("./registry.js", () => ({
   readRegistryEntry: registryMocks.readRegistryEntry,
+  removeRegistryEntry: registryMocks.removeRegistryEntry,
   updateRegistry: registryMocks.updateRegistry,
 }));
 
@@ -143,6 +145,7 @@ async function loadFreshDockerModuleForTest() {
   vi.resetModules();
   vi.doMock("./registry.js", () => ({
     readRegistryEntry: registryMocks.readRegistryEntry,
+    removeRegistryEntry: registryMocks.removeRegistryEntry,
     updateRegistry: registryMocks.updateRegistry,
   }));
   vi.doMock("../../process/exec.js", async (importOriginal) => ({
@@ -244,6 +247,8 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     spawnState.podmanInfo = "true\tfalse\n";
     spawnState.podmanConnections = "[]\n";
     registryMocks.readRegistryEntry.mockClear();
+    registryMocks.removeRegistryEntry.mockClear();
+    registryMocks.removeRegistryEntry.mockResolvedValue(undefined);
     registryMocks.updateRegistry.mockClear();
     registryMocks.updateRegistry.mockResolvedValue(undefined);
     runtimeMocks.log.mockClear();
@@ -693,7 +698,51 @@ describe("ensureSandboxContainer config-hash recreation", () => {
         cfg,
       }),
     ).rejects.toThrow(/active Podman connection changed/u);
-    expect(spawnState.calls.some((call) => call.args[0] === "inspect")).toBe(false);
+    expect(registryMocks.removeRegistryEntry).not.toHaveBeenCalled();
+    expect(spawnState.calls).toContainEqual(
+      expect.objectContaining({
+        command: "podman",
+        globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/user/501/podman/podman.sock"],
+        args: ["inspect", "-f", "{{.State.Running}}", "oc-test-podman-shared"],
+      }),
+    );
+  });
+
+  it("recovers when a Podman target changed after the recorded runtime disappeared", async () => {
+    const cfg = createSandboxConfig([]);
+    spawnState.containerExists = false;
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue({
+      containerName: "oc-test-podman-shared",
+      backendId: "podman",
+      backendTarget: {
+        key: `machine:${"a".repeat(32)}`,
+        globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/user/501/podman/podman.sock"],
+      },
+      sessionKey: "shared",
+      createdAtMs: 1,
+      lastUsedAtMs: 1,
+      image: cfg.docker.image,
+    });
+
+    await expect(
+      ensureSandboxContainer({
+        engine: PODMAN_SANDBOX_ENGINE,
+        scopeKey: "shared",
+        workspaceDir: "/tmp/workspace",
+        agentWorkspaceDir: "/tmp/workspace",
+        cfg,
+      }),
+    ).resolves.toBe("oc-test-podman-shared");
+
+    expect(registryMocks.removeRegistryEntry).toHaveBeenCalledWith("oc-test-podman-shared");
+    expect(spawnState.calls).toContainEqual(
+      expect.objectContaining({
+        command: "podman",
+        globalArgs: [],
+        args: expect.arrayContaining(["create", "--name", "oc-test-podman-shared"]),
+      }),
+    );
   });
 
   it("uses collision-safe Docker name truncation for a long container prefix", async () => {

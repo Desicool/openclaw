@@ -24,6 +24,7 @@ const spawnState = vi.hoisted(() => ({
   executionError: undefined as Error | undefined,
   transportFailure: false,
   transportExitCode: 0,
+  plainExitWithoutStderr: false,
 }));
 
 async function spawnDockerProcess(commandAndArgs: string[], options?: SpawnCallOptions) {
@@ -42,6 +43,15 @@ async function spawnDockerProcess(commandAndArgs: string[], options?: SpawnCallO
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
     });
+  }
+  if (spawnState.plainExitWithoutStderr) {
+    return {
+      failed: true,
+      isCanceled: false,
+      exitCode: 1,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+    };
   }
 
   let code = 0;
@@ -293,6 +303,7 @@ describe("ensureDockerImage", () => {
     spawnState.executionError = undefined;
     spawnState.transportFailure = false;
     spawnState.transportExitCode = 0;
+    spawnState.plainExitWithoutStderr = false;
     await loadFreshDockerModuleForTest();
   });
 
@@ -422,5 +433,18 @@ describe("execDockerRaw", () => {
     await expect(execDockerRaw(["version"], { allowFailure: true })).rejects.toThrow(
       "docker stream failed",
     );
+  });
+
+  it("does not include raw container arguments when stderr is empty", async () => {
+    spawnState.plainExitWithoutStderr = true;
+    const secret = "sandbox-secret-value";
+
+    const error = await execDockerRaw(["create", "--env", `TOKEN=${secret}`]).catch(
+      (caught) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Docker command failed (exit 1)");
+    expect((error as Error).message).not.toContain(secret);
   });
 });
