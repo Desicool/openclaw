@@ -1,4 +1,8 @@
 import { type EventTemplate, finalizeEvent, Relay, type VerifiedEvent } from "nostr-tools";
+import {
+  fetchWithSsrFGuard,
+  ssrfPolicyFromHttpBaseUrlAllowedOrigin,
+} from "openclaw/plugin-sdk/ssrf-runtime";
 
 const AUTH_CHALLENGE_TIMEOUT_MS = 20_000;
 const AUTH_CHALLENGE_POLL_MS = 25;
@@ -72,26 +76,37 @@ async function resolveBuzzRelayPublicKey(params: {
 }): Promise<string> {
   const infoUrl = new URL(params.relayUrl);
   infoUrl.protocol = infoUrl.protocol === "wss:" ? "https:" : "http:";
-  const response = await fetch(infoUrl, {
-    headers: { Accept: "application/nostr+json" },
+  const url = infoUrl.toString();
+  const { response, release } = await fetchWithSsrFGuard({
+    url,
+    init: {
+      headers: { Accept: "application/nostr+json" },
+    },
     signal: params.signal,
+    policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(url),
+    auditContext: "buzz.relay_info",
   });
-  if (!response.ok) {
-    throw new Error(`Buzz relay information request failed with HTTP ${response.status}`);
+  try {
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`Buzz relay information request failed with HTTP ${response.status}`);
+    }
+    const document = (await response.json()) as {
+      self?: unknown;
+      software?: unknown;
+    };
+    const relayPublicKey =
+      typeof document.self === "string" ? document.self.trim().toLowerCase() : "";
+    if (HEX_PUBLIC_KEY_PATTERN.test(relayPublicKey)) {
+      return relayPublicKey;
+    }
+    if (document.software === BUZZ_RELAY_SOFTWARE && isLoopbackRelayUrl(params.relayUrl)) {
+      return BUZZ_LOCAL_DEV_RELAY_PUBLIC_KEY;
+    }
+    throw new Error("Buzz relay information document is missing a valid NIP-11 self public key");
+  } finally {
+    await release();
   }
-  const document = (await response.json()) as {
-    self?: unknown;
-    software?: unknown;
-  };
-  const relayPublicKey =
-    typeof document.self === "string" ? document.self.trim().toLowerCase() : "";
-  if (HEX_PUBLIC_KEY_PATTERN.test(relayPublicKey)) {
-    return relayPublicKey;
-  }
-  if (document.software === BUZZ_RELAY_SOFTWARE && isLoopbackRelayUrl(params.relayUrl)) {
-    return BUZZ_LOCAL_DEV_RELAY_PUBLIC_KEY;
-  }
-  throw new Error("Buzz relay information document is missing a valid NIP-11 self public key");
 }
 
 async function connectAndAuthenticateBuzzRelay(params: {

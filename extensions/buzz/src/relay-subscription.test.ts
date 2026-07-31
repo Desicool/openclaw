@@ -6,15 +6,18 @@ describe("openBuzzRelaySubscription", () => {
   it("sends an explicit REQ without synthesizing EOSE", async () => {
     vi.useFakeTimers();
     const oneose = vi.fn();
+    const close = vi.fn();
     const subscription = {
       id: "sub:1",
-      close: vi.fn(),
+      close,
     } as unknown as ReturnType<Relay["prepareSubscription"]>;
+    const prepareSubscription = vi.fn(() => subscription);
+    const send = vi.fn(async () => {});
     const relay = {
       idleSince: Date.now(),
       ongoingOperations: 0,
-      prepareSubscription: vi.fn(() => subscription),
-      send: vi.fn(async () => {}),
+      prepareSubscription,
+      send,
     } as unknown as Relay;
     const filters: Filter[] = [{ kinds: [0], authors: ["a".repeat(64)] }];
 
@@ -22,8 +25,8 @@ describe("openBuzzRelaySubscription", () => {
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(opened).toBe(subscription);
-    expect(relay.prepareSubscription).toHaveBeenCalledWith(filters, { oneose });
-    expect(relay.send).toHaveBeenCalledWith(JSON.stringify(["REQ", "sub:1", ...filters]));
+    expect(prepareSubscription).toHaveBeenCalledWith(filters, { oneose });
+    expect(send).toHaveBeenCalledWith(JSON.stringify(["REQ", "sub:1", ...filters]));
     expect(relay.ongoingOperations).toBe(1);
     expect(relay.idleSince).toBeUndefined();
     expect(oneose).not.toHaveBeenCalled();
@@ -32,10 +35,11 @@ describe("openBuzzRelaySubscription", () => {
 
   it("does not close a subscription twice when sending fails after relay shutdown", async () => {
     let rejectSend: ((error: Error) => void) | undefined;
+    const close = vi.fn();
     const subscription = {
       id: "sub:1",
       closed: false,
-      close: vi.fn(),
+      close,
     } as unknown as ReturnType<Relay["prepareSubscription"]>;
     const openSubs = new Map([[subscription.id, subscription]]);
     const relay = {
@@ -57,6 +61,6 @@ describe("openBuzzRelaySubscription", () => {
     rejectSend?.(new Error("socket closed"));
     await Promise.resolve();
 
-    expect(subscription.close).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
   });
 });

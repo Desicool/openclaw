@@ -2,7 +2,7 @@ const REPLAY_DISPATCH_CONCURRENCY = 8;
 export const BUZZ_REPLAY_DISPATCH_MAX_PENDING = 1_024;
 const REPLAY_HISTORY_MAX_PER_ROOM = 100;
 
-export type BuzzReplayDispatchQueue = {
+type BuzzReplayDispatchQueue = {
   enqueue: (task: () => Promise<void>) => "accepted" | "closed" | "overflow";
   close: () => Promise<void>;
 };

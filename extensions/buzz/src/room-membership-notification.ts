@@ -3,7 +3,7 @@ import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { BUZZ_CHANNEL_ID_PATTERN, parseBuzzTarget } from "./target.js";
 
 export const BUZZ_MEMBER_ADDED_NOTIFICATION_KIND = 44_100;
-export const BUZZ_MEMBER_REMOVED_NOTIFICATION_KIND = 44_101;
+const BUZZ_MEMBER_REMOVED_NOTIFICATION_KIND = 44_101;
 
 const MEMBERSHIP_NOTIFICATION_CLOSE_REASON = "membership notification shutdown";
 
