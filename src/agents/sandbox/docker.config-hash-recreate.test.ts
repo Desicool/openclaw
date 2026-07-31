@@ -23,6 +23,7 @@ const spawnState = vi.hoisted(() => ({
   calls: [] as SpawnCall[],
   containerExists: true,
   inspectRunning: true,
+  inspectError: "",
   labelHash: "",
   podmanInfo: "true\tfalse\n",
   podmanConnections: "[]\n",
@@ -77,7 +78,10 @@ async function spawnDockerProcess(commandAndArgs: string[]) {
     code = 1;
     stderr = `unexpected command: ${command}`;
   } else if (args[0] === "inspect" && args[1] === "-f" && args[2] === "{{.State.Running}}") {
-    if (!spawnState.containerExists) {
+    if (spawnState.inspectError) {
+      code = 125;
+      stderr = spawnState.inspectError;
+    } else if (!spawnState.containerExists) {
       code = 1;
       stderr = "No such object";
     } else {
@@ -243,6 +247,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     spawnState.calls.length = 0;
     spawnState.containerExists = true;
     spawnState.inspectRunning = true;
+    spawnState.inspectError = "";
     spawnState.labelHash = "";
     spawnState.podmanInfo = "true\tfalse\n";
     spawnState.podmanConnections = "[]\n";
@@ -712,6 +717,8 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     const cfg = createSandboxConfig([]);
     spawnState.containerExists = false;
     spawnState.inspectRunning = false;
+    spawnState.inspectError =
+      'Error: no container with name or ID "oc-test-podman-shared" found: no such container';
     registryMocks.readRegistryEntry.mockResolvedValue({
       containerName: "oc-test-podman-shared",
       backendId: "podman",
@@ -737,6 +744,42 @@ describe("ensureSandboxContainer config-hash recreation", () => {
 
     expect(registryMocks.removeRegistryEntry).toHaveBeenCalledWith("oc-test-podman-shared");
     expect(spawnState.calls).toContainEqual(
+      expect.objectContaining({
+        command: "podman",
+        globalArgs: [],
+        args: expect.arrayContaining(["create", "--name", "oc-test-podman-shared"]),
+      }),
+    );
+  });
+
+  it("preserves a Podman registry entry when its recorded target is unreachable", async () => {
+    const cfg = createSandboxConfig([]);
+    spawnState.inspectError = "Error: unable to connect to Podman socket: connection refused";
+    registryMocks.readRegistryEntry.mockResolvedValue({
+      containerName: "oc-test-podman-shared",
+      backendId: "podman",
+      backendTarget: {
+        key: `machine:${"a".repeat(32)}`,
+        globalArgs: ["--url", "ssh://core@127.0.0.1:60001/run/user/501/podman/podman.sock"],
+      },
+      sessionKey: "shared",
+      createdAtMs: 1,
+      lastUsedAtMs: 1,
+      image: cfg.docker.image,
+    });
+
+    await expect(
+      ensureSandboxContainer({
+        engine: PODMAN_SANDBOX_ENGINE,
+        scopeKey: "shared",
+        workspaceDir: "/tmp/workspace",
+        agentWorkspaceDir: "/tmp/workspace",
+        cfg,
+      }),
+    ).rejects.toThrow(/unable to connect to Podman socket/iu);
+
+    expect(registryMocks.removeRegistryEntry).not.toHaveBeenCalled();
+    expect(spawnState.calls).not.toContainEqual(
       expect.objectContaining({
         command: "podman",
         globalArgs: [],
