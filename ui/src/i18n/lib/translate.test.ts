@@ -7,6 +7,7 @@ import type { Locale, TranslationMap } from "./types.ts";
 
 type I18nInternals = {
   pendingLocale: Locale | null;
+  pendingLocaleShouldPersist: boolean;
 };
 
 const german = { common: { health: "Gesundheit" } } satisfies TranslationMap;
@@ -152,6 +153,56 @@ describe("I18nManager pending locale retry", () => {
     expect(persistedLocalesAtHook).toEqual(["fr"]);
     expect(localStorage.getItem("openclaw.i18n.locale")).toBe("fr");
     expect(internals.pendingLocale).toBe("fr");
+  });
+
+  it("keeps a pending system locale unpersisted across retry recovery", async () => {
+    const { internals, loadTranslation, manager } = createManager();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("navigator", { language: "de-DE" } as Navigator);
+    localStorage.setItem("openclaw.i18n.locale", "es");
+    loadTranslation.mockRejectedValueOnce(new Error("gateway unavailable"));
+    loadTranslation.mockResolvedValueOnce(german);
+
+    await manager.useSystemLocale();
+
+    expect(manager.getLocale()).toBe("en");
+    expect(internals.pendingLocale).toBe("de");
+    expect(internals.pendingLocaleShouldPersist).toBe(false);
+    expect(localStorage.getItem("openclaw.i18n.locale")).toBeNull();
+
+    manager.retryPendingLocale();
+    await vi.waitFor(() => expect(manager.getLocale()).toBe("de"));
+
+    expect(internals.pendingLocale).toBeNull();
+    expect(localStorage.getItem("openclaw.i18n.locale")).toBeNull();
+  });
+
+  it("does not persist a system locale for repeated import-failure recovery", async () => {
+    const { internals, loadTranslation, manager } = createManager();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("navigator", { language: "de-DE" } as Navigator);
+    localStorage.setItem("openclaw.i18n.locale", "es");
+    const onUnrecoverableLocaleLoad = vi.fn();
+    manager.setLocaleLoadRecovery({
+      isUnrecoverableError: (error) =>
+        error instanceof Error &&
+        /failed to fetch dynamically imported module/i.test(error.message),
+      onUnrecoverableLocaleLoad,
+    });
+    loadTranslation
+      .mockRejectedValueOnce(new Error("gateway unavailable"))
+      .mockRejectedValueOnce(
+        new Error("Failed to fetch dynamically imported module: /assets/de-abc123.js"),
+      );
+
+    await manager.useSystemLocale();
+    manager.retryPendingLocale();
+    await vi.waitFor(() => expect(loadTranslation).toHaveBeenCalledTimes(2));
+
+    expect(onUnrecoverableLocaleLoad).toHaveBeenCalledExactlyOnceWith("de");
+    expect(localStorage.getItem("openclaw.i18n.locale")).toBeNull();
+    expect(internals.pendingLocale).toBe("de");
+    expect(internals.pendingLocaleShouldPersist).toBe(false);
   });
 
   it("does not report a repeated non-import failure", async () => {

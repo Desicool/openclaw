@@ -12,6 +12,7 @@ import {
   normalizeChatFollowUpModeOverride,
   normalizeChatSendShortcut,
   patchSettings,
+  UI_APPEARANCE_DEFAULTS,
   type ChatFollowUpMode,
   type ChatSendShortcut,
   type UiSettings,
@@ -24,6 +25,7 @@ type SyncedPrefSpec<T> = {
   local: (settings: UiSettings) => T | undefined;
   canApply?: (value: T, settings: UiSettings) => boolean;
   clearable?: boolean;
+  reset?: (settings: UiSettings) => Partial<UiSettings>;
 };
 const prefSpec = <T>(specification: SyncedPrefSpec<T>) => specification;
 function prefValuesEqual(left: unknown, right: unknown): boolean {
@@ -42,6 +44,8 @@ const SYNCED_PREFS = {
   theme: prefSpec<ThemeName>({
     extract: (value) => (THEMES.has(value as ThemeName) ? (value as ThemeName) : undefined),
     local: (settings) => settings.theme,
+    clearable: true,
+    reset: () => ({ theme: UI_APPEARANCE_DEFAULTS.theme }),
     // A server "custom" theme is only honorable once this browser imported one;
     // the imported palette itself is too large to live in config.
     canApply: (value, settings) => value !== "custom" || Boolean(settings.customTheme),
@@ -49,10 +53,14 @@ const SYNCED_PREFS = {
   themeMode: prefSpec<ThemeMode>({
     extract: (value) => (THEME_MODES.has(value as ThemeMode) ? (value as ThemeMode) : undefined),
     local: (settings) => settings.themeMode,
+    clearable: true,
+    reset: () => ({ themeMode: UI_APPEARANCE_DEFAULTS.themeMode }),
   }),
   locale: prefSpec<string>({
     extract: (value) => (typeof value === "string" && isSupportedLocale(value) ? value : undefined),
     local: (settings) => settings.locale,
+    clearable: true,
+    reset: () => ({ locale: undefined }),
   }),
   chatShowThinking: prefSpec<boolean>({
     extract: (value) => (typeof value === "boolean" ? value : undefined),
@@ -72,6 +80,8 @@ const SYNCED_PREFS = {
         ? normalizeChatSendShortcut(value)
         : undefined,
     local: (settings) => normalizeChatSendShortcut(settings.chatSendShortcut),
+    clearable: true,
+    reset: () => ({ chatSendShortcut: undefined }),
   }),
   chatFollowUpMode: prefSpec<ChatFollowUpMode>({
     extract: (value) => normalizeChatFollowUpModeOverride(value),
@@ -79,6 +89,7 @@ const SYNCED_PREFS = {
     // Unset means "use the server-configured queue mode"; clearing must propagate,
     // so the push serializes an explicit null removal.
     clearable: true,
+    reset: () => ({ chatFollowUpMode: undefined }),
   }),
   sidebarEntries: prefSpec<string[]>({
     extract: (value) => normalizeSidebarEntries(value) ?? undefined,
@@ -86,6 +97,12 @@ const SYNCED_PREFS = {
   }),
 } as const;
 type SyncedPrefKey = keyof typeof SYNCED_PREFS;
+export type ResettableServerUiPrefKey =
+  | "theme"
+  | "themeMode"
+  | "locale"
+  | "chatSendShortcut"
+  | "chatFollowUpMode";
 type SyncedPrefValue<K extends SyncedPrefKey> =
   ReturnType<(typeof SYNCED_PREFS)[K]["extract"]> extends (infer T) | undefined ? T : never;
 type ServerUiPrefs = { [K in SyncedPrefKey]?: SyncedPrefValue<K> | null };
@@ -97,6 +114,10 @@ type ServerUiPrefsWriter = Pick<RuntimeConfigCapability, "runExternalMutation"> 
 };
 type ServerUiPrefsCommit = {
   needsRefresh: boolean;
+};
+export type ServerUiPrefState<T> = {
+  overridden: boolean;
+  value: T | undefined;
 };
 const SYNCED_PREF_KEYS = Object.keys(SYNCED_PREFS) as SyncedPrefKey[];
 function extractServerUiPrefs(configObject: unknown): ServerUiPrefs {
@@ -113,6 +134,28 @@ function extractServerUiPrefs(configObject: unknown): ServerUiPrefs {
   }
   return result;
 }
+
+export function resolveServerUiPrefState<K extends SyncedPrefKey>(
+  configObject: unknown,
+  key: K,
+  scope = "",
+): ServerUiPrefState<SyncedPrefValue<K>> {
+  const shadowPrefs =
+    scope === pendingScope ? pendingPrefs : parseStoredPrefs(readStorage(PENDING_KEY, scope));
+  if (shadowPrefs && key in shadowPrefs) {
+    const shadowValue = shadowPrefs[key];
+    return {
+      overridden: shadowValue !== null,
+      value: shadowValue === null ? undefined : (shadowValue as SyncedPrefValue<K>),
+    };
+  }
+  const prefs = asRecord(asRecord(asRecord(configObject)?.ui)?.prefs);
+  if (!prefs || !Object.hasOwn(prefs, key)) {
+    return { overridden: false, value: undefined };
+  }
+  const value = SYNCED_PREFS[key].extract(prefs[key]) as SyncedPrefValue<K> | undefined;
+  return { overridden: value !== undefined, value };
+}
 /** Local-settings patch that would bring the mirror in line with the server. */
 function serverPrefsLocalPatch(
   prefs: ServerUiPrefs,
@@ -128,8 +171,15 @@ function serverPrefsLocalPatch(
     // Null marks a server-side removal of a clearable key: drop the local override
     // so this device falls back to the server-configured behavior.
     if (serverValue === null) {
-      if (specification.clearable && specification.local(settings) !== undefined) {
-        (patch as Record<string, unknown>)[key] = undefined;
+      const resetPatch = specification.clearable ? specification.reset?.(settings) : undefined;
+      if (resetPatch) {
+        for (const [resetKey, resetValue] of Object.entries(resetPatch)) {
+          if (
+            !prefValuesEqual((settings as unknown as Record<string, unknown>)[resetKey], resetValue)
+          ) {
+            (patch as Record<string, unknown>)[resetKey] = resetValue;
+          }
+        }
       }
       continue;
     }
@@ -153,6 +203,10 @@ function serverPrefsLocalPatch(
 export function changedServerUiPrefs(previous: UiSettings, next: UiSettings): ServerUiPrefs | null {
   const prefs: ServerUiPrefs = {};
   for (const key of SYNCED_PREF_KEYS) {
+    if (requestedServerUiPrefResets.delete(key)) {
+      (prefs as Record<string, unknown>)[key] = null;
+      continue;
+    }
     const specification = SYNCED_PREFS[key];
     const previousValue = specification.local(previous);
     const nextValue = specification.local(next);
@@ -179,6 +233,7 @@ const LAST_SEEN_KEY = "openclaw.control.serverPrefs.v1";
 const PENDING_KEY = "openclaw.control.serverPrefs.pending.v1";
 const CONFLICT_REDRAIN_DELAY_MS = 1_000;
 const MAX_CONFLICT_REDRAINS = 5;
+const requestedServerUiPrefResets = new Set<SyncedPrefKey>();
 let applyingServerPrefs = false;
 let pendingScope = "";
 let pendingPrefs: ServerUiPrefs | null = null;
@@ -265,6 +320,16 @@ export function resetServerUiPrefsSync() {
   pushScope = "";
   lastReconciledScope = "";
   lastReconciledConfigObject = null;
+  requestedServerUiPrefResets.clear();
+}
+
+export function resetServerUiPref(key: ResettableServerUiPrefKey): UiSettings {
+  const reset = SYNCED_PREFS[key].reset;
+  if (!reset) {
+    throw new Error(`Server UI preference is not resettable: ${key}`);
+  }
+  requestedServerUiPrefResets.add(key);
+  return patchSettings(reset(loadSettings()));
 }
 export function applyServerUiPrefs(
   configObject: unknown,

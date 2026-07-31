@@ -16,12 +16,14 @@ import {
 } from "../../app/context.ts";
 import { importCustomThemeFromUrl } from "../../app/custom-theme.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
+import { resetServerUiPref, resolveServerUiPrefState } from "../../app/server-prefs.ts";
 import {
   loadSettings,
   normalizeCatalogOpenTarget,
   normalizeTextScale,
   normalizeChatSendShortcut,
   patchSettings,
+  UI_APPEARANCE_DEFAULTS,
   type UiSettings,
 } from "../../app/settings.ts";
 import { startThemeTransition } from "../../app/theme-transition.ts";
@@ -679,9 +681,23 @@ export class ConfigPage extends OpenClawLightDomElement {
     this.context.theme.refresh();
   }
 
-  private setLocale(locale: Locale) {
+  private setLocale(locale: Locale | undefined) {
+    if (locale === undefined) {
+      this.resetLocale();
+      return;
+    }
     this.settings = patchSettings({ locale });
     void i18n.setLocale(locale);
+  }
+
+  private resetLocale() {
+    this.settings = resetServerUiPref("locale");
+    void i18n.useSystemLocale();
+  }
+
+  private resetSyncedAppearancePref(key: "theme" | "themeMode" | "chatSendShortcut") {
+    this.settings = resetServerUiPref(key);
+    this.context.theme.refresh();
   }
 
   private setTheme(
@@ -836,6 +852,15 @@ export class ConfigPage extends OpenClawLightDomElement {
     const gatewayConfig = asConfigRecord(configObject.gateway);
     const controlUiConfig = asConfigRecord(gatewayConfig?.controlUi);
     const agentsDefaults = asConfigRecord(asConfigRecord(configObject.agents)?.defaults);
+    const prefScope = this.context.gateway.connection.gatewayUrl;
+    const themePref = resolveServerUiPrefState(configObject, "theme", prefScope);
+    const themeModePref = resolveServerUiPrefState(configObject, "themeMode", prefScope);
+    const localePref = resolveServerUiPrefState(configObject, "locale", prefScope);
+    const chatSendShortcutPref = resolveServerUiPrefState(
+      configObject,
+      "chatSendShortcut",
+      prefScope,
+    );
     const sessionObserverBusy =
       !configState.connected ||
       configState.configSaving ||
@@ -881,11 +906,17 @@ export class ConfigPage extends OpenClawLightDomElement {
         this.context.gateway.snapshot.hello?.server?.version ??
         "",
       theme: this.settings.theme,
+      themeOverridden: themePref.overridden,
       themeMode: this.settings.themeMode,
-      locale: isSupportedLocale(this.settings.locale) ? this.settings.locale : i18n.getLocale(),
+      themeModeOverridden: themeModePref.overridden,
+      systemLocale: i18n.getSystemLocale(),
+      localeOverride: isSupportedLocale(localePref.value) ? localePref.value : undefined,
       onLocaleChange: (locale) => this.setLocale(locale),
+      resetLocale: () => this.resetLocale(),
       setTheme: (theme, transitionContext) => this.setTheme(theme, transitionContext),
+      resetTheme: () => this.resetSyncedAppearancePref("theme"),
       setThemeMode: (mode, transitionContext) => this.setThemeMode(mode, transitionContext),
+      resetThemeMode: () => this.resetSyncedAppearancePref("themeMode"),
       hasCustomTheme: Boolean(this.settings.customTheme),
       customThemeLabel: this.settings.customTheme?.label ?? null,
       customThemeSourceUrl: this.settings.customTheme?.sourceUrl ?? null,
@@ -903,9 +934,12 @@ export class ConfigPage extends OpenClawLightDomElement {
       onImportCustomTheme: () => void this.importCustomTheme(),
       onClearCustomTheme: () => this.clearCustomTheme(),
       onOpenCustomThemeImport: () => this.openCustomThemeImport(),
-      textScale: this.settings.textScale ?? 100,
+      textScale: this.settings.textScale ?? UI_APPEARANCE_DEFAULTS.textScale,
+      textScaleOverridden: this.settings.textScale !== undefined,
       setTextScale: (value) => this.setSetting("textScale", normalizeTextScale(value)),
-      sidebarLiveActivity: this.settings.sidebarLiveActivity !== false,
+      resetTextScale: () => this.setSetting("textScale", undefined),
+      sidebarLiveActivity:
+        this.settings.sidebarLiveActivity ?? UI_APPEARANCE_DEFAULTS.sidebarLiveActivity,
       setSidebarLiveActivity: (enabled) => this.setSetting("sidebarLiveActivity", enabled),
       chatMessageMaxWidth: this.settings.chatMessageMaxWidth,
       setChatMessageMaxWidth: (value) => this.setSetting("chatMessageMaxWidth", value),
@@ -938,16 +972,18 @@ export class ConfigPage extends OpenClawLightDomElement {
             }
           });
       },
-      lobsterPetVisits: this.settings.lobsterPetVisits !== false,
+      lobsterPetVisits: this.settings.lobsterPetVisits ?? UI_APPEARANCE_DEFAULTS.lobsterPetVisits,
       setLobsterPetVisits: (enabled) =>
         this.applySettings({ ...this.settings, lobsterPetVisits: enabled }),
-      lobsterPetSounds: this.settings.lobsterPetSounds === true,
+      lobsterPetSounds: this.settings.lobsterPetSounds ?? UI_APPEARANCE_DEFAULTS.lobsterPetSounds,
       setLobsterPetSounds: (enabled) =>
         this.applySettings({ ...this.settings, lobsterPetSounds: enabled }),
       lobsterdexHref: pathForRoute("lobsterdex", this.context.basePath),
       onOpenLobsterdex: () => this.context.navigate("lobsterdex"),
       chatSendShortcut: normalizeChatSendShortcut(this.settings.chatSendShortcut),
+      chatSendShortcutOverridden: chatSendShortcutPref.overridden,
       setChatSendShortcut: (value) => this.setSetting("chatSendShortcut", value),
+      resetChatSendShortcut: () => this.resetSyncedAppearancePref("chatSendShortcut"),
       chatFollowUpMode: this.settings.chatFollowUpMode,
       serverQueueMode: configState.configSnapshot
         ? resolveControlUiServerQueueMode(configState.configSnapshot.runtimeConfig, {

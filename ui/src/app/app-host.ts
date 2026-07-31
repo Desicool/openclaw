@@ -128,6 +128,7 @@ import {
   isApplyingServerUiPrefs,
   pushServerUiPrefs,
   resetServerUiPrefsSync,
+  resolveServerUiPrefState,
 } from "./server-prefs.ts";
 import {
   NAV_WIDTH_MAX,
@@ -555,6 +556,7 @@ class OpenClawShell extends OpenClawLightDomElement {
   private sessionKeyClient: GatewayBrowserClient | null = null;
   private runtimeConfigClient: GatewayBrowserClient | null = null;
   private runtimeConfigSource: ApplicationContext["runtimeConfig"] | null = null;
+  private lastLocalePrefSignature: string | null = null;
   private previousGatewayPhase: ApplicationContext["gateway"]["snapshot"]["phase"] | null = null;
   private sidebarWorkboardSnapshot = EMPTY_SIDEBAR_WORKBOARD_SNAPSHOT;
   private sidebarWorkboardRuntime: SidebarWorkboardRuntime | null = null;
@@ -717,18 +719,27 @@ class OpenClawShell extends OpenClawLightDomElement {
     if (!snapshot?.config || !context || context.runtimeConfig !== runtimeConfig) {
       return;
     }
+    const scope = context.gateway.connection.gatewayUrl;
     applyServerUiPrefs(snapshot.config, {
-      scope: context.gateway.connection.gatewayUrl,
+      scope,
       onApplied: (patch) => {
         if (patch.sidebarEntries !== undefined) {
           context.navigation.update({ sidebarEntries: patch.sidebarEntries });
         }
-        if (isSupportedLocale(patch.locale)) {
-          void i18n.setLocale(patch.locale);
-        }
         context.theme.refresh();
       },
     });
+    const localePref = resolveServerUiPrefState(snapshot.config, "locale", scope);
+    const localePrefSignature = JSON.stringify([scope, localePref.overridden, localePref.value]);
+    if (localePrefSignature === this.lastLocalePrefSignature) {
+      return;
+    }
+    this.lastLocalePrefSignature = localePrefSignature;
+    if (localePref.overridden && isSupportedLocale(localePref.value)) {
+      void i18n.setLocale(localePref.value);
+    } else {
+      void i18n.useSystemLocale();
+    }
   }
 
   private reconcileCommittedServerUiPrefs(
@@ -808,6 +819,7 @@ class OpenClawShell extends OpenClawLightDomElement {
     this.outboxStoreImport.dispose();
     this.outboxStoreUnsubscribe?.();
     this.outboxStoreUnsubscribe = null;
+    this.lastLocalePrefSignature = null;
     setSettingsChangeListener(null);
     this.resetShellEpochState();
     super.disconnectedCallback();

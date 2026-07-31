@@ -37,6 +37,7 @@ class I18nManager {
   // Preserve the target for the next connected transition; otherwise the chrome silently stays
   // in the old language forever.
   private pendingLocale: Locale | null = null;
+  private pendingLocaleShouldPersist = true;
   // Only the latest selection may update retry state or become active after an async chunk load.
   private localeRequestGeneration = 0;
   private localeLoadRecovery: LocaleLoadRecovery | undefined;
@@ -71,51 +72,86 @@ class I18nManager {
     }
   }
 
-  private resolveInitialLocale(): Locale {
+  private clearPersistedLocale() {
+    const storage = getSafeLocalStorage();
+    if (!storage) {
+      return;
+    }
+    try {
+      storage.removeItem("openclaw.i18n.locale");
+    } catch {
+      // Ignore storage write failures in private/blocked contexts.
+    }
+  }
+
+  private resolveInitialLocale(): { locale: Locale; shouldPersist: boolean } {
     const saved = this.readStoredLocale();
     if (isSupportedLocale(saved)) {
-      return saved;
+      return { locale: saved, shouldPersist: true };
     }
     const language =
       typeof globalThis.navigator?.language === "string" ? globalThis.navigator.language : null;
-    return resolveNavigatorLocale(language ?? "");
+    return { locale: resolveNavigatorLocale(language ?? ""), shouldPersist: false };
   }
 
   private loadLocale() {
-    const initialLocale = this.resolveInitialLocale();
-    if (initialLocale === DEFAULT_LOCALE) {
+    const initial = this.resolveInitialLocale();
+    if (initial.locale === DEFAULT_LOCALE) {
       this.locale = DEFAULT_LOCALE;
       syncDocumentLocale(DEFAULT_LOCALE);
+      if (!initial.shouldPersist) {
+        this.clearPersistedLocale();
+      }
       return;
     }
     // Use the normal locale setter so startup locale loading follows the same
     // translation-loading + notify path as manual locale changes.
-    void this.setLocale(initialLocale);
+    void this.applyLocale(initial.locale, false, initial.shouldPersist);
   }
 
   public getLocale(): Locale {
     return this.locale;
   }
 
-  public async setLocale(locale: Locale) {
-    return this.applyLocale(locale, false);
+  public getSystemLocale(): Locale {
+    const language =
+      typeof globalThis.navigator?.language === "string" ? globalThis.navigator.language : null;
+    return resolveNavigatorLocale(language ?? "");
   }
 
-  private async applyLocale(locale: Locale, retrying: boolean) {
+  public async setLocale(locale: Locale) {
+    return this.applyLocale(locale, false, true);
+  }
+
+  public async useSystemLocale() {
+    return this.applyLocale(this.getSystemLocale(), false, false);
+  }
+
+  private async applyLocale(locale: Locale, retrying: boolean, shouldPersist: boolean) {
     const requestGeneration = ++this.localeRequestGeneration;
     const needsTranslationLoad = locale !== DEFAULT_LOCALE && !this.translations[locale];
+    if (!shouldPersist) {
+      // System mode is an unset preference. Clear it before any async chunk
+      // load so a failed load cannot resurrect the previous explicit locale.
+      this.clearPersistedLocale();
+    }
     if (this.locale === locale && !needsTranslationLoad) {
       this.pendingLocale = null;
+      if (shouldPersist) {
+        this.persistLocale(locale);
+      }
       return;
     }
 
     if (needsTranslationLoad) {
       this.pendingLocale = locale;
+      this.pendingLocaleShouldPersist = shouldPersist;
       try {
         const translation = await this.loadLocaleTranslation(locale);
         if (!translation) {
           if (this.localeRequestGeneration === requestGeneration) {
             this.pendingLocale = locale;
+            this.pendingLocaleShouldPersist = shouldPersist;
           }
           return;
         }
@@ -124,9 +160,12 @@ class I18nManager {
         const isCurrentRequest = this.localeRequestGeneration === requestGeneration;
         if (isCurrentRequest) {
           this.pendingLocale = locale;
+          this.pendingLocaleShouldPersist = shouldPersist;
         }
         if (retrying && isCurrentRequest && this.localeLoadRecovery?.isUnrecoverableError(e)) {
-          this.persistLocale(locale);
+          if (shouldPersist) {
+            this.persistLocale(locale);
+          }
           this.localeLoadRecovery.onUnrecoverableLocaleLoad?.(locale);
         }
         console.error(`Failed to load locale: ${locale}`, e);
@@ -140,7 +179,9 @@ class I18nManager {
     this.pendingLocale = null;
     this.locale = locale;
     syncDocumentLocale(locale);
-    this.persistLocale(locale);
+    if (shouldPersist) {
+      this.persistLocale(locale);
+    }
     this.notify();
   }
 
@@ -149,8 +190,9 @@ class I18nManager {
       return;
     }
     const target = this.pendingLocale;
+    const shouldPersist = this.pendingLocaleShouldPersist;
     this.pendingLocale = null;
-    void this.applyLocale(target, true);
+    void this.applyLocale(target, true, shouldPersist);
   }
 
   public setLocaleLoadRecovery(recovery: LocaleLoadRecovery | undefined): void {
