@@ -1019,6 +1019,7 @@ describe("dreaming controller", () => {
       pluginId: "memos-local-openclaw-plugin",
       enabled: true,
       overridden: true,
+      engineOff: false,
     });
   });
 
@@ -1044,6 +1045,7 @@ describe("dreaming controller", () => {
       pluginId: "memory-core",
       enabled: false,
       overridden: true,
+      engineOff: true,
     });
   });
 
@@ -1052,6 +1054,7 @@ describe("dreaming controller", () => {
       pluginId: "memory-core",
       enabled: true,
       overridden: false,
+      engineOff: false,
     });
   });
 
@@ -1060,6 +1063,7 @@ describe("dreaming controller", () => {
       pluginId: "memory-core",
       enabled: true,
       overridden: false,
+      engineOff: false,
     });
   });
 

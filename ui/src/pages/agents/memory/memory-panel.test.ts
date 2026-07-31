@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { nothing } from "lit";
+import { nothing, render } from "lit";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../../api/gateway.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../../app/context.ts";
@@ -27,6 +27,7 @@ type TestMemoryPanel = HTMLElement & {
     pluginId: string;
     enabled: boolean;
     overridden: boolean;
+    engineOff: boolean;
   }) => Promise<void>;
   render: () => unknown;
   requestUpdate: () => void;
@@ -265,6 +266,7 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
       pluginId: "memory-core",
       enabled: false,
       overridden: true,
+      engineOff: false,
     });
 
     expect(context.runtimeConfig.patch).toHaveBeenCalledWith({
@@ -300,12 +302,87 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
       pluginId: "memory-core",
       enabled: false,
       overridden: true,
+      engineOff: false,
     });
 
     expect(context.runtimeConfig.patch).toHaveBeenCalledOnce();
     expect(context.runtimeConfig.removeFormValue).not.toHaveBeenCalled();
     expect(context.runtimeConfig.save).not.toHaveBeenCalled();
     expect(context.runtimeConfig.refresh).not.toHaveBeenCalled();
+  });
+
+  it("drops a successful reset completion after the agent scope changes", async () => {
+    const pending = deferred<boolean>();
+    const context = contextWithGateway({} as GatewayBrowserClient, true, {
+      plugins: {
+        entries: {
+          "memory-core": { config: { dreaming: { enabled: false } } },
+        },
+      },
+    });
+    vi.mocked(context.runtimeConfig.patch).mockReturnValue(pending.promise);
+    const page = createPage(context);
+    document.body.append(page);
+    await page.updateComplete;
+
+    const reset = page.resetEnabledOverride({
+      pluginId: "memory-core",
+      enabled: false,
+      overridden: true,
+      engineOff: false,
+    });
+    page.agentId = "support";
+    await page.updateComplete;
+    pending.resolve(true);
+    await reset;
+
+    expect(context.runtimeConfig.refresh).not.toHaveBeenCalled();
+    expect(page.dreaming.dreamingStatusError).toBeNull();
+  });
+
+  it("renders explicit engine Off as unavailable while preserving latent override reset", () => {
+    const context = contextWithGateway({} as GatewayBrowserClient, true, {
+      plugins: {
+        slots: { memory: "none" },
+        entries: {
+          "memory-core": { config: { dreaming: { enabled: false } } },
+        },
+      },
+    });
+    const page = document.createElement("openclaw-agent-memory-panel") as TestMemoryPanel;
+    page.context = context;
+    page.agentId = "main";
+    const container = document.createElement("div");
+
+    render(page.render(), container);
+
+    expect(container.textContent).toContain(
+      "Memory engine is Off. Choose an engine in Settings to enable dreaming.",
+    );
+    expect(container.textContent).not.toContain("Using default: Enabled");
+    expect(container.querySelector<HTMLButtonElement>(".dreams__phase-toggle")?.disabled).toBe(
+      true,
+    );
+    expect(container.querySelector('button[aria-label="Reset to default"]')).not.toBeNull();
+  });
+
+  it("omits default provenance and reset when engine Off has no latent override", () => {
+    const context = contextWithGateway({} as GatewayBrowserClient, true, {
+      plugins: { slots: { memory: "none" } },
+    });
+    const page = document.createElement("openclaw-agent-memory-panel") as TestMemoryPanel;
+    page.context = context;
+    page.agentId = "main";
+    const container = document.createElement("div");
+
+    render(page.render(), container);
+
+    expect(container.textContent).not.toContain("Using default: Enabled");
+    expect(container.querySelector('button[aria-label="Reset to default"]')).toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>(".dreams__phase-toggle");
+    expect(toggle?.disabled).toBe(true);
+    toggle?.click();
+    expect(page.pendingEnabled).toBeNull();
   });
 
   it("uses localized empty content for wiki previews", async () => {

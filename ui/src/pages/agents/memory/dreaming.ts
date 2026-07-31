@@ -460,6 +460,7 @@ export function resolveConfiguredDreaming(configValue: Record<string, unknown> |
   pluginId: string;
   enabled: boolean;
   overridden: boolean;
+  engineOff: boolean;
 } {
   const slots = asRecord(asRecord(configValue?.plugins)?.slots);
   const slotSelection = resolveSlotSelection("memory", slots?.memory);
@@ -475,6 +476,7 @@ export function resolveConfiguredDreaming(configValue: Record<string, unknown> |
     pluginId,
     enabled: slotSelection.kind === "off" ? false : normalizeBoolean(dreaming?.enabled, true),
     overridden,
+    engineOff: slotSelection.kind === "off",
   };
 }
 

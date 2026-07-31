@@ -386,12 +386,12 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
         },
         note: "Dreaming settings reset to the plugin default.",
       });
-      return (
-        saved && this.isTaskScopeCurrent(scope) && this.context.runtimeConfig === runtimeConfig
-      );
+      return saved;
     } catch (error) {
-      this.dreaming.dreamingStatusError =
-        error instanceof Error ? error.message : t("dreaming.actions.updateFailed");
+      if (this.isTaskScopeCurrent(scope) && this.context.runtimeConfig === runtimeConfig) {
+        this.dreaming.dreamingStatusError =
+          error instanceof Error ? error.message : t("dreaming.actions.updateFailed");
+      }
       return false;
     } finally {
       if (this.isTaskScopeCurrent(scope)) {
@@ -407,7 +407,14 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     this.dreaming.dreamingStatusError = null;
     const scope = this.captureTaskScope();
     const runtimeConfig = this.context.runtimeConfig;
-    if (!scope || !(await this.removeEnabledOverride(scope, runtimeConfig))) {
+    if (!scope) {
+      return;
+    }
+    const updated = await this.removeEnabledOverride(scope, runtimeConfig);
+    if (!this.isTaskScopeCurrent(scope) || this.context.runtimeConfig !== runtimeConfig) {
+      return;
+    }
+    if (!updated) {
       this.dreaming.dreamingStatusError ??= t("dreaming.actions.updateFailed");
       return;
     }
@@ -481,11 +488,15 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
             >
               ${refreshLoading ? t("dreaming.header.refreshing") : t("dreaming.header.refresh")}
             </button>
-            <span class="muted">${defaultState.description}</span>
+            <span class="muted">
+              ${configuredDreaming.engineOff
+                ? t("dreaming.header.engineOff")
+                : defaultState.description}
+            </span>
             ${defaultState.action}
             <button
               class="dreams__phase-toggle ${dreamingOn ? "dreams__phase-toggle--on" : ""}"
-              ?disabled=${loading}
+              ?disabled=${loading || configuredDreaming.engineOff}
               @click=${() => this.setEnabled(!dreamingOn, dreamingOn)}
             >
               <span class="dreams__phase-toggle-dot"></span>
