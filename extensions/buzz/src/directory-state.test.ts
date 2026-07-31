@@ -194,6 +194,7 @@ describe("Buzz directory state", () => {
 
     expect(state.activeRoomIds()).toEqual([]);
     expect(state.isRoomArchived(ROOM_ID)).toBe(true);
+    expect(state.listPeers({})).toEqual([]);
     expect(state.listGroups({})).toEqual([]);
     expect(state.listGroupMembers({ groupId: ROOM_ID })).toEqual([]);
 
@@ -213,6 +214,7 @@ describe("Buzz directory state", () => {
 
     expect(state.activeRoomIds()).toEqual([ROOM_ID]);
     expect(state.isRoomArchived(ROOM_ID)).toBe(false);
+    expect(state.listPeers({})).not.toEqual([]);
     expect(state.listGroups({})).toEqual([
       expect.objectContaining({ id: `buzz:${ROOM_ID}`, name: "Restored room" }),
     ]);

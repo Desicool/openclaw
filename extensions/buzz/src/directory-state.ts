@@ -278,7 +278,11 @@ export class BuzzDirectoryState {
 
   listPeers(params: { query?: string | null; limit?: number | null }): ChannelDirectoryEntry[] {
     const peers = new Set<string>();
-    for (const membership of this.#memberships.values()) {
+    for (const roomId of this.activeRoomIds()) {
+      const membership = this.#memberships.get(roomId);
+      if (!membership) {
+        continue;
+      }
       for (const publicKey of membership.members) {
         if (publicKey !== this.#publicKey) {
           peers.add(publicKey);

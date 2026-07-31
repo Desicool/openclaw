@@ -7,6 +7,7 @@ const relayMocks = vi.hoisted(() => ({
   close: vi.fn(),
   connect: vi.fn(async () => {}),
   filters: [] as Filter[],
+  roomArchived: false,
   send: vi.fn(async () => {}),
   subscribe: vi.fn(),
 }));
@@ -83,6 +84,7 @@ describe("Buzz live directory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     relayMocks.filters.length = 0;
+    relayMocks.roomArchived = false;
     gatewayMocks.activeBus = undefined;
     vi.stubGlobal(
       "fetch",
@@ -122,6 +124,7 @@ describe("Buzz live directory", () => {
               tags: [
                 ["d", ROOM_ID],
                 ["name", "Engineering"],
+                ...(relayMocks.roomArchived ? [["archived", "true"]] : []),
               ],
             }),
           );
@@ -173,13 +176,13 @@ describe("Buzz live directory", () => {
 
     expect(relayMocks.filters).toEqual([
       {
-        kinds: [39_002],
+        kinds: [39_000],
         authors: [RELAY_PUBLIC_KEY],
         "#d": [ROOM_ID],
         limit: 1,
       },
       {
-        kinds: [39_000],
+        kinds: [39_002],
         authors: [RELAY_PUBLIC_KEY],
         "#d": [ROOM_ID],
         limit: 1,
@@ -188,6 +191,37 @@ describe("Buzz live directory", () => {
     ]);
     expect(relayMocks.auth).toHaveBeenCalledOnce();
     expect(relayMocks.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not load peers or memberships from archived rooms", async () => {
+    relayMocks.roomArchived = true;
+    const { listBuzzDirectoryPeersLive } = await import("./directory.js");
+    const cfg = {
+      channels: {
+        buzz: {
+          relayUrl: "wss://buzz.example.com",
+          privateKey: PRIVATE_KEY,
+          groups: { [ROOM_ID]: {} },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    await expect(
+      listBuzzDirectoryPeersLive({
+        cfg,
+        accountId: "default",
+      }),
+    ).resolves.toEqual([]);
+
+    expect(relayMocks.filters).toEqual([
+      {
+        kinds: [39_000],
+        authors: [RELAY_PUBLIC_KEY],
+        "#d": [ROOM_ID],
+        limit: 1,
+      },
+      { kinds: [0], authors: [BOT_PUBLIC_KEY], limit: 1 },
+    ]);
   });
 
   it("refreshes only room listings when an active bus already owns directory state", async () => {

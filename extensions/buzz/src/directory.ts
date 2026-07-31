@@ -68,29 +68,30 @@ async function loadBuzzDirectoryState(
     signal: timeoutSignal,
   });
   try {
+    await queryBuzzDirectoryRooms({
+      relay,
+      relayPublicKey,
+      state: configured.state,
+      channelIds: configured.channelIds,
+      signal: timeoutSignal,
+    });
+    const activeChannelIds = configured.state.activeRoomIds();
     configured.state.replaceMemberships(
-      await queryBuzzRoomMemberships({
-        relay,
-        relayPublicKey,
-        channelIds: configured.channelIds,
-        signal: timeoutSignal,
-      }),
+      activeChannelIds.length > 0
+        ? await queryBuzzRoomMemberships({
+            relay,
+            relayPublicKey,
+            channelIds: activeChannelIds,
+            signal: timeoutSignal,
+          })
+        : new Map(),
     );
-    await Promise.all([
-      queryBuzzDirectoryRooms({
-        relay,
-        relayPublicKey,
-        state: configured.state,
-        channelIds: configured.channelIds,
-        signal: timeoutSignal,
-      }),
-      queryBuzzDirectoryProfiles({
-        relay,
-        state: configured.state,
-        publicKeys: configured.state.profilePublicKeys(),
-        signal: timeoutSignal,
-      }),
-    ]);
+    await queryBuzzDirectoryProfiles({
+      relay,
+      state: configured.state,
+      publicKeys: configured.state.profilePublicKeys(),
+      signal: timeoutSignal,
+    });
     return configured.state;
   } finally {
     relay.close();
