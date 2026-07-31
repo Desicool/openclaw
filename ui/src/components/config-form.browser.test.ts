@@ -721,7 +721,16 @@ describe("config form renderer", () => {
 
   it("shows field help once instead of repeating it on every array item", () => {
     const container = document.createElement("div");
-    const analysis = analyzeConfigSchema(rootSchema);
+    const analysis = analyzeConfigSchema({
+      type: "object",
+      properties: {
+        allowFrom: {
+          type: "array",
+          items: { type: "string" },
+          default: ["+15550000000"],
+        },
+      },
+    });
     render(
       renderConfigForm({
         schema: analysis.schema,
@@ -739,6 +748,7 @@ describe("config form renderer", () => {
       (node) => node.textContent?.trim() === "Sender ids allowed to reach the agent.",
     );
     expect(help).toHaveLength(1);
+    expect(container.textContent).toContain('Default: ["+15550000000"]');
   });
 
   it("renders section help when the top-level hint has a docs URL", () => {

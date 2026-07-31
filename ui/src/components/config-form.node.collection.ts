@@ -347,8 +347,8 @@ export function renderArray(
       <div class="settings-row">
         <div class="settings-row__text">
           ${showLabel ? html`<span class="settings-row__title">${label}</span>` : nothing}
-          ${showLabel && help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
-          ${showLabel && schema.default !== undefined
+          ${help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
+          ${schema.default !== undefined
             ? html`<span class="settings-row__desc">${defaultPresentation.description}</span>`
             : nothing}
           ${renderTags(tags)}
