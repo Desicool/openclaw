@@ -1,4 +1,4 @@
-import type { Relay } from "nostr-tools";
+import type { Event, Filter, Relay } from "nostr-tools";
 import {
   BUZZ_PROFILE_KIND,
   BUZZ_PROFILE_QUERY_CHUNK_SIZE,
@@ -20,6 +20,106 @@ function chunkValues<T>(values: readonly T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
+}
+
+async function queryBuzzDirectoryBatch(params: {
+  relay: Relay;
+  filter: Filter;
+  onEvent: (event: Event) => void;
+  timeoutMessage: string;
+  signal?: AbortSignal;
+}): Promise<void> {
+  params.signal?.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let subscription: BuzzSubscription | undefined;
+    const finish = (error?: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      params.signal?.removeEventListener("abort", onAbort);
+      subscription?.close(DIRECTORY_QUERY_COMPLETE_REASON);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("Buzz directory query failed", { cause: error }),
+        );
+      }
+    };
+    const onAbort = () =>
+      finish(params.signal?.reason ?? new Error("Buzz directory query aborted"));
+    const timeout = setTimeout(
+      () => finish(new Error(params.timeoutMessage)),
+      BUZZ_DIRECTORY_QUERY_TIMEOUT_MS,
+    );
+    params.signal?.addEventListener("abort", onAbort, { once: true });
+    subscription = params.relay.subscribe([params.filter], {
+      onevent: params.onEvent,
+      oneose: () => finish(),
+      onclose: (reason) => {
+        if (reason !== DIRECTORY_QUERY_COMPLETE_REASON) {
+          finish(new Error(`Buzz directory query closed: ${reason}`));
+        }
+      },
+    });
+    if (settled) {
+      subscription.close(DIRECTORY_QUERY_COMPLETE_REASON);
+    }
+    if (params.signal?.aborted) {
+      onAbort();
+    }
+  });
+}
+
+export async function queryBuzzDirectoryProfiles(params: {
+  relay: Relay;
+  state: BuzzDirectoryState;
+  publicKeys: string[];
+  signal?: AbortSignal;
+}): Promise<void> {
+  for (const authors of chunkValues(params.publicKeys, BUZZ_PROFILE_QUERY_CHUNK_SIZE)) {
+    await queryBuzzDirectoryBatch({
+      relay: params.relay,
+      filter: {
+        kinds: [BUZZ_PROFILE_KIND],
+        authors,
+        limit: authors.length,
+      },
+      onEvent: (event) => {
+        params.state.applyProfileEvent(event);
+      },
+      timeoutMessage: "Timed out querying Buzz directory profiles",
+      signal: params.signal,
+    });
+  }
+}
+
+export async function queryBuzzDirectoryRooms(params: {
+  relay: Relay;
+  state: BuzzDirectoryState;
+  channelIds: string[];
+  signal?: AbortSignal;
+}): Promise<void> {
+  for (const roomIds of chunkValues(params.channelIds, BUZZ_ROOM_QUERY_CHUNK_SIZE)) {
+    await queryBuzzDirectoryBatch({
+      relay: params.relay,
+      filter: {
+        kinds: [BUZZ_ROOM_METADATA_KIND],
+        "#d": roomIds,
+        limit: roomIds.length,
+      },
+      onEvent: (event) => {
+        params.state.applyRoomEvent(event);
+      },
+      timeoutMessage: "Timed out querying Buzz room metadata",
+      signal: params.signal,
+    });
+  }
 }
 
 export function startBuzzDirectoryRelay(params: {
@@ -100,65 +200,12 @@ export function startBuzzDirectoryRelay(params: {
     if (refreshInFlight) {
       return refreshInFlight;
     }
-    refreshInFlight = (async () => {
-      for (const roomIds of chunkValues(channelIds, BUZZ_ROOM_QUERY_CHUNK_SIZE)) {
-        await new Promise<void>((resolve, reject) => {
-          let settled = false;
-          let subscription: BuzzSubscription | undefined;
-          const finish = (error?: unknown) => {
-            if (settled) {
-              return;
-            }
-            settled = true;
-            clearTimeout(timeout);
-            params.signal?.removeEventListener("abort", onAbort);
-            subscription?.close(DIRECTORY_QUERY_COMPLETE_REASON);
-            if (error === undefined) {
-              resolve();
-            } else {
-              reject(
-                error instanceof Error
-                  ? error
-                  : new Error("Buzz room directory query failed", { cause: error }),
-              );
-            }
-          };
-          const onAbort = () =>
-            finish(params.signal?.reason ?? new Error("Buzz room directory query aborted"));
-          const timeout = setTimeout(
-            () => finish(new Error("Timed out querying Buzz room metadata")),
-            BUZZ_DIRECTORY_QUERY_TIMEOUT_MS,
-          );
-          params.signal?.addEventListener("abort", onAbort, { once: true });
-          subscription = params.relay.subscribe(
-            [
-              {
-                kinds: [BUZZ_ROOM_METADATA_KIND],
-                "#d": roomIds,
-                limit: roomIds.length,
-              },
-            ],
-            {
-              onevent: (event) => {
-                params.state.applyRoomEvent(event);
-              },
-              oneose: () => finish(),
-              onclose: (reason) => {
-                if (reason !== DIRECTORY_QUERY_COMPLETE_REASON) {
-                  finish(new Error(`Buzz room directory query closed: ${reason}`));
-                }
-              },
-            },
-          );
-          if (settled) {
-            subscription.close(DIRECTORY_QUERY_COMPLETE_REASON);
-          }
-          if (params.signal?.aborted) {
-            onAbort();
-          }
-        });
-      }
-    })().finally(() => {
+    refreshInFlight = queryBuzzDirectoryRooms({
+      relay: params.relay,
+      state: params.state,
+      channelIds,
+      signal: params.signal,
+    }).finally(() => {
       refreshInFlight = undefined;
     });
     return refreshInFlight;

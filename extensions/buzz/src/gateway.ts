@@ -23,6 +23,10 @@ const RECONNECT_BACKOFF = {
 const RECONNECT_STABLE_MS = 60_000;
 const RECONNECT_LOOKBACK_SECONDS = 24 * 60 * 60;
 
+export function getActiveBuzzBus(accountId: string): BuzzBus | undefined {
+  return activeBuses.get(accountId);
+}
+
 function resolveBuzzProfileName(params: {
   cfg: OpenClawConfig;
   account: ResolvedBuzzAccount;
