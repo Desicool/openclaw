@@ -64,8 +64,9 @@ function collectionDefaultPresentation(params: ConfigNodeRenderParams, effective
     revealSensitive: params.revealSensitive ?? false,
     isSensitivePathRevealed: params.isSensitivePathRevealed,
   }).isRedacted;
+  const description = renderSchemaDefaultDescription(params.schema, params.value);
   return {
-    description: redacted ? nothing : renderSchemaDefaultDescription(params.schema, params.value),
+    description: redacted ? (nothing as typeof nothing) : description,
     action: renderRestoreDefaultButton({
       ...params,
       disabled: params.disabled || redacted,

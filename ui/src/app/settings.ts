@@ -550,7 +550,10 @@ export function loadSettings(): UiSettings {
           : defaults.showAdvancedSettings,
       pinnedAgentIds: normalizePinnedAgentIds(parsed.pinnedAgentIds),
       textScale:
-        typeof parsed.textScale === "number" ? normalizeTextScale(parsed.textScale) : undefined,
+        typeof parsed.textScale === "number" &&
+        normalizeTextScale(parsed.textScale) !== UI_APPEARANCE_DEFAULTS.textScale
+          ? normalizeTextScale(parsed.textScale)
+          : undefined,
       customTheme: customTheme ?? undefined,
       locale: isSupportedLocale(parsed.locale) ? parsed.locale : undefined,
       ...(parsed.lobsterPetVisits === false ? { lobsterPetVisits: false } : {}),

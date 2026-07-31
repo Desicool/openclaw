@@ -272,6 +272,20 @@ function readAtPath(root: Record<string, unknown> | null, path: readonly string[
   return undefined;
 }
 
+function hasAtPath(root: Record<string, unknown> | null, path: readonly string[]): boolean {
+  let current: Record<string, unknown> | null = root;
+  for (const [index, key] of path.entries()) {
+    if (!current || !Object.hasOwn(current, key)) {
+      return false;
+    }
+    if (index === path.length - 1) {
+      return true;
+    }
+    current = asConfigRecord(current[key]);
+  }
+  return false;
+}
+
 function normalizeStorageMode(value: unknown): StorageMode {
   return STORAGE_MODES.find((mode) => mode === value) ?? DEFAULT_STORAGE_MODE;
 }
@@ -297,12 +311,7 @@ function parseDreamingNumber(raw: string, bounds: DreamingNumberBounds): number 
 
 function renderField(props: DreamingSettingsProps, spec: DreamingFieldSpec) {
   const value = readAtPath(props.dreaming, spec.path);
-  const overridden =
-    spec.kind === "toggle"
-      ? typeof value === "boolean"
-      : spec.kind === "number"
-        ? typeof value === "number"
-        : typeof value === "string";
+  const overridden = hasAtPath(props.dreaming, spec.path);
   const defaultValue =
     spec.kind === "toggle"
       ? spec.fallback
@@ -391,7 +400,7 @@ export function renderDreamingSettings(props: DreamingSettingsProps): TemplateRe
   const storageMode = normalizeStorageMode(storageModeValue);
   const storageDefaultState = renderSettingsDefaultState({
     value: t("memoryPage.dreaming.storage.modes.separate"),
-    overridden: typeof storageModeValue === "string",
+    overridden: hasAtPath(props.dreaming, ["storage", "mode"]),
     disabled: props.disabled,
     onReset: () => props.onPatch(["storage", "mode"], undefined),
   });

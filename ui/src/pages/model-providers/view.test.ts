@@ -38,7 +38,9 @@ function props(overrides: Partial<ModelProvidersViewProps> = {}): ModelProviders
     defaultModels: { primary: "openai/gpt-5", fallbacks: [], utilityModel: null },
     defaultModelsDirty: false,
     thinkingLevel: "off",
+    thinkingOverridden: true,
     fastMode: false,
+    fastModeOverridden: true,
     configBusy: false,
     unconfiguredProviders: [{ id: "anthropic", displayName: "Anthropic" }],
     canMutate: true,
@@ -192,7 +194,14 @@ describe("renderModelProviders", () => {
     expect(onFastModeReset).toHaveBeenCalledTimes(2);
 
     render(
-      renderModelProviders(props({ thinkingLevel: undefined, fastMode: undefined })),
+      renderModelProviders(
+        props({
+          thinkingLevel: undefined,
+          thinkingOverridden: false,
+          fastMode: undefined,
+          fastModeOverridden: false,
+        }),
+      ),
       container,
     );
     const inheritedBehavior = container.querySelector("#settings-model-behavior")!;
@@ -216,6 +225,31 @@ describe("renderModelProviders", () => {
     expect(
       inheritedBehavior.querySelectorAll('button[aria-label="Reset to default"]'),
     ).toHaveLength(0);
+  });
+
+  it("keeps invalid explicit model behavior values resettable", () => {
+    const onThinkingReset = vi.fn();
+    const onFastModeReset = vi.fn();
+    const container = mount(
+      props({
+        thinkingLevel: undefined,
+        thinkingOverridden: true,
+        fastMode: undefined,
+        fastModeOverridden: true,
+        onThinkingReset,
+        onFastModeReset,
+      }),
+    );
+    const behavior = container.querySelector("#settings-model-behavior")!;
+    const thinking = settingsRow(behavior, "Thinking");
+    const fast = settingsRow(behavior, "Fast mode");
+
+    expect(text(thinking)).toContain("Default: Model policy");
+    expect(text(fast)).toContain("Default: Model policy");
+    thinking.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    fast.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    expect(onThinkingReset).toHaveBeenCalledOnce();
+    expect(onFastModeReset).toHaveBeenCalledOnce();
   });
 
   it("restores controlled model behavior when a reset is rejected", () => {

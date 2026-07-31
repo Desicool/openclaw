@@ -159,6 +159,37 @@ describe("renderDreamingSettings", () => {
     expect(onPatch).toHaveBeenCalledWith(["phases", "light", "lookbackDays"], undefined);
   });
 
+  it("keeps malformed explicit values resettable while displaying runtime defaults", () => {
+    const onPatch = vi.fn();
+    const container = renderInto(
+      {
+        frequency: 42,
+        verboseLogging: "yes",
+        storage: { mode: 42, separateReports: "yes" },
+      },
+      onPatch,
+    );
+
+    for (const title of [
+      "Dreaming frequency",
+      "Verbose logging",
+      "Storage mode",
+      "Separate reports",
+    ]) {
+      const row = rowFor(container, title);
+      expect(row.textContent).toContain("Default:");
+      row.querySelector<HTMLButtonElement>('button[aria-label="Reset to default"]')?.click();
+    }
+    expect(numberInput(container, "Dreaming frequency").value).toBe("");
+    expect(toggleStates(container)["Schedule/Verbose logging"]).toBe(false);
+    expect(selectedSegment(container)).toBe("separate");
+    expect(toggleStates(container)["Storage/Separate reports"]).toBe(false);
+    expect(onPatch).toHaveBeenCalledWith(["frequency"], undefined);
+    expect(onPatch).toHaveBeenCalledWith(["verboseLogging"], undefined);
+    expect(onPatch).toHaveBeenCalledWith(["storage", "mode"], undefined);
+    expect(onPatch).toHaveBeenCalledWith(["storage", "separateReports"], undefined);
+  });
+
   it("locks every global dreaming control when config mutation is unavailable", () => {
     const container = renderInto(null, vi.fn(), true);
 

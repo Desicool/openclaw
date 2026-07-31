@@ -37,6 +37,7 @@ import {
   MODEL_PROVIDERS_COST_DAYS,
   type ModelProvidersData,
 } from "./load.ts";
+import { readModelBehaviorConfig } from "./model-behavior.ts";
 import {
   buildDefaultModelsPatch,
   buildProviderApiKeyPatch,
@@ -579,8 +580,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       success: t("modelProviders.defaults.saved"),
       replacePaths: DEFAULT_MODELS_REPLACE_PATHS,
     });
-    // Without fresh provider data, clearing this committed draft would show
-    // the old default models beside a contradictory success message.
+    // Keep the draft when fresh provider data is unavailable after commit.
     if (
       result.ok &&
       !result.warning &&
@@ -606,13 +606,8 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       asConfigRecord(data.config) ??
       {};
     const agentsDefaults = asConfigRecord(asConfigRecord(configObject.agents)?.defaults);
-    const thinkingValue = agentsDefaults?.thinkingDefault;
-    const thinkingLevel = typeof thinkingValue === "string" ? thinkingValue : undefined;
-    const fastValue = agentsDefaults?.fastModeDefault;
-    const fastMode = fastValue === "auto" || typeof fastValue === "boolean" ? fastValue : undefined;
-    // The overlay update states replace General's old configUpdating prop,
-    // which config-page derived from this same snapshot (isUpdateBusy); the
-    // busy gate is behavior-identical to the pre-move General controls.
+    const modelBehavior = readModelBehaviorConfig(agentsDefaults);
+    // This keeps the pre-move General busy gate sourced from the same update state.
     const configBusy = this.configBusy();
     const cards = buildModelProviderCards({
       ...data,
@@ -641,8 +636,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       configuredModels,
       defaultModels: defaults,
       defaultModelsDirty: this.defaultsDraft !== null,
-      thinkingLevel,
-      fastMode,
+      ...modelBehavior,
       configBusy,
       unconfiguredProviders: buildUnconfiguredProviderOptions(
         data.catalogModels,

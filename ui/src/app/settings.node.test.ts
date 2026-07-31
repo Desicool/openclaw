@@ -781,6 +781,21 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(Object.hasOwn(reset, "textScale")).toBe(false);
   });
 
+  it("treats the legacy always-persisted default text scale as inherited", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+    const gatewayUrl = expectedGatewayUrl("");
+    const scopedKey = `openclaw.control.settings.v1:${gatewayUrl}`;
+    localStorage.setItem(scopedKey, JSON.stringify({ gatewayUrl, textScale: 100 }));
+
+    expect(loadSettings().textScale).toBeUndefined();
+    saveSettings(loadSettings());
+    expect(JSON.parse(localStorage.getItem(scopedKey) ?? "{}")).not.toHaveProperty("textScale");
+  });
+
   it("persists and parses a chat split layout", () => {
     setTestLocation({
       protocol: "https:",

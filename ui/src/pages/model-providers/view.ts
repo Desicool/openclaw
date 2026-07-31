@@ -50,7 +50,9 @@ type ModelProvidersViewProps = {
   defaultModels: DefaultModelSelection;
   defaultModelsDirty: boolean;
   thinkingLevel: string | undefined;
+  thinkingOverridden: boolean;
   fastMode: FastMode | undefined;
+  fastModeOverridden: boolean;
   configBusy: boolean;
   unconfiguredProviders: ProviderOption[];
   canMutate: boolean;
@@ -126,13 +128,13 @@ function renderModelBehavior(props: ModelProvidersViewProps) {
       : THINKING_LEVELS;
   const thinkingDefault = renderSettingsDefaultState({
     value: t("quickSettings.model.modelPolicy"),
-    overridden: props.thinkingLevel !== undefined,
+    overridden: props.thinkingOverridden,
     disabled: props.configBusy,
     onReset: props.onThinkingReset,
   });
   const fastDefault = renderSettingsDefaultState({
     value: t("quickSettings.model.modelPolicy"),
-    overridden: props.fastMode !== undefined,
+    overridden: props.fastModeOverridden,
     disabled: props.configBusy,
     onReset: props.onFastModeReset,
   });
