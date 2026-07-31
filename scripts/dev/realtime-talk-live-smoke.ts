@@ -213,6 +213,10 @@ function transcriptIncludesMarker(transcripts: string[], marker: string): boolea
   return normalizeTranscript(transcripts.join(" ")).includes(normalizeTranscript(marker));
 }
 
+function resolveGatewayRelayModulePath(repoRoot = process.cwd()): string {
+  return `/@fs/${repoRoot.replaceAll("\\", "/")}/ui/src/pages/chat/realtime-talk-gateway-relay.ts`;
+}
+
 async function sendPcmAudioInChunks(
   bridge: RealtimeVoiceBridge,
   audio: Buffer,
@@ -899,10 +903,7 @@ async function smokeGatewayRelayBrowser(browser: Browser): Promise<SmokeResult> 
   const dir = await mkdtemp(path.join(tmpdir(), "openclaw-realtime-talk-"));
   try {
     const { createServer } = await import("vite");
-    const repoRoot = process.cwd().replaceAll("\\", "/");
-    const relayModulePath = JSON.stringify(
-      `/@fs/${repoRoot}/ui/src/ui/chat/realtime-talk-gateway-relay.ts`,
-    );
+    const relayModulePath = JSON.stringify(resolveGatewayRelayModulePath());
     await writeFile(
       path.join(dir, "index.html"),
       '<!doctype html><meta charset="utf-8"><script type="module" src="/main.ts"></script>',
@@ -1154,6 +1155,7 @@ export const testing = {
   parseRealtimeSmokeArgs,
   readOpenAIRealtimeBrowserResponseText,
   readBoundedText,
+  resolveGatewayRelayModulePath,
   resolveOpenAIHttpTimeoutMs,
   sendPcmAudioInChunks,
   transcriptIncludesMarker,
