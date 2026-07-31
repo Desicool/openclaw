@@ -12,12 +12,10 @@ import {
 } from "./message-event.js";
 import { syncBuzzProfile } from "./profile.js";
 import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import {
-  BUZZ_ROOM_MEMBERSHIP_KIND,
   BUZZ_ROOM_SYSTEM_KIND,
-  isNewerBuzzRoomMembership,
   parseBuzzRoomMembershipChangeEvent,
-  parseBuzzRoomMembershipEvent,
   type BuzzRoomMembership,
 } from "./room-membership.js";
 import { decodeBuzzPrivateKey, resolveBuzzPublicKey } from "./types.js";
@@ -32,7 +30,6 @@ const MEMBERSHIP_READY_TIMEOUT_MS = 10_000;
 const MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON = "membership tracker setup failed";
 const MEMBERSHIP_REFRESH_DELAYS_MS = [100, 500, 1_500, 3_000] as const;
 const MEMBERSHIP_EVENT_CACHE_MAX_ENTRIES = 10_000;
-const RELAY_QUERY_EVENT_LIMIT = 1_000;
 
 export interface BuzzBus {
   publicKey: string;
@@ -171,100 +168,6 @@ async function sleepWithSignal(delayMs: number, signal?: AbortSignal): Promise<v
       onAbort();
     }
   });
-}
-
-async function queryBuzzRoomMembershipBatch(params: {
-  relay: Relay;
-  channelIds: string[];
-  timeoutMs?: number;
-  signal?: AbortSignal;
-}): Promise<Map<string, BuzzRoomMembership>> {
-  const configuredRooms = new Set(params.channelIds);
-  const memberships = new Map<string, BuzzRoomMembership>();
-  return await new Promise<Map<string, BuzzRoomMembership>>((resolve, reject) => {
-    let settled = false;
-    const subscriptionRef: { current?: ReturnType<Relay["subscribe"]> } = {};
-    const finish = (error?: unknown) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      params.signal?.removeEventListener("abort", onAbort);
-      subscriptionRef.current?.close("membership snapshot loaded");
-      if (error === undefined) {
-        resolve(memberships);
-      } else {
-        reject(
-          error instanceof Error
-            ? error
-            : new Error("Buzz room membership query failed", { cause: error }),
-        );
-      }
-    };
-    const onAbort = () =>
-      finish(params.signal?.reason ?? new Error("Buzz room membership query aborted"));
-    const timeout = setTimeout(
-      () => finish(new Error("Timed out loading Buzz room membership")),
-      params.timeoutMs ?? MEMBERSHIP_READY_TIMEOUT_MS,
-    );
-    params.signal?.addEventListener("abort", onAbort, { once: true });
-    subscriptionRef.current = params.relay.subscribe(
-      [
-        {
-          kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
-          "#d": params.channelIds,
-          limit: params.channelIds.length,
-        },
-      ],
-      {
-        onevent: (event) => {
-          const membership = parseBuzzRoomMembershipEvent(event);
-          if (
-            !membership ||
-            !configuredRooms.has(membership.roomId) ||
-            !isNewerBuzzRoomMembership(membership, memberships.get(membership.roomId))
-          ) {
-            return;
-          }
-          memberships.set(membership.roomId, membership);
-        },
-        oneose: () => finish(),
-        onclose: (reason) => {
-          if (reason !== "membership snapshot loaded") {
-            finish(new Error(`Buzz room membership query closed: ${reason}`));
-          }
-        },
-      },
-    );
-    if (settled) {
-      subscriptionRef.current.close("membership snapshot loaded");
-    }
-    if (params.signal?.aborted) {
-      onAbort();
-    }
-  });
-}
-
-async function queryBuzzRoomMemberships(params: {
-  relay: Relay;
-  channelIds: string[];
-  timeoutMs?: number;
-  signal?: AbortSignal;
-}): Promise<Map<string, BuzzRoomMembership>> {
-  const memberships = new Map<string, BuzzRoomMembership>();
-  for (let index = 0; index < params.channelIds.length; index += RELAY_QUERY_EVENT_LIMIT) {
-    const batch = await queryBuzzRoomMembershipBatch({
-      ...params,
-      channelIds: params.channelIds.slice(index, index + RELAY_QUERY_EVENT_LIMIT),
-    });
-    for (const [roomId, membership] of batch) {
-      if (isNewerBuzzRoomMembership(membership, memberships.get(roomId))) {
-        memberships.set(roomId, membership);
-      }
-    }
-  }
-  return memberships;
 }
 
 async function createBuzzRoomMembershipTracker(params: {
