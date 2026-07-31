@@ -101,13 +101,18 @@ describe("talk realtime gateway relay", () => {
     setTestEnvValue("OPENCLAW_STATE_DIR", tempDir);
     const bridgeCloses: Array<ReturnType<typeof vi.fn>> = [];
     const bridgeAudioSends: Array<ReturnType<typeof vi.fn>> = [];
+    const bridgeRequests: RealtimeVoiceBridgeCreateRequest[] = [];
+    const bridgeToolResults: Array<ReturnType<typeof vi.fn>> = [];
     const provider = createIdleRelayProvider();
-    provider.createBridge = () => {
+    provider.createBridge = (request) => {
       const bridgeIndex = bridgeCloses.length;
       const close = vi.fn();
       const sendAudio = vi.fn();
+      const submitToolResult = vi.fn();
+      bridgeRequests.push(request);
       bridgeCloses.push(close);
       bridgeAudioSends.push(sendAudio);
+      bridgeToolResults.push(submitToolResult);
       return {
         connect: vi.fn(async () => {
           if (bridgeIndex === 1) {
@@ -117,7 +122,7 @@ describe("talk realtime gateway relay", () => {
         sendAudio,
         setMediaTimestamp: vi.fn(),
         handleBargeIn: vi.fn(),
-        submitToolResult: vi.fn(),
+        submitToolResult,
         acknowledgeMark: vi.fn(),
         close,
         isConnected: vi.fn(() => true),
@@ -192,6 +197,31 @@ describe("talk realtime gateway relay", () => {
             payload.type === "error",
         ),
       ).toBe(false);
+      const eventCountAfterClose = broadcastToConnIds.mock.calls.length;
+      const lateRequest = bridgeRequests[0];
+      if (!lateRequest?.runAgentConsult) {
+        throw new Error("expected relay provider request to include the agent consult runner");
+      }
+      lateRequest.onReady?.();
+      lateRequest.onError?.(new Error("late provider error"));
+      lateRequest.onEvent?.({ direction: "server", type: "response.done" });
+      lateRequest.onAudio(Buffer.from("late audio"));
+      lateRequest.onClearAudio("barge-in");
+      lateRequest.onMark?.("late-mark");
+      lateRequest.onTranscript?.("user", "late transcript", true);
+      lateRequest.onToolCall?.({
+        itemId: "late-item",
+        callId: "late-call",
+        name: "openclaw_agent_consult",
+        args: { question: "late consult" },
+      });
+      lateRequest.onClose?.("error");
+      await expect(lateRequest.runAgentConsult({ prompt: "late direct consult" })).rejects.toThrow(
+        "Realtime gateway-relay session is closed",
+      );
+      await Promise.resolve();
+      expect(broadcastToConnIds).toHaveBeenCalledTimes(eventCountAfterClose);
+      expect(bridgeToolResults[0]).not.toHaveBeenCalled();
       expect(() =>
         sendTalkRealtimeRelayAudio({
           relaySessionId: firstOwned.relaySessionId,

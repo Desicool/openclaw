@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeTranscriptionProviderPlugin } from "../plugins/types.js";
 import type { RealtimeTranscriptionSessionCreateRequest } from "../realtime-transcription/provider-types.js";
+import { getUnifiedTalkSession, rememberUnifiedTalkSession } from "./talk-session-registry.js";
 import {
   cancelTalkTranscriptionRelayTurn,
   closeTalkTranscriptionRelaySessionsForConnection,
@@ -221,17 +222,25 @@ describe("talk transcription gateway relay", () => {
       throw new Error("late connect failure");
     });
     const unrelated = createSttSessionMock();
+    const requests: RealtimeTranscriptionSessionCreateRequest[] = [];
     const { context, events, logGateway } = createBroadcastContext();
     const createSession = (connId: string, sttSession: ReturnType<typeof createSttSessionMock>) =>
       createTalkTranscriptionRelaySession({
         context,
         connId,
-        provider: createTranscriptionProvider(sttSession),
+        provider: createTranscriptionProvider(sttSession, (request) => requests.push(request)),
         providerConfig: {},
       });
     const firstSession = createSession("conn-owner", firstOwned);
     const secondSession = createSession("conn-owner", secondOwned);
     const unrelatedSession = createSession("conn-other", unrelated);
+    for (const session of [firstSession, secondSession]) {
+      rememberUnifiedTalkSession(session.transcriptionSessionId, {
+        kind: "transcription-relay",
+        connId: "conn-owner",
+        transcriptionSessionId: session.transcriptionSessionId,
+      });
+    }
     firstOwned.close.mockImplementationOnce(() => {
       throw new Error("provider close failed");
     });
@@ -269,6 +278,7 @@ describe("talk transcription gateway relay", () => {
           audioBase64: "AQI=",
         }),
       ).toThrow("Unknown transcription Talk session");
+      expect(() => getUnifiedTalkSession(transcriptionSessionId)).toThrow("Unknown Talk session");
     }
     expect(
       events.some(
@@ -279,6 +289,13 @@ describe("talk transcription gateway relay", () => {
           (event.payload.type === "ready" || event.payload.type === "error"),
       ),
     ).toBe(false);
+    const eventCountAfterClose = events.length;
+    requests[0]?.onSpeechStart?.();
+    requests[0]?.onPartial?.("late partial");
+    requests[0]?.onTranscript?.("late transcript");
+    requests[0]?.onError?.(new Error("late provider error"));
+    await Promise.resolve();
+    expect(events).toHaveLength(eventCountAfterClose);
 
     sendTalkTranscriptionRelayAudio({
       transcriptionSessionId: unrelatedSession.transcriptionSessionId,

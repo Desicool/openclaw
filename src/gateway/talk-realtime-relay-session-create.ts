@@ -103,12 +103,19 @@ export function createTalkRealtimeRelaySession(
   let ready = false;
   let failureEmitted = false;
   const relayRef: { current?: RelaySession } = {};
+  const getActiveRelay = (): RelaySession | undefined => {
+    const relay = relayRef.current;
+    return relay && relaySessions.get(relay.id) === relay ? relay : undefined;
+  };
   let consultAgentRuntime: ReturnType<typeof createPluginRuntime>["agent"] | undefined;
   const relaySessionKey = params.sessionKey?.trim();
   const relayAgentId = relaySessionKey
     ? resolveTalkSessionAgentId(params.cfg ?? params.context.getRuntimeConfig(), relaySessionKey)
     : undefined;
   const runAgentConsult = async ({ prompt, signal }: { prompt: string; signal?: AbortSignal }) => {
+    if (!getActiveRelay()) {
+      throw new Error("Realtime gateway-relay session is closed");
+    }
     const runtimeConfig = params.cfg ?? params.context.getRuntimeConfig();
     const sessionKey = relaySessionKey;
     if (!sessionKey) {
@@ -182,9 +189,13 @@ export function createTalkRealtimeRelaySession(
     tools: params.tools,
     markStrategy: "transport",
     audioSink: {
-      isOpen: () => Boolean(relayRef.current && relaySessions.has(relayRef.current.id)),
+      isOpen: () => Boolean(getActiveRelay()),
       sendAudio: (audio) => {
-        const turnId = relayRef.current ? ensureRelayTurn(relayRef.current) : undefined;
+        const relay = getActiveRelay();
+        if (!relay) {
+          return;
+        }
+        const turnId = ensureRelayTurn(relay);
         emit(
           {
             relaySessionId,
@@ -201,7 +212,11 @@ export function createTalkRealtimeRelaySession(
         );
       },
       clearAudio: (reason) => {
-        const turnId = relayRef.current ? ensureRelayTurn(relayRef.current) : undefined;
+        const relay = getActiveRelay();
+        if (!relay) {
+          return;
+        }
+        const turnId = ensureRelayTurn(relay);
         emit(
           { relaySessionId, type: "clear", ...(reason ? { reason } : {}) },
           {
@@ -213,7 +228,11 @@ export function createTalkRealtimeRelaySession(
         );
       },
       sendMark: (markName) => {
-        const turnId = relayRef.current ? ensureRelayTurn(relayRef.current) : undefined;
+        const relay = getActiveRelay();
+        if (!relay) {
+          return;
+        }
+        const turnId = ensureRelayTurn(relay);
         emit(
           { relaySessionId, type: "mark", markName },
           {
@@ -226,6 +245,9 @@ export function createTalkRealtimeRelaySession(
       },
     },
     onEvent: (event) => {
+      if (!getActiveRelay()) {
+        return;
+      }
       if (event.direction !== "server") {
         return;
       }
@@ -260,9 +282,12 @@ export function createTalkRealtimeRelaySession(
       }
     },
     onTranscript: (role, text, final) => {
-      const relay = relayRef.current;
-      const turnId = relay ? ensureRelayTurn(relay) : undefined;
-      if (final && relay) {
+      const relay = getActiveRelay();
+      if (!relay) {
+        return;
+      }
+      const turnId = ensureRelayTurn(relay);
+      if (final) {
         enqueueRelayVoiceTranscript(relay, role, text);
       }
       const eventType =
@@ -289,7 +314,6 @@ export function createTalkRealtimeRelaySession(
           return;
         }
         if (
-          relay &&
           pruneInactiveRelayAgentRuns(relay) > 0 &&
           shouldAutoControlRealtimeVoiceAgentText(question)
         ) {
@@ -301,11 +325,17 @@ export function createTalkRealtimeRelaySession(
             text: question,
           })
             .then((result) => {
+              if (!getActiveRelay()) {
+                return;
+              }
               if (result.speak && !result.suppress && result.message.trim()) {
                 bridge.sendUserMessage(buildRealtimeVoiceAgentControlSpeechMessage(result.message));
               }
             })
             .catch((error: unknown) => {
+              if (!getActiveRelay()) {
+                return;
+              }
               emit(
                 { relaySessionId, type: "error", message: formatErrorMessage(error) },
                 {
@@ -323,9 +353,12 @@ export function createTalkRealtimeRelaySession(
       }
     },
     onToolCall: (toolCall) => {
-      const relay = relayRef.current;
+      const relay = getActiveRelay();
+      if (!relay) {
+        return;
+      }
       let shouldSubmitWorkingResult = false;
-      if (relay && toolCall.name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME) {
+      if (toolCall.name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME) {
         const forcedConsult = relay.harness.forcedConsults.recordNativeConsult(
           toolCall.args,
           toolCall.callId,
@@ -351,7 +384,7 @@ export function createTalkRealtimeRelaySession(
         }
         shouldSubmitWorkingResult = true;
       }
-      const turnId = relay ? ensureRelayTurn(relay) : undefined;
+      const turnId = ensureRelayTurn(relay);
       emit(
         {
           relaySessionId,
@@ -369,15 +402,21 @@ export function createTalkRealtimeRelaySession(
           payload: { name: toolCall.name, args: toolCall.args },
         },
       );
-      if (relay && shouldSubmitWorkingResult) {
+      if (shouldSubmitWorkingResult) {
         return submitRealtimeAgentConsultWorkingResponse(relay, toolCall.callId, turnId);
       }
     },
     onReady: () => {
+      if (!getActiveRelay()) {
+        return;
+      }
       ready = true;
       emit({ relaySessionId, type: "ready" }, { type: "session.ready", payload: null });
     },
     onError: (error) => {
+      if (!getActiveRelay()) {
+        return;
+      }
       const issue = realtimeRelayIssue({
         message: formatErrorMessage(error),
         provider: params.provider.id,
@@ -393,7 +432,7 @@ export function createTalkRealtimeRelaySession(
     },
     onClose: (reason) => {
       const active = relaySessions.get(relaySessionId);
-      if (!active) {
+      if (active !== relayRef.current) {
         return;
       }
       active.harness.close();
