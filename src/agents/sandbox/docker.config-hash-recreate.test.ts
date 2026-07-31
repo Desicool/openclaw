@@ -681,20 +681,32 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual([]);
   });
 
-  it("maps an explicit root user through rootless Podman keep-id", async () => {
-    const cfg = createSandboxConfig([]);
-    cfg.docker.user = "0:0";
-    spawnState.inspectRunning = false;
-    registryMocks.readRegistryEntry.mockResolvedValue(null);
+  it.each([{ user: "0" }, { user: "0:0" }, { user: "1001:0" }, { user: "0:1002" }])(
+    "rejects zero-valued rootless Podman user $user",
+    async ({ user }) => {
+      const cfg = createSandboxConfig([]);
+      cfg.docker.user = user;
+      spawnState.inspectRunning = false;
+      registryMocks.readRegistryEntry.mockResolvedValue(null);
 
-    const createCall = await ensureSandboxCreateCallForTest({
-      cfg,
-      engine: PODMAN_SANDBOX_ENGINE,
-    });
+      await expect(
+        ensureSandboxContainer({
+          engine: PODMAN_SANDBOX_ENGINE,
+          scopeKey: "shared",
+          workspaceDir: "/tmp/workspace",
+          agentWorkspaceDir: "/tmp/workspace",
+          cfg,
+        }),
+      ).rejects.toThrow(/cannot use UID or GID 0/iu);
 
-    expect(collectDockerFlagValues(createCall.args, "--user")).toEqual(["0:0"]);
-    expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual(["keep-id:uid=0,gid=0"]);
-  });
+      expect(spawnState.calls).not.toContainEqual(
+        expect.objectContaining({
+          command: "podman",
+          args: expect.arrayContaining(["create"]),
+        }),
+      );
+    },
+  );
 
   it("rejects nonnumeric users for rootless Podman keep-id", async () => {
     const cfg = createSandboxConfig([]);
@@ -943,7 +955,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
       createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
       readOnlyWorkspaceSkillMounts: [],
     });
-    const oldHash = `${genericHash}:podman-runtime-v6:keep-id:default`;
+    const oldHash = `${genericHash}:podman-runtime-v8:keep-id:default`;
     cfg.dockerTmpfsSource = "configured";
     spawnState.inspectRunning = false;
     spawnState.labelHash = oldHash;

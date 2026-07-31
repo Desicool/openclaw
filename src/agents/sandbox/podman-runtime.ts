@@ -42,6 +42,11 @@ function resolvePodmanKeepIdMode(user: string | undefined): string {
     );
   }
   const [, uid, gid] = match;
+  if (uid === "0" || gid === "0") {
+    throw invalidPodmanConfig(
+      `Rootless Podman sandbox user "${normalized}" cannot use UID or GID 0 while preserving workspace bind ownership. Bake root-required setup into the image or use rootful Podman.`,
+    );
+  }
   return gid ? `keep-id:uid=${uid},gid=${gid}` : `keep-id:uid=${uid}`;
 }
 
@@ -287,7 +292,7 @@ export function resolvePodmanSandboxConfigHash(params: {
   dockerTmpfsSource: SandboxConfig["dockerTmpfsSource"];
 }): string {
   const userMode = params.configuredUser ? "configured-user" : "keep-id";
-  return `${params.genericConfigHash}:podman-runtime-v6:${userMode}:${params.dockerTmpfsSource}`;
+  return `${params.genericConfigHash}:podman-runtime-v8:${userMode}:${params.dockerTmpfsSource}`;
 }
 
 export function resolvePodmanSandboxContainerPrefix(containerPrefix: string): string {

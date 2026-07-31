@@ -149,7 +149,7 @@ Use `sandbox.backend: "podman"` to select the native `podman` CLI directly. This
 
 Podman reuses the existing `sandbox.docker.*` settings and the active native `podman` CLI context; it adds no separate connection configuration surface.
 
-Rootless Podman defaults to `--userns=keep-id` for writable workspace mounts. A long-lived sandbox can reserve subordinate IDs and block unrelated `--userns=auto` workloads; remove it before starting those workloads. Set `sandbox.docker.user` to control the container user; rootful Podman otherwise uses the workspace owner when available.
+Rootless Podman defaults to `--userns=keep-id` for writable workspace mounts. A long-lived sandbox can reserve subordinate IDs and block unrelated `--userns=auto` workloads; remove it before starting those workloads. Set `sandbox.docker.user` to a nonzero numeric UID or UID:GID to control the container user. Rootless Podman rejects UID or GID 0 because Podman 4.x cannot remap namespace root while preserving workspace bind ownership; bake root-required setup into the image or use rootful Podman. Rootful Podman otherwise uses the workspace owner when available.
 
 ```json5
 {
@@ -523,9 +523,9 @@ Paths:
     - Default `docker.network` is `"none"` (no egress), so package installs will fail.
     - `docker.network: "container:<id>"` requires `dangerouslyAllowContainerNamespaceJoin: true` and is break-glass only.
     - `readOnlyRoot: true` prevents writes; set `readOnlyRoot: false` or bake a custom image.
-    - `user` must be root for package installs. Docker can omit `user` or set
-      `user: "0:0"`; rootless Podman must set `user: "0:0"` because omission
-      defaults to the invoking user through `--userns=keep-id`.
+    - `user` must be root for package installs. Docker or rootful Podman can omit
+      `user` or set `user: "0:0"`. Rootless Podman rejects zero-valued users;
+      bake packages into the image or use rootful Podman.
     - Sandbox exec does **not** inherit host `process.env`. Use `agents.defaults.sandbox.docker.env` (or a custom image) for skill API keys.
     - Values in `agents.defaults.sandbox.docker.env` are passed as explicit container environment variables. Anyone with access to the selected container engine can inspect them with metadata commands such as `docker inspect` or `podman inspect`. Use a custom image, mounted secret file, or another secret delivery path if that metadata exposure is not acceptable.
 
