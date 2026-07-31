@@ -335,7 +335,7 @@ export class PlivoProvider implements VoiceCallProvider {
                 : ("failed" as const),
       };
       this.releaseCallState({
-        callId: callIdOverride,
+        callId: baseEvent.callId || undefined,
         providerCallId: callUuid || requestUuid || undefined,
         callUuid: callUuid || undefined,
       });
@@ -393,16 +393,16 @@ export class PlivoProvider implements VoiceCallProvider {
 
   async hangupCall(input: HangupCallInput): Promise<void> {
     const callUuid = this.requestUuidToCallUuid.get(input.providerCallId);
-    this.releaseCallState({
-      callId: input.callId,
-      providerCallId: input.providerCallId,
-      callUuid,
-    });
     if (callUuid) {
       await this.apiRequest({
         method: "DELETE",
         endpoint: `/Call/${callUuid}/`,
         allowNotFound: true,
+      });
+      this.releaseCallState({
+        callId: input.callId,
+        providerCallId: input.providerCallId,
+        callUuid,
       });
       return;
     }
@@ -417,6 +417,10 @@ export class PlivoProvider implements VoiceCallProvider {
       method: "DELETE",
       endpoint: `/Request/${input.providerCallId}/`,
       allowNotFound: true,
+    });
+    this.releaseCallState({
+      callId: input.callId,
+      providerCallId: input.providerCallId,
     });
   }
 
