@@ -5,6 +5,7 @@ import {
   type BuzzInboundMessage,
 } from "../message-event.js";
 import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "../relay-auth.js";
+import { openBuzzRelaySubscription } from "../relay-subscription.js";
 import {
   BUZZ_ROOM_MEMBERSHIP_KIND,
   isNewerBuzzRoomMembership,
@@ -36,7 +37,7 @@ async function loadBuzzQaRoomMembership(params: {
   return await new Promise<BuzzRoomMembership>((resolve, reject) => {
     let latest: BuzzRoomMembership | undefined;
     let settled = false;
-    const subscriptionRef: { current?: ReturnType<Relay["subscribe"]> } = {};
+    const subscriptionRef: { current?: ReturnType<Relay["prepareSubscription"]> } = {};
     const finish = (error?: Error) => {
       if (settled) {
         return;
@@ -56,7 +57,8 @@ async function loadBuzzQaRoomMembership(params: {
       () => finish(new Error(`Timed out loading Buzz QA room ${params.roomId} membership.`)),
       MEMBERSHIP_TIMEOUT_MS,
     );
-    subscriptionRef.current = params.relay.subscribe(
+    subscriptionRef.current = openBuzzRelaySubscription(
+      params.relay,
       [{ kinds: [BUZZ_ROOM_MEMBERSHIP_KIND], "#d": [params.roomId], limit: 1 }],
       {
         onevent: (event) => {
@@ -135,9 +137,10 @@ export async function createBuzzQaRelayDriver(params: {
   const observerReadyTimeout = setTimeout(() => {
     rejectObserverReady?.(new Error("Timed out waiting for the Buzz QA message observer."));
   }, OBSERVER_READY_TIMEOUT_MS);
-  let subscription: ReturnType<Relay["subscribe"]>;
+  let subscription: ReturnType<Relay["prepareSubscription"]>;
   try {
-    subscription = relay.subscribe(
+    subscription = openBuzzRelaySubscription(
+      relay,
       [
         {
           kinds: [BUZZ_MESSAGE_KIND],

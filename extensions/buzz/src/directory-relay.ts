@@ -5,6 +5,7 @@ import {
   BUZZ_ROOM_METADATA_KIND,
   type BuzzDirectoryState,
 } from "./directory-state.js";
+import { openBuzzRelaySubscription } from "./relay-subscription.js";
 
 const BUZZ_DIRECTORY_QUERY_TIMEOUT_MS = 5_000;
 const BUZZ_ROOM_QUERY_CHUNK_SIZE = 1_000;
@@ -12,7 +13,7 @@ const PROFILE_SUBSCRIPTION_REPLACED_REASON = "directory profile subscription rep
 const DIRECTORY_SHUTDOWN_REASON = "directory shutdown";
 const DIRECTORY_QUERY_COMPLETE_REASON = "directory query complete";
 
-type BuzzSubscription = ReturnType<Relay["subscribe"]>;
+type BuzzSubscription = ReturnType<Relay["prepareSubscription"]>;
 type ProfileSubscriptionGeneration = {
   subscriptions: BuzzSubscription[];
   pendingReady: number;
@@ -63,7 +64,7 @@ async function queryBuzzDirectoryBatch(params: {
       BUZZ_DIRECTORY_QUERY_TIMEOUT_MS,
     );
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    subscriptionRef.current = params.relay.subscribe([params.filter], {
+    subscriptionRef.current = openBuzzRelaySubscription(params.relay, [params.filter], {
       onevent: params.onEvent,
       oneose: () => finish(),
       onclose: (reason) => {
@@ -199,7 +200,8 @@ export function startBuzzDirectoryRelay(params: {
             applyQueuedProfilePublicKeys();
           }
         };
-        const subscription = params.relay.subscribe(
+        const subscription = openBuzzRelaySubscription(
+          params.relay,
           [
             {
               kinds: [BUZZ_PROFILE_KIND],

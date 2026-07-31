@@ -7,6 +7,7 @@ const relayMocks = vi.hoisted(() => ({
   close: vi.fn(),
   connect: vi.fn(async () => {}),
   filters: [] as Filter[],
+  send: vi.fn(async () => {}),
   subscribe: vi.fn(),
 }));
 const gatewayMocks = vi.hoisted(() => ({
@@ -31,9 +32,13 @@ vi.mock("nostr-tools", async (importOriginal) => {
       auth = relayMocks.auth;
       close = relayMocks.close;
       connect = relayMocks.connect;
+      idleSince: number | undefined;
+      ongoingOperations = 0;
       onauth: unknown;
+      scheduleIdleClose = vi.fn();
+      send = relayMocks.send;
 
-      subscribe(
+      prepareSubscription(
         filters: Filter[],
         handlers: {
           onevent: (event: Event) => void;
@@ -42,7 +47,11 @@ vi.mock("nostr-tools", async (importOriginal) => {
       ) {
         const filter = filters[0] ?? {};
         relayMocks.filters.push(filter);
-        return relayMocks.subscribe(filter, handlers);
+        const subscription = relayMocks.subscribe(filter, handlers);
+        return {
+          id: `sub:${relayMocks.filters.length}`,
+          ...subscription,
+        };
       }
     },
   };

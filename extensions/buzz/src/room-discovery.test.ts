@@ -13,6 +13,7 @@ const relayMocks = vi.hoisted(() => ({
   close: vi.fn(),
   connect: vi.fn(async () => {}),
   filters: [] as Array<Record<string, unknown>>,
+  send: vi.fn(async () => {}),
   subscribe: vi.fn(),
 }));
 
@@ -24,11 +25,22 @@ vi.mock("nostr-tools", async (importOriginal) => {
       auth = relayMocks.auth;
       close = relayMocks.close;
       connect = relayMocks.connect;
+      idleSince: number | undefined;
+      ongoingOperations = 0;
       onauth: unknown;
+      scheduleIdleClose = vi.fn();
+      send = relayMocks.send;
 
-      subscribe(filters: Array<Record<string, unknown>>, handlers: Record<string, () => void>) {
+      prepareSubscription(
+        filters: Array<Record<string, unknown>>,
+        handlers: Record<string, () => void>,
+      ) {
         relayMocks.filters.push(filters[0] ?? {});
-        return relayMocks.subscribe(filters, handlers);
+        const subscription = relayMocks.subscribe(filters, handlers);
+        return {
+          id: `sub:${relayMocks.filters.length}`,
+          ...subscription,
+        };
       }
     },
   };

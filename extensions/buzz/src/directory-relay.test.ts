@@ -22,16 +22,22 @@ describe("Buzz directory relay", () => {
   it("waits for EOSE and collapses queued profile replacements to the latest set", () => {
     const subscriptions: SubscriptionRecord[] = [];
     const relay = {
-      subscribe: vi.fn(
+      idleSince: undefined,
+      ongoingOperations: 0,
+      prepareSubscription: vi.fn(
         (
           filters: Filter[],
           handlers: SubscriptionRecord["handlers"],
-        ): ReturnType<Relay["subscribe"]> => {
+        ): ReturnType<Relay["prepareSubscription"]> => {
           const close = vi.fn();
           subscriptions.push({ filters, handlers, close });
-          return { close } as ReturnType<Relay["subscribe"]>;
+          return {
+            id: `sub:${subscriptions.length}`,
+            close,
+          } as ReturnType<Relay["prepareSubscription"]>;
         },
       ),
+      send: vi.fn(async () => {}),
     } as unknown as Relay;
     const directory = startBuzzDirectoryRelay({
       relay,

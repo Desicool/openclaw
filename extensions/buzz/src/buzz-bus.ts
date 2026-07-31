@@ -12,6 +12,7 @@ import {
 } from "./message-event.js";
 import { syncBuzzProfile } from "./profile.js";
 import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import {
   BUZZ_ROOM_SYSTEM_KIND,
@@ -189,7 +190,7 @@ async function createBuzzRoomMembershipTracker(params: {
   signal?: AbortSignal;
 }): Promise<{
   memberships: () => ReadonlyMap<string, BuzzRoomMembership>;
-  subscriptions: Array<ReturnType<Relay["subscribe"]>>;
+  subscriptions: Array<ReturnType<Relay["prepareSubscription"]>>;
 }> {
   type BufferedSystemEvent = { event: Event; historical: boolean };
   type ExpectedMembership = "present" | "absent";
@@ -396,7 +397,8 @@ async function createBuzzRoomMembershipTracker(params: {
   // Buzz indexes live channel fan-out under one server-resolved room scope.
   // A multi-room #h filter becomes global and cannot receive channel events.
   const subscriptions = params.channelIds.map((channelId) =>
-    params.relay.subscribe(
+    openBuzzRelaySubscription(
+      params.relay,
       [
         {
           kinds: [BUZZ_ROOM_SYSTEM_KIND, BUZZ_ROOM_METADATA_EDIT_KIND],
@@ -551,7 +553,7 @@ export async function startBuzzBus(options: {
     authTag,
     signal,
   });
-  const subscriptions: Array<ReturnType<Relay["subscribe"]>> = [];
+  const subscriptions: Array<ReturnType<Relay["prepareSubscription"]>> = [];
   const directory = new BuzzDirectoryState({
     publicKey,
     fallbackProfileName: options.profileName ?? "OpenClaw",

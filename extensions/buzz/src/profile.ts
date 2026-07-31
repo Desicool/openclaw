@@ -1,4 +1,5 @@
 import { finalizeEvent, type Event, type Relay } from "nostr-tools";
+import { openBuzzRelaySubscription } from "./relay-subscription.js";
 
 const PROFILE_KIND = 0;
 const AGENT_PROFILE_KIND = 10_100;
@@ -57,7 +58,7 @@ async function queryCurrentProfiles(params: {
     const state: {
       settled: boolean;
       timeout?: ReturnType<typeof setTimeout>;
-      subscription?: ReturnType<Relay["subscribe"]>;
+      subscription?: ReturnType<Relay["prepareSubscription"]>;
     } = { settled: false };
     const finish = (error?: unknown) => {
       if (state.settled) {
@@ -83,7 +84,8 @@ async function queryCurrentProfiles(params: {
       () => finish(new Error("Timed out querying the Buzz bot profile")),
       PROFILE_QUERY_TIMEOUT_MS,
     );
-    state.subscription = params.relay.subscribe(
+    state.subscription = openBuzzRelaySubscription(
+      params.relay,
       [
         { kinds: [PROFILE_KIND], authors: [params.publicKey], limit: 1 },
         { kinds: [AGENT_PROFILE_KIND], authors: [params.publicKey], limit: 1 },

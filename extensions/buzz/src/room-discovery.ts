@@ -1,5 +1,6 @@
 import type { Event, Filter, Relay } from "nostr-tools";
 import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { BUZZ_ROOM_MEMBERSHIP_KIND, parseBuzzRoomMembershipEvent } from "./room-membership.js";
 import { BUZZ_CHANNEL_ID_PATTERN } from "./target.js";
 import { decodeBuzzPrivateKey, resolveBuzzPublicKey } from "./types.js";
@@ -29,7 +30,7 @@ async function queryRelay(params: {
     const state: {
       settled: boolean;
       timeout?: ReturnType<typeof setTimeout>;
-      subscription?: ReturnType<Relay["subscribe"]>;
+      subscription?: ReturnType<Relay["prepareSubscription"]>;
     } = { settled: false };
     const finish = (error?: unknown) => {
       if (state.settled) {
@@ -55,7 +56,7 @@ async function queryRelay(params: {
       () => finish(new Error("Timed out querying Buzz room membership")),
       params.timeoutMs,
     );
-    state.subscription = params.relay.subscribe([params.filter], {
+    state.subscription = openBuzzRelaySubscription(params.relay, [params.filter], {
       onevent: (event) => events.push(event),
       oneose: () => finish(),
       onclose: (reason) => {

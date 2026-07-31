@@ -1,4 +1,5 @@
 import type { Relay } from "nostr-tools";
+import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import {
   BUZZ_ROOM_MEMBERSHIP_KIND,
   isNewerBuzzRoomMembership,
@@ -20,7 +21,7 @@ async function queryBuzzRoomMembershipBatch(params: {
   const memberships = new Map<string, BuzzRoomMembership>();
   return await new Promise<Map<string, BuzzRoomMembership>>((resolve, reject) => {
     let settled = false;
-    const subscriptionRef: { current?: ReturnType<Relay["subscribe"]> } = {};
+    const subscriptionRef: { current?: ReturnType<Relay["prepareSubscription"]> } = {};
     const finish = (error?: unknown) => {
       if (settled) {
         return;
@@ -46,7 +47,8 @@ async function queryBuzzRoomMembershipBatch(params: {
       params.timeoutMs ?? MEMBERSHIP_QUERY_TIMEOUT_MS,
     );
     params.signal?.addEventListener("abort", onAbort, { once: true });
-    subscriptionRef.current = params.relay.subscribe(
+    subscriptionRef.current = openBuzzRelaySubscription(
+      params.relay,
       [
         {
           kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],

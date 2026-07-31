@@ -32,6 +32,8 @@ vi.mock("nostr-tools", async (importOriginal) => {
     ...actual,
     Relay: class {
       onauth?: (template: unknown) => Promise<unknown>;
+      idleSince: number | undefined;
+      ongoingOperations = 0;
       get connected() {
         return relayMocks.connected;
       }
@@ -40,8 +42,9 @@ vi.mock("nostr-tools", async (importOriginal) => {
       publish = relayMocks.publish;
       send = relayMocks.send;
       close = relayMocks.close;
+      scheduleIdleClose = vi.fn();
 
-      subscribe(
+      prepareSubscription(
         filters: Filter[],
         handlers: {
           onevent: (event: Event) => void;
@@ -74,7 +77,10 @@ vi.mock("nostr-tools", async (importOriginal) => {
           }
           handlers.oneose?.();
         }
-        return { close: relayMocks.subscriptionClose };
+        return {
+          id: `sub:${relayMocks.subscriptions.length}`,
+          close: relayMocks.subscriptionClose,
+        };
       }
     },
   };
@@ -222,7 +228,10 @@ describe("Buzz bus lifecycle", () => {
       replyToId: "parent-id",
     });
 
-    const frame = JSON.parse(relayMocks.send.mock.calls[0]?.[0] ?? "null") as [string, Event];
+    const messageFrame = relayMocks.send.mock.calls
+      .map(([raw]) => JSON.parse(raw) as [string, Event])
+      .find(([type]) => type === "EVENT");
+    const frame = messageFrame ?? ["", {} as Event];
     expect(frame[0]).toBe("EVENT");
     expect(frame[1]).toMatchObject({
       kind: 20_002,
@@ -252,6 +261,7 @@ describe("Buzz bus lifecycle", () => {
       onMessage: async () => {},
     });
     relayMocks.connected = false;
+    relayMocks.send.mockClear();
 
     await bus.sendTyping({ channelId: CHANNEL_ID });
 
