@@ -175,6 +175,40 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     });
   });
 
+  it("allows rootful Podman Machine connections", async () => {
+    spawnState.podmanInfo = "false\ttrue\t\t5.0.0\n";
+    spawnState.podmanConnections = JSON.stringify([
+      {
+        Name: "podman-machine-default-root",
+        URI: "ssh://root@127.0.0.1:60000/run/podman/podman.sock",
+        Identity: "/tmp/podman-machine-default",
+        Default: true,
+      },
+    ]);
+    spawnState.podmanMachines = JSON.stringify([
+      {
+        Name: "podman-machine-default",
+        Running: true,
+        IdentityPath: "/tmp/podman-machine-default",
+        Port: 60000,
+        RemoteUsername: "core",
+      },
+    ]);
+
+    await expect(resolvePodmanSandboxRuntimeInfo()).resolves.toMatchObject({
+      machine: true,
+      rootless: false,
+      target: {
+        globalArgs: [
+          "--url",
+          "ssh://root@127.0.0.1:60000/run/podman/podman.sock",
+          "--identity",
+          "/tmp/podman-machine-default",
+        ],
+      },
+    });
+  });
+
   it("rejects an unknown configured remote connection", async () => {
     spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
@@ -204,9 +238,18 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     await withEnvAsync(
       {
         CONTAINER_CONNECTION: "podman-machine-default",
-        CONTAINER_HOST: "ssh://example.test/run/user/1000/podman/podman.sock",
+        CONTAINER_HOST: "ssh://192.0.2.1:60000/run/user/1000/podman/podman.sock",
       },
       async () => {
+        spawnState.podmanMachines = JSON.stringify([
+          {
+            Name: "podman-machine-default",
+            Running: true,
+            IdentityPath: "/tmp/podman-machine-default",
+            Port: 60000,
+            RemoteUsername: "core",
+          },
+        ]);
         await expect(resolvePodmanSandboxRuntimeInfo()).rejects.toThrow(
           /active Podman connection is remote/u,
         );

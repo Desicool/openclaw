@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { isPathInside } from "../../infra/path-guards.js";
@@ -83,7 +84,11 @@ async function isPodmanMachineConnection(params: {
   } catch {
     return false;
   }
-  if (uri.protocol !== "ssh:" || !uri.port || !uri.username) {
+  const hostname = uri.hostname.replace(/^\[|\]$/gu, "");
+  const loopback =
+    (isIP(hostname) === 4 && hostname.startsWith("127.")) ||
+    (isIP(hostname) === 6 && hostname === "::1");
+  if (uri.protocol !== "ssh:" || !loopback || !uri.port || !uri.username) {
     return false;
   }
   const result = await execContainer(
@@ -118,9 +123,11 @@ async function isPodmanMachineConnection(params: {
       params.selectedName === machineName ||
       params.selectedName === `${machineName}-root`;
     const portMatches = String(machine.Port ?? "") === uri.port;
+    const connectionUser = decodeURIComponent(uri.username);
+    const rootConnection = params.selectedName === `${machineName}-root`;
     const userMatches =
       typeof machine.RemoteUsername === "string" &&
-      machine.RemoteUsername === decodeURIComponent(uri.username);
+      (connectionUser === machine.RemoteUsername || (rootConnection && connectionUser === "root"));
     const machineIdentity =
       typeof machine.IdentityPath === "string" && machine.IdentityPath
         ? path.resolve(machine.IdentityPath)
