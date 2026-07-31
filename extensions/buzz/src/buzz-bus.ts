@@ -29,6 +29,7 @@ const REPLAY_STATE_MAX_ENTRIES = 50_000;
 const REPLAY_NAMESPACE_PREFIX = "buzz.inbound-dedupe";
 const MEMBERSHIP_READY_TIMEOUT_MS = 10_000;
 const MEMBERSHIP_TRACKER_SETUP_CLOSE_REASON = "membership tracker setup failed";
+const BUZZ_ROOM_METADATA_EDIT_KIND = 9_002;
 const MEMBERSHIP_REFRESH_DELAYS_MS = [100, 500, 1_500, 3_000] as const;
 const MEMBERSHIP_EVENT_CACHE_MAX_ENTRIES = 10_000;
 
@@ -178,6 +179,7 @@ async function createBuzzRoomMembershipTracker(params: {
   since: number;
   onFatalError?: (error: Error) => void;
   onMembershipsChanged?: (memberships: ReadonlyMap<string, BuzzRoomMembership>) => void;
+  onRoomMetadataChanged?: (channelId: string) => void;
   signal?: AbortSignal;
 }): Promise<{
   isMember: (channelId: string, publicKey: string) => boolean;
@@ -326,6 +328,10 @@ async function createBuzzRoomMembershipTracker(params: {
     if (!channelId) {
       return undefined;
     }
+    if (event.kind === BUZZ_ROOM_METADATA_EDIT_KIND) {
+      params.onRoomMetadataChanged?.(channelId);
+      return undefined;
+    }
     const membership = memberships.get(channelId);
     if (!membership) {
       return undefined;
@@ -366,7 +372,7 @@ async function createBuzzRoomMembershipTracker(params: {
     params.relay.subscribe(
       [
         {
-          kinds: [BUZZ_ROOM_SYSTEM_KIND],
+          kinds: [BUZZ_ROOM_SYSTEM_KIND, BUZZ_ROOM_METADATA_EDIT_KIND],
           "#h": [channelId],
           since: params.since,
         },
@@ -573,6 +579,17 @@ export async function startBuzzBus(options: {
         if (directory.replaceMemberships(memberships)) {
           directoryRelay?.replaceProfilePublicKeys(directory.profilePublicKeys());
         }
+      },
+      onRoomMetadataChanged: (channelId) => {
+        void directoryRelay?.refreshRooms([channelId]).catch((error: unknown) => {
+          if (!signal.aborted) {
+            options.onDirectoryError?.(
+              error instanceof Error
+                ? error
+                : new Error("Buzz room directory refresh failed", { cause: error }),
+            );
+          }
+        });
       },
       signal,
     });

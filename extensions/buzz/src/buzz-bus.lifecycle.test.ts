@@ -55,7 +55,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
             handlers.onevent(event);
           }
           handlers.oneose?.();
-        } else if (filter.kinds?.includes(40099)) {
+        } else if (filter.kinds?.includes(40099) || filter.kinds?.includes(9002)) {
           handlers.oneose?.();
         } else if (filter.kinds?.includes(39000)) {
           for (const event of relayMocks.roomMetadataEvents) {
@@ -257,13 +257,68 @@ describe("Buzz bus lifecycle", () => {
       onMessage: async () => {},
     });
 
-    for (const kind of [9, 40_099]) {
+    for (const kind of [9, 9_002, 40_099]) {
       const roomFilters = relayMocks.subscriptions
         .filter((entry) => entry.filter.kinds?.includes(kind))
         .map((entry) => entry.filter["#h"]);
       expect(roomFilters).toEqual([[CHANNEL_ID], [SECOND_CHANNEL_ID]]);
     }
 
+    await bus.close();
+  });
+
+  it("refreshes relay-signed room metadata after a live edit", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.roomMetadataEvents = [
+      {
+        id: "room-metadata-1",
+        kind: 39_000,
+        pubkey: "f".repeat(64),
+        created_at: 1_700_000_000,
+        content: "",
+        sig: "e".repeat(128),
+        tags: [
+          ["d", CHANNEL_ID],
+          ["name", "Engineering"],
+        ],
+      },
+    ];
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage: async () => {},
+    });
+    await vi.waitFor(() => expect(bus.directory.listGroups({})[0]?.name).toBe("Engineering"));
+
+    relayMocks.roomMetadataEvents = [
+      {
+        ...relayMocks.roomMetadataEvents[0]!,
+        id: "room-metadata-2",
+        created_at: 1_700_000_001,
+        tags: [
+          ["d", CHANNEL_ID],
+          ["name", "Platform"],
+        ],
+      },
+    ];
+    relayMocks.subscriptions
+      .find((entry) => entry.filter.kinds?.includes(9_002))
+      ?.handlers.onevent({
+        id: "edit-metadata-1",
+        kind: 9_002,
+        pubkey: SENDER_PUBLIC_KEY,
+        created_at: 1_700_000_001,
+        content: "",
+        sig: "e".repeat(128),
+        tags: [
+          ["h", CHANNEL_ID],
+          ["name", "Untrusted event name"],
+        ],
+      });
+
+    await vi.waitFor(() => expect(bus.directory.listGroups({})[0]?.name).toBe("Platform"));
     await bus.close();
   });
 

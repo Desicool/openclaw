@@ -134,6 +134,7 @@ export function startBuzzDirectoryRelay(params: {
 } {
   let closed = false;
   let profileSubscriptions: BuzzSubscription[] = [];
+  const pendingRoomIds = new Set<string>();
   let refreshInFlight: Promise<void> | undefined;
 
   const reportError = (error: unknown) => {
@@ -197,15 +198,24 @@ export function startBuzzDirectoryRelay(params: {
     if (closed || params.signal?.aborted) {
       return Promise.resolve();
     }
+    for (const channelId of channelIds) {
+      pendingRoomIds.add(channelId);
+    }
     if (refreshInFlight) {
       return refreshInFlight;
     }
-    refreshInFlight = queryBuzzDirectoryRooms({
-      relay: params.relay,
-      state: params.state,
-      channelIds,
-      signal: params.signal,
-    }).finally(() => {
+    refreshInFlight = (async () => {
+      while (pendingRoomIds.size > 0 && !closed && !params.signal?.aborted) {
+        const nextRoomIds = [...pendingRoomIds];
+        pendingRoomIds.clear();
+        await queryBuzzDirectoryRooms({
+          relay: params.relay,
+          state: params.state,
+          channelIds: nextRoomIds,
+          signal: params.signal,
+        });
+      }
+    })().finally(() => {
       refreshInFlight = undefined;
     });
     return refreshInFlight;
@@ -220,6 +230,7 @@ export function startBuzzDirectoryRelay(params: {
         subscription.close(DIRECTORY_SHUTDOWN_REASON);
       }
       profileSubscriptions = [];
+      pendingRoomIds.clear();
     },
   };
 }
