@@ -637,6 +637,30 @@ describe("google gemini cli backend auth bridge", () => {
     }
   });
 
+  it("keeps expired but refreshable legacy OAuth profiles on the compatibility path", async () => {
+    await withTempDir("openclaw-test-workspace-", async (workspaceDir) => {
+      const context = buildGeminiOAuthPrepareContext(workspaceDir);
+      if (!context.authCredential) {
+        throw new Error("expected Gemini OAuth test credentials");
+      }
+      context.authCredential.expires = Date.now() - 60_000;
+
+      const prepared = await buildGoogleGeminiCliBackend().prepareExecution?.(context);
+      try {
+        await stageGeminiPreparedExecution(prepared);
+        const home = prepared?.env?.GEMINI_CLI_HOME;
+        const raw = await fs.readFile(path.join(home ?? "", ".gemini", "oauth_creds.json"), "utf8");
+        expect(JSON.parse(raw)).toMatchObject({
+          access_token: "access-token",
+          refresh_token: "refresh-token",
+          expiry_date: context.authCredential.expires,
+        });
+      } finally {
+        await prepared?.cleanup?.();
+      }
+    });
+  });
+
   it("stages Gemini CLI JSON through same-directory atomic renames", async () => {
     await withTempDir("openclaw-test-workspace-", async (workspaceDir) => {
       const backend = buildGoogleGeminiCliBackend();
