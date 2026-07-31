@@ -7,6 +7,7 @@ import {
   type ApplicationGateway,
   type ApplicationGatewaySnapshot,
 } from "../../../app/context.ts";
+import { renderSettingsDefaultState } from "../../../components/settings-ui.ts";
 import { t } from "../../../i18n/index.ts";
 import { currentConfigObject } from "../../../lib/config/index.ts";
 import { formatTimeMs } from "../../../lib/format.ts";
@@ -368,6 +369,55 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
     }
   }
 
+  private async removeEnabledOverride(
+    scope: DreamingTaskScope,
+    runtimeConfig: ApplicationContext["runtimeConfig"],
+  ): Promise<boolean> {
+    const { pluginId } = resolveConfiguredDreaming(currentConfigObject(runtimeConfig.state));
+    this.dreaming.dreamingModeSaving = true;
+    try {
+      runtimeConfig.removeFormValue([
+        "plugins",
+        "entries",
+        pluginId,
+        "config",
+        "dreaming",
+        "enabled",
+      ]);
+      const saved = await runtimeConfig.save();
+      return (
+        saved && this.isTaskScopeCurrent(scope) && this.context.runtimeConfig === runtimeConfig
+      );
+    } catch (error) {
+      this.dreaming.dreamingStatusError =
+        error instanceof Error ? error.message : t("dreaming.actions.updateFailed");
+      return false;
+    } finally {
+      if (this.isTaskScopeCurrent(scope)) {
+        this.dreaming.dreamingModeSaving = false;
+      }
+    }
+  }
+
+  private async resetEnabledOverride(configured: ReturnType<typeof resolveConfiguredDreaming>) {
+    if (!configured.overridden || this.dreaming.dreamingModeSaving || this.toggleConfirmOpen) {
+      return;
+    }
+    this.dreaming.dreamingStatusError = null;
+    const scope = this.captureTaskScope();
+    const runtimeConfig = this.context.runtimeConfig;
+    if (!scope || !(await this.removeEnabledOverride(scope, runtimeConfig))) {
+      this.dreaming.dreamingStatusError ??= t("dreaming.actions.updateFailed");
+      return;
+    }
+    await runtimeConfig.refresh();
+    if (!this.isTaskScopeCurrent(scope) || this.context.runtimeConfig !== runtimeConfig) {
+      return;
+    }
+    this.syncConfigSnapshot();
+    await this.runDreamingTask(loadDreamingStatus, scope);
+  }
+
   private async openWikiPage(lookup: string): Promise<WikiPagePreview | null> {
     const scope = this.captureTaskScope();
     const client = scope?.state.client;
@@ -407,10 +457,15 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
   override render() {
     const dreaming = this.dreaming;
     const configState = this.context.runtimeConfig.state;
-    const dreamingOn =
-      dreaming.dreamingStatus?.enabled ??
-      resolveConfiguredDreaming(currentConfigObject(configState)).enabled;
+    const configuredDreaming = resolveConfiguredDreaming(currentConfigObject(configState));
+    const dreamingOn = dreaming.dreamingStatus?.enabled ?? configuredDreaming.enabled;
     const loading = dreaming.dreamingStatusLoading || dreaming.dreamingModeSaving;
+    const defaultState = renderSettingsDefaultState({
+      value: t("common.enabled"),
+      overridden: configuredDreaming.overridden,
+      disabled: loading,
+      onReset: () => void this.resetEnabledOverride(configuredDreaming),
+    });
     const refreshLoading = dreaming.dreamingStatusLoading || dreaming.dreamDiaryLoading;
     const selectedAgentId = dreaming.selectedAgentId ?? this.agentId;
 
@@ -425,6 +480,8 @@ class AgentMemoryPanel extends OpenClawLightDomElement {
             >
               ${refreshLoading ? t("dreaming.header.refreshing") : t("dreaming.header.refresh")}
             </button>
+            <span class="muted">${defaultState.description}</span>
+            ${defaultState.action}
             <button
               class="dreams__phase-toggle ${dreamingOn ? "dreams__phase-toggle--on" : ""}"
               ?disabled=${loading}

@@ -5,6 +5,7 @@ import type { AgentSelectOption } from "../../components/agent-select.ts";
 import { renderHubTabs } from "../../components/hub-tabs.ts";
 import {
   renderDocsLink,
+  renderSettingsDefaultState,
   renderSettingsRow,
   renderSettingsSection,
   renderSettingsSegmented,
@@ -15,8 +16,10 @@ import {
 import { t } from "../../i18n/index.ts";
 import {
   selectedEngineId,
+  DEFAULT_MEMORY_ENGINE_ID,
   MEMORY_BACKEND_ANCHOR_ID,
   type MemoryBackend,
+  type MemoryBackendSelection,
   type MemoryEngineSelection,
   type MemoryTab,
 } from "./memory-schema.ts";
@@ -62,10 +65,12 @@ type MemoryViewProps = {
   /** Last failed engine write, so a rejected change is not just a snap-back. */
   engineError: string | null;
   onEngineChange: (engineId: string | null) => void;
+  onEngineReset: () => void;
   /** null when the slot owner runs its own retrieval, so this row does not apply. */
-  backend: MemoryBackend | null;
+  backendSelection: MemoryBackendSelection | null;
   backendBusy: boolean;
   onBackendChange: (backend: MemoryBackend) => void;
+  onBackendReset: () => void;
   addons: readonly MemoryAddonRow[];
   canToggleAddons: boolean;
   onAddonChange: (pluginId: string, enabled: boolean) => void;
@@ -129,20 +134,32 @@ function renderEngineSection(props: MemoryViewProps) {
     })),
     { value: MEMORY_ENGINE_OFF, label: t("memoryPage.engine.off") },
   ];
+  const defaultEngine =
+    props.engineOptions.find((option) => option.id === DEFAULT_MEMORY_ENGINE_ID)?.label ??
+    t("memoryPage.engine.openClawMemory");
+  const defaultState = renderSettingsDefaultState({
+    value: defaultEngine,
+    overridden: props.engineSelection.kind !== "auto",
+    disabled: props.engineBusy,
+    onReset: props.onEngineReset,
+  });
   return renderSettingsSection(
     { title: t("memoryPage.engine.title"), description: t("memoryPage.engine.description") },
     html`
       ${renderSettingsRow({
         title: t("memoryPage.engine.rowTitle"),
-        description: t(engineHintKey(props.engineSelection)),
+        description: html`${t(engineHintKey(props.engineSelection))} ${defaultState.description}`,
         stacked: true,
-        control: renderSettingsSegmented({
-          value: engineId ?? MEMORY_ENGINE_OFF,
-          options,
-          disabled: props.engineBusy,
-          ariaLabel: t("memoryPage.engine.rowTitle"),
-          onChange: (value) => props.onEngineChange(value || null),
-        }),
+        control: html`
+          ${defaultState.action}
+          ${renderSettingsSegmented({
+            value: engineId ?? MEMORY_ENGINE_OFF,
+            options,
+            disabled: props.engineBusy,
+            ariaLabel: t("memoryPage.engine.rowTitle"),
+            onChange: (value) => props.onEngineChange(value || null),
+          })}
+        `,
       })}
       ${renderDisabledEngineRow(props, engineId)}
       ${props.engineError === null
@@ -184,9 +201,16 @@ function renderBackendSection(props: MemoryViewProps) {
   // builtin/qmd is resolved by the memory runtime the slot owner registers
   // (resolveActiveMemoryBackendConfig in src/plugins/memory-runtime.ts). An
   // engine that registers none ignores it, so the row must not appear there.
-  if (props.backend === null) {
+  if (props.backendSelection === null) {
     return nothing;
   }
+  const backend = props.backendSelection.backend;
+  const defaultState = renderSettingsDefaultState({
+    value: t("memoryPage.backend.builtin"),
+    overridden: props.backendSelection.kind === "pinned",
+    disabled: props.backendBusy,
+    onReset: props.onBackendReset,
+  });
   // Anchor target for settings search: `backend` is curated out of the schema
   // editor, so it has no `#config-section-*` id of its own to scroll to.
   return html`<div id=${MEMORY_BACKEND_ANCHOR_ID}>
@@ -194,21 +218,26 @@ function renderBackendSection(props: MemoryViewProps) {
       { title: t("memoryPage.backend.title"), description: t("memoryPage.backend.description") },
       renderSettingsRow({
         title: t("memoryPage.backend.rowTitle"),
-        description:
-          props.backend === "qmd"
+        description: html`
+          ${backend === "qmd"
             ? t("memoryPage.backend.qmdHint")
-            : t("memoryPage.backend.builtinHint"),
+            : t("memoryPage.backend.builtinHint")}
+          ${defaultState.description}
+        `,
         stacked: true,
-        control: renderSettingsSegmented<MemoryBackend>({
-          value: props.backend,
-          options: [
-            { value: "builtin", label: t("memoryPage.backend.builtin") },
-            { value: "qmd", label: t("memoryPage.backend.qmd") },
-          ],
-          disabled: props.backendBusy,
-          ariaLabel: t("memoryPage.backend.rowTitle"),
-          onChange: (value) => props.onBackendChange(value),
-        }),
+        control: html`
+          ${defaultState.action}
+          ${renderSettingsSegmented<MemoryBackend>({
+            value: backend,
+            options: [
+              { value: "builtin", label: t("memoryPage.backend.builtin") },
+              { value: "qmd", label: t("memoryPage.backend.qmd") },
+            ],
+            disabled: props.backendBusy,
+            ariaLabel: t("memoryPage.backend.rowTitle"),
+            onChange: (value) => props.onBackendChange(value),
+          })}
+        `,
       }),
     )}
   </div>`;

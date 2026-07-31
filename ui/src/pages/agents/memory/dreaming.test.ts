@@ -1018,6 +1018,7 @@ describe("dreaming controller", () => {
     ).toEqual({
       pluginId: "memos-local-openclaw-plugin",
       enabled: true,
+      overridden: true,
     });
   });
 
@@ -1042,6 +1043,15 @@ describe("dreaming controller", () => {
     ).toEqual({
       pluginId: "memory-core",
       enabled: true,
+      overridden: true,
+    });
+  });
+
+  it("uses the runtime enabled default when config omits the override", () => {
+    expect(resolveConfiguredDreaming(null)).toEqual({
+      pluginId: "memory-core",
+      enabled: true,
+      overridden: false,
     });
   });
 

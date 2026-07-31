@@ -2490,11 +2490,13 @@ export const en: TranslationMap = {
         label: "Timezone",
         help: "IANA timezone used to interpret the cron cadence.",
         placeholder: "Europe/Vienna",
+        default: "Gateway local timezone",
       },
       model: {
         label: "Dreaming model",
         help: "Provider/model override for dream diary narration. Requires subagent model overrides to be allowed.",
         placeholder: "anthropic/claude-sonnet-4-6",
+        default: "Agent model",
       },
       verboseLogging: {
         label: "Verbose logging",

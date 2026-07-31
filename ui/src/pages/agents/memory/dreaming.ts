@@ -467,6 +467,7 @@ function resolveDreamingPluginId(configValue: Record<string, unknown> | null): s
 export function resolveConfiguredDreaming(configValue: Record<string, unknown> | null): {
   pluginId: string;
   enabled: boolean;
+  overridden: boolean;
 } {
   const pluginId = resolveDreamingPluginId(configValue);
   const plugins = asRecord(configValue?.plugins);
@@ -474,9 +475,11 @@ export function resolveConfiguredDreaming(configValue: Record<string, unknown> |
   const pluginEntry = asRecord(entries?.[pluginId]);
   const config = asRecord(pluginEntry?.config);
   const dreaming = asRecord(config?.dreaming);
+  const overridden = typeof dreaming?.enabled === "boolean";
   return {
     pluginId,
-    enabled: normalizeBoolean(dreaming?.enabled, false),
+    enabled: normalizeBoolean(dreaming?.enabled, true),
+    overridden,
   };
 }
 

@@ -23,6 +23,11 @@ type TestMemoryPanel = HTMLElement & {
   applyGatewaySnapshot: (snapshot: ApplicationGatewaySnapshot) => void;
   loadAll: () => Promise<void>;
   openWikiPage: (lookup: string) => Promise<unknown>;
+  resetEnabledOverride: (configured: {
+    pluginId: string;
+    enabled: boolean;
+    overridden: boolean;
+  }) => Promise<void>;
   render: () => unknown;
   requestUpdate: () => void;
   readonly updateComplete: Promise<boolean>;
@@ -60,7 +65,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function contextWithGateway(client: GatewayBrowserClient, connected: boolean): ApplicationContext {
+function contextWithGateway(
+  client: GatewayBrowserClient,
+  connected: boolean,
+  configForm: Record<string, unknown> | null = null,
+): ApplicationContext {
   const snapshot: ApplicationGatewaySnapshot = {
     client,
     phase: connected ? "connected" : "stopped",
@@ -80,8 +89,11 @@ function contextWithGateway(client: GatewayBrowserClient, connected: boolean): A
       subscribe,
     },
     runtimeConfig: {
-      state: { configSnapshot: null },
+      state: { configForm, configSnapshot: null },
       refresh: vi.fn(async () => undefined),
+      removeFormValue: vi.fn(),
+      waitForPendingWrites: vi.fn(async () => undefined),
+      save: vi.fn(async () => true),
       subscribe,
     },
   } as unknown as ApplicationContext;
@@ -231,6 +243,64 @@ describe("AgentMemoryPanel gateway lifecycle", () => {
       lineCount: 5000,
       agentId: "support",
     });
+  });
+
+  it("resets the config-only dreaming override to the enabled runtime default", async () => {
+    const client = {
+      request: vi.fn(async () => ({ dreaming: { enabled: true } })),
+    } as unknown as GatewayBrowserClient;
+    const context = contextWithGateway(client, true, {
+      plugins: {
+        entries: {
+          "memory-core": { config: { dreaming: { enabled: false } } },
+        },
+      },
+    });
+    const page = createPage(context);
+    document.body.append(page);
+    await page.updateComplete;
+
+    await page.resetEnabledOverride({
+      pluginId: "memory-core",
+      enabled: false,
+      overridden: true,
+    });
+
+    expect(context.runtimeConfig.removeFormValue).toHaveBeenCalledWith([
+      "plugins",
+      "entries",
+      "memory-core",
+      "config",
+      "dreaming",
+      "enabled",
+    ]);
+    expect(context.runtimeConfig.save).toHaveBeenCalledOnce();
+    expect(context.runtimeConfig.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not refresh the stale override when saving a reset fails", async () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const context = contextWithGateway(client, true, {
+      plugins: {
+        entries: {
+          "memory-core": { config: { dreaming: { enabled: false } } },
+        },
+      },
+    });
+    vi.mocked(context.runtimeConfig.save).mockResolvedValue(false);
+    const page = createPage(context);
+    document.body.append(page);
+    await page.updateComplete;
+
+    await page.resetEnabledOverride({
+      pluginId: "memory-core",
+      enabled: false,
+      overridden: true,
+    });
+
+    expect(context.runtimeConfig.removeFormValue).toHaveBeenCalledOnce();
+    expect(context.runtimeConfig.save).toHaveBeenCalledOnce();
+    expect(context.runtimeConfig.refresh).not.toHaveBeenCalled();
   });
 
   it("uses localized empty content for wiki previews", async () => {

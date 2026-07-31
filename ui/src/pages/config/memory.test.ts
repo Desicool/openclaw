@@ -9,6 +9,7 @@ import {
   memoryVisibleSchemaKeys,
   narrowMemorySchema,
   resolveMemoryBackend,
+  resolveMemoryBackendSelection,
 } from "./memory-schema.ts";
 import { renderMemory } from "./memory.ts";
 
@@ -28,9 +29,11 @@ function createProps(overrides: Partial<MemoryViewProps> = {}): MemoryViewProps 
     engineBusy: false,
     engineError: null,
     onEngineChange: vi.fn(),
-    backend: "builtin",
+    onEngineReset: vi.fn(),
+    backendSelection: { kind: "default", backend: "builtin" },
     backendBusy: false,
     onBackendChange: vi.fn(),
+    onBackendReset: vi.fn(),
     addons: [
       {
         id: "active-memory",
@@ -125,11 +128,15 @@ describe("renderMemory", () => {
   it("reports whether the engine came from config or from the slot default", () => {
     const auto = renderInto(createProps());
     expect(auto.textContent).toContain("falls back to its default owner");
+    expect(auto.textContent).toContain("Using default: OpenClaw Memory");
+    expect(auto.querySelector('button[aria-label="Reset to default"]')).toBeNull();
 
     const pinned = renderInto(
       createProps({ engineSelection: { kind: "pinned", engineId: "memory-core" } }),
     );
     expect(pinned.textContent).toContain("pinned in config");
+    expect(pinned.textContent).toContain("Default: OpenClaw Memory");
+    expect(pinned.querySelector('button[aria-label="Reset to default"]')).not.toBeNull();
   });
 
   it("keeps a configured missing engine selected and labels it unavailable", () => {
@@ -172,12 +179,49 @@ describe("renderMemory", () => {
   });
 
   it("hides the retrieval backend row for an engine that owns its own retrieval", () => {
-    expect(renderInto(createProps({ backend: "builtin" })).textContent).toContain(
+    expect(
+      renderInto(createProps({ backendSelection: { kind: "default", backend: "builtin" } }))
+        .textContent,
+    ).toContain("Retrieval backend");
+    expect(renderInto(createProps({ backendSelection: null })).textContent).not.toContain(
       "Retrieval backend",
     );
-    expect(renderInto(createProps({ backend: null })).textContent).not.toContain(
-      "Retrieval backend",
+  });
+
+  it("shows backend provenance and only offers reset for an explicit value", () => {
+    const inherited = renderInto(createProps());
+    expect(inherited.textContent).toContain("Using default: Built-in");
+
+    const pinned = renderInto(
+      createProps({ backendSelection: { kind: "pinned", backend: "builtin" } }),
     );
+    const backendRow = [...pinned.querySelectorAll(".settings-row")].find((row) =>
+      row.textContent?.includes("Retrieval backend"),
+    );
+    expect(backendRow?.textContent).toContain("Default: Built-in");
+    expect(backendRow?.querySelector('button[aria-label="Reset to default"]')).not.toBeNull();
+  });
+
+  it("routes engine and backend restore actions to their reset callbacks", () => {
+    const onEngineReset = vi.fn();
+    const onBackendReset = vi.fn();
+    const container = renderInto(
+      createProps({
+        engineSelection: { kind: "pinned", engineId: "memory-core" },
+        backendSelection: { kind: "pinned", backend: "qmd" },
+        onEngineReset,
+        onBackendReset,
+      }),
+    );
+    const resets = container.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="Reset to default"]',
+    );
+
+    resets[0]?.click();
+    resets[1]?.click();
+
+    expect(onEngineReset).toHaveBeenCalledOnce();
+    expect(onBackendReset).toHaveBeenCalledOnce();
   });
 
   it("renders enabled and disabled add-ons as accessible toggles", () => {
@@ -396,6 +440,18 @@ describe("resolveMemoryBackend", () => {
       }),
     ).toBeNull();
     expect(resolveMemoryBackend({ plugins: { slots: { memory: "none" } } })).toBeNull();
+  });
+
+  it("preserves whether the effective backend is inherited or pinned", () => {
+    expect(resolveMemoryBackendSelection({})).toEqual({ kind: "default", backend: "builtin" });
+    expect(resolveMemoryBackendSelection({ memory: { backend: "builtin" } })).toEqual({
+      kind: "pinned",
+      backend: "builtin",
+    });
+    expect(resolveMemoryBackendSelection({ memory: { backend: "qmd" } })).toEqual({
+      kind: "pinned",
+      backend: "qmd",
+    });
   });
 });
 
