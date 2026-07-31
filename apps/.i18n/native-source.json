@@ -35197,17 +35197,17 @@
       "kind": "ui-call",
       "line": 513,
       "path": "apps/macos/Sources/OpenClaw/OnboardingAISetupView.swift",
-      "source": "Download or prepare a local model on this Gateway.",
+      "source": "Connect a local model service, or prepare a model on this Gateway.",
       "surface": "apple",
-      "id": "native.apple.506a932536c642c2"
+      "id": "native.apple.780c1aa1c8868cc4"
     },
     {
       "kind": "ui-call",
       "line": 537,
       "path": "apps/macos/Sources/OpenClaw/OnboardingAISetupView.swift",
-      "source": "Set up / Download model",
+      "source": "Connect / Set up",
       "surface": "apple",
-      "id": "native.apple.d31411a9f3c68c33"
+      "id": "native.apple.c218bd844ba8a0ac"
     },
     {
       "kind": "ui-call",
@@ -35261,9 +35261,9 @@
       "kind": "conditional-branch",
       "line": 663,
       "path": "apps/macos/Sources/OpenClaw/OnboardingAISetupView.swift",
-      "source": "The model is downloaded and prepared on this Gateway.",
+      "source": "OpenClaw will detect and verify the prepared model before using it.",
       "surface": "apple",
-      "id": "native.apple.b62dfd708d5cfb14"
+      "id": "native.apple.97b24c854f768998"
     },
     {
       "kind": "conditional-branch",
