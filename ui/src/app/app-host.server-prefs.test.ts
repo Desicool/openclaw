@@ -34,7 +34,12 @@ describe("OpenClaw shell locale preferences", () => {
     localStorage.setItem("openclaw.i18n.locale", "fr");
     const setLocale = vi.spyOn(i18n, "setLocale").mockResolvedValue();
     const useSystemLocale = vi.spyOn(i18n, "useSystemLocale").mockResolvedValue();
-    const state = {
+    const state: {
+      configSnapshot: {
+        config: { ui: { prefs: Record<string, unknown> } };
+        hash: string;
+      };
+    } = {
       configSnapshot: {
         config: { ui: { prefs: { locale: "de" } } },
         hash: "locale-config-hash",

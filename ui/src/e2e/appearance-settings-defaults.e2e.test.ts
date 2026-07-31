@@ -160,7 +160,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
       );
     }, settingsStorageKey);
     const page = await context.newPage();
-    const initialPrefs = {
+    const initialPrefs: Record<string, unknown> = {
       chatSendShortcut: "modifier-enter",
       locale: "en",
       theme: "knot",
