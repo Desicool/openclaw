@@ -593,13 +593,12 @@ export class TwilioProvider implements VoiceCallProvider {
    * Hang up a call via Twilio API.
    */
   async hangupCall(input: HangupCallInput): Promise<void> {
-    this.releaseCallState(input.providerCallId, input.callId);
-
     await this.apiRequest(
       `/Calls/${input.providerCallId}.json`,
       { Status: "completed" },
       { allowNotFound: true },
     );
+    this.releaseCallState(input.providerCallId, input.callId);
   }
 
   /**
