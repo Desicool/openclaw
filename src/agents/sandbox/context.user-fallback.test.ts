@@ -65,6 +65,18 @@ describe("resolveSandboxDockerUser", () => {
     expect(resolved.user).toBe("1001:1002");
   });
 
+  it("leaves Podman user unset when host ownership IDs are zero", async () => {
+    const docker = {};
+    const resolved = await resolveSandboxDockerUser({
+      backend: "podman",
+      docker,
+      workspaceDir: "/tmp/workspace",
+      stat: async () => ({ uid: 0, gid: 0 }),
+    });
+
+    expect(resolved).toBe(docker);
+  });
+
   it("leaves docker.user unset when workspace stat fails", async () => {
     const resolved = await resolveSandboxDockerUser({
       backend: "docker",

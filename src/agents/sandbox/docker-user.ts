@@ -23,6 +23,9 @@ export async function resolveSandboxDockerUser(params: {
     if (uid === null || gid === null || uid < 0 || gid < 0) {
       return params.docker;
     }
+    if (backend === "podman" && (uid === 0 || gid === 0)) {
+      return params.docker;
+    }
     return { ...params.docker, user: `${uid}:${gid}` };
   } catch {
     return params.docker;
