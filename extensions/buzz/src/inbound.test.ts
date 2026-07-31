@@ -3,6 +3,7 @@ import { createPluginRuntimeMock } from "openclaw/plugin-sdk/channel-test-helper
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuzzBus } from "./buzz-bus.js";
+import { BuzzDirectoryState } from "./directory-state.js";
 import { handleBuzzInbound } from "./inbound.js";
 import {
   BUZZ_DIFF_MESSAGE_KIND,
@@ -57,6 +58,12 @@ function createMessage(overrides: Partial<BuzzInboundMessage> = {}): BuzzInbound
 function createBus(): BuzzBus {
   return {
     publicKey: BOT_PUBLIC_KEY,
+    directory: new BuzzDirectoryState({
+      publicKey: BOT_PUBLIC_KEY,
+      fallbackProfileName: "OpenClaw",
+      channelIds: [ROOM_ID],
+    }),
+    refreshDirectory: vi.fn(async () => {}),
     sendText: vi.fn(async () => "reply-event-1"),
     sendTyping: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),

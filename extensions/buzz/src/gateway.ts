@@ -121,6 +121,9 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
         onProfileError: (error) => {
           ctx.log?.warn?.(`[${account.accountId}] Buzz bot profile sync failed: ${error.message}`);
         },
+        onDirectoryError: (error) => {
+          ctx.log?.warn?.(`[${account.accountId}] Buzz directory refresh failed: ${error.message}`);
+        },
       });
       connectedAt = Date.now();
       activeBuses.set(account.accountId, bus);

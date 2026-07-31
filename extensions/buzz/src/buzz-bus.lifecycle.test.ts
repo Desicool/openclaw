@@ -13,6 +13,7 @@ const relayMocks = vi.hoisted(() => ({
   close: vi.fn(),
   connected: true,
   membershipEvents: [] as Event[],
+  roomMetadataEvents: [] as Event[],
   profileEvents: [] as Event[],
   subscriptions: [] as Array<{
     filter: Filter;
@@ -56,9 +57,19 @@ vi.mock("nostr-tools", async (importOriginal) => {
           handlers.oneose?.();
         } else if (filter.kinds?.includes(40099)) {
           handlers.oneose?.();
+        } else if (filter.kinds?.includes(39000)) {
+          for (const event of relayMocks.roomMetadataEvents) {
+            const roomId = event.tags.find((tag) => tag[0] === "d")?.[1];
+            if (!filter["#d"] || (roomId && filter["#d"]?.includes(roomId))) {
+              handlers.onevent(event);
+            }
+          }
+          handlers.oneose?.();
         } else if (filter.kinds?.includes(0)) {
           for (const event of relayMocks.profileEvents) {
-            handlers.onevent(event);
+            if (!filter.authors || filter.authors.includes(event.pubkey)) {
+              handlers.onevent(event);
+            }
           }
           handlers.oneose?.();
         }
@@ -96,6 +107,7 @@ describe("Buzz bus lifecycle", () => {
     vi.clearAllMocks();
     relayMocks.subscriptions.length = 0;
     relayMocks.profileEvents = [];
+    relayMocks.roomMetadataEvents = [];
     relayMocks.membershipEvents = [
       {
         id: "membership-1",
@@ -221,6 +233,134 @@ describe("Buzz bus lifecycle", () => {
     await bus.sendTyping({ channelId: CHANNEL_ID });
 
     expect(relayMocks.send).not.toHaveBeenCalled();
+    await bus.close();
+  });
+
+  it("loads room metadata and current member profiles on the active bus", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.profileEvents = [
+      finalizeEvent(
+        {
+          kind: 0,
+          created_at: 1_700_000_000,
+          content: JSON.stringify({
+            display_name: "Alice",
+            picture: "https://example.com/alice.png",
+          }),
+          tags: [],
+        },
+        Uint8Array.from(Buffer.from(SENDER_PRIVATE_KEY, "hex")),
+      ),
+    ];
+    relayMocks.roomMetadataEvents = [
+      {
+        id: "room-metadata-1",
+        kind: 39_000,
+        pubkey: "f".repeat(64),
+        created_at: 1_700_000_000,
+        content: "",
+        sig: "e".repeat(128),
+        tags: [
+          ["d", CHANNEL_ID],
+          ["name", "Engineering"],
+        ],
+      },
+    ];
+
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      profileName: "OpenClaw",
+      onMessage: async () => {},
+    });
+
+    await vi.waitFor(() =>
+      expect(bus.directory.listGroups({})).toEqual([
+        expect.objectContaining({
+          id: `buzz:${CHANNEL_ID}`,
+          name: "Engineering",
+        }),
+      ]),
+    );
+    expect(bus.directory.resolveSenderName(SENDER_PUBLIC_KEY)).toBe("Alice");
+    expect(bus.directory.listPeers({})).toEqual([
+      expect.objectContaining({
+        id: SENDER_PUBLIC_KEY,
+        name: "Alice",
+        avatarUrl: "https://example.com/alice.png",
+      }),
+    ]);
+    expect(bus.directory.listGroupMembers({ groupId: CHANNEL_ID })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: BOT_PUBLIC_KEY }),
+        expect.objectContaining({ id: SENDER_PUBLIC_KEY, name: "Alice" }),
+      ]),
+    );
+
+    await bus.close();
+  });
+
+  it("refreshes profile subscriptions after a signed room membership change", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    const joinedPrivateKey = "02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021";
+    const joinedPublicKey = getPublicKey(Uint8Array.from(Buffer.from(joinedPrivateKey, "hex")));
+    relayMocks.profileEvents = [
+      finalizeEvent(
+        {
+          kind: 0,
+          created_at: 1_700_000_000,
+          content: JSON.stringify({ display_name: "New Member" }),
+          tags: [],
+        },
+        Uint8Array.from(Buffer.from(joinedPrivateKey, "hex")),
+      ),
+    ];
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage: async () => {},
+    });
+    expect(bus.directory.listPeers({}).map((entry) => entry.id)).not.toContain(joinedPublicKey);
+
+    relayMocks.membershipEvents = [
+      {
+        ...relayMocks.membershipEvents[0]!,
+        id: "membership-2",
+        created_at: 1_700_000_001,
+        tags: [
+          ["d", CHANNEL_ID],
+          ["p", BOT_PUBLIC_KEY, "", "bot"],
+          ["p", SENDER_PUBLIC_KEY, "", "member"],
+          ["p", joinedPublicKey, "", "member"],
+        ],
+      },
+    ];
+    relayMocks.subscriptions
+      .find((entry) => entry.filter.kinds?.includes(40_099))
+      ?.handlers.onevent({
+        id: "system-join-1",
+        kind: 40_099,
+        pubkey: "f".repeat(64),
+        created_at: 1_700_000_001,
+        content: JSON.stringify({ type: "member_joined", target: joinedPublicKey }),
+        sig: "e".repeat(128),
+        tags: [["h", CHANNEL_ID]],
+      });
+
+    await vi.waitFor(
+      () =>
+        expect(bus.directory.listPeers({})).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: joinedPublicKey, name: "New Member" }),
+          ]),
+        ),
+      { timeout: 2_000 },
+    );
+
     await bus.close();
   });
 

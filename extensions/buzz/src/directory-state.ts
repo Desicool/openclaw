@@ -6,6 +6,8 @@ import { buildBuzzTarget, parseBuzzTarget } from "./target.js";
 export const BUZZ_PROFILE_KIND = 0;
 export const BUZZ_ROOM_METADATA_KIND = 39_000;
 export const BUZZ_PROFILE_QUERY_CHUNK_SIZE = 200;
+// Ten live profile subscriptions is a hard process-local ceiling. Members
+// beyond it remain visible by stable public key without retaining metadata.
 export const DEFAULT_BUZZ_DIRECTORY_PROFILE_LIMIT = 2_000;
 
 const HEX_PUBLIC_KEY_PATTERN = /^[0-9a-f]{64}$/u;

@@ -28,6 +28,7 @@ vi.mock("./inbound.js", () => ({
   handleBuzzInbound: vi.fn(async () => {}),
 }));
 
+import { BuzzDirectoryState } from "./directory-state.js";
 import { buzzOutboundAdapter, sendBuzzTyping, startBuzzGatewayAccount } from "./gateway.js";
 import { BUZZ_NORMAL_MESSAGE_KIND } from "./message-event.js";
 import { setBuzzRuntime } from "./runtime.js";
@@ -35,6 +36,22 @@ import { resolveBuzzAccount } from "./types.js";
 
 const CHANNEL_ID = "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c";
 const PRIVATE_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const BOT_PUBLIC_KEY = "a".repeat(64);
+
+function createMockBus(): BuzzBus {
+  return {
+    publicKey: BOT_PUBLIC_KEY,
+    directory: new BuzzDirectoryState({
+      publicKey: BOT_PUBLIC_KEY,
+      fallbackProfileName: "OpenClaw",
+      channelIds: [CHANNEL_ID],
+    }),
+    refreshDirectory: vi.fn(async () => {}),
+    sendText: gatewayMocks.busSendText,
+    sendTyping: gatewayMocks.busSendTyping,
+    close: gatewayMocks.close,
+  };
+}
 
 describe("Buzz gateway lifecycle", () => {
   beforeEach(() => {
@@ -73,12 +90,7 @@ describe("Buzz gateway lifecycle", () => {
         gatewayMocks.onMessage = options.onMessage;
         gatewayMocks.onMessageError = options.onMessageError;
         gatewayMocks.onFatalError = options.onFatalError;
-        return {
-          publicKey: "a".repeat(64),
-          sendText: gatewayMocks.busSendText,
-          sendTyping: gatewayMocks.busSendTyping,
-          close: gatewayMocks.close,
-        };
+        return createMockBus();
       },
     );
   });
@@ -396,12 +408,7 @@ describe("Buzz gateway lifecycle", () => {
         createdAt,
         mentionedPubkeys: [],
       },
-      {
-        publicKey: "a".repeat(64),
-        sendText: async () => "event-id",
-        sendTyping: async () => {},
-        close: async () => {},
-      },
+      createMockBus(),
     );
     const reconnectStartedAt = Math.floor(Date.now() / 1000);
     gatewayMocks.onFatalError?.(new Error("relay failed"));
