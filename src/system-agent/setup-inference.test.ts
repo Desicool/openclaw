@@ -45,6 +45,7 @@ import {
   detectSetupInference,
   listSetupInferenceAuthOptions,
   listSetupInferenceManualProviders,
+  listSetupInferencePrepareOptions,
   resolvePersistentApplyInference,
   type VerifySetupInferenceResult,
   verifySetupInference as verifySetupInferenceImpl,
@@ -787,6 +788,55 @@ describe("detectSetupInference", () => {
         label: "GitHub Copilot",
         kind: "device-code",
         featured: false,
+      },
+    ]);
+  });
+
+  it("lists app-guided local model setup choices from provider metadata", () => {
+    const choices: ProviderAuthChoiceMetadata[] = [
+      {
+        pluginId: "lmstudio",
+        providerId: "lmstudio",
+        methodId: "custom",
+        choiceId: "lmstudio",
+        choiceLabel: "LM Studio",
+        choiceHint: "Local/self-hosted LM Studio server",
+        icon: "https://cdn.simpleicons.org/lmstudio",
+        website: "https://lmstudio.ai/download",
+        appGuidedDiscovery: true,
+      },
+      {
+        pluginId: "ollama",
+        providerId: "ollama",
+        methodId: "local",
+        choiceId: "ollama",
+        choiceLabel: "Ollama",
+        appGuidedDiscovery: true,
+      },
+      {
+        pluginId: "hidden",
+        providerId: "hidden",
+        methodId: "local",
+        choiceId: "hidden",
+        choiceLabel: "Hidden",
+        assistantVisibility: "manual-only",
+        appGuidedDiscovery: true,
+      },
+    ];
+
+    expect(listSetupInferencePrepareOptions(choices)).toEqual([
+      {
+        id: "lmstudio",
+        brandId: "lmstudio",
+        label: "LM Studio",
+        hint: "Local/self-hosted LM Studio server",
+        icon: "https://cdn.simpleicons.org/lmstudio",
+        website: "https://lmstudio.ai/download",
+      },
+      {
+        id: "ollama",
+        brandId: "ollama",
+        label: "Ollama",
       },
     ]);
   });

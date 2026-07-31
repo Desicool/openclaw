@@ -16,12 +16,20 @@ const blockingWorkerUrl = new URL(
   `)}`,
 );
 
+const silentBlockingWorkerUrl = new URL(
+  `data:text/javascript,${encodeURIComponent(`
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {}
+  `)}`,
+);
+
 function emptyDetection(): SetupInferenceDetection {
   return {
     candidates: [],
     unavailableCandidates: [],
     manualProviders: [],
     authOptions: [],
+    prepareOptions: [],
     recommendedInstalls: listRecommendedToolInstalls(),
     workspace: DEFAULT_AGENT_WORKSPACE_DIR,
     setupComplete: false,
@@ -138,6 +146,18 @@ describe("isolated setup inference detection", () => {
         recommended: false,
       },
     ]);
+  });
+
+  it("omits prepare choices when detection times out without a partial result", async () => {
+    const { detectSetupInferenceIsolated } = await loadDetectionModule();
+
+    const detection = await detectSetupInferenceIsolated({
+      workerUrl: silentBlockingWorkerUrl,
+      timeoutMs: 50,
+      fallbackEnv: {},
+    });
+
+    expect(detection.prepareOptions).toBeUndefined();
   });
 
   it("coalesces concurrent detections behind one bounded worker", async () => {
