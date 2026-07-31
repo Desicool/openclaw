@@ -15,11 +15,14 @@ import type { ReadOnlyWorkspaceSkillMount } from "./workspace-mounts.js";
 
 const SANDBOX_ENGINE_PROBE_TIMEOUT_MS = 5_000;
 const PODMAN_INIT_PATH = "/run/podman-init";
+const PODMAN_KEEP_ID_MAPPING_MIN_VERSION = [4, 3] as const;
+const PODMAN_GPUS_MIN_VERSION = [5, 0] as const;
 
 export type PodmanSandboxRuntimeInfo = {
   machine: boolean;
   rootless: boolean;
   target: SandboxContainerEngineTarget;
+  version: string;
 };
 
 function hashPodmanTarget(kind: "machine" | "socket", ...parts: string[]): string {
@@ -42,12 +45,31 @@ function resolvePodmanKeepIdMode(user: string | undefined): string {
     );
   }
   const [, uid, gid] = match;
-  if (uid === "0" || gid === "0") {
+  const normalizedUid = BigInt(uid).toString();
+  const normalizedGid = gid === undefined ? undefined : BigInt(gid).toString();
+  if (normalizedUid === "0" || normalizedGid === "0") {
     throw invalidPodmanConfig(
       `Rootless Podman sandbox user "${normalized}" cannot use UID or GID 0 while preserving workspace bind ownership. Bake root-required setup into the image or use rootful Podman.`,
     );
   }
-  return gid ? `keep-id:uid=${uid},gid=${gid}` : `keep-id:uid=${uid}`;
+  return normalizedGid
+    ? `keep-id:uid=${normalizedUid},gid=${normalizedGid}`
+    : `keep-id:uid=${normalizedUid}`;
+}
+
+function assertPodmanVersionAtLeast(
+  version: string,
+  minimum: readonly [major: number, minor: number],
+  feature: string,
+): void {
+  const match = /^(\d+)\.(\d+)/u.exec(version.trim());
+  const actual = match ? [Number(match[1]), Number(match[2])] : null;
+  if (actual && (actual[0] > minimum[0] || (actual[0] === minimum[0] && actual[1] >= minimum[1]))) {
+    return;
+  }
+  throw invalidPodmanConfig(
+    `${feature} requires Podman ${minimum.join(".")} or newer, but the active engine reports "${version || "unknown"}". Upgrade Podman or choose another sandbox backend.`,
+  );
 }
 
 async function assertSupportedPodmanConnection(remoteSocketPath: string): Promise<{
@@ -134,7 +156,7 @@ export async function resolvePodmanSandboxRuntimeInfo(): Promise<PodmanSandboxRu
     [
       "info",
       "--format",
-      "{{.Host.Security.Rootless}}\t{{.Host.ServiceIsRemote}}\t{{.Host.RemoteSocket.Path}}",
+      "{{.Host.Security.Rootless}}\t{{.Host.ServiceIsRemote}}\t{{.Host.RemoteSocket.Path}}\t{{.Version.Version}}",
     ],
     {
       allowFailure: true,
@@ -145,15 +167,15 @@ export async function resolvePodmanSandboxRuntimeInfo(): Promise<PodmanSandboxRu
     const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`;
     throw new Error(`Failed to inspect Podman user namespace mode: ${detail}`);
   }
-  const [rootless = "", serviceIsRemote = "", remoteSocketPath = ""] = result.stdout
+  const [rootless = "", serviceIsRemote = "", remoteSocketPath = "", version = ""] = result.stdout
     .trim()
-    .split("\t", 3);
+    .split("\t", 4);
   let machine = false;
   let target: SandboxContainerEngineTarget = { key: "local", globalArgs: [] };
   if (serviceIsRemote === "true") {
     ({ machine, target } = await assertSupportedPodmanConnection(remoteSocketPath));
   }
-  return { machine, rootless: rootless === "true", target };
+  return { machine, rootless: rootless === "true", target, version };
 }
 
 export async function validateSandboxContainerEngineTarget(
@@ -273,12 +295,26 @@ export function resolvePodmanSandboxCreatePolicy(params: {
   if (params.runtimeInfo.machine) {
     assertPodmanMachineBindSourcesSupported(params);
   }
+  if (params.cfg.gpus?.trim()) {
+    assertPodmanVersionAtLeast(
+      params.runtimeInfo.version,
+      PODMAN_GPUS_MIN_VERSION,
+      "Podman sandbox GPU passthrough",
+    );
+  }
 
   const extraCreateArgs = ["--http-proxy=false"];
   if (params.cfg.readOnlyRoot) {
     extraCreateArgs.push("--read-only-tmpfs=true");
   }
   if (params.runtimeInfo.rootless) {
+    if (params.cfg.user?.trim()) {
+      assertPodmanVersionAtLeast(
+        params.runtimeInfo.version,
+        PODMAN_KEEP_ID_MAPPING_MIN_VERSION,
+        "Rootless Podman sandbox user mapping",
+      );
+    }
     // Map the invoking engine user to the selected container identity. Plain
     // keep-id is insufficient when docker.user differs from the host UID/GID.
     extraCreateArgs.push("--userns", resolvePodmanKeepIdMode(params.cfg.user));
@@ -292,7 +328,7 @@ export function resolvePodmanSandboxConfigHash(params: {
   dockerTmpfsSource: SandboxConfig["dockerTmpfsSource"];
 }): string {
   const userMode = params.configuredUser ? "configured-user" : "keep-id";
-  return `${params.genericConfigHash}:podman-runtime-v8:${userMode}:${params.dockerTmpfsSource}`;
+  return `${params.genericConfigHash}:podman-runtime-v9:${userMode}:${params.dockerTmpfsSource}`;
 }
 
 export function resolvePodmanSandboxContainerPrefix(containerPrefix: string): string {

@@ -25,7 +25,7 @@ const spawnState = vi.hoisted(() => ({
   inspectRunning: true,
   inspectError: "",
   labelHash: "",
-  podmanInfo: "true\tfalse\n",
+  podmanInfo: "true\tfalse\t\t5.0.0\n",
   podmanConnections: "[]\n",
 }));
 
@@ -249,7 +249,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     spawnState.inspectRunning = true;
     spawnState.inspectError = "";
     spawnState.labelHash = "";
-    spawnState.podmanInfo = "true\tfalse\n";
+    spawnState.podmanInfo = "true\tfalse\t\t5.0.0\n";
     spawnState.podmanConnections = "[]\n";
     registryMocks.readRegistryEntry.mockClear();
     registryMocks.removeRegistryEntry.mockClear();
@@ -668,7 +668,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
   it("uses the workspace owner without keep-id for rootful Podman", async () => {
     const cfg = createSandboxConfig([]);
     cfg.docker.user = "1001:1002";
-    spawnState.podmanInfo = "false\tfalse\n";
+    spawnState.podmanInfo = "false\tfalse\t\t5.0.0\n";
     spawnState.inspectRunning = false;
     registryMocks.readRegistryEntry.mockResolvedValue(null);
 
@@ -681,32 +681,72 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual([]);
   });
 
-  it.each([{ user: "0" }, { user: "0:0" }, { user: "1001:0" }, { user: "0:1002" }])(
-    "rejects zero-valued rootless Podman user $user",
-    async ({ user }) => {
-      const cfg = createSandboxConfig([]);
-      cfg.docker.user = user;
-      spawnState.inspectRunning = false;
-      registryMocks.readRegistryEntry.mockResolvedValue(null);
+  it.each([
+    { user: "0" },
+    { user: "00" },
+    { user: "0:0" },
+    { user: "00:1002" },
+    { user: "1001:0" },
+    { user: "1001:000" },
+  ])("rejects zero-valued rootless Podman user $user", async ({ user }) => {
+    const cfg = createSandboxConfig([]);
+    cfg.docker.user = user;
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
 
-      await expect(
-        ensureSandboxContainer({
-          engine: PODMAN_SANDBOX_ENGINE,
-          scopeKey: "shared",
-          workspaceDir: "/tmp/workspace",
-          agentWorkspaceDir: "/tmp/workspace",
-          cfg,
-        }),
-      ).rejects.toThrow(/cannot use UID or GID 0/iu);
+    await expect(
+      ensureSandboxContainer({
+        engine: PODMAN_SANDBOX_ENGINE,
+        scopeKey: "shared",
+        workspaceDir: "/tmp/workspace",
+        agentWorkspaceDir: "/tmp/workspace",
+        cfg,
+      }),
+    ).rejects.toThrow(/cannot use UID or GID 0/iu);
 
-      expect(spawnState.calls).not.toContainEqual(
-        expect.objectContaining({
-          command: "podman",
-          args: expect.arrayContaining(["create"]),
-        }),
-      );
-    },
-  );
+    expect(spawnState.calls).not.toContainEqual(
+      expect.objectContaining({
+        command: "podman",
+        args: expect.arrayContaining(["create"]),
+      }),
+    );
+  });
+
+  it("rejects Podman versions without mapped keep-id support", async () => {
+    const cfg = createSandboxConfig([]);
+    cfg.docker.user = "1001:1002";
+    spawnState.podmanInfo = "true\tfalse\t\t4.2.0\n";
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    await expect(
+      ensureSandboxContainer({
+        engine: PODMAN_SANDBOX_ENGINE,
+        scopeKey: "shared",
+        workspaceDir: "/tmp/workspace",
+        agentWorkspaceDir: "/tmp/workspace",
+        cfg,
+      }),
+    ).rejects.toThrow(/requires Podman 4\.3 or newer/iu);
+  });
+
+  it("rejects Podman GPU passthrough before Podman 5", async () => {
+    const cfg = createSandboxConfig([]);
+    cfg.docker.gpus = "all";
+    spawnState.podmanInfo = "false\tfalse\t\t4.9.3\n";
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    await expect(
+      ensureSandboxContainer({
+        engine: PODMAN_SANDBOX_ENGINE,
+        scopeKey: "shared",
+        workspaceDir: "/tmp/workspace",
+        agentWorkspaceDir: "/tmp/workspace",
+        cfg,
+      }),
+    ).rejects.toThrow(/GPU passthrough requires Podman 5\.0 or newer/iu);
+  });
 
   it("rejects nonnumeric users for rootless Podman keep-id", async () => {
     const cfg = createSandboxConfig([]);
@@ -1003,7 +1043,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     const cfg = createSandboxConfig([]);
     const workspaceDir = path.join(os.homedir(), "openclaw-podman-workspace");
     cfg.docker.binds = [`${workspaceDir}:/workspace:rw`];
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-default",
@@ -1030,7 +1070,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
 
   it("rejects Podman Machine bind sources outside the default home share", async () => {
     const cfg = createSandboxConfig([]);
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-default",

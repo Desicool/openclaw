@@ -19,7 +19,7 @@ const spawnState = vi.hoisted(() => ({
   inspectError: "",
   infoAvailable: { docker: false, podman: false },
   podmanConnections: "[]\n",
-  podmanInfo: "true\tfalse\n",
+  podmanInfo: "true\tfalse\t\t5.0.0\n",
   lastOptions: undefined as SpawnCallOptions | undefined,
   executionError: undefined as Error | undefined,
   transportFailure: false,
@@ -116,12 +116,12 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     spawnState.calls.length = 0;
     spawnState.infoAvailable.podman = true;
     spawnState.podmanConnections = "[]\n";
-    spawnState.podmanInfo = "true\tfalse\n";
+    spawnState.podmanInfo = "true\tfalse\t\t5.0.0\n";
     await loadFreshDockerModuleForTest();
   });
 
   it("rejects an arbitrary remote Podman connection", async () => {
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "remote",
@@ -136,7 +136,7 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
   });
 
   it("allows Podman Machine connections", async () => {
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-default",
@@ -149,6 +149,7 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     await expect(resolvePodmanSandboxRuntimeInfo()).resolves.toEqual({
       machine: true,
       rootless: true,
+      version: "5.0.0",
       target: {
         key: expect.stringMatching(/^machine:[a-f0-9]{32}$/u),
         globalArgs: ["--url", "ssh://core@127.0.0.1/run/user/501/podman/podman.sock"],
@@ -157,7 +158,7 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
   });
 
   it("rejects an unknown configured remote connection", async () => {
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-default",
@@ -173,7 +174,7 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
   });
 
   it("prefers a configured host URI over a configured connection name", async () => {
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-default",
@@ -196,7 +197,7 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
   });
 
   it("validates a named remote connection when the configured host URI is empty", async () => {
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "remote",
@@ -212,12 +213,13 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
   });
 
   it("uses Podman's local Unix fallback when no connection is configured", async () => {
-    spawnState.podmanInfo = "true\ttrue\t/run/user/1000/podman/podman.sock\n";
+    spawnState.podmanInfo = "true\ttrue\t/run/user/1000/podman/podman.sock\t5.0.0\n";
 
     await withEnvAsync({ CONTAINER_CONNECTION: undefined, CONTAINER_HOST: undefined }, async () => {
       await expect(resolvePodmanSandboxRuntimeInfo()).resolves.toEqual({
         machine: false,
         rootless: true,
+        version: "5.0.0",
         target: {
           key: expect.stringMatching(/^socket:[a-f0-9]{32}$/u),
           globalArgs: ["--url", "unix:///run/user/1000/podman/podman.sock"],
@@ -227,14 +229,15 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
   });
 
   it("revalidates the active Podman connection on every resolution", async () => {
-    spawnState.podmanInfo = "true\tfalse\n";
+    spawnState.podmanInfo = "true\tfalse\t\t5.0.0\n";
     await expect(resolvePodmanSandboxRuntimeInfo()).resolves.toEqual({
       machine: false,
       rootless: true,
+      version: "5.0.0",
       target: { key: "local", globalArgs: [] },
     });
 
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "remote",
@@ -260,13 +263,14 @@ describe("resolvePodmanSandboxRuntimeInfo", () => {
     await expect(resolvePodmanSandboxRuntimeInfo()).resolves.toEqual({
       machine: false,
       rootless: true,
+      version: "5.0.0",
       target: { key: "local", globalArgs: [] },
     });
     expect(spawnState.calls.some((call) => call.args[0] === "system")).toBe(false);
   });
 
   it("rejects a different allowed Podman Machine after a runtime target is recorded", async () => {
-    spawnState.podmanInfo = "true\ttrue\n";
+    spawnState.podmanInfo = "true\ttrue\t\t5.0.0\n";
     spawnState.podmanConnections = JSON.stringify([
       {
         Name: "podman-machine-first",

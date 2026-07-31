@@ -20,7 +20,7 @@ describe("scanPolicySandboxPosture", () => {
         defaults: {
           sandbox: {
             mode: "all",
-            backend: "podman",
+            backend: "Podman",
             docker: {
               network: "bridge",
               seccompProfile: "custom-seccomp.json",
