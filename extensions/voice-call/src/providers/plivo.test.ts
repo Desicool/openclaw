@@ -42,6 +42,20 @@ function expectPlivoPrivateCallStateReleased(params: {
   expect(state.pendingListenByCallId.has(params.callId)).toBe(false);
 }
 
+function expectPlivoPrivateCallStatePresent(params: {
+  provider: PlivoProvider;
+  callId: string;
+  requestUuid: string;
+  callUuid: string;
+}): void {
+  const state = getPlivoPrivateCallState(params.provider);
+  expect(state.requestUuidToCallUuid.get(params.requestUuid)).toBe(params.callUuid);
+  expect(state.callIdToWebhookUrl.has(params.callId)).toBe(true);
+  expect(state.callUuidToWebhookUrl.has(params.callUuid)).toBe(true);
+  expect(state.pendingSpeakByCallId.has(params.callId)).toBe(true);
+  expect(state.pendingListenByCallId.has(params.callId)).toBe(true);
+}
+
 function requireEvent<T>(event: T | undefined, message: string): T {
   if (!event) {
     throw new Error(message);
@@ -262,7 +276,43 @@ describe("PlivoProvider", () => {
     expectPlivoPrivateCallStateReleased({ provider, callId, requestUuid, callUuid });
   });
 
-  it("releases all provider call state before repeated explicit hangups", async () => {
+  it("releases call-id state for terminal callbacks without a query override", () => {
+    const provider = new PlivoProvider({
+      authId: "MA000000000000000000",
+      authToken: "test-token",
+    });
+    const requestUuid = "request-queryless";
+    const callUuid = "call-queryless";
+    seedPlivoPrivateCallState({
+      provider,
+      callId: callUuid,
+      requestUuid,
+      callUuid,
+    });
+
+    const event = provider.parseWebhookEvent({
+      headers: { host: "example.com" },
+      rawBody: `CallUUID=${callUuid}&RequestUUID=${requestUuid}&CallStatus=completed&Direction=outbound`,
+      url: "https://example.com/voice/webhook",
+      method: "POST",
+      query: {},
+    }).events[0];
+
+    expect(event).toMatchObject({
+      type: "call.ended",
+      callId: callUuid,
+      providerCallId: callUuid,
+      reason: "completed",
+    });
+    expectPlivoPrivateCallStateReleased({
+      provider,
+      callId: callUuid,
+      requestUuid,
+      callUuid,
+    });
+  });
+
+  it("releases all provider call state after repeated explicit hangups", async () => {
     const provider = new PlivoProvider({
       authId: "MA000000000000000000",
       authToken: "test-token",
@@ -288,5 +338,46 @@ describe("PlivoProvider", () => {
     await provider.hangupCall(input);
     expectPlivoPrivateCallStateReleased({ provider, callId, requestUuid, callUuid });
     expect(apiRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains call state when explicit hangup fails so it can retry", async () => {
+    const provider = new PlivoProvider({
+      authId: "MA000000000000000000",
+      authToken: "test-token",
+    });
+    const callId = "internal-hangup-retry";
+    const requestUuid = "request-hangup-retry";
+    const callUuid = "call-hangup-retry";
+    seedPlivoPrivateCallState({ provider, callId, requestUuid, callUuid });
+    const apiRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary Plivo failure"))
+      .mockResolvedValue({});
+    (
+      provider as unknown as {
+        apiRequest: (params: unknown) => Promise<unknown>;
+      }
+    ).apiRequest = apiRequest;
+    const input = {
+      callId,
+      providerCallId: requestUuid,
+      reason: "hangup-bot" as const,
+    };
+
+    await expect(provider.hangupCall(input)).rejects.toThrow("temporary Plivo failure");
+    expectPlivoPrivateCallStatePresent({ provider, callId, requestUuid, callUuid });
+
+    await provider.hangupCall(input);
+    expectPlivoPrivateCallStateReleased({ provider, callId, requestUuid, callUuid });
+    expect(apiRequest).toHaveBeenNthCalledWith(1, {
+      method: "DELETE",
+      endpoint: `/Call/${callUuid}/`,
+      allowNotFound: true,
+    });
+    expect(apiRequest).toHaveBeenNthCalledWith(2, {
+      method: "DELETE",
+      endpoint: `/Call/${callUuid}/`,
+      allowNotFound: true,
+    });
   });
 });
