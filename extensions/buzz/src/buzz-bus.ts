@@ -7,6 +7,7 @@ import {
   BUZZ_NORMAL_MESSAGE_KIND,
   BUZZ_TYPING_INDICATOR_KIND,
   buildBuzzMessageTags,
+  isBuzzInboundMessageKind,
   parseBuzzMessageEvent,
   type BuzzInboundMessage,
 } from "./message-event.js";
@@ -383,7 +384,7 @@ async function createBuzzRoomMembershipTracker(params: {
     return refreshMembershipOnce(channelId);
   };
   const handleRoomEvent = (event: Event) => {
-    if (BUZZ_INBOUND_MESSAGE_KINDS.includes(event.kind)) {
+    if (isBuzzInboundMessageKind(event.kind)) {
       params.onMessageEvent(event, isMember);
       return;
     }
@@ -480,7 +481,7 @@ async function createBuzzRoomMembershipTracker(params: {
   // EOSE can be newer than the loaded snapshot and need an in-memory overlay.
   initialized = true;
   for (const { event, historical } of bufferedEvents) {
-    if (!historical || BUZZ_INBOUND_MESSAGE_KINDS.includes(event.kind)) {
+    if (!historical || isBuzzInboundMessageKind(event.kind)) {
       handleRoomEvent(event);
     }
   }
