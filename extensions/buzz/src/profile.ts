@@ -5,6 +5,7 @@ const PROFILE_KIND = 0;
 const AGENT_PROFILE_KIND = 10_100;
 const DEFAULT_CHANNEL_ADD_POLICY = "anyone";
 const CHANNEL_ADD_POLICIES = new Set(["anyone", "owner_only", "nobody"]);
+const PROFILE_QUERY_TIMEOUT_MS = 10_000;
 
 type BuzzProfileSyncResult = { status: "unchanged" } | { status: "published"; eventId: string };
 
@@ -49,6 +50,7 @@ function readNonEmptyString(content: Record<string, unknown>, key: string): stri
 async function queryCurrentProfiles(params: {
   relay: Relay;
   publicKey: string;
+  onTimeout?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<Map<number, Event>> {
   params.signal?.throwIfAborted();
@@ -59,11 +61,18 @@ async function queryCurrentProfiles(params: {
       receivedEose: boolean;
       subscription?: ReturnType<Relay["prepareSubscription"]>;
     } = { settled: false, receivedEose: false };
+    const timeout = setTimeout(() => {
+      const error = new Error("Timed out loading current Buzz profile");
+      finish(error);
+      params.onTimeout?.(error);
+      params.relay.close();
+    }, PROFILE_QUERY_TIMEOUT_MS);
     const finish = (error?: unknown) => {
       if (state.settled) {
         return;
       }
       state.settled = true;
+      clearTimeout(timeout);
       params.signal?.removeEventListener("abort", onAbort);
       if (state.receivedEose) {
         state.subscription?.close("profile query complete");
@@ -137,6 +146,7 @@ export async function syncBuzzProfile(params: {
   publicKey: string;
   displayName: string;
   authTag?: string[];
+  onFatalError?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<BuzzProfileSyncResult> {
   const displayName = params.displayName.trim();
@@ -144,7 +154,10 @@ export async function syncBuzzProfile(params: {
     return { status: "unchanged" };
   }
 
-  const currentProfiles = await queryCurrentProfiles(params);
+  const currentProfiles = await queryCurrentProfiles({
+    ...params,
+    onTimeout: params.onFatalError,
+  });
   const currentMetadata = currentProfiles.get(PROFILE_KIND);
   const currentAgentProfile = currentProfiles.get(AGENT_PROFILE_KIND);
   const metadataContent = parseProfileContent(currentMetadata);

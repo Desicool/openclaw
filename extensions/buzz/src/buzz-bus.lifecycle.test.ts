@@ -12,6 +12,7 @@ const relayMocks = vi.hoisted(() => ({
   subscriptionClose: vi.fn(),
   close: vi.fn(),
   connected: true,
+  stallProfileQueryEose: false,
   membershipEvents: [] as Event[],
   roomMetadataEvents: [] as Event[],
   profileEvents: [] as Event[],
@@ -75,7 +76,10 @@ vi.mock("nostr-tools", async (importOriginal) => {
               handlers.onevent(event);
             }
           }
-          handlers.oneose?.();
+          const isProfileSyncQuery = filters.some((entry) => entry.kinds?.includes(10_100));
+          if (!isProfileSyncQuery || !relayMocks.stallProfileQueryEose) {
+            handlers.oneose?.();
+          }
         }
         return {
           id: `sub:${relayMocks.subscriptions.length}`,
@@ -144,6 +148,7 @@ describe("Buzz bus lifecycle", () => {
     relayMocks.publish.mockResolvedValue("");
     relayMocks.send.mockResolvedValue();
     relayMocks.connected = true;
+    relayMocks.stallProfileQueryEose = false;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -157,6 +162,7 @@ describe("Buzz bus lifecycle", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (previousStateDir === undefined) {
       delete process.env.OPENCLAW_STATE_DIR;
     } else {
@@ -700,6 +706,43 @@ describe("Buzz bus lifecycle", () => {
     ).toBe(true);
     expect(onProfilePublished).toHaveBeenCalledOnce();
     expect(onFatalError).not.toHaveBeenCalled();
+    await bus.close();
+  });
+
+  it("recycles the Buzz bus when profile synchronization never reaches EOSE", async () => {
+    vi.useFakeTimers();
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.stallProfileQueryEose = true;
+    const onFatalError = vi.fn();
+    const onProfileError = vi.fn();
+    const bus = await startBuzzBus({
+      accountId: ACCOUNT_ID,
+      relayUrl: "wss://buzz.example.com",
+      privateKey: PRIVATE_KEY,
+      channelIds: [CHANNEL_ID],
+      onMessage: async () => {},
+      profileName: "Configured Agent Name",
+      onFatalError,
+      onProfileError,
+    });
+
+    expect(
+      relayMocks.subscriptions.some((entry) =>
+        entry.filters.some((filter) => filter.kinds?.includes(10_100)),
+      ),
+    ).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.resolve();
+
+    expect(onFatalError).toHaveBeenCalledOnce();
+    expect(onFatalError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Timed out loading current Buzz profile" }),
+    );
+    expect(relayMocks.close).toHaveBeenCalledOnce();
+    expect(onProfileError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Timed out loading current Buzz profile" }),
+    );
+
     await bus.close();
   });
 

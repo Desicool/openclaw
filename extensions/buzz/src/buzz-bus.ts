@@ -699,6 +699,7 @@ export async function startBuzzBus(options: {
         publicKey,
         displayName: options.profileName,
         authTag,
+        onFatalError: reportFatalError,
         signal,
       })
         .then((result) => {
