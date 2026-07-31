@@ -196,7 +196,17 @@ export function resolveServerUiPrefState<K extends SyncedPrefKey>(
       serverValue,
       settings,
     );
-  if (canApply && prefValuesEqual(localValue, serverValue)) {
+  if (!canApply) {
+    // The server still owns this authored preference even when this device cannot
+    // render it. Preserve that provenance so Restore default removes the override.
+    return {
+      overridden: true,
+      provenance: "synced",
+      resetValue: productDefault,
+      value: localValue,
+    };
+  }
+  if (prefValuesEqual(localValue, serverValue)) {
     return {
       overridden: true,
       provenance: "synced",
@@ -204,7 +214,7 @@ export function resolveServerUiPrefState<K extends SyncedPrefKey>(
       value: serverValue,
     };
   }
-  return localState(canApply ? serverValue : productDefault);
+  return localState(serverValue);
 }
 /** Local-settings patch that would bring the mirror in line with the server. */
 function serverPrefsLocalPatch(

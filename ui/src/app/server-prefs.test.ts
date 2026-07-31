@@ -139,6 +139,21 @@ describe("server pref extraction", () => {
       value: "enter",
     });
   });
+
+  it("preserves a server custom-theme override when this device lacks its palette", () => {
+    const state = resolveServerUiPrefState(configWithPrefs({ theme: "custom" }), "theme");
+
+    expect(state).toEqual({
+      overridden: true,
+      provenance: "synced",
+      resetValue: "claw",
+      value: "claw",
+    });
+
+    const beforeReset = loadSettings();
+    const afterReset = resetServerUiPref("theme", state);
+    expect(changedServerUiPrefs(beforeReset, afterReset)).toEqual({ theme: null });
+  });
 });
 
 describe("applyServerUiPrefs", () => {
