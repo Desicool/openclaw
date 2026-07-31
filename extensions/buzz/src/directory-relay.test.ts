@@ -19,6 +19,13 @@ const FIRST_MEMBER_PUBLIC_KEY = "b".repeat(64);
 const SECOND_MEMBER_PUBLIC_KEY = "c".repeat(64);
 const LATEST_MEMBER_PUBLIC_KEY = "d".repeat(64);
 
+function createSubscriptionStub(
+  id: string,
+  close: ReturnType<typeof vi.fn>,
+): ReturnType<Relay["prepareSubscription"]> {
+  return { id, close } as unknown as ReturnType<Relay["prepareSubscription"]>;
+}
+
 describe("Buzz directory relay", () => {
   it("waits for EOSE and collapses queued profile replacements to the latest set", () => {
     const subscriptions: SubscriptionRecord[] = [];
@@ -32,10 +39,7 @@ describe("Buzz directory relay", () => {
         ): ReturnType<Relay["prepareSubscription"]> => {
           const close = vi.fn();
           subscriptions.push({ filters, handlers, close });
-          return {
-            id: `sub:${subscriptions.length}`,
-            close,
-          } as ReturnType<Relay["prepareSubscription"]>;
+          return createSubscriptionStub(`sub:${subscriptions.length}`, close);
         },
       ),
       send: vi.fn(async () => {}),
@@ -82,10 +86,7 @@ describe("Buzz directory relay", () => {
         ): ReturnType<Relay["prepareSubscription"]> => {
           const close = vi.fn();
           subscriptions.push({ filters, handlers, close });
-          return {
-            id: `sub:${subscriptions.length}`,
-            close,
-          } as ReturnType<Relay["prepareSubscription"]>;
+          return createSubscriptionStub(`sub:${subscriptions.length}`, close);
         },
       ),
       send: vi.fn(async () => {}),
@@ -119,10 +120,7 @@ describe("Buzz directory relay", () => {
         ): ReturnType<Relay["prepareSubscription"]> => {
           const close = vi.fn();
           subscriptions.push({ filters, handlers, close });
-          return {
-            id: `sub:${subscriptions.length}`,
-            close,
-          } as ReturnType<Relay["prepareSubscription"]>;
+          return createSubscriptionStub(`sub:${subscriptions.length}`, close);
         },
       ),
       send: vi.fn(async () => {}),
@@ -165,10 +163,7 @@ describe("Buzz directory relay", () => {
         ): ReturnType<Relay["prepareSubscription"]> => {
           const close = vi.fn();
           subscriptions.push({ filters, handlers, close });
-          return {
-            id: `sub:${subscriptions.length}`,
-            close,
-          } as ReturnType<Relay["prepareSubscription"]>;
+          return createSubscriptionStub(`sub:${subscriptions.length}`, close);
         },
       ),
       send: vi.fn(async () => {}),
@@ -213,7 +208,7 @@ describe("Buzz directory relay", () => {
           nextHandlers: SubscriptionRecord["handlers"],
         ): ReturnType<Relay["prepareSubscription"]> => {
           handlers = nextHandlers;
-          return { id: "sub:1", close } as ReturnType<Relay["prepareSubscription"]>;
+          return createSubscriptionStub("sub:1", close);
         },
       ),
       send: vi.fn(async () => {}),
@@ -248,7 +243,7 @@ describe("Buzz directory relay", () => {
       ongoingOperations: 0,
       prepareSubscription: vi.fn(
         (): ReturnType<Relay["prepareSubscription"]> =>
-          ({ id: "sub:1", close: subscriptionClose }) as ReturnType<Relay["prepareSubscription"]>,
+          createSubscriptionStub("sub:1", subscriptionClose),
       ),
       send: vi.fn(async () => {}),
     } as unknown as Relay;
@@ -282,7 +277,7 @@ describe("Buzz directory relay", () => {
       ongoingOperations: 0,
       prepareSubscription: vi.fn(
         (): ReturnType<Relay["prepareSubscription"]> =>
-          ({ id: "sub:1", close: subscriptionClose }) as ReturnType<Relay["prepareSubscription"]>,
+          createSubscriptionStub("sub:1", subscriptionClose),
       ),
       send: vi.fn(async () => {}),
     } as unknown as Relay;
