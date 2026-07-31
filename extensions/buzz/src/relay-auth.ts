@@ -10,7 +10,7 @@ const BUZZ_RELAY_SOFTWARE = "https://github.com/block/buzz";
 const BUZZ_LOCAL_DEV_RELAY_PUBLIC_KEY =
   "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
-export type AuthenticatedBuzzRelaySession = {
+type AuthenticatedBuzzRelaySession = {
   relay: Relay;
   relayPublicKey: string;
 };
