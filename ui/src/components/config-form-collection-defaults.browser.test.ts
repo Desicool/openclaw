@@ -191,6 +191,96 @@ describe("config form collection defaults", () => {
     expect(resetButton(container).disabled).toBe(true);
   });
 
+  it("shows and restores a top-level object default without nesting the section", () => {
+    const container = document.createElement("div");
+    const onPatch = vi.fn();
+    const schema = {
+      type: "object" as const,
+      title: "Settings",
+      default: { mode: "balanced" },
+      properties: {
+        mode: { type: "string" as const, title: "Mode" },
+      },
+    };
+
+    render(
+      renderObject(
+        {
+          schema,
+          value: { mode: "custom" },
+          path: ["settings"],
+          hints: {},
+          unsupported: new Set(),
+          disabled: false,
+          onPatch,
+        },
+        renderNode,
+      ),
+      container,
+    );
+
+    expect(container.textContent).toContain('Default: {"mode":"balanced"}');
+    expect(container.querySelector("details")).toBeNull();
+    resetButton(container).click();
+    expect(onPatch).toHaveBeenCalledWith(["settings"], undefined);
+
+    onPatch.mockClear();
+    render(
+      renderObject(
+        {
+          schema,
+          value: undefined,
+          path: ["settings"],
+          hints: {},
+          unsupported: new Set(),
+          disabled: false,
+          onPatch,
+        },
+        renderNode,
+      ),
+      container,
+    );
+
+    expect(container.textContent).toContain('Using default: {"mode":"balanced"}');
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.querySelector("button[aria-label='Reset to default']")).toBeNull();
+    expect(
+      expectElement(container.querySelector<HTMLInputElement>("input"), "inherited mode")
+        .placeholder,
+    ).toBe("Default: balanced");
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
+  it("conceals a sensitive top-level object default", () => {
+    const container = document.createElement("div");
+
+    render(
+      renderObject(
+        {
+          schema: {
+            type: "object",
+            title: "Settings",
+            default: { apiKey: "default-secret" },
+            properties: { apiKey: { type: "string" } },
+          },
+          value: { apiKey: "authored-secret" },
+          path: ["settings"],
+          hints: { settings: { sensitive: true } },
+          unsupported: new Set(),
+          disabled: false,
+          revealSensitive: false,
+          onPatch: vi.fn(),
+        },
+        renderNode,
+      ),
+      container,
+    );
+
+    expect(container.textContent).not.toContain("default-secret");
+    expect(resetButton(container).disabled).toBe(true);
+    expect(container.querySelector("details")).toBeNull();
+  });
+
   it("removes an optional object as one value and keeps inherited children inherited", () => {
     const container = document.createElement("div");
     const onPatch = vi.fn();

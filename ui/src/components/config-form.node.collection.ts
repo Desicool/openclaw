@@ -34,6 +34,7 @@ import {
   getSensitiveRenderState,
   isAnySchema,
   jsonValue,
+  renderFlatDefaultRow,
   renderFieldRow,
   renderJsonTextareaControl,
   renderRestoreDefaultButton,
@@ -210,7 +211,7 @@ export function renderObject(
   // Top-level objects and label-less contexts emit rows directly into the
   // surrounding settings-group so row dividers stay sibling-driven.
   if (path.length === 1 || params.showLabel === false) {
-    return html`${fields}`;
+    return html`${path.length === 1 ? renderFlatDefaultRow(defaultPresentation) : nothing}${fields}`;
   }
 
   // Nested objects get collapsible treatment as an indented sub-block.

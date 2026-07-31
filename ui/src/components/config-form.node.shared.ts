@@ -248,6 +248,29 @@ export function renderFieldRow(params: {
   `;
 }
 
+export function renderFlatDefaultRow(presentation: {
+  description: TemplateResult | typeof nothing;
+  action: TemplateResult | typeof nothing;
+}): TemplateResult | typeof nothing {
+  if (presentation.description === nothing && presentation.action === nothing) {
+    return nothing;
+  }
+  return html`
+    <div class="settings-row">
+      ${presentation.description === nothing
+        ? nothing
+        : html`
+            <div class="settings-row__text">
+              <span class="settings-row__desc">${presentation.description}</span>
+            </div>
+          `}
+      ${presentation.action === nothing
+        ? nothing
+        : html`<div class="settings-row__control">${presentation.action}</div>`}
+    </div>
+  `;
+}
+
 export function renderSchemaDefaultDescription(
   schema: JsonSchema,
   value: unknown,
