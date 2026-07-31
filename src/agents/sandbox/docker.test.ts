@@ -521,7 +521,7 @@ describe("execDockerRaw", () => {
     const secret = "sandbox-secret-value";
 
     const error = await execDockerRaw(["create", "--env", `TOKEN=${secret}`]).catch(
-      (caught) => caught,
+      (caught: unknown) => caught,
     );
 
     expect(error).toBeInstanceOf(Error);
