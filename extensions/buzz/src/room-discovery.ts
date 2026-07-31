@@ -1,5 +1,5 @@
 import type { Event, Filter, Relay } from "nostr-tools";
-import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import { connectAuthenticatedBuzzRelaySession, parseBuzzAuthTag } from "./relay-auth.js";
 import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { BUZZ_ROOM_MEMBERSHIP_KIND, parseBuzzRoomMembershipEvent } from "./room-membership.js";
 import { BUZZ_CHANNEL_ID_PATTERN } from "./target.js";
@@ -73,6 +73,7 @@ async function queryRelay(params: {
 
 export async function discoverBuzzRoomsOnRelay(params: {
   relay: Relay;
+  relayPublicKey: string;
   publicKey: string;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -82,6 +83,7 @@ export async function discoverBuzzRoomsOnRelay(params: {
     relay: params.relay,
     filter: {
       kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
+      authors: [params.relayPublicKey],
       "#p": [params.publicKey],
       limit: 1000,
     },
@@ -91,7 +93,7 @@ export async function discoverBuzzRoomsOnRelay(params: {
   const roomIds = [
     ...new Set(
       membershipEvents
-        .map(parseBuzzRoomMembershipEvent)
+        .map((event) => parseBuzzRoomMembershipEvent(event, params.relayPublicKey))
         .filter((membership) => membership?.roles.get(params.publicKey) === "bot")
         .map((membership) => membership?.roomId)
         .filter((roomId): roomId is string => Boolean(roomId?.match(BUZZ_CHANNEL_ID_PATTERN))),
@@ -103,7 +105,12 @@ export async function discoverBuzzRoomsOnRelay(params: {
 
   const metadataEvents = await queryRelay({
     relay: params.relay,
-    filter: { kinds: [METADATA_KIND], "#d": roomIds, limit: roomIds.length },
+    filter: {
+      kinds: [METADATA_KIND],
+      authors: [params.relayPublicKey],
+      "#d": roomIds,
+      limit: roomIds.length,
+    },
     timeoutMs,
     signal: params.signal,
   });
@@ -112,6 +119,7 @@ export async function discoverBuzzRoomsOnRelay(params: {
     const roomId = tagValue(event, "d")?.toLowerCase();
     if (
       event.kind !== METADATA_KIND ||
+      event.pubkey.toLowerCase() !== params.relayPublicKey ||
       !roomId ||
       !roomIds.includes(roomId) ||
       (latestMetadata.get(roomId)?.created_at ?? -1) >= event.created_at
@@ -150,7 +158,7 @@ export async function discoverBuzzRooms(params: {
   // Status callers must not wait for a fresh timeout at every relay phase.
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
-  const relay = await connectAuthenticatedBuzzRelay({
+  const { relay, relayPublicKey } = await connectAuthenticatedBuzzRelaySession({
     relayUrl: params.relayUrl,
     secretKey,
     authTag: parseBuzzAuthTag(params.authTag ?? ""),
@@ -162,6 +170,7 @@ export async function discoverBuzzRooms(params: {
     // discovery. Require the explicit Bot role before setup or probes accept a room.
     return await discoverBuzzRoomsOnRelay({
       relay,
+      relayPublicKey,
       publicKey,
       timeoutMs,
       signal,

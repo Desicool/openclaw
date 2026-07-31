@@ -5,7 +5,7 @@ import type {
 import { queryBuzzDirectoryProfiles, queryBuzzDirectoryRooms } from "./directory-relay.js";
 import { BuzzDirectoryState } from "./directory-state.js";
 import { getActiveBuzzBus } from "./gateway.js";
-import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import { connectAuthenticatedBuzzRelaySession, parseBuzzAuthTag } from "./relay-auth.js";
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import { parseBuzzTarget } from "./target.js";
 import { decodeBuzzPrivateKey, resolveBuzzAccount } from "./types.js";
@@ -56,7 +56,7 @@ async function loadBuzzDirectoryState(
   }
 
   const timeoutSignal = AbortSignal.timeout(DIRECTORY_LIVE_TIMEOUT_MS);
-  const relay = await connectAuthenticatedBuzzRelay({
+  const { relay, relayPublicKey } = await connectAuthenticatedBuzzRelaySession({
     relayUrl: configured.account.relayUrl,
     secretKey: decodeBuzzPrivateKey(configured.account.privateKey),
     authTag: parseBuzzAuthTag(configured.account.authTag),
@@ -66,6 +66,7 @@ async function loadBuzzDirectoryState(
     configured.state.replaceMemberships(
       await queryBuzzRoomMemberships({
         relay,
+        relayPublicKey,
         channelIds: configured.channelIds,
         signal: timeoutSignal,
       }),
@@ -73,6 +74,7 @@ async function loadBuzzDirectoryState(
     await Promise.all([
       queryBuzzDirectoryRooms({
         relay,
+        relayPublicKey,
         state: configured.state,
         channelIds: configured.channelIds,
         signal: timeoutSignal,

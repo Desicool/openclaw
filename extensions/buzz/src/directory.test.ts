@@ -64,6 +64,7 @@ vi.mock("./gateway.js", () => ({
 const PRIVATE_KEY = "11".repeat(32);
 const BOT_PUBLIC_KEY = getPublicKey(Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")));
 const MEMBER_PUBLIC_KEY = "b".repeat(64);
+const RELAY_PUBLIC_KEY = "c".repeat(64);
 const ROOM_ID = "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c";
 
 function event(params: Partial<Event> & Pick<Event, "kind" | "pubkey">): Event {
@@ -83,6 +84,16 @@ describe("Buzz live directory", () => {
     vi.clearAllMocks();
     relayMocks.filters.length = 0;
     gatewayMocks.activeBus = undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          self: RELAY_PUBLIC_KEY,
+          software: "https://github.com/block/buzz",
+        }),
+      })),
+    );
     relayMocks.subscribe.mockImplementation(
       (
         filter: Filter,
@@ -95,7 +106,7 @@ describe("Buzz live directory", () => {
           handlers.onevent(
             event({
               kind: 39_002,
-              pubkey: "c".repeat(64),
+              pubkey: RELAY_PUBLIC_KEY,
               tags: [
                 ["d", ROOM_ID],
                 ["p", BOT_PUBLIC_KEY, "", "bot"],
@@ -107,7 +118,7 @@ describe("Buzz live directory", () => {
           handlers.onevent(
             event({
               kind: 39_000,
-              pubkey: "c".repeat(64),
+              pubkey: RELAY_PUBLIC_KEY,
               tags: [
                 ["d", ROOM_ID],
                 ["name", "Engineering"],
@@ -161,8 +172,18 @@ describe("Buzz live directory", () => {
     ]);
 
     expect(relayMocks.filters).toEqual([
-      { kinds: [39_002], "#d": [ROOM_ID], limit: 1 },
-      { kinds: [39_000], "#d": [ROOM_ID], limit: 1 },
+      {
+        kinds: [39_002],
+        authors: [RELAY_PUBLIC_KEY],
+        "#d": [ROOM_ID],
+        limit: 1,
+      },
+      {
+        kinds: [39_000],
+        authors: [RELAY_PUBLIC_KEY],
+        "#d": [ROOM_ID],
+        limit: 1,
+      },
       { kinds: [0], authors: [BOT_PUBLIC_KEY, MEMBER_PUBLIC_KEY], limit: 2 },
     ]);
     expect(relayMocks.auth).toHaveBeenCalledOnce();

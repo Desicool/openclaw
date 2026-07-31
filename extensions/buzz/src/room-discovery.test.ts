@@ -47,6 +47,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
 });
 
 const PRIVATE_KEY = "11".repeat(32);
+const RELAY_PUBLIC_KEY = "f".repeat(64);
 const ROOM_A = "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c";
 const ROOM_B = "940d0c32-4eb7-46d7-9d5b-d975aaef87f7";
 const AUTH_TAG = ["auth", "bot", "kind=9", "signature"];
@@ -58,6 +59,16 @@ describe("discoverBuzzRooms", () => {
     relayMocks.connect.mockClear();
     relayMocks.filters.length = 0;
     relayMocks.subscribe.mockReset();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          self: RELAY_PUBLIC_KEY,
+          software: "https://github.com/block/buzz",
+        }),
+      })),
+    );
   });
 
   it("discovers only rooms whose member event names the bot public key", async () => {
@@ -76,7 +87,7 @@ describe("discoverBuzzRooms", () => {
           handlers.onevent({
             id: "member-a",
             kind: 39002,
-            pubkey: "relay",
+            pubkey: RELAY_PUBLIC_KEY,
             created_at: 1,
             content: "",
             sig: "sig",
@@ -88,7 +99,7 @@ describe("discoverBuzzRooms", () => {
           handlers.onevent({
             id: "member-b-wrong-role",
             kind: 39002,
-            pubkey: "relay",
+            pubkey: RELAY_PUBLIC_KEY,
             created_at: 1,
             content: "",
             sig: "sig",
@@ -109,7 +120,7 @@ describe("discoverBuzzRooms", () => {
           handlers.onevent({
             id: "metadata-a",
             kind: 39000,
-            pubkey: "relay",
+            pubkey: RELAY_PUBLIC_KEY,
             created_at: 2,
             content: "",
             sig: "sig",
@@ -140,8 +151,18 @@ describe("discoverBuzzRooms", () => {
     ]);
 
     expect(relayMocks.filters).toEqual([
-      { kinds: [39002], "#p": [publicKey], limit: 1000 },
-      { kinds: [39000], "#d": [ROOM_A], limit: 1 },
+      {
+        kinds: [39002],
+        authors: [RELAY_PUBLIC_KEY],
+        "#p": [publicKey],
+        limit: 1000,
+      },
+      {
+        kinds: [39000],
+        authors: [RELAY_PUBLIC_KEY],
+        "#d": [ROOM_A],
+        limit: 1,
+      },
     ]);
     expect(relayMocks.auth).toHaveBeenCalledOnce();
     expect(signedAuthTags).toContainEqual(AUTH_TAG);

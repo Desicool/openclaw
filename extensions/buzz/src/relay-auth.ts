@@ -2,6 +2,17 @@ import { type EventTemplate, finalizeEvent, Relay, type VerifiedEvent } from "no
 
 const AUTH_CHALLENGE_TIMEOUT_MS = 20_000;
 const AUTH_CHALLENGE_POLL_MS = 25;
+const HEX_PUBLIC_KEY_PATTERN = /^[0-9a-f]{64}$/u;
+const BUZZ_RELAY_SOFTWARE = "https://github.com/block/buzz";
+// Buzz `just dev` uses private key 1 when auth tokens are disabled, but omits
+// NIP-11 `self` because no production relay key was configured.
+const BUZZ_LOCAL_DEV_RELAY_PUBLIC_KEY =
+  "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+export type AuthenticatedBuzzRelaySession = {
+  relay: Relay;
+  relayPublicKey: string;
+};
 
 export function parseBuzzAuthTag(raw: string): string[] | undefined {
   if (!raw.trim()) {
@@ -49,6 +60,54 @@ function createBuzzAuthSigner(params: {
     );
 }
 
+function isLoopbackRelayUrl(relayUrl: string): boolean {
+  const hostname = new URL(relayUrl).hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
+async function resolveBuzzRelayPublicKey(params: {
+  relayUrl: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const infoUrl = new URL(params.relayUrl);
+  infoUrl.protocol = infoUrl.protocol === "wss:" ? "https:" : "http:";
+  const response = await fetch(infoUrl, {
+    headers: { Accept: "application/nostr+json" },
+    signal: params.signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Buzz relay information request failed with HTTP ${response.status}`);
+  }
+  const document = (await response.json()) as {
+    self?: unknown;
+    software?: unknown;
+  };
+  const relayPublicKey =
+    typeof document.self === "string" ? document.self.trim().toLowerCase() : "";
+  if (HEX_PUBLIC_KEY_PATTERN.test(relayPublicKey)) {
+    return relayPublicKey;
+  }
+  if (document.software === BUZZ_RELAY_SOFTWARE && isLoopbackRelayUrl(params.relayUrl)) {
+    return BUZZ_LOCAL_DEV_RELAY_PUBLIC_KEY;
+  }
+  throw new Error("Buzz relay information document is missing a valid NIP-11 self public key");
+}
+
+async function connectAndAuthenticateBuzzRelay(params: {
+  relay: Relay;
+  secretKey: Uint8Array;
+  authTag?: string[];
+  signal?: AbortSignal;
+}): Promise<void> {
+  const signAuth = createBuzzAuthSigner({
+    secretKey: params.secretKey,
+    authTag: params.authTag,
+  });
+  await params.relay.connect({ abort: params.signal });
+  await authenticateBuzzRelay({ relay: params.relay, signAuth, signal: params.signal });
+  params.relay.onauth = signAuth;
+}
+
 export async function connectAuthenticatedBuzzRelay(params: {
   relayUrl: string;
   secretKey: Uint8Array;
@@ -56,15 +115,28 @@ export async function connectAuthenticatedBuzzRelay(params: {
   signal?: AbortSignal;
 }): Promise<Relay> {
   const relay = new Relay(params.relayUrl, { enableReconnect: false });
-  const signAuth = createBuzzAuthSigner({
-    secretKey: params.secretKey,
-    authTag: params.authTag,
-  });
   try {
-    await relay.connect({ abort: params.signal });
-    await authenticateBuzzRelay({ relay, signAuth, signal: params.signal });
-    relay.onauth = signAuth;
+    await connectAndAuthenticateBuzzRelay({ ...params, relay });
     return relay;
+  } catch (error) {
+    relay.close();
+    throw error;
+  }
+}
+
+export async function connectAuthenticatedBuzzRelaySession(params: {
+  relayUrl: string;
+  secretKey: Uint8Array;
+  authTag?: string[];
+  signal?: AbortSignal;
+}): Promise<AuthenticatedBuzzRelaySession> {
+  const relay = new Relay(params.relayUrl, { enableReconnect: false });
+  try {
+    const [, relayPublicKey] = await Promise.all([
+      connectAndAuthenticateBuzzRelay({ ...params, relay }),
+      resolveBuzzRelayPublicKey(params),
+    ]);
+    return { relay, relayPublicKey };
   } catch (error) {
     relay.close();
     throw error;

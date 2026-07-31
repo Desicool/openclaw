@@ -11,7 +11,11 @@ import {
   type BuzzInboundMessage,
 } from "./message-event.js";
 import { syncBuzzProfile } from "./profile.js";
-import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import {
+  connectAuthenticatedBuzzRelay,
+  connectAuthenticatedBuzzRelaySession,
+  parseBuzzAuthTag,
+} from "./relay-auth.js";
 import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
 import {
@@ -176,6 +180,7 @@ async function sleepWithSignal(delayMs: number, signal?: AbortSignal): Promise<v
 
 async function createBuzzRoomMembershipTracker(params: {
   relay: Relay;
+  relayPublicKey: string;
   channelIds: string[];
   botPublicKey: string;
   since: number;
@@ -240,6 +245,7 @@ async function createBuzzRoomMembershipTracker(params: {
       (
         await queryBuzzRoomMemberships({
           relay: params.relay,
+          relayPublicKey: params.relayPublicKey,
           channelIds: [channelId],
           signal: params.signal,
         })
@@ -546,7 +552,7 @@ export async function startBuzzBus(options: {
     buildReplayKey: (event) => event.id,
     namespace: () => options.accountId,
   });
-  const relay = await connectAuthenticatedBuzzRelay({
+  const { relay, relayPublicKey } = await connectAuthenticatedBuzzRelaySession({
     relayUrl: options.relayUrl,
     secretKey,
     authTag,
@@ -601,6 +607,7 @@ export async function startBuzzBus(options: {
   try {
     const membershipTracker = await createBuzzRoomMembershipTracker({
       relay,
+      relayPublicKey,
       channelIds: options.channelIds,
       botPublicKey: publicKey,
       since: sessionStartedAt,
@@ -646,6 +653,7 @@ export async function startBuzzBus(options: {
     directory.replaceMemberships(membershipTracker.memberships());
     directoryRelay = startBuzzDirectoryRelay({
       relay,
+      relayPublicKey,
       state: directory,
       signal,
       onError: options.onDirectoryError,

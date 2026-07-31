@@ -109,6 +109,7 @@ export async function queryBuzzDirectoryProfiles(params: {
 
 export async function queryBuzzDirectoryRooms(params: {
   relay: Relay;
+  relayPublicKey: string;
   state: BuzzDirectoryState;
   channelIds: string[];
   signal?: AbortSignal;
@@ -118,11 +119,14 @@ export async function queryBuzzDirectoryRooms(params: {
       relay: params.relay,
       filter: {
         kinds: [BUZZ_ROOM_METADATA_KIND],
+        authors: [params.relayPublicKey],
         "#d": roomIds,
         limit: roomIds.length,
       },
       onEvent: (event) => {
-        params.state.applyRoomEvent(event);
+        if (event.pubkey.toLowerCase() === params.relayPublicKey) {
+          params.state.applyRoomEvent(event);
+        }
       },
       signal: params.signal,
     });
@@ -131,6 +135,7 @@ export async function queryBuzzDirectoryRooms(params: {
 
 export function startBuzzDirectoryRelay(params: {
   relay: Relay;
+  relayPublicKey: string;
   state: BuzzDirectoryState;
   signal?: AbortSignal;
   onError?: (error: Error) => void;
@@ -273,6 +278,7 @@ export function startBuzzDirectoryRelay(params: {
         pendingRoomIds.clear();
         await queryBuzzDirectoryRooms({
           relay: params.relay,
+          relayPublicKey: params.relayPublicKey,
           state: params.state,
           channelIds: nextRoomIds,
           signal: params.signal,

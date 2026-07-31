@@ -12,6 +12,7 @@ const MEMBERSHIP_QUERY_COMPLETE_REASON = "membership snapshot loaded";
 
 async function queryBuzzRoomMembershipBatch(params: {
   relay: Relay;
+  relayPublicKey: string;
   channelIds: string[];
   signal?: AbortSignal;
 }): Promise<Map<string, BuzzRoomMembership>> {
@@ -48,13 +49,14 @@ async function queryBuzzRoomMembershipBatch(params: {
       [
         {
           kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
+          authors: [params.relayPublicKey],
           "#d": params.channelIds,
           limit: params.channelIds.length,
         },
       ],
       {
         onevent: (event) => {
-          const membership = parseBuzzRoomMembershipEvent(event);
+          const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
           if (
             !membership ||
             !configuredRooms.has(membership.roomId) ||
@@ -90,6 +92,7 @@ async function queryBuzzRoomMembershipBatch(params: {
 
 export async function queryBuzzRoomMemberships(params: {
   relay: Relay;
+  relayPublicKey: string;
   channelIds: string[];
   signal?: AbortSignal;
 }): Promise<Map<string, BuzzRoomMembership>> {

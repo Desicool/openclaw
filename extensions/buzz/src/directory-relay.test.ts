@@ -14,6 +14,7 @@ type SubscriptionRecord = {
 };
 
 const BOT_PUBLIC_KEY = "a".repeat(64);
+const RELAY_PUBLIC_KEY = "f".repeat(64);
 const FIRST_MEMBER_PUBLIC_KEY = "b".repeat(64);
 const SECOND_MEMBER_PUBLIC_KEY = "c".repeat(64);
 const LATEST_MEMBER_PUBLIC_KEY = "d".repeat(64);
@@ -41,6 +42,7 @@ describe("Buzz directory relay", () => {
     } as unknown as Relay;
     const directory = startBuzzDirectoryRelay({
       relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
       state: new BuzzDirectoryState({
         publicKey: BOT_PUBLIC_KEY,
         fallbackProfileName: "OpenClaw",
@@ -90,6 +92,7 @@ describe("Buzz directory relay", () => {
     } as unknown as Relay;
     const directory = startBuzzDirectoryRelay({
       relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
       state: new BuzzDirectoryState({
         publicKey: BOT_PUBLIC_KEY,
         fallbackProfileName: "OpenClaw",
@@ -124,6 +127,7 @@ describe("Buzz directory relay", () => {
     } as unknown as Relay;
     const query = queryBuzzDirectoryRooms({
       relay,
+      relayPublicKey: RELAY_PUBLIC_KEY,
       state: new BuzzDirectoryState({
         publicKey: BOT_PUBLIC_KEY,
         fallbackProfileName: "OpenClaw",

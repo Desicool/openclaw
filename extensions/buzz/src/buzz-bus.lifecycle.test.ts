@@ -101,6 +101,7 @@ const CHANNEL_ID = "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c";
 const SECOND_CHANNEL_ID = "45cedd86-f853-45b7-8fea-812b7fe63d7a";
 const BOT_PUBLIC_KEY = getPublicKey(Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")));
 const SENDER_PUBLIC_KEY = getPublicKey(Uint8Array.from(Buffer.from(SENDER_PRIVATE_KEY, "hex")));
+const RELAY_PUBLIC_KEY = "f".repeat(64);
 const tempDirs = new Set<string>();
 let previousStateDir: string | undefined;
 let stateDir: string;
@@ -127,7 +128,7 @@ describe("Buzz bus lifecycle", () => {
       {
         id: "membership-1",
         kind: 39002,
-        pubkey: "f".repeat(64),
+        pubkey: RELAY_PUBLIC_KEY,
         created_at: 1_700_000_000,
         content: "",
         sig: "e".repeat(128),
@@ -143,6 +144,16 @@ describe("Buzz bus lifecycle", () => {
     relayMocks.publish.mockResolvedValue("");
     relayMocks.send.mockResolvedValue();
     relayMocks.connected = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          self: RELAY_PUBLIC_KEY,
+          software: "https://github.com/block/buzz",
+        }),
+      })),
+    );
   });
 
   afterEach(() => {

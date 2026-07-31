@@ -74,6 +74,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
 
 import { createBuzzQaRelayDriver } from "./relay-client.js";
 
+const RELAY_PUBLIC_KEY = "f".repeat(64);
 const credentials = parseBuzzQaCredentialPayload({
   relayUrl: "wss://relay.qa.example",
   roomId: "123e4567-e89b-42d3-a456-426614174000",
@@ -86,6 +87,16 @@ describe("Buzz QA relay driver", () => {
     vi.clearAllMocks();
     relayMocks.subscriptions.length = 0;
     relayMocks.replayedMessage = undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          self: RELAY_PUBLIC_KEY,
+          software: "https://github.com/block/buzz",
+        }),
+      })),
+    );
   });
 
   it("authenticates, verifies membership, and publishes a native mentioned thread event", async () => {

@@ -4,7 +4,7 @@ import {
   parseBuzzMessageEvent,
   type BuzzInboundMessage,
 } from "../message-event.js";
-import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "../relay-auth.js";
+import { connectAuthenticatedBuzzRelaySession, parseBuzzAuthTag } from "../relay-auth.js";
 import { openBuzzRelaySubscription } from "../relay-subscription.js";
 import {
   BUZZ_ROOM_MEMBERSHIP_KIND,
@@ -32,6 +32,7 @@ type BuzzQaRelayDriver = {
 
 async function loadBuzzQaRoomMembership(params: {
   relay: Relay;
+  relayPublicKey: string;
   roomId: string;
 }): Promise<BuzzRoomMembership> {
   return await new Promise<BuzzRoomMembership>((resolve, reject) => {
@@ -59,10 +60,17 @@ async function loadBuzzQaRoomMembership(params: {
     );
     subscriptionRef.current = openBuzzRelaySubscription(
       params.relay,
-      [{ kinds: [BUZZ_ROOM_MEMBERSHIP_KIND], "#d": [params.roomId], limit: 1 }],
+      [
+        {
+          kinds: [BUZZ_ROOM_MEMBERSHIP_KIND],
+          authors: [params.relayPublicKey],
+          "#d": [params.roomId],
+          limit: 1,
+        },
+      ],
       {
         onevent: (event) => {
-          const membership = parseBuzzRoomMembershipEvent(event);
+          const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
           if (
             membership?.roomId === params.roomId &&
             isNewerBuzzRoomMembership(membership, latest)
@@ -110,7 +118,7 @@ export async function createBuzzQaRelayDriver(params: {
   let transportError: Error | undefined;
   let messageQueue = Promise.resolve();
   const observedEventIds = new Set<string>();
-  const relay = await connectAuthenticatedBuzzRelay({
+  const { relay, relayPublicKey } = await connectAuthenticatedBuzzRelaySession({
     relayUrl: credentials.relayUrl,
     secretKey,
     authTag: parseBuzzAuthTag(credentials.driverAuthTag ?? ""),
@@ -118,7 +126,11 @@ export async function createBuzzQaRelayDriver(params: {
   });
   try {
     assertBuzzQaMembership(
-      await loadBuzzQaRoomMembership({ relay, roomId: credentials.roomId }),
+      await loadBuzzQaRoomMembership({
+        relay,
+        relayPublicKey,
+        roomId: credentials.roomId,
+      }),
       credentials,
     );
   } catch (error) {

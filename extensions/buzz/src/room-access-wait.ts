@@ -1,5 +1,5 @@
 import type { Event, Relay } from "nostr-tools";
-import { connectAuthenticatedBuzzRelay, parseBuzzAuthTag } from "./relay-auth.js";
+import { connectAuthenticatedBuzzRelaySession, parseBuzzAuthTag } from "./relay-auth.js";
 import { openBuzzRelaySubscription } from "./relay-subscription.js";
 import { discoverBuzzRoomsOnRelay, type BuzzDiscoveredRoom } from "./room-discovery.js";
 import { BUZZ_CHANNEL_ID_PATTERN } from "./target.js";
@@ -61,7 +61,7 @@ export async function waitForBuzzRoomAccess(params: {
   const publicKey = resolveBuzzPublicKey(params.privateKey);
   const timeoutSignal = AbortSignal.timeout(params.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS);
   const signal = params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
-  const relay = await connectAuthenticatedBuzzRelay({
+  const { relay, relayPublicKey } = await connectAuthenticatedBuzzRelaySession({
     relayUrl: params.relayUrl,
     secretKey,
     authTag: parseBuzzAuthTag(params.authTag ?? ""),
@@ -117,6 +117,7 @@ export async function waitForBuzzRoomAccess(params: {
             try {
               const rooms = await discoverBuzzRoomsOnRelay({
                 relay,
+                relayPublicKey,
                 publicKey,
                 timeoutMs: 10_000,
                 signal,
