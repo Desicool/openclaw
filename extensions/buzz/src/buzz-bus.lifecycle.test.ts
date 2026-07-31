@@ -117,6 +117,11 @@ function subscriptionIncludesKind(
   return subscription.filters.some((filter) => filter.kinds?.includes(kind));
 }
 
+function abortReasonAsError(signal: AbortSignal | undefined): Error {
+  const reason = signal?.reason;
+  return reason instanceof Error ? reason : new Error("aborted", { cause: reason });
+}
+
 describe("Buzz bus lifecycle", () => {
   beforeEach(() => {
     previousStateDir = process.env.OPENCLAW_STATE_DIR;
@@ -196,11 +201,9 @@ describe("Buzz bus lifecycle", () => {
         async (_input, init) =>
           await new Promise<Response>((_resolve, reject) => {
             fetchSignal = init?.signal ?? undefined;
-            fetchSignal?.addEventListener(
-              "abort",
-              () => reject(fetchSignal?.reason ?? new Error("aborted")),
-              { once: true },
-            );
+            fetchSignal?.addEventListener("abort", () => reject(abortReasonAsError(fetchSignal)), {
+              once: true,
+            });
           }),
       ),
     );
@@ -230,11 +233,9 @@ describe("Buzz bus lifecycle", () => {
         async (_input, init) =>
           await new Promise<Response>((_resolve, reject) => {
             fetchSignal = init?.signal ?? undefined;
-            fetchSignal?.addEventListener(
-              "abort",
-              () => reject(fetchSignal?.reason ?? new Error("aborted")),
-              { once: true },
-            );
+            fetchSignal?.addEventListener("abort", () => reject(abortReasonAsError(fetchSignal)), {
+              once: true,
+            });
           }),
       ),
     );
