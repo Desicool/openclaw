@@ -9,7 +9,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function base64ToBytes(value: string): Uint8Array {
+function base64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -214,7 +214,7 @@ function pcm16ToFloat(bytes: Uint8Array): Float32Array {
   return samples;
 }
 
-function base64DecodedByteLength(value: string): number {
+export function estimateBase64DecodedByteLength(value: string): number {
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
 }
@@ -247,7 +247,7 @@ export class RealtimeTalkPcmOutputQueue {
     const startAt = Math.max(outputContext.currentTime, this.playhead);
     const queuedSeconds = Math.max(0, startAt - outputContext.currentTime);
     const remainingSeconds = REALTIME_TALK_PCM_OUTPUT_MAX_QUEUED_SECONDS - queuedSeconds;
-    const decodedByteLength = base64DecodedByteLength(base64);
+    const decodedByteLength = estimateBase64DecodedByteLength(base64);
     const sampleCount = Math.floor(decodedByteLength / 2);
     if (
       this.sources.size >= REALTIME_TALK_PCM_OUTPUT_MAX_SOURCES ||

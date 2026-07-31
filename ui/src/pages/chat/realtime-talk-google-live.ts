@@ -1,8 +1,8 @@
 // Control UI chat module implements realtime talk google live behavior.
 import { REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME } from "../../../../src/talk/describe-view-tool.js";
 import {
-  base64ToBytes,
   bytesToBase64,
+  estimateBase64DecodedByteLength,
   floatToPcm16,
   RealtimeTalkMediaStreamMeter,
   RealtimeTalkPcmInputPump,
@@ -340,11 +340,14 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
         this.emitTalkEvent({
           type: "output.audio.delta",
           payload: {
-            byteLength: base64ToBytes(part.inlineData.data).byteLength,
+            byteLength: estimateBase64DecodedByteLength(part.inlineData.data),
             mimeType: part.inlineData.mimeType,
           },
         });
         this.playPcm16(part.inlineData.data);
+        if (this.closed) {
+          return;
+        }
       } else if (!part.thought && typeof part.text === "string" && part.text.trim()) {
         this.ctx.callbacks.onTranscript?.({
           role: "assistant",
