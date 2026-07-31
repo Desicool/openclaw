@@ -195,6 +195,9 @@ describeControlUiE2e("Control UI curated settings defaults mocked Gateway E2E", 
           return !hasOwnPath(raw, ["browser", "enabled"]) && !hasOwnPath(raw, ["tools", "profile"]);
         })
         .toBe(true);
+      await expect
+        .poll(() => page.locator("openclaw-settings-save-indicator").textContent())
+        .toContain("Saved");
 
       if (captureUiProofEnabled) {
         await page
@@ -248,6 +251,9 @@ describeControlUiE2e("Control UI curated settings defaults mocked Gateway E2E", 
           );
         })
         .toBe(true);
+      await expect
+        .poll(() => page.locator("openclaw-settings-save-indicator").textContent())
+        .toContain("Saved");
 
       if (captureUiProofEnabled) {
         await page.locator("#settings-model-behavior").screenshot({

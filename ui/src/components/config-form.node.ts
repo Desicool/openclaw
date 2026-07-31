@@ -6,7 +6,8 @@ import {
   structuredDraftInitialValue,
   type ConfigFormStructuredDraftProps,
 } from "./config-form-structured-draft.ts";
-import { renderArray, renderJsonTextarea, renderObject } from "./config-form.node.collection.ts";
+import { renderArray, renderObject } from "./config-form.node.collection.ts";
+import { renderJsonTextarea } from "./config-form.node.json.ts";
 import { renderNumberInput, renderSelect, renderTextInput } from "./config-form.node.scalar.ts";
 import {
   renderFieldRow,

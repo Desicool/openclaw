@@ -79,6 +79,10 @@ export function jsonValue(value: unknown): string {
   }
 }
 
+export function schemaWithDefault(schema: JsonSchema, value: unknown): JsonSchema {
+  return { ...schema, default: value };
+}
+
 function formatComparablePrimitive(value: unknown): string | null {
   if (
     typeof value === "string" ||

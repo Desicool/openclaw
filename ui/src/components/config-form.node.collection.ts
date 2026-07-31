@@ -11,7 +11,7 @@ import {
   rowIdentitiesForArray,
 } from "./config-form-array-identity.ts";
 import {
-  ConfigFormCollectionDraft,
+  openConfigFormCollectionDraft,
   type ConfigFormCollectionDraftCommit,
   type ConfigFormCollectionDraftProps,
 } from "./config-form-collection-draft.ts";
@@ -36,7 +36,10 @@ import {
   jsonValue,
   renderFieldRow,
   renderJsonTextareaControl,
+  renderRestoreDefaultButton,
+  renderSchemaDefaultDescription,
   renderTags,
+  schemaWithDefault,
   type ConfigNodeRenderer,
   type ConfigNodeRenderParams,
 } from "./config-form.node.shared.ts";
@@ -51,54 +54,6 @@ import { renderSettingsEmpty } from "./settings-ui.ts";
 
 const UNSET_ARRAY_SOURCE_IDENTITY = Symbol("unset-array-source");
 const UNSET_MAP_SOURCE_IDENTITY = Symbol("unset-map-source");
-
-function openCollectionDraft(event: Event, draftId: string): void {
-  const block = (event.currentTarget as HTMLElement).closest(".cfg-block");
-  const draft = Array.from(block?.children ?? []).find((child) => child.id === draftId);
-  const openDraft = (draft as Partial<ConfigFormCollectionDraft> | undefined)?.openDraft;
-  if (typeof openDraft === "function") {
-    openDraft.call(draft);
-  }
-}
-
-export function renderJsonTextarea(params: ConfigNodeRenderParams): TemplateResult {
-  const { schema, value, path, hints, disabled, onPatch } = params;
-  const showLabel = params.showLabel ?? true;
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
-  const helpId = showLabel && help ? configFieldId(path, "description") : undefined;
-  const fallback = jsonValue(value);
-  const sensitiveState = getSensitiveRenderState({
-    path,
-    value,
-    hints,
-    revealSensitive: params.revealSensitive ?? false,
-    isSensitivePathRevealed: params.isSensitivePathRevealed,
-  });
-
-  return renderFieldRow({
-    label,
-    help,
-    helpId,
-    tags,
-    showLabel,
-    stacked: true,
-    control: renderJsonTextareaControl({
-      schema,
-      path,
-      ariaLabel: label,
-      descriptionId: helpId,
-      sourceValue: params.sourceIdentity ?? value,
-      rowIdentity: params.rowIdentity,
-      fallback,
-      rows: 3,
-      sensitiveState,
-      disabled,
-      isRequired: params.isRequired,
-      onToggleSensitivePath: params.onToggleSensitivePath,
-      onPatch,
-    }),
-  });
-}
 
 export function renderObject(
   params: ConfigNodeRenderParams,
@@ -126,7 +81,8 @@ export function renderObject(
       : false;
   const childSearchCriteria = selfMatched ? undefined : searchCriteria;
 
-  const fallback = value ?? schema.default;
+  const inherited = value === undefined && schema.default !== undefined;
+  const fallback = inherited ? schema.default : value;
   const objectSourceIdentity = fallback === undefined ? UNSET_MAP_SOURCE_IDENTITY : fallback;
   const objectValue =
     fallback && typeof fallback === "object" && !Array.isArray(fallback)
@@ -188,16 +144,17 @@ export function renderObject(
 
   const fields = html`
     ${sorted.map(([propertyKey, node]) => {
+      const hasInheritedChild = inherited && Object.hasOwn(objectValue, propertyKey);
       return renderNode({
-        schema: node,
-        value: objectValue[propertyKey],
+        schema: hasInheritedChild ? schemaWithDefault(node, objectValue[propertyKey]) : node,
+        value: inherited ? undefined : objectValue[propertyKey],
         path: [...path, propertyKey],
         hints,
         rawAvailable,
         unsupported,
         disabled,
         isRequired: requiredKeys.has(propertyKey),
-        sourceIdentity: objectValue[propertyKey],
+        sourceIdentity: inherited ? undefined : objectValue[propertyKey],
         controlIdentity: params.controlIdentity ?? objectValue,
         rowIdentity: params.rowIdentity,
         searchCriteria: childSearchCriteria,
@@ -236,9 +193,17 @@ export function renderObject(
         <div class="settings-row__text">
           <span class="settings-row__title">${label}</span>
           ${help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
+          ${schema.default !== undefined
+            ? html`<span class="settings-row__desc"
+                >${renderSchemaDefaultDescription(schema, value)}</span
+              >`
+            : nothing}
           ${renderTags(tags)}
         </div>
-        <span class="settings-row__chevron cfg-object__chevron">${icons.chevronDown}</span>
+        <div class="settings-row__control">
+          ${renderRestoreDefaultButton(params)}
+          <span class="settings-row__chevron cfg-object__chevron">${icons.chevronDown}</span>
+        </div>
       </summary>
       <div class="settings-subrows">${fields}</div>
     </details>
@@ -283,6 +248,7 @@ export function renderArray(
     });
   }
 
+  const inherited = value === undefined && Array.isArray(schema.default);
   const arrayValue = Array.isArray(value)
     ? value
     : Array.isArray(schema.default)
@@ -372,7 +338,12 @@ export function renderArray(
       <div class="settings-row">
         <div class="settings-row__text">
           ${showLabel ? html`<span class="settings-row__title">${label}</span>` : nothing}
-          ${help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
+          ${showLabel && help ? html`<span class="settings-row__desc">${help}</span>` : nothing}
+          ${showLabel && schema.default !== undefined
+            ? html`<span class="settings-row__desc"
+                >${renderSchemaDefaultDescription(schema, value)}</span
+              >`
+            : nothing}
           ${renderTags(tags)}
         </div>
         <div class="settings-row__control">
@@ -381,6 +352,7 @@ export function renderArray(
               count: String(arrayValue.length),
             })}</span
           >
+          ${renderRestoreDefaultButton(params)}
           <button
             type="button"
             class="btn btn--sm"
@@ -389,10 +361,10 @@ export function renderArray(
             @click=${(event: Event) => {
               if (atomicCandidate) {
                 if (onPatch(path, atomicCandidate) === false) {
-                  openCollectionDraft(event, draftId);
+                  openConfigFormCollectionDraft(event, draftId);
                 }
               } else if (requiresDraft) {
-                openCollectionDraft(event, draftId);
+                openConfigFormCollectionDraft(event, draftId);
               } else if (autoCandidate) {
                 appendArrayRowIdentities(
                   autoCandidate,
@@ -401,7 +373,7 @@ export function renderArray(
                 );
                 if (onPatch(path, autoCandidate) === false) {
                   discardArrayRowIdentities(autoCandidate);
-                  openCollectionDraft(event, draftId);
+                  openConfigFormCollectionDraft(event, draftId);
                 }
               }
             }}
@@ -439,8 +411,9 @@ export function renderArray(
         ? renderSettingsEmpty(t("configForm.noItems"))
         : html`
             <div class="settings-subrows">
-              ${arrayValue.map(
-                (item, index) => html`
+              ${arrayValue.map((item, index) => {
+                const itemSchema = itemSchemaAt(index);
+                return html`
                   <div class="settings-row">
                     <div class="settings-row__text">
                       <span class="settings-row__title">#${index + 1}</span>
@@ -488,15 +461,15 @@ export function renderArray(
                     </div>
                   </div>
                   ${renderNode({
-                    schema: itemSchemaAt(index),
-                    value: item,
+                    schema: inherited ? schemaWithDefault(itemSchema, item) : itemSchema,
+                    value: inherited ? undefined : item,
                     path: [...path, index],
                     hints,
                     rawAvailable,
                     unsupported,
                     disabled,
                     isRequired: true,
-                    sourceIdentity: item,
+                    sourceIdentity: inherited ? undefined : item,
                     controlIdentity: arrayValue,
                     rowIdentity: rowIdentities[index],
                     searchCriteria: childSearchCriteria,
@@ -506,8 +479,8 @@ export function renderArray(
                     onToggleSensitivePath,
                     onPatch: patchArrayItem,
                   })}
-                `,
-              )}
+                `;
+              })}
             </div>
           `}
     </div>
@@ -575,7 +548,7 @@ function renderMapField(
             ?disabled=${disabled}
             @click=${(event: Event) => {
               if (entryDefault === NO_SAFE_DEFAULT) {
-                openCollectionDraft(event, draftId);
+                openConfigFormCollectionDraft(event, draftId);
                 return;
               }
               const nextValue = { ...value };
@@ -587,7 +560,7 @@ function renderMapField(
               }
               nextValue[key] = entryDefault;
               if (onPatch(path, nextValue) === false) {
-                openCollectionDraft(event, draftId);
+                openConfigFormCollectionDraft(event, draftId);
               }
             }}
           >

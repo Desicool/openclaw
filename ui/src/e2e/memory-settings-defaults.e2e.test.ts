@@ -164,6 +164,9 @@ describeControlUiE2e("Control UI Memory defaults mocked Gateway E2E", () => {
         "plugins.entries.memory-core.config.dreaming.verboseLogging",
         true,
       );
+      await expect
+        .poll(() => page.locator("openclaw-settings-save-indicator").textContent())
+        .toContain("Saved");
 
       await page.reload();
       const reloadedEngineRow = settingsRow(page, "Memory engine");
