@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GatewayBrowserClient } from "../api/gateway.ts";
+import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
 import { createStorageMock } from "../test-helpers/storage.ts";
 import {
   applyServerUiPrefs,
@@ -30,6 +30,10 @@ function configWithPrefs(prefs: Record<string, unknown>) {
 }
 
 type RequestMock = ReturnType<typeof vi.fn<(method: string, params?: unknown) => Promise<unknown>>>;
+
+function validationError(message = "invalid config") {
+  return new GatewayRequestError({ code: "INVALID_REQUEST", message });
+}
 
 function createServerPrefsWriter(
   request: RequestMock,
@@ -60,7 +64,10 @@ function createServerPrefsWriter(
           ok: false as const,
           reason: message.includes("config changed since last load")
             ? ("conflict" as const)
-            : ("error" as const),
+            : error instanceof GatewayRequestError &&
+                (error.gatewayCode === "INVALID_REQUEST" || error.gatewayCode === "FORBIDDEN")
+              ? ("rejected" as const)
+              : ("error" as const),
           error: message,
         };
       }
@@ -483,7 +490,7 @@ describe("pushServerUiPrefs", () => {
     const prefs = changedServerUiPrefs(beforeLocalEdit, retained);
     const afterCommit = vi.fn();
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => {
-      throw new Error("invalid config");
+      throw validationError();
     });
 
     pushServerUiPrefs(createClient(request, scope), prefs ?? {}, { afterCommit });
@@ -540,7 +547,7 @@ describe("pushServerUiPrefs", () => {
     const prefs = changedServerUiPrefs(beforeLocalEdit, retained);
     const afterCommit = vi.fn();
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => {
-      throw new Error("invalid config");
+      throw validationError();
     });
 
     pushServerUiPrefs(createClient(request, scope), prefs ?? {}, { afterCommit });
@@ -628,7 +635,7 @@ describe("pushServerUiPrefs", () => {
   it("drops only this tab's validation-rejected keys from persisted pending", async () => {
     const scope = "ws://gw";
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => {
-      throw new Error("invalid config");
+      throw validationError();
     });
     const client = createClient(request, scope);
     flushServerUiPrefs(client);
@@ -696,6 +703,22 @@ describe("pushServerUiPrefs", () => {
     request.mockResolvedValue({});
     flushServerUiPrefs(client);
     await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(localStorage.getItem(pendingKey("ws://gw"))).toBeNull());
+  });
+
+  it("retains a connected transient failure and retries it on flush", async () => {
+    const request = vi
+      .fn<(method: string, params?: unknown) => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error("socket closed"))
+      .mockResolvedValueOnce({});
+    const client = createClient(request);
+
+    pushServerUiPrefs(client, { locale: "de" });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(readPending("ws://gw")).toEqual({ locale: "de" });
+
+    flushServerUiPrefs(client);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(localStorage.getItem(pendingKey("ws://gw"))).toBeNull());
   });
 
@@ -849,7 +872,7 @@ describe("pushServerUiPrefs", () => {
     localStorage.clear();
     const validationRequest = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(
       async () => {
-        throw new Error("invalid config");
+        throw validationError();
       },
     );
     pushServerUiPrefs(createClient(validationRequest), { locale: "de" });

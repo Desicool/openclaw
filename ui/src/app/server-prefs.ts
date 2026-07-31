@@ -586,10 +586,14 @@ async function drainPendingPrefs(writer: ServerUiPrefsWriter, epoch: number): Pr
         scheduleConflictRedrain(writer, epoch);
         return;
       }
-      if (result.reason === "unavailable" || result.reason === "suspended") {
+      if (
+        result.reason === "error" ||
+        result.reason === "unavailable" ||
+        result.reason === "suspended"
+      ) {
         return;
       }
-      // Connected viewer-scope or validation failures degrade silently to device-local state.
+      // Definitive viewer-scope or validation rejections degrade to device-local state.
       // LAST_SEEN still owns the authoritative server value per key, so identical
       // refreshes and reloads preserve this local edit; only a server delta replaces it.
       removeBatch(batch);
