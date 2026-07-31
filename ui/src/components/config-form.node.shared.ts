@@ -271,6 +271,29 @@ export function renderFlatDefaultRow(presentation: {
   `;
 }
 
+export function renderCollectionDefaultPresentation(
+  params: ConfigNodeRenderParams,
+  effectiveValue: unknown,
+): {
+  description: TemplateResult | typeof nothing;
+  action: TemplateResult | typeof nothing;
+} {
+  const redacted = getSensitiveRenderState({
+    path: params.path,
+    value: effectiveValue,
+    hints: params.hints,
+    revealSensitive: params.revealSensitive ?? false,
+    isSensitivePathRevealed: params.isSensitivePathRevealed,
+  }).isRedacted;
+  return {
+    description: redacted ? nothing : renderSchemaDefaultDescription(params.schema, params.value),
+    action: renderRestoreDefaultButton({
+      ...params,
+      disabled: params.disabled || redacted,
+    }),
+  };
+}
+
 export function renderSchemaDefaultDescription(
   schema: JsonSchema,
   value: unknown,

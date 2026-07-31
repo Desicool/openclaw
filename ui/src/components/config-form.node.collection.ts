@@ -34,11 +34,10 @@ import {
   getSensitiveRenderState,
   isAnySchema,
   jsonValue,
+  renderCollectionDefaultPresentation,
   renderFlatDefaultRow,
   renderFieldRow,
   renderJsonTextareaControl,
-  renderRestoreDefaultButton,
-  renderSchemaDefaultDescription,
   renderTags,
   schemaWithDefault,
   type ConfigNodeRenderer,
@@ -55,30 +54,6 @@ import { renderSettingsEmpty } from "./settings-ui.ts";
 
 const UNSET_ARRAY_SOURCE_IDENTITY = Symbol("unset-array-source");
 const UNSET_MAP_SOURCE_IDENTITY = Symbol("unset-map-source");
-
-function collectionDefaultPresentation(
-  params: ConfigNodeRenderParams,
-  effectiveValue: unknown,
-): {
-  description: TemplateResult | typeof nothing;
-  action: TemplateResult | typeof nothing;
-} {
-  const redacted = getSensitiveRenderState({
-    path: params.path,
-    value: effectiveValue,
-    hints: params.hints,
-    revealSensitive: params.revealSensitive ?? false,
-    isSensitivePathRevealed: params.isSensitivePathRevealed,
-  }).isRedacted;
-  const description = renderSchemaDefaultDescription(params.schema, params.value);
-  return {
-    description: redacted ? (nothing as typeof nothing) : description,
-    action: renderRestoreDefaultButton({
-      ...params,
-      disabled: params.disabled || redacted,
-    }),
-  };
-}
 
 function openCollectionDraft(event: Event, draftId: string): void {
   const block = (event.currentTarget as HTMLElement).closest(".cfg-block");
@@ -119,7 +94,7 @@ export function renderObject(
     fallback && typeof fallback === "object" && !Array.isArray(fallback)
       ? (fallback as Record<string, unknown>)
       : {};
-  const defaultPresentation = collectionDefaultPresentation(params, fallback);
+  const defaultPresentation = renderCollectionDefaultPresentation(params, fallback);
   const entries = objectPropertyKeys(schema)
     .map((key) => [key, objectPropertySchema(schema, key)] as const)
     .filter((entry): entry is readonly [string, ConfigNodeRenderParams["schema"]] =>
@@ -292,7 +267,7 @@ export function renderArray(
     : Array.isArray(schema.default)
       ? schema.default
       : UNSET_ARRAY_SOURCE_IDENTITY;
-  const defaultPresentation = collectionDefaultPresentation(params, arrayValue);
+  const defaultPresentation = renderCollectionDefaultPresentation(params, arrayValue);
   const rowIdentities = rowIdentitiesForArray(arrayValue);
   const {
     minItems: minimumItems,
