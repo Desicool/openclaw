@@ -49,6 +49,7 @@ export default definePluginEntry({
           if (ctx.reason === "disable") {
             return quicksilverSession.cleanup();
           }
+          return undefined;
         },
       });
     }
