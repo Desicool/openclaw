@@ -207,7 +207,10 @@ openclaw directory groups members \
 When the Gateway is connected, directory reads reuse its authenticated Buzz
 connection and in-memory snapshot. A standalone directory command opens one
 bounded authenticated connection, loads the current snapshot, and closes it.
-Directory failures do not reconnect or terminate the Gateway.
+Ordinary directory errors are logged without reconnecting. If a directory or
+profile subscription does not reach EOSE within 10 seconds, OpenClaw treats the
+Buzz relay session as stalled and recycles only that Buzz account connection;
+the Gateway keeps running.
 
 Each configured room uses one room-scoped relay subscription. OpenClaw reserves
 three of Buzz's 1,024 connection subscriptions for membership and metadata
