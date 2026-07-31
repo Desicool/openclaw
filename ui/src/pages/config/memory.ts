@@ -217,15 +217,21 @@ function renderBackendSection(props: MemoryViewProps) {
     disabled: props.backendBusy,
     onReset: props.onBackendReset,
   });
-  const controlValue = invalid ? MEMORY_BACKEND_INVALID : backend;
+  const controlValue =
+    props.backendSelection.kind === "invalid"
+      ? MEMORY_BACKEND_INVALID
+      : props.backendSelection.backend;
   const options: Array<{
     value: MemoryBackend | typeof MEMORY_BACKEND_INVALID;
     label: unknown;
-  }> = [
-    ...(invalid ? [{ value: MEMORY_BACKEND_INVALID, label: t("memoryPage.backend.invalid") }] : []),
+  }> = [];
+  if (invalid) {
+    options.push({ value: MEMORY_BACKEND_INVALID, label: t("memoryPage.backend.invalid") });
+  }
+  options.push(
     { value: "builtin", label: t("memoryPage.backend.builtin") },
     { value: "qmd", label: t("memoryPage.backend.qmd") },
-  ];
+  );
   // Anchor target for settings search: `backend` is curated out of the schema
   // editor, so it has no `#config-section-*` id of its own to scroll to.
   return html`<div id=${MEMORY_BACKEND_ANCHOR_ID}>
