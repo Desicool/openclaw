@@ -255,8 +255,7 @@ export function startBuzzDirectoryRelay(params: {
             applyQueuedProfilePublicKeys();
           }
         };
-        let subscription: BuzzSubscription;
-        subscription = openBuzzRelaySubscription(
+        const subscription = openBuzzRelaySubscription(
           params.relay,
           [
             {
