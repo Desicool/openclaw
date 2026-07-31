@@ -20,11 +20,6 @@ import { getSandboxBackendWorkdirResolver, requireSandboxBackendFactory } from "
 import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
-import {
-  DOCKER_SANDBOX_ENGINE,
-  PODMAN_SANDBOX_ENGINE,
-  resolvePodmanSandboxRuntimeInfo,
-} from "./docker.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
 import { toSandboxProvisioningError } from "./provisioning-error.js";
 import { readRegisteredSandboxRuntimeIds, updateRegistry } from "./registry.js";
@@ -229,18 +224,8 @@ async function resolveProvisionedSandboxContext(
     workspaceDir: params.workspaceDir,
   });
 
-  const configuredBackend = cfg.backend.trim().toLowerCase();
-  const containerEngine =
-    configuredBackend === "docker"
-      ? DOCKER_SANDBOX_ENGINE
-      : configuredBackend === "podman"
-        ? PODMAN_SANDBOX_ENGINE
-        : null;
-  const podmanRuntimeInfo =
-    containerEngine?.id === "podman" ? await resolvePodmanSandboxRuntimeInfo() : undefined;
   const docker = await resolveSandboxDockerUser({
     backend: cfg.backend,
-    ...(podmanRuntimeInfo ? { podmanRootless: podmanRuntimeInfo.rootless } : {}),
     docker: cfg.docker,
     workspaceDir,
   });

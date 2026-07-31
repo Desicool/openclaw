@@ -623,10 +623,10 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     );
   });
 
-  it("uses the shared lifecycle with Podman keep-id ownership", async () => {
+  it("uses the shared lifecycle with rootless Podman workspace ownership", async () => {
     const workspaceDir = "/tmp/workspace";
     const cfg = createSandboxConfig([]);
-    cfg.docker.user = undefined;
+    cfg.docker.user = "1001:1002";
     spawnState.inspectRunning = false;
     registryMocks.readRegistryEntry.mockResolvedValue(null);
 
@@ -638,7 +638,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
 
     expect(createCall.command).toBe("podman");
     expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual(["keep-id"]);
-    expect(collectDockerFlagValues(createCall.args, "--user")).toEqual([]);
+    expect(collectDockerFlagValues(createCall.args, "--user")).toEqual(["1001:1002"]);
     expect(createCall.args).toContain("--http-proxy=false");
     expect(createCall.args).toContain("--init");
     expect(createCall.args).toContain("--read-only-tmpfs=true");
@@ -651,6 +651,22 @@ describe("ensureSandboxContainer config-hash recreation", () => {
       key: "local",
       globalArgs: [],
     });
+  });
+
+  it("uses the workspace owner without keep-id for rootful Podman", async () => {
+    const cfg = createSandboxConfig([]);
+    cfg.docker.user = "1001:1002";
+    spawnState.podmanInfo = "false\tfalse\n";
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    const createCall = await ensureSandboxCreateCallForTest({
+      cfg,
+      engine: PODMAN_SANDBOX_ENGINE,
+    });
+
+    expect(collectDockerFlagValues(createCall.args, "--user")).toEqual(["1001:1002"]);
+    expect(collectDockerFlagValues(createCall.args, "--userns")).toEqual([]);
   });
 
   it("rejects a Podman runtime recorded for a different engine target", async () => {

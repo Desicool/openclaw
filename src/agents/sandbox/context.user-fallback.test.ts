@@ -45,20 +45,19 @@ describe("resolveSandboxDockerUser", () => {
     expect(resolved.user).toBe("1001:1002");
   });
 
-  it("does not apply Docker workspace ownership fallback for Podman", async () => {
+  it("falls back to workspace ownership for rootless Podman", async () => {
     const resolved = await resolveSandboxDockerUser({
       backend: "podman",
       docker: baseDocker,
       workspaceDir: "/tmp/workspace",
       stat: async () => ({ uid: 1001, gid: 1002 }),
     });
-    expect(resolved.user).toBeUndefined();
+    expect(resolved.user).toBe("1001:1002");
   });
 
   it("applies workspace ownership fallback for rootful Podman", async () => {
     const resolved = await resolveSandboxDockerUser({
       backend: "podman",
-      podmanRootless: false,
       docker: baseDocker,
       workspaceDir: "/tmp/workspace",
       stat: async () => ({ uid: 1001, gid: 1002 }),

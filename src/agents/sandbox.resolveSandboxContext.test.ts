@@ -648,10 +648,15 @@ describe("resolveSandboxContext", () => {
       });
 
       expect(result?.backendId).toBe("podman");
-      expect(containerEngineMocks.resolvePodmanSandboxRuntimeInfo).toHaveBeenCalledOnce();
+      const workspaceStat = await fs.stat("/tmp/openclaw-test");
       expect(backendFactory).toHaveBeenCalledWith(
         expect.objectContaining({
-          cfg: expect.objectContaining({ backend: "podman" }),
+          cfg: expect.objectContaining({
+            backend: "podman",
+            docker: expect.objectContaining({
+              user: `${workspaceStat.uid}:${workspaceStat.gid}`,
+            }),
+          }),
         }),
       );
     } finally {

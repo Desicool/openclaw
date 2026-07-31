@@ -258,9 +258,9 @@ export function resolvePodmanSandboxCreatePolicy(params: {
   if (params.cfg.readOnlyRoot) {
     extraCreateArgs.push("--read-only-tmpfs=true");
   }
-  if (!params.cfg.user) {
-    // Resolve against the engine host so native remote contexts and Podman machines use
-    // their own identity without reserving every subordinate ID.
+  if (params.runtimeInfo.rootless) {
+    // keep-id maps the effective workspace-owner user back to the invoking
+    // rootless engine user. Older Podman releases do not override image USER.
     extraCreateArgs.push("--userns", "keep-id");
   }
   return { cfg, extraCreateArgs };
