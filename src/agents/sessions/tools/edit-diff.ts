@@ -347,8 +347,11 @@ function describeIndentation(line: string): string {
 
 function firstDifferenceIndex(left: string, right: string): number {
   const sharedLength = Math.min(left.length, right.length);
-  for (let index = 0; index < sharedLength; index++) {
-    if (left.charAt(index) !== right.charAt(index)) {
+  for (const [index, leftChar] of [...left].entries()) {
+    if (index >= sharedLength) {
+      break;
+    }
+    if (leftChar !== right.charAt(index)) {
       return index;
     }
   }
