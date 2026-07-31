@@ -11,7 +11,10 @@ import {
   shouldAutoControlRealtimeVoiceAgentText,
 } from "../talk/agent-run-control.js";
 import { resolveTalkSessionAgentId } from "../talk/agent-target.js";
-import { REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ } from "../talk/provider-types.js";
+import {
+  REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
+  type RealtimeVoiceCloseReason,
+} from "../talk/provider-types.js";
 import { createRealtimeVoiceSessionHarness } from "../talk/realtime-session-harness.js";
 import type { TalkEventInput } from "../talk/talk-session-controller.js";
 import { registerChatAbortController } from "./chat-abort.js";
@@ -102,6 +105,9 @@ export function createTalkRealtimeRelaySession(
   let currentOutputResponseId: string | undefined;
   let ready = false;
   let failureEmitted = false;
+  const constructionTerminal: {
+    current?: { kind: "error"; error: Error } | { kind: "close"; reason: RealtimeVoiceCloseReason };
+  } = {};
   const relayRef: { current?: RelaySession } = {};
   const getActiveRelay = (): RelaySession | undefined => {
     const relay = relayRef.current;
@@ -414,7 +420,11 @@ export function createTalkRealtimeRelaySession(
       emit({ relaySessionId, type: "ready" }, { type: "session.ready", payload: null });
     },
     onError: (error) => {
-      if (!getActiveRelay()) {
+      const active = getActiveRelay();
+      if (!active) {
+        if (!relayRef.current) {
+          constructionTerminal.current ??= { kind: "error", error };
+        }
         return;
       }
       const issue = realtimeRelayIssue({
@@ -433,6 +443,9 @@ export function createTalkRealtimeRelaySession(
     onClose: (reason) => {
       const active = relaySessions.get(relaySessionId);
       if (!active || active !== relayRef.current) {
+        if (!relayRef.current) {
+          constructionTerminal.current ??= { kind: "close", reason };
+        }
         return;
       }
       active.harness.close();
@@ -460,6 +473,21 @@ export function createTalkRealtimeRelaySession(
       );
     },
   });
+  const earlyTerminal = constructionTerminal.current;
+  if (earlyTerminal) {
+    harness.close();
+    try {
+      bridge.close();
+    } catch (error) {
+      params.context.logGateway.warn(
+        `failed to close realtime relay bridge after provider terminated during creation: ${formatErrorMessage(error)}`,
+      );
+    }
+    if (earlyTerminal.kind === "error") {
+      throw earlyTerminal.error;
+    }
+    throw new Error(`Realtime provider closed during session creation: ${earlyTerminal.reason}`);
+  }
   const initialSessionKey = params.sessionKey?.trim() || undefined;
   const relay: RelaySession = {
     id: relaySessionId,

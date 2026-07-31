@@ -287,32 +287,64 @@ describe("talk realtime gateway relay", () => {
     });
   });
 
-  it("ignores a provider close before relay registration", () => {
-    const provider = createIdleRelayProvider();
-    provider.createBridge = (request) => {
-      request.onClose?.("error");
-      return createIdleRelayProvider().createBridge(request);
-    };
+  it.each([
+    {
+      name: "error before close",
+      terminate: (request: RealtimeVoiceBridgeCreateRequest) => {
+        request.onError?.(new Error("provider rejected session"));
+        request.onClose?.("error");
+      },
+      expectedError: "provider rejected session",
+    },
+    {
+      name: "close before error",
+      terminate: (request: RealtimeVoiceBridgeCreateRequest) => {
+        request.onClose?.("completed");
+        request.onError?.(new Error("late provider error"));
+      },
+      expectedError: "Realtime provider closed during session creation: completed",
+    },
+  ])(
+    "rejects a synchronous provider $name during bridge creation",
+    ({ terminate, expectedError }) => {
+      const connect = vi.fn(async () => undefined);
+      const sendAudio = vi.fn();
+      const close = vi.fn();
+      const bridge = {
+        ...createIdleRelayProvider().createBridge({} as never),
+        connect,
+        sendAudio,
+        close,
+      };
+      const provider = createIdleRelayProvider();
+      provider.createBridge = (request) => {
+        terminate(request);
+        return bridge;
+      };
+      const broadcastToConnIds = vi.fn();
 
-    const session = createTalkRealtimeRelaySession({
-      context: {
-        broadcastToConnIds: vi.fn(),
-        chatAbortControllers: new Map(),
-        getRuntimeConfig: () => ({}),
-        logGateway: { warn: vi.fn() },
-      } as never,
-      connId: "conn-early-close",
-      provider,
-      providerConfig: {},
-      instructions: "brief",
-      tools: [],
-    });
+      expect(() =>
+        createTalkRealtimeRelaySession({
+          context: {
+            broadcastToConnIds,
+            chatAbortControllers: new Map(),
+            getRuntimeConfig: () => ({}),
+            logGateway: { warn: vi.fn() },
+          } as never,
+          connId: "conn-early-terminal",
+          provider,
+          providerConfig: {},
+          instructions: "brief",
+          tools: [],
+        }),
+      ).toThrow(expectedError);
 
-    stopTalkRealtimeRelaySession({
-      relaySessionId: session.relaySessionId,
-      connId: "conn-early-close",
-    });
-  });
+      expect(connect).not.toHaveBeenCalled();
+      expect(sendAudio).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledOnce();
+      expect(broadcastToConnIds).not.toHaveBeenCalled();
+    },
+  );
 
   it("appends finalized relay transcripts to the canonical agent session", async () => {
     const envSnapshot = captureEnv(["OPENCLAW_STATE_DIR"]);
