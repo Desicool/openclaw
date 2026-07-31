@@ -29,4 +29,34 @@ describe("openBuzzRelaySubscription", () => {
     expect(oneose).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
+
+  it("does not close a subscription twice when sending fails after relay shutdown", async () => {
+    let rejectSend: ((error: Error) => void) | undefined;
+    const subscription = {
+      id: "sub:1",
+      closed: false,
+      close: vi.fn(),
+    } as unknown as ReturnType<Relay["prepareSubscription"]>;
+    const openSubs = new Map([[subscription.id, subscription]]);
+    const relay = {
+      idleSince: undefined,
+      ongoingOperations: 0,
+      openSubs,
+      prepareSubscription: vi.fn(() => subscription),
+      send: vi.fn(
+        async () =>
+          await new Promise<void>((_resolve, reject) => {
+            rejectSend = reject;
+          }),
+      ),
+    } as unknown as Relay;
+
+    openBuzzRelaySubscription(relay, [{ kinds: [0] }], {});
+    subscription.closed = true;
+    openSubs.delete(subscription.id);
+    rejectSend?.(new Error("socket closed"));
+    await Promise.resolve();
+
+    expect(subscription.close).not.toHaveBeenCalled();
+  });
 });

@@ -27,6 +27,9 @@ export function openBuzzRelaySubscription(
 
   const frame = JSON.stringify(["REQ", subscription.id, ...filters]);
   void relay.send(frame).catch((error: unknown) => {
+    if (subscription.closed || relay.openSubs.get(subscription.id) !== subscription) {
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     subscription.close(`Buzz relay subscription request failed: ${message}`);
   });
