@@ -105,6 +105,69 @@ describe("handleBuzzInbound", () => {
     });
   });
 
+  it("uses current Buzz labels without changing the stable sender identity", async () => {
+    const runtime = createPluginRuntimeMock();
+    setBuzzRuntime(runtime);
+    const bus = createBus();
+    bus.directory.replaceMemberships(
+      new Map([
+        [
+          ROOM_ID,
+          {
+            roomId: ROOM_ID,
+            createdAt: 1_777_000_000,
+            eventId: "membership-1",
+            publisherPublicKey: OTHER_PUBLIC_KEY,
+            members: new Set([BOT_PUBLIC_KEY, SENDER_PUBLIC_KEY]),
+            roles: new Map([
+              [BOT_PUBLIC_KEY, "bot"],
+              [SENDER_PUBLIC_KEY, "member"],
+            ]),
+          },
+        ],
+      ]),
+    );
+    bus.directory.applyProfileEvent({
+      id: "profile-1",
+      kind: 0,
+      pubkey: SENDER_PUBLIC_KEY,
+      created_at: 1_777_000_000,
+      content: JSON.stringify({ display_name: "Alice" }),
+      sig: "e".repeat(128),
+      tags: [],
+    });
+    bus.directory.applyRoomEvent({
+      id: "room-1",
+      kind: 39_000,
+      pubkey: OTHER_PUBLIC_KEY,
+      created_at: 1_777_000_000,
+      content: "",
+      sig: "e".repeat(128),
+      tags: [
+        ["d", ROOM_ID],
+        ["name", "Engineering"],
+      ],
+    });
+
+    await handleBuzzInbound({
+      account: createAccount({
+        groupPolicy: "allowlist",
+        groupAllowFrom: [SENDER_PUBLIC_KEY],
+        groups: { [ROOM_ID]: { requireMention: false } },
+      }),
+      cfg: {} satisfies OpenClawConfig,
+      bus,
+      message: createMessage(),
+    });
+
+    expect(firstDispatch(runtime).ctxPayload).toMatchObject({
+      SenderId: SENDER_PUBLIC_KEY,
+      SenderName: "Alice",
+      GroupChannel: ROOM_ID,
+      GroupSubject: "Engineering",
+    });
+  });
+
   it("accepts a configured text mention when no native p tag is present", async () => {
     const runtime = createPluginRuntimeMock();
     vi.mocked(runtime.channel.mentions.buildMentionRegexes).mockReturnValue([/@openclaw/i]);

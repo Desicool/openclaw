@@ -251,6 +251,11 @@ export class BuzzDirectoryState {
     return this.#profiles.get(normalized)?.displayName ?? fallbackPublicKeyLabel(normalized);
   }
 
+  resolveRoomName(roomId: string): string {
+    const normalized = parseBuzzTarget(roomId);
+    return this.#rooms.get(normalized)?.name ?? normalized;
+  }
+
   self(): ChannelDirectoryEntry {
     return this.#buildUserEntry(this.#publicKey);
   }
