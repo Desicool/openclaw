@@ -72,6 +72,20 @@ function expectTwilioPrivateCallStateReleased(params: {
   expect(state.activeStreamCalls.has(params.providerCallId)).toBe(false);
 }
 
+function expectTwilioPrivateCallStatePresent(params: {
+  provider: TwilioProvider;
+  callId: string;
+  providerCallId: string;
+}): void {
+  const state = getTwilioPrivateCallState(params.provider);
+  expect(state.callWebhookUrls.has(params.providerCallId)).toBe(true);
+  expect(state.callStreamMap.has(params.providerCallId)).toBe(true);
+  expect(state.streamAuthTokens.has(params.providerCallId)).toBe(true);
+  expect(state.twimlStorage.has(params.callId)).toBe(true);
+  expect(state.notifyCalls.has(params.callId)).toBe(true);
+  expect(state.activeStreamCalls.has(params.providerCallId)).toBe(true);
+}
+
 function createContext(rawBody: string, query?: WebhookContext["query"]): WebhookContext {
   return {
     headers: {},
@@ -439,7 +453,7 @@ describe("TwilioProvider", () => {
     expectTwilioPrivateCallStateReleased({ provider, callId, providerCallId });
   });
 
-  it("releases all provider call state before repeated explicit hangups", async () => {
+  it("releases all provider call state after repeated explicit hangups", async () => {
     const provider = createProvider();
     const callId = "call-hangup";
     const providerCallId = "CA-hangup";
@@ -457,6 +471,39 @@ describe("TwilioProvider", () => {
     await provider.hangupCall(input);
     expectTwilioPrivateCallStateReleased({ provider, callId, providerCallId });
     expect(apiRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains call state when explicit hangup fails so it can retry", async () => {
+    const provider = createProvider();
+    const callId = "call-hangup-retry";
+    const providerCallId = "CA-hangup-retry";
+    seedTwilioPrivateCallState({ provider, callId, providerCallId });
+    const apiRequest = createApiRequestMock();
+    apiRequest.mockRejectedValueOnce(new Error("temporary Twilio failure")).mockResolvedValue({});
+    (
+      provider as unknown as {
+        apiRequest: TwilioApiRequest;
+      }
+    ).apiRequest = apiRequest;
+    const input = { callId, providerCallId, reason: "hangup-bot" as const };
+
+    await expect(provider.hangupCall(input)).rejects.toThrow("temporary Twilio failure");
+    expectTwilioPrivateCallStatePresent({ provider, callId, providerCallId });
+
+    await provider.hangupCall(input);
+    expectTwilioPrivateCallStateReleased({ provider, callId, providerCallId });
+    expect(apiRequest).toHaveBeenNthCalledWith(
+      1,
+      `/Calls/${providerCallId}.json`,
+      { Status: "completed" },
+      { allowNotFound: true },
+    );
+    expect(apiRequest).toHaveBeenNthCalledWith(
+      2,
+      `/Calls/${providerCallId}.json`,
+      { Status: "completed" },
+      { allowNotFound: true },
+    );
   });
 
   it("QUEUE_TWIML references /voice/hold-music waitUrl", () => {
