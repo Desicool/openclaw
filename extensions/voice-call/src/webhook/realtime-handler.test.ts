@@ -1884,7 +1884,7 @@ describe("RealtimeCallHandler path routing", () => {
         throw new Error("unexpected replacement bridge");
       }
       if (callbacks.length === 2) {
-        request.onTranscript?.("user", "Fresh", false);
+        request.onTranscript?.("user", "Fresh ", false);
       }
       return bridge;
     });
@@ -1965,7 +1965,7 @@ describe("RealtimeCallHandler path routing", () => {
               .map(([event]) => event as NormalizedEvent)
               .filter((event) => event.type === "call.speech")
               .map((event) => (event.type === "call.speech" ? event.transcript : undefined)),
-          ).toEqual(["Freshcaller"]);
+          ).toEqual(["Fresh caller"]);
         });
         expect(
           processEvent.mock.calls
