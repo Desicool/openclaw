@@ -279,6 +279,41 @@ describe("buildXaiRealtimeVoiceProvider", () => {
     await waitForRealtimeState(() => expect(FakeWebSocket.instances).toHaveLength(0));
   });
 
+  it("starts a replacement immediately after canceling pending credentials", async () => {
+    let resolveFirstCredentials: ((value: { apiKey: string | undefined }) => void) | undefined;
+    resolveApiKeyForProviderMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ apiKey: string | undefined }>((resolve) => {
+            resolveFirstCredentials = resolve;
+          }),
+      )
+      .mockResolvedValue({ apiKey: "xai-replacement" }); // pragma: allowlist secret
+    const bridge = buildXaiRealtimeVoiceProvider().createBridge({
+      cfg: {} as never,
+      providerConfig: {},
+      onAudio: vi.fn(),
+      onClearAudio: vi.fn(),
+    });
+
+    const canceledConnect = bridge.connect();
+    await waitForRealtimeState(() => expect(resolveApiKeyForProviderMock).toHaveBeenCalledOnce());
+    bridge.close();
+    const replacementConnect = bridge.connect();
+
+    await waitForRealtimeState(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const replacementSocket = requireSocket();
+    replacementSocket.readyState = FakeWebSocket.OPEN;
+    replacementSocket.emit("open");
+    replacementSocket.emit("message", Buffer.from(JSON.stringify({ type: "session.updated" })));
+    await Promise.all([canceledConnect, replacementConnect]);
+
+    expect(bridge.isConnected()).toBe(true);
+    resolveFirstCredentials?.({ apiKey: "xai-late" }); // pragma: allowlist secret
+    await waitForRealtimeState(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    bridge.close();
+  });
+
   it("ignores late events from a canceled socket after replacement", async () => {
     vi.stubEnv("XAI_API_KEY", "xai-env"); // pragma: allowlist secret
     const onAudio = vi.fn();

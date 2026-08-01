@@ -142,6 +142,7 @@ export class XaiRealtimeVoiceBridge extends XaiRealtimeVoiceEvents implements Re
     if (!this.lifecycle.cancel()) {
       return;
     }
+    this.connectPromise = undefined;
     this.resetTerminalState();
     if (!connection) {
       return;
