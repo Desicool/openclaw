@@ -873,6 +873,9 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     if (!this.setupCompleteReceived) {
       // setupComplete proves Google selected a new server session. A later
       // continuity loss therefore owns a new reset generation.
+      if (this.continuityResetEmitted) {
+        this.config.onEvent?.({ direction: "server", type: "session.created" });
+      }
       this.continuityResetEmitted = false;
     }
     this.setupCompleteReceived = true;

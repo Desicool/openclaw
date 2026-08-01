@@ -1136,16 +1136,30 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       setupComplete: {},
       serverContent: { inputTranscription: { text: "Fresh partial " } },
     });
+    expect(onEvent.mock.calls.map(([event]) => event.type)).toEqual([
+      "session.continuity.reset",
+      "session.created",
+    ]);
     expect(onReady).toHaveBeenCalledTimes(1);
 
     pendingSession.resolve(freshSession);
     await vi.waitFor(() => {
       expect(onReady).toHaveBeenCalledTimes(2);
     });
+    const sessionCreatedOrder = onEvent.mock.invocationCallOrder[1];
+    const freshReadyOrder = onReady.mock.invocationCallOrder[1];
+    if (sessionCreatedOrder === undefined || freshReadyOrder === undefined) {
+      throw new Error("expected fresh session creation before readiness");
+    }
+    expect(sessionCreatedOrder).toBeLessThan(freshReadyOrder);
     freshCallbacks.onclose({ code: 1011, reason: "temporary again" });
     await vi.advanceTimersByTimeAsync(250);
 
-    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent.mock.calls.map(([event]) => event.type)).toEqual([
+      "session.continuity.reset",
+      "session.created",
+      "session.continuity.reset",
+    ]);
     lastConnectParams().callbacks.onmessage({
       serverContent: { inputTranscription: { text: "Next", finished: true } },
     });
