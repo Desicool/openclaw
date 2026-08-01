@@ -3,12 +3,13 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { PluginRuntime, RuntimeLogger } from "../plugins/runtime/types.js";
 import type { RealtimeVoiceProviderPlugin } from "../plugins/types.js";
-import type { RealtimeVoiceTool } from "../talk/provider-types.js";
+import type { RealtimeVoiceTool, RealtimeVoiceToolCallEvent } from "../talk/provider-types.js";
 import {
   createRealtimeVoiceSessionHarness,
   type RealtimeVoiceSessionHarness,
 } from "../talk/realtime-session-harness.js";
 import type { RealtimeVoiceBridgeSession } from "../talk/session-runtime.js";
+import type { TalkEventInput } from "../talk/talk-events.js";
 import {
   resolveMeetingRealtimeAudioFormat,
   type MeetingRealtimeAudioFormat,
@@ -35,7 +36,6 @@ export {
   normalizeMeetingTtsPromptText,
   resolveMeetingRealtimeTranscriptionProvider,
 } from "./realtime-engine-support.js";
-export type { MeetingRealtimeToolCallParams } from "./realtime-tool-continuity.js";
 
 export type MeetingRuntimePlatform = {
   /** Adapter-owned identity keeps platform names and log prefixes out of core. */
@@ -63,6 +63,16 @@ export type MeetingAgentConsultParams = {
   requesterSessionKey?: string;
   args: unknown;
   transcript: Array<{ role: "user" | "assistant"; text: string }>;
+};
+
+export type MeetingRealtimeToolCallParams = {
+  strategy: string;
+  session: RealtimeVoiceBridgeSession;
+  event: RealtimeVoiceToolCallEvent;
+  meetingSessionId: string;
+  requesterSessionKey?: string;
+  transcript: Array<{ role: "user" | "assistant"; text: string }>;
+  onTalkEvent: (event: TalkEventInput) => void;
 };
 
 export type MeetingRealtimeAudioEngineHealth = ReturnType<
@@ -104,7 +114,7 @@ export async function startMeetingRealtimeEngine(params: {
   providers?: RealtimeVoiceProviderPlugin[];
   consultAgent: (params: MeetingAgentConsultParams) => Promise<{ text: string }>;
   tools: RealtimeVoiceTool[];
-  handleToolCall: Parameters<typeof createMeetingRealtimeToolContinuity>[0];
+  handleToolCall: (params: MeetingRealtimeToolCallParams) => Promise<void>;
 }): Promise<MeetingRealtimeAudioEngineHandle> {
   let stopped = false;
   let stopPromise: Promise<void> | undefined;
@@ -617,16 +627,8 @@ export async function startMeetingRealtimeEngine(params: {
           );
         }
       },
-      onToolCall: (event, session) => {
-        harness.emit({
-          type: "tool.call",
-          turnId: harness.ensureTurn(),
-          itemId: event.itemId,
-          callId: event.callId,
-          payload: { name: event.name, args: event.args },
-        });
-        const turnId = harness.ensureTurn();
-        return toolContinuity.run({
+      onToolCall: (event, session) =>
+        toolContinuity.run({
           session,
           call: {
             strategy,
@@ -635,10 +637,8 @@ export async function startMeetingRealtimeEngine(params: {
             requesterSessionKey: params.requesterSessionKey,
             transcript: harness.transcript,
           },
-          onTalkEvent: (inputLocal) =>
-            harness.emit({ ...inputLocal, turnId: inputLocal.turnId ?? turnId }),
-        });
-      },
+          harness,
+        }),
       onError: (error) => {
         harness.emit({
           type: "session.error",

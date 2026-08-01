@@ -5,8 +5,10 @@ import type {
   RealtimeVoiceBridgeCreateRequest,
 } from "../talk/provider-types.js";
 import type { MeetingRealtimeAudioTransport } from "./realtime-audio-transport.js";
-import { startMeetingRealtimeEngine } from "./realtime-engine.js";
-import type { MeetingRealtimeToolCallParams } from "./realtime-tool-continuity.js";
+import {
+  startMeetingRealtimeEngine,
+  type MeetingRealtimeToolCallParams,
+} from "./realtime-engine.js";
 
 type PendingWrite = {
   resolve: () => void;
