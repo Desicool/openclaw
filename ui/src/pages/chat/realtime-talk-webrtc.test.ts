@@ -5,6 +5,7 @@ import { REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME } from "./realtime-talk-shared.t
 import { WebRtcSdpRealtimeTalkTransport } from "./realtime-talk-webrtc.ts";
 
 let getUserMedia: ReturnType<typeof vi.fn>;
+let stopInputTrack: ReturnType<typeof vi.fn>;
 
 class FakeDataChannel extends EventTarget {
   readyState: RTCDataChannelState = "open";
@@ -177,7 +178,8 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
 
   beforeEach(() => {
     FakePeerConnection.instances = [];
-    const track = { stop: vi.fn() } as unknown as MediaStreamTrack;
+    stopInputTrack = vi.fn();
+    const track = { stop: stopInputTrack } as unknown as MediaStreamTrack;
     const stream = {
       getAudioTracks: () => [track],
       getTracks: () => [track],
@@ -249,7 +251,7 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
     transport.stop();
     resolveMedia(stream);
 
-    await expect(startPromise).resolves.toBeUndefined();
+    await expect(startPromise).resolves.toBe("cancelled");
     expect(peer?.addTrack).not.toHaveBeenCalled();
     expect(stopTrack).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -276,7 +278,7 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
     transport.stop();
     rejectOffer(new Error("closed peer rejected offer creation"));
 
-    await expect(startPromise).resolves.toBeUndefined();
+    await expect(startPromise).resolves.toBe("cancelled");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -385,8 +387,75 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
 
     transport.stop();
 
-    await expect(startResult).resolves.toBeUndefined();
+    await expect(startResult).resolves.toBe("cancelled");
     expect(offerSignal?.aborted).toBe(true);
+  });
+
+  it("reports a closed candidate when the peer fails during final setup", async () => {
+    stubAnswerSdpFetch();
+    const onStatus = vi.fn();
+    const onTalkEvent = vi.fn();
+    const transport = createOpenAiTransport({}, { onStatus, onTalkEvent });
+    const start = transport.start();
+    const peer = FakePeerConnection.instances[0];
+    if (!peer) {
+      throw new Error("expected WebRTC peer");
+    }
+    let finishRemoteDescription: (() => void) | undefined;
+    const remoteDescription = vi.spyOn(peer, "setRemoteDescription").mockImplementation(
+      async () =>
+        await new Promise<void>((resolve) => {
+          finishRemoteDescription = resolve;
+        }),
+    );
+    await waitForFast(() => expect(remoteDescription).toHaveBeenCalled());
+
+    peer.connectionState = "failed";
+    peer.dispatchEvent(new Event("connectionstatechange"));
+    finishRemoteDescription?.();
+
+    await expect(start).rejects.toThrow("Realtime connection closed");
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(onTalkEvent).not.toHaveBeenCalled();
+    expect(peer.channel.close).toHaveBeenCalledOnce();
+  });
+
+  it("releases an active peer when the terminal status callback throws", async () => {
+    stubAnswerSdpFetch();
+    const onStatus = vi.fn(() => {
+      throw new Error("consumer failed");
+    });
+    const transport = createOpenAiTransport({}, { onStatus });
+    await expect(transport.start()).resolves.toBe("ready");
+    const peer = FakePeerConnection.instances[0];
+    if (!peer) {
+      throw new Error("expected WebRTC peer");
+    }
+
+    peer.connectionState = "failed";
+    peer.dispatchEvent(new Event("connectionstatechange"));
+
+    expect(onStatus).toHaveBeenCalledWith("error", "Realtime connection closed");
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(peer.channel.close).toHaveBeenCalledOnce();
+  });
+
+  it("releases an active peer when its closed-event callback throws", async () => {
+    stubAnswerSdpFetch();
+    const onTalkEvent = vi.fn(() => {
+      throw new Error("consumer failed");
+    });
+    const transport = createOpenAiTransport({}, { onTalkEvent });
+    await expect(transport.start()).resolves.toBe("ready");
+    const peer = FakePeerConnection.instances[0];
+    if (!peer) {
+      throw new Error("expected WebRTC peer");
+    }
+
+    expect(() => transport.stop()).toThrow("consumer failed");
+
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(peer.channel.close).toHaveBeenCalledOnce();
   });
 
   it("clears the WebRTC offer timeout after setup succeeds", async () => {

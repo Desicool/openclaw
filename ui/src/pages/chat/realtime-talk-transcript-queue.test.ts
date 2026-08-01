@@ -4,7 +4,7 @@ import type { RealtimeTalkTransportContext } from "./realtime-talk-shared.ts";
 
 const transportMock = vi.hoisted(() => ({
   context: undefined as RealtimeTalkTransportContext | undefined,
-  start: vi.fn(async () => undefined),
+  start: vi.fn(async () => "ready" as const),
   stop: vi.fn(),
 }));
 

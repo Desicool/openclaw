@@ -4,9 +4,11 @@ import type { RealtimeTalkTransportContext } from "./realtime-talk-shared.ts";
 
 const transportMock = vi.hoisted(() => ({
   relayContexts: [] as RealtimeTalkTransportContext[],
+  relayStops: [] as Array<ReturnType<typeof vi.fn>>,
   webRtcContexts: [] as RealtimeTalkTransportContext[],
   webRtcStops: [] as Array<ReturnType<typeof vi.fn>>,
-  start: vi.fn(async () => undefined),
+  relayActivate: vi.fn(),
+  start: vi.fn(async (): Promise<"ready" | "cancelled"> => "ready"),
   stop: vi.fn(),
 }));
 
@@ -16,7 +18,13 @@ vi.mock("./realtime-talk-gateway-relay.ts", () => ({
     context: RealtimeTalkTransportContext,
   ) {
     transportMock.relayContexts.push(context);
-    return { start: transportMock.start, stop: transportMock.stop };
+    const stop = vi.fn((options?: { emitClosed?: boolean }) => transportMock.stop(options));
+    transportMock.relayStops.push(stop);
+    return {
+      start: transportMock.start,
+      activate: transportMock.relayActivate,
+      stop,
+    };
   }),
 }));
 vi.mock("./realtime-talk-google-live.ts", () => ({
@@ -66,8 +74,10 @@ function transcriptContext(contexts: RealtimeTalkTransportContext[], index = 0):
 describe("RealtimeTalkSession lifecycle", () => {
   beforeEach(() => {
     transportMock.relayContexts.length = 0;
+    transportMock.relayStops.length = 0;
     transportMock.webRtcContexts.length = 0;
     transportMock.webRtcStops.length = 0;
+    transportMock.relayActivate.mockClear();
     transportMock.start.mockClear();
     transportMock.stop.mockClear();
   });
@@ -217,8 +227,109 @@ describe("RealtimeTalkSession lifecycle", () => {
     session.stop();
   });
 
+  it("keeps the active transport when a replacement cancels during startup", async () => {
+    const transcriptEntryIds: string[] = [];
+    const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: "voice-cancelled-replacement",
+          clientSecret: "secret",
+        };
+      }
+      if (method === "talk.client.transcript") {
+        transcriptEntryIds.push(String(params?.entryId));
+      }
+      return { ok: true };
+    });
+    const session = new RealtimeTalkSession({ request } as never, "agent:main:main");
+    await session.start();
+    const activeContext = transcriptContext(transportMock.webRtcContexts);
+    transportMock.start.mockResolvedValueOnce("cancelled");
+
+    await session.start();
+
+    expect(transportMock.webRtcStops[0]).not.toHaveBeenCalled();
+    expect(transportMock.webRtcStops[1]).toHaveBeenCalledWith({ emitClosed: false });
+    expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(false);
+    activeContext.callbacks.onTranscript?.({
+      role: "user",
+      text: "active transport survived",
+      final: true,
+    });
+    await activeContext.flushTranscriptWrites?.();
+    expect(transcriptEntryIds).toEqual(["1"]);
+    session.stop();
+  });
+
+  it("restores the active relay when replacement activation throws", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "gateway-relay",
+          relaySessionId: "relay-activation",
+          audio: {
+            inputEncoding: "pcm16",
+            inputSampleRateHz: 24_000,
+            outputEncoding: "pcm16",
+            outputSampleRateHz: 24_000,
+          },
+        };
+      }
+      return { ok: true };
+    });
+    const session = new RealtimeTalkSession({ request } as never, "agent:main:main");
+    await session.start();
+    transportMock.relayActivate.mockImplementationOnce(() => {
+      throw new Error("activation failed");
+    });
+
+    await expect(session.start()).rejects.toThrow("activation failed");
+
+    expect(transportMock.relayStops[0]).not.toHaveBeenCalled();
+    expect(transportMock.relayStops[1]).toHaveBeenCalledWith({ emitClosed: false });
+    session.stop();
+    expect(transportMock.relayStops[0]).toHaveBeenCalledOnce();
+  });
+
+  it("does not restore an active relay after activation stops the session", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "gateway-relay",
+          relaySessionId: "relay-activation-stop",
+          audio: {
+            inputEncoding: "pcm16",
+            inputSampleRateHz: 24_000,
+            outputEncoding: "pcm16",
+            outputSampleRateHz: 24_000,
+          },
+        };
+      }
+      return { ok: true };
+    });
+    const session = new RealtimeTalkSession({ request } as never, "agent:main:main");
+    await session.start();
+    transportMock.relayActivate.mockImplementationOnce(() => {
+      session.stop();
+      throw new Error("activation stopped");
+    });
+
+    await expect(session.start()).rejects.toThrow("activation stopped");
+
+    expect(transportMock.relayStops[0]).toHaveBeenCalledOnce();
+    expect(transportMock.relayStops[0]).toHaveBeenCalledWith({ emitClosed: false });
+    expect(transportMock.relayStops[1]).toHaveBeenCalledOnce();
+    session.stop();
+    expect(transportMock.relayStops[0]).toHaveBeenCalledOnce();
+    expect(transportMock.relayStops[1]).toHaveBeenCalledOnce();
+  });
+
   it("ignores transcripts from a superseded pending replacement", async () => {
-    const firstReplacementStart = createDeferred<void>();
+    const firstReplacementStart = createDeferred<"ready">();
     const transcriptEntryIds: string[] = [];
     const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
       if (method === "talk.client.create") {
@@ -250,7 +361,7 @@ describe("RealtimeTalkSession lifecycle", () => {
     expect(transcriptEntryIds).toEqual(["1"]);
     expect(transportMock.webRtcStops[1]).toHaveBeenCalledWith({ emitClosed: false });
 
-    firstReplacementStart.resolve();
+    firstReplacementStart.resolve("ready");
     await firstReplacement;
     session.stop();
   });
@@ -310,7 +421,7 @@ describe("RealtimeTalkSession lifecycle", () => {
 
   it("stops a pending replacement when transcript overflow closes the active call", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const replacementStart = createDeferred<void>();
+    const replacementStart = createDeferred<"ready">();
     const firstTranscript = createDeferred<void>();
     const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
       if (method === "talk.client.create") {
@@ -349,7 +460,7 @@ describe("RealtimeTalkSession lifecycle", () => {
     expect(transportMock.webRtcStops[0]).toHaveBeenCalledWith();
     expect(transportMock.webRtcStops[1]).toHaveBeenCalledWith({ emitClosed: false });
 
-    replacementStart.resolve();
+    replacementStart.resolve("ready");
     await replacement;
     firstTranscript.resolve();
     await vi.waitFor(() =>
@@ -398,8 +509,32 @@ describe("RealtimeTalkSession lifecycle", () => {
     recovered.stop();
   });
 
+  it("rejects a terminal failure during initial transport setup", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: "voice-terminal-startup",
+          clientSecret: "secret",
+        };
+      }
+      return { ok: true };
+    });
+    const onStatus = vi.fn();
+    const session = new RealtimeTalkSession({ request } as never, "agent:main:main", {
+      onStatus,
+    });
+    transportMock.start.mockRejectedValueOnce(new Error("Realtime connection closed"));
+
+    await expect(session.start()).rejects.toThrow("Realtime connection closed");
+
+    expect(onStatus).toHaveBeenCalledWith("connecting");
+    expect(transportMock.webRtcStops[0]).toHaveBeenCalledWith({ emitClosed: false });
+  });
+
   it("does not restore a failed replacement after concurrent stop", async () => {
-    const replacementStart = createDeferred<void>();
+    const replacementStart = createDeferred<"ready">();
     const transcriptEntryIds: string[] = [];
     const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
       if (method === "talk.client.create") {
@@ -752,6 +887,7 @@ describe("RealtimeTalkSession lifecycle", () => {
     const session = new RealtimeTalkSession({ request } as never, "agent:main:main");
     await session.start();
     const context = transcriptContext(transportMock.relayContexts);
+    expect(transportMock.relayActivate).toHaveBeenCalledOnce();
     context.callbacks.onTranscript?.({ role: "user", text: "server owns this", final: true });
     await Promise.resolve();
 

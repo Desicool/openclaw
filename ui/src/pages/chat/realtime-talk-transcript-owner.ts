@@ -1,6 +1,7 @@
 import { DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS } from "@openclaw/gateway-client/browser";
 import type { BoundedSerialQueue } from "../../../../src/shared/bounded-serial-queue.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { RealtimeTalkTransport } from "./realtime-talk-shared.ts";
 
 export type ClientVoiceSessionOwner = {
   signal: AbortSignal;
@@ -55,6 +56,25 @@ export function reserveClientVoiceSessionOwner(
       }
     },
   };
+}
+
+export function retireUncommittedRealtimeTalkTransport(params: {
+  nextTransport: RealtimeTalkTransport | null;
+  transport: string;
+  owner: ClientVoiceSessionOwner;
+  reusesExistingOwner: boolean;
+  closeVoiceSession: () => void;
+}): void {
+  params.nextTransport?.stop({ emitClosed: false });
+  if (params.reusesExistingOwner) {
+    return;
+  }
+  if (params.transport === "gateway-relay" && params.nextTransport) {
+    // The relay transport owns server close once constructed; release browser ownership.
+    params.owner.release();
+    return;
+  }
+  params.closeVoiceSession();
 }
 
 export function transcriptPersistenceAbortError(): Error {

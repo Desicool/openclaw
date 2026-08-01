@@ -24,6 +24,7 @@ import {
   type ClientVoiceSessionOwner,
   type DetachedVoiceSession,
   reserveClientVoiceSessionOwner,
+  retireUncommittedRealtimeTalkTransport,
   transcriptPersistenceAbortError,
   waitForTranscriptRetry,
 } from "./realtime-talk-transcript-owner.ts";
@@ -174,6 +175,9 @@ export class RealtimeTalkSession {
       const existingTransport = this.transport;
       const existingVoiceSessionId = this.voiceSessionId;
       const existingOwner = this.clientVoiceSessionOwner;
+      const existingAcceptingTranscripts = this.acceptingTranscripts;
+      const existingServerOwnedVoiceSession = this.serverOwnedVoiceSession;
+      const existingTransportGeneration = this.transportGeneration;
       const providerVideoCapable = await this.resolveVideoCapability();
       if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) {
         return;
@@ -230,6 +234,7 @@ export class RealtimeTalkSession {
             );
       const transcriptQueue = this.transcriptQueue;
       let nextTransport: RealtimeTalkTransport | null = null;
+      let startResult: Awaited<ReturnType<RealtimeTalkTransport["start"]>>;
       try {
         nextTransport = createTransport(session, {
           client: this.client,
@@ -246,26 +251,38 @@ export class RealtimeTalkSession {
         this.callbacks.onVideoCapability?.(
           providerVideoCapable && typeof nextTransport.setVideoEnabled === "function",
         );
-        await nextTransport.start();
+        startResult = await nextTransport.start();
       } catch (error) {
         if (this.pendingTransport === nextTransport) {
           this.pendingTransport = null;
         }
-        nextTransport?.stop({ emitClosed: false });
-        if (!(existingOwner && adoptedOwner === existingOwner)) {
-          this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner);
-        }
+        retireUncommittedRealtimeTalkTransport({
+          nextTransport,
+          transport,
+          owner: adoptedOwner,
+          reusesExistingOwner: Boolean(existingOwner && adoptedOwner === existingOwner),
+          closeVoiceSession: () =>
+            this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner),
+        });
         ownerTransferred = true;
         throw error;
       }
       if (this.pendingTransport === nextTransport) {
         this.pendingTransport = null;
       }
-      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) {
-        nextTransport.stop({ emitClosed: false });
-        if (!(existingOwner && adoptedOwner === existingOwner)) {
-          this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner);
-        }
+      if (
+        startResult === "cancelled" ||
+        this.closed ||
+        lifecycleGeneration !== this.lifecycleGeneration
+      ) {
+        retireUncommittedRealtimeTalkTransport({
+          nextTransport,
+          transport,
+          owner: adoptedOwner,
+          reusesExistingOwner: Boolean(existingOwner && adoptedOwner === existingOwner),
+          closeVoiceSession: () =>
+            this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner),
+        });
         ownerTransferred = true;
         return;
       }
@@ -279,6 +296,39 @@ export class RealtimeTalkSession {
         this.clientVoiceSessionOwner = undefined;
       } else {
         this.clientVoiceSessionOwner = adoptedOwner;
+      }
+      try {
+        // Publish the candidate before releasing bounded events buffered during permission.
+        nextTransport.activate?.();
+      } catch (error) {
+        const canRestoreExistingTransport =
+          !this.closed &&
+          lifecycleGeneration === this.lifecycleGeneration &&
+          this.transport === nextTransport;
+        if (canRestoreExistingTransport) {
+          this.voiceSessionId = existingVoiceSessionId;
+          this.acceptingTranscripts = existingAcceptingTranscripts;
+          this.serverOwnedVoiceSession = existingServerOwnedVoiceSession;
+          this.transportGeneration = existingTransportGeneration;
+          this.transport = existingTransport;
+          this.clientVoiceSessionOwner = existingOwner;
+          retireUncommittedRealtimeTalkTransport({
+            nextTransport,
+            transport,
+            owner: adoptedOwner,
+            reusesExistingOwner: Boolean(existingOwner && adoptedOwner === existingOwner),
+            closeVoiceSession: () =>
+              this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner),
+          });
+        } else {
+          // Stop or supersession wins activation and owns allocation cleanup.
+          if (this.transport === nextTransport) {
+            nextTransport.stop({ emitClosed: false });
+          }
+          existingTransport?.stop({ emitClosed: false });
+        }
+        ownerTransferred = true;
+        throw error;
       }
       ownerTransferred = true;
       existingTransport?.stop({ emitClosed: false });

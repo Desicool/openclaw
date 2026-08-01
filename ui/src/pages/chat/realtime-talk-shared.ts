@@ -104,8 +104,11 @@ export type RealtimeTalkSessionResult =
   | RealtimeTalkGatewayRelaySessionResult
   | RealtimeTalkManagedRoomSessionResult;
 
+export type RealtimeTalkTransportStartResult = "ready" | "cancelled";
+
 export type RealtimeTalkTransport = {
-  start(): Promise<void>;
+  start(): Promise<RealtimeTalkTransportStartResult>;
+  activate?: () => void;
   stop(options?: { emitClosed?: boolean }): void;
   setVideoEnabled?: (enabled: boolean) => Promise<void>;
   switchCamera?: (videoDeviceId: string | undefined) => Promise<void>;

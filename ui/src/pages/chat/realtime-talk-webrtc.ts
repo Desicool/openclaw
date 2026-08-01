@@ -14,6 +14,7 @@ import {
   submitRealtimeTalkConsult,
   type RealtimeTalkTransport,
   type RealtimeTalkTransportContext,
+  type RealtimeTalkTransportStartResult,
 } from "./realtime-talk-shared.ts";
 import { captureRealtimeTalkVideoFrame } from "./realtime-talk-video.ts";
 import {
@@ -47,6 +48,8 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
   private readonly camera: RealtimeTalkCameraController;
   private readonly consultAbortControllers = new Set<AbortController>();
   private readonly emitTalkEvent: ReturnType<typeof createRealtimeTalkEventEmitter>;
+  private starting = false;
+  private startupError: Error | null = null;
 
   constructor(
     private readonly session: RealtimeTalkWebRtcSdpSessionResult,
@@ -62,11 +65,13 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     });
   }
 
-  async start(): Promise<void> {
+  async start(): Promise<RealtimeTalkTransportStartResult> {
     if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
       throw new Error("Realtime Talk requires browser WebRTC and microphone access");
     }
     this.closed = false;
+    this.starting = true;
+    this.startupError = null;
     this.mediaSetupController?.abort();
     const peer = new RTCPeerConnection();
     this.peer = peer;
@@ -116,11 +121,11 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
       }
     }
     if (media === cancelledSetup) {
-      return;
+      return this.cancelledStart();
     }
     if (!this.isCurrentPeer(peer)) {
       media.getTracks().forEach((track) => track.stop());
-      return;
+      return this.cancelledStart();
     }
     this.media = media;
     if (this.ctx.callbacks.onInputLevel) {
@@ -135,7 +140,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     const channel = peer.createDataChannel("oai-events");
     if (!this.isCurrentPeer(peer)) {
       channel.close();
-      return;
+      return this.cancelledStart();
     }
     this.channel = channel;
     channel.addEventListener("open", () => {
@@ -154,17 +159,17 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
 
     const offer = await this.awaitSetupStep(peer, peer.createOffer());
     if (offer === cancelledSetup) {
-      return;
+      return this.cancelledStart();
     }
     if (!this.isCurrentPeer(peer)) {
-      return;
+      return this.cancelledStart();
     }
     const localDescriptionResult = await this.awaitSetupStep(peer, peer.setLocalDescription(offer));
     if (localDescriptionResult === cancelledSetup) {
-      return;
+      return this.cancelledStart();
     }
     if (!this.isCurrentPeer(peer)) {
-      return;
+      return this.cancelledStart();
     }
     const answerSdp = await this.offerExchange.readAnswer({
       session: this.session,
@@ -173,18 +178,23 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
       isCurrent: () => this.isCurrentPeer(peer),
     });
     if (answerSdp === undefined) {
-      return;
+      return this.cancelledStart();
     }
     if (!this.isCurrentPeer(peer)) {
-      return;
+      return this.cancelledStart();
     }
-    await this.awaitSetupStep(
+    const remoteDescriptionResult = await this.awaitSetupStep(
       peer,
       peer.setRemoteDescription({
         type: "answer",
         sdp: answerSdp,
       }),
     );
+    if (remoteDescriptionResult === cancelledSetup || !this.isCurrentPeer(peer)) {
+      return this.cancelledStart();
+    }
+    this.starting = false;
+    return "ready";
   }
 
   async setVideoEnabled(enabled: boolean): Promise<void> {
@@ -197,6 +207,18 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
 
   private isCurrentPeer(peer: RTCPeerConnection): boolean {
     return !this.closed && this.peer === peer;
+  }
+
+  private cancelledStart(): RealtimeTalkTransportStartResult {
+    const startupError = this.currentStartupError();
+    if (startupError) {
+      throw startupError;
+    }
+    return "cancelled";
+  }
+
+  private currentStartupError(): Error | null {
+    return this.startupError;
   }
 
   private async awaitSetupStep<T>(
@@ -214,10 +236,19 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
   }
 
   stop(options?: { emitClosed?: boolean }): void {
-    if (!this.closed && options?.emitClosed !== false) {
-      this.emitTalkEvent({ type: "session.closed", final: true });
-    }
+    const emitClosed = !this.closed && options?.emitClosed !== false;
     this.closed = true;
+    try {
+      if (emitClosed) {
+        this.emitTalkEvent({ type: "session.closed", final: true });
+      }
+    } finally {
+      this.releaseResources();
+    }
+  }
+
+  private releaseResources(): void {
+    this.starting = false;
     this.mediaSetupController?.abort();
     this.mediaSetupController = null;
     this.offerExchange.abort();
@@ -246,9 +277,17 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     if (this.closed) {
       return;
     }
-    this.ctx.callbacks.onStatus?.("error", detail);
-    // A terminal peer failure still owns live browser media until stop() releases it.
-    this.stop();
+    const wasStarting = this.starting;
+    try {
+      if (!wasStarting) {
+        this.ctx.callbacks.onStatus?.("error", detail);
+      } else {
+        this.startupError = new Error(detail);
+      }
+    } finally {
+      // A terminal peer failure still owns browser media if status delivery fails.
+      this.stop({ emitClosed: !wasStarting });
+    }
   }
 
   private send(event: unknown): void {
