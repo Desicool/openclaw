@@ -1,5 +1,6 @@
 // Model list forward-compat tests cover list command behavior with future catalog shapes.
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test-utils/deferred.js";
 
 const OPENAI_CODEX_MODEL = {
   provider: "openai",
@@ -92,6 +93,9 @@ const mocks = vi.hoisted(() => {
     loadModelCatalog: vi.fn(),
     resolveConfiguredEntries: vi.fn(),
     printModelTable: vi.fn(),
+    applyPromotionClaimTags: vi.fn(),
+    startPromotionsFeedRefresh: vi.fn(),
+    printAvailablePromotionsSection: vi.fn(),
     resolveModelWithRegistry: vi.fn(),
     readPersistedInstalledPluginIndexSync: vi.fn(),
     loadManifestMetadataSnapshot: vi.fn(),
@@ -127,6 +131,9 @@ function resetMocks() {
     ],
   });
   mocks.printModelTable.mockReset();
+  mocks.applyPromotionClaimTags.mockReset();
+  mocks.startPromotionsFeedRefresh.mockReset();
+  mocks.printAvailablePromotionsSection.mockReset();
   mocks.resolveModelWithRegistry.mockReturnValue({ ...OPENAI_CODEX_MODEL });
   mocks.readPersistedInstalledPluginIndexSync.mockReturnValue(null);
   mocks.loadManifestMetadataSnapshot.mockReturnValue(mocks.emptyPluginMetadataSnapshot);
@@ -215,6 +222,12 @@ function installModelsListCommandForwardCompatMocks() {
 
   vi.doMock("./list.table.js", () => ({
     printModelTable: mocks.printModelTable,
+  }));
+
+  vi.doMock("./list.promotions.js", () => ({
+    applyPromotionClaimTags: mocks.applyPromotionClaimTags,
+    startPromotionsFeedRefresh: mocks.startPromotionsFeedRefresh,
+    printAvailablePromotionsSection: mocks.printAvailablePromotionsSection,
   }));
 
   vi.doMock("./list.registry-load.js", () => ({
@@ -381,17 +394,126 @@ describe("modelsListCommand forward-compat", () => {
       await modelsListCommand(opts, runtime as never);
 
       expect(mocks.printModelTable).toHaveBeenCalledWith([], runtime, opts);
+      expect(mocks.startPromotionsFeedRefresh).not.toHaveBeenCalled();
       expect(runtime.log).not.toHaveBeenCalledWith("No models found.");
     });
 
     it("preserves the human-readable message for an empty model list", async () => {
       mocks.resolveConfiguredEntries.mockReturnValueOnce({ entries: [] });
+      const refreshToken = { nowMs: 1, statePromise: Promise.resolve() };
+      mocks.startPromotionsFeedRefresh.mockReturnValueOnce(refreshToken);
       const runtime = createRuntime();
 
       await modelsListCommand({ provider: "autoqa-no-such-provider" }, runtime as never);
 
       expect(runtime.log).toHaveBeenCalledWith("No models found.");
       expect(mocks.printModelTable).not.toHaveBeenCalled();
+      expect(mocks.startPromotionsFeedRefresh).toHaveBeenCalledOnce();
+      expect(mocks.printAvailablePromotionsSection).toHaveBeenCalledWith(
+        expect.objectContaining({ refresh: refreshToken }),
+      );
+    });
+  });
+
+  describe("promotion refresh scheduling", () => {
+    it("does not start refresh when config resolution fails", async () => {
+      mocks.loadModelsConfigWithSource.mockRejectedValueOnce(new Error("config failed"));
+
+      await expect(modelsListCommand({}, createRuntime() as never)).rejects.toThrow(
+        "config failed",
+      );
+
+      expect(mocks.startPromotionsFeedRefresh).not.toHaveBeenCalled();
+    });
+
+    it("does not start refresh when registry loading fails", async () => {
+      mocks.loadModelRegistry.mockRejectedValueOnce(new Error("registry failed"));
+      const runtime = createRuntime();
+
+      await modelsListCommand({ all: true }, runtime as never);
+
+      expect(runtime.error).toHaveBeenCalledWith(expect.stringContaining("registry failed"));
+      expect(mocks.startPromotionsFeedRefresh).not.toHaveBeenCalled();
+      expect(mocks.printAvailablePromotionsSection).not.toHaveBeenCalled();
+    });
+
+    it.each([{ json: true }, { plain: true }])(
+      "does not start refresh for machine output",
+      async (options) => {
+        await modelsListCommand(options, createRuntime() as never);
+
+        expect(mocks.startPromotionsFeedRefresh).not.toHaveBeenCalled();
+        expect(mocks.printAvailablePromotionsSection).not.toHaveBeenCalled();
+      },
+    );
+
+    it("starts refresh before row construction finishes and appends output after the table", async () => {
+      const refresh = createDeferred();
+      const rowConstructionStarted = createDeferred();
+      const releaseRowConstruction = createDeferred();
+      const tablePrinted = createDeferred();
+      const refreshToken = {
+        nowMs: 1,
+        statePromise: refresh.promise,
+      };
+      mocks.loadModelCatalog.mockImplementationOnce(async () => {
+        rowConstructionStarted.resolve();
+        await releaseRowConstruction.promise;
+        return [];
+      });
+      mocks.startPromotionsFeedRefresh.mockReturnValueOnce(refreshToken);
+      mocks.printModelTable.mockImplementationOnce((_rows, runtime) => {
+        runtime.log("model table");
+        tablePrinted.resolve();
+      });
+      mocks.printAvailablePromotionsSection.mockImplementationOnce(
+        async ({ refresh: pendingRefresh, runtime }) => {
+          await pendingRefresh.statePromise;
+          runtime.log("promotion section");
+        },
+      );
+      const runtime = createRuntime();
+
+      const commandPromise = modelsListCommand({}, runtime as never);
+      await rowConstructionStarted.promise;
+
+      expect(mocks.startPromotionsFeedRefresh).toHaveBeenCalledOnce();
+      expect(mocks.printModelTable).not.toHaveBeenCalled();
+
+      releaseRowConstruction.resolve();
+      await tablePrinted.promise;
+
+      expectRowKeys(lastPrintedRows<{ key: string }>(), ["openai/gpt-5.4"]);
+      expect(runtime.log.mock.calls).toEqual([["model table"]]);
+
+      refresh.resolve();
+      await commandPromise;
+
+      expect(runtime.log.mock.calls).toEqual([["model table"], ["promotion section"]]);
+      expect(mocks.printAvailablePromotionsSection).toHaveBeenCalledWith(
+        expect.objectContaining({ refresh: refreshToken }),
+      );
+    });
+
+    it("keeps a rejected refresh fail-silent", async () => {
+      const refresh = createDeferred();
+      const sectionStarted = createDeferred();
+      mocks.startPromotionsFeedRefresh.mockReturnValueOnce({
+        nowMs: 1,
+        statePromise: refresh.promise,
+      });
+      mocks.printAvailablePromotionsSection.mockImplementationOnce(
+        async ({ refresh: pendingRefresh }) => {
+          sectionStarted.resolve();
+          await pendingRefresh.statePromise;
+        },
+      );
+
+      const commandPromise = modelsListCommand({}, createRuntime() as never);
+      await sectionStarted.promise;
+      refresh.reject(new Error("refresh failed"));
+
+      await expect(commandPromise).resolves.toBeUndefined();
     });
   });
 
