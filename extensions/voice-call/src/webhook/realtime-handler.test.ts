@@ -1869,7 +1869,7 @@ describe("RealtimeCallHandler path routing", () => {
     }
   });
 
-  it("ignores late continuity reset and close from a replaced bridge", async () => {
+  it("isolates replacement transcripts and late old bridge events", async () => {
     const callbacks: RealtimeBridgeRequest[] = [];
     const oldCloseBridge = vi.fn();
     const replacementCloseBridge = vi.fn();
@@ -1882,6 +1882,9 @@ describe("RealtimeCallHandler path routing", () => {
       const bridge = bridges[callbacks.length - 1];
       if (!bridge) {
         throw new Error("unexpected replacement bridge");
+      }
+      if (callbacks.length === 2) {
+        request.onTranscript?.("user", "Fresh", false);
       }
       return bridge;
     });
@@ -1912,6 +1915,7 @@ describe("RealtimeCallHandler path routing", () => {
       await waitForRealtimeTest(() => {
         expect(callbacks).toHaveLength(1);
       });
+      callbacks[0]?.onTranscript?.("user", "Old ", false);
 
       replacementServer = await startRealtimeServer(handler);
       const replacementWs = await connectWs(replacementServer.url);
@@ -1929,7 +1933,6 @@ describe("RealtimeCallHandler path routing", () => {
           expect(callbacks).toHaveLength(2);
         });
 
-        callbacks[1]?.onTranscript?.("user", "Fresh ", false);
         callbacks[0]?.onTranscript?.("user", "stale partial", false);
         callbacks[0]?.onTranscript?.("user", "stale final", true);
         callbacks[0]?.onTranscript?.("assistant", "stale assistant", true);
@@ -1962,7 +1965,7 @@ describe("RealtimeCallHandler path routing", () => {
               .map(([event]) => event as NormalizedEvent)
               .filter((event) => event.type === "call.speech")
               .map((event) => (event.type === "call.speech" ? event.transcript : undefined)),
-          ).toEqual(["Fresh caller"]);
+          ).toEqual(["Freshcaller"]);
         });
         expect(
           processEvent.mock.calls
