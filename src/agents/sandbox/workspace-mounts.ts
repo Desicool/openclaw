@@ -120,8 +120,8 @@ export function formatReadOnlyWorkspaceSkillMountHashState(
 /**
  * Returns the set of container paths that are protected by read-only skill mounts.
  *
- * User-defined binds that target any path in this set must be skipped to avoid a Docker
- * "Duplicate mount point" error while keeping the protected read-only overlay authoritative.
+ * User-defined binds that target any path in this set must be skipped so the
+ * container engine sees one authoritative read-only mount for each destination.
  */
 export function resolveProtectedSkillMountContainerPaths(
   mounts: readonly ReadOnlyWorkspaceSkillMount[],

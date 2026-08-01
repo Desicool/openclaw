@@ -545,6 +545,9 @@ describe("ensureSandboxBrowser create args", () => {
     expect(bindArgs).not.toContain(customMount);
     // Protected skill overlay is present and appended after user binds
     expect(protectedMountIdx).toBeGreaterThan(workspaceMountIdx);
+    expect(runtimeMocks.log).toHaveBeenCalledWith(
+      expect.stringContaining(`skipping user bind "${customMount}"`),
+    );
   });
 
   it("includes the explicit env policy epoch in the browser config hash when needed", async () => {

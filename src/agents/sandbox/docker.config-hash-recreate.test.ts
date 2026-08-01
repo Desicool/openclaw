@@ -624,6 +624,30 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     expect(protectedMountIdx).toBeGreaterThan(workspaceMountIdx);
   });
 
+  it("skips protected skill bind conflicts for Podman containers", async () => {
+    const workspaceDir = makeTempDir();
+    const customRoot = makeTempDir();
+    fs.mkdirSync(path.join(workspaceDir, "skills", "demo"), { recursive: true });
+    const customMount = `${customRoot}:/workspace/skills:rw`;
+    const cfg = createSandboxConfig([], [customMount]);
+    cfg.backend = "podman";
+    cfg.docker.dangerouslyAllowExternalBindSources = true;
+
+    spawnState.inspectRunning = false;
+    registryMocks.readRegistryEntry.mockResolvedValue(null);
+
+    const createCall = await ensureSandboxCreateCallForTest({
+      cfg,
+      workspaceDir,
+      engine: PODMAN_SANDBOX_ENGINE,
+    });
+    const bindArgs = collectDockerFlagValues(createCall.args, "-v");
+
+    expect(createCall.command).toBe("podman");
+    expect(bindArgs).not.toContain(customMount);
+    expect(bindArgs).toContain(`${path.join(workspaceDir, "skills")}:/workspace/skills:ro,z`);
+  });
+
   it.each([
     { workspaceAccess: "rw" as const, expectedMainMount: "/tmp/workspace:/workspace:z" },
     { workspaceAccess: "ro" as const, expectedMainMount: "/tmp/workspace:/workspace:ro,z" },

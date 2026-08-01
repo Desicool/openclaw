@@ -505,9 +505,8 @@ async function createSandboxContainer(params: {
     readOnlyWorkspaceSkillMounts: params.readOnlyWorkspaceSkillMounts,
     includeReadOnlyWorkspaceSkillMounts: false,
   });
-  // Skip user binds that conflict with protected skill mount container paths so
-  // the read-only skill overlay remains authoritative and Docker does not reject
-  // the container with a "Duplicate mount point" error.
+  // Protected skill overlays are authoritative. Remove exact destination
+  // collisions before Docker or Podman sees duplicate mount arguments.
   const protectedPaths = resolveProtectedSkillMountContainerPaths(
     params.readOnlyWorkspaceSkillMounts,
   );

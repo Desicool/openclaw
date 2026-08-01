@@ -1,9 +1,12 @@
 /**
  * End-to-end verification: protected skill mounts keep authority; conflicting
- * user binds are skipped to prevent Docker "Duplicate mount point" errors.
+ * user binds are skipped to prevent duplicate mount destination errors.
  *
- * Prerequisites: Docker daemon, Node >=22.19, pnpm install
- * Usage: node --import tsx scripts/e2e-sandbox-bind-conflict.mjs
+ * Prerequisites: Docker or Podman, Node >=22.19, pnpm install, and the selected image.
+ * Usage:
+ *   OPENCLAW_SANDBOX_E2E_ENGINE=podman \
+ *   OPENCLAW_SANDBOX_E2E_IMAGE=alpine:3.20 \
+ *   node --import tsx scripts/e2e-sandbox-bind-conflict.mjs
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -13,6 +16,12 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const engine = process.env.OPENCLAW_SANDBOX_E2E_ENGINE?.trim() || "docker";
+const image = process.env.OPENCLAW_SANDBOX_E2E_IMAGE?.trim() || "e2e-sleep:latest";
+const useSudo = process.env.OPENCLAW_SANDBOX_E2E_SUDO === "1";
+if (engine !== "docker" && engine !== "podman") {
+  throw new Error(`Unsupported container engine "${engine}". Use docker or podman.`);
+}
 
 const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-"));
 const skillsDir = path.join(workspaceDir, "skills", "demo");
@@ -25,7 +34,7 @@ fs.mkdirSync(customBindHost, { recursive: true });
 fs.writeFileSync(path.join(customBindHost, "data.txt"), "user data\n");
 
 const userBinds = [`${customBindHost}:/workspace/skills:rw`];
-const containerName = `oc-e2e-bind-${Date.now()}`.slice(0, 63);
+const containerName = `oc-e2e-${engine}-bind-${Date.now()}`.slice(0, 63);
 
 let failureCount = 0;
 function fail(label) {
@@ -75,8 +84,8 @@ if (safeBinds.length > 0) {
   pass("conflicting user bind correctly skipped");
 }
 
-// ── Build docker create args ──────────────────────────────────────────
-const dockerArgs = [
+// ── Build container create args ───────────────────────────────────────
+const createArgs = [
   "create",
   "--name",
   containerName,
@@ -90,14 +99,14 @@ const dockerArgs = [
 ];
 // Protected skill mounts always appended (authoritative, read-only)
 for (const m of protectedMounts) {
-  dockerArgs.push("-v", `${m.hostPath}:${m.containerPath}:ro`);
+  createArgs.push("-v", `${m.hostPath}:${m.containerPath}:ro`);
 }
-dockerArgs.push("e2e-sleep:latest", "infinity");
+createArgs.push(image, "sleep", "infinity");
 
 // ── Duplicate check ───────────────────────────────────────────────────
-console.log("\n--- Docker args ---");
+console.log(`\n--- ${engine} args ---`);
 let nextIsMount = false;
-for (const a of dockerArgs) {
+for (const a of createArgs) {
   if (nextIsMount) {
     console.log(`  -v ${a}`);
     nextIsMount = false;
@@ -113,11 +122,11 @@ for (const a of dockerArgs) {
 console.log("\n--- Duplicate check ---");
 const seen = new Map();
 let dupes = 0;
-for (let i = 0; i < dockerArgs.length - 1; i++) {
-  if (dockerArgs[i] !== "-v") {
+for (let i = 0; i < createArgs.length - 1; i++) {
+  if (createArgs[i] !== "-v") {
     continue;
   }
-  const parts = dockerArgs[i + 1].split(":");
+  const parts = createArgs[i + 1].split(":");
   if (parts.length < 2) {
     continue;
   }
@@ -126,7 +135,7 @@ for (let i = 0; i < dockerArgs.length - 1; i++) {
     console.log(`❌ DUPLICATE: ${cpath}`);
     dupes++;
   } else {
-    seen.set(cpath, dockerArgs[i + 1]);
+    seen.set(cpath, createArgs[i + 1]);
   }
 }
 if (dupes === 0) {
@@ -135,20 +144,20 @@ if (dupes === 0) {
   fail(`found ${dupes} duplicate container paths`);
 }
 
-// ── Helper: run sudo docker with argv (no shell string) ───────────────
-function sudoDocker(args, opts = {}) {
-  return spawnSync("sudo", ["docker", ...args], {
+// ── Helper: run the selected engine with argv (no shell string) ───────
+function runEngine(args, opts = {}) {
+  return spawnSync(useSudo ? "sudo" : engine, useSudo ? [engine, ...args] : args, {
     encoding: "utf8",
     timeout: 30_000,
     ...opts,
   });
 }
 
-// ── Docker create ─────────────────────────────────────────────────────
-console.log(`\n--- docker create ${containerName} ---`);
+// ── Container create ──────────────────────────────────────────────────
+console.log(`\n--- ${engine} create ${containerName} ---`);
 let created = false;
 try {
-  const result = sudoDocker(dockerArgs, { stdio: "pipe" });
+  const result = runEngine(createArgs, { stdio: "pipe" });
   if (result.error) {
     throw result.error;
   }
@@ -160,16 +169,22 @@ try {
     throw err;
   }
   created = true;
-  pass("Container created — no Duplicate mount point error");
+  pass(`Container created with ${engine} without duplicate mount destinations`);
 
-  const inspectResult = sudoDocker([
-    "inspect",
-    "-f",
-    "{{range .Mounts}}{{.Destination}}|{{end}}",
-    containerName,
-  ]);
-  const output = (inspectResult.stdout || "").trim();
-  const dests = output.split("|").filter(Boolean);
+  const inspectResult = runEngine(["inspect", containerName]);
+  if (inspectResult.error) {
+    throw inspectResult.error;
+  }
+  if (inspectResult.status !== 0) {
+    const err = new Error(`inspect exited ${inspectResult.status}`);
+    err.stderr = inspectResult.stderr;
+    throw err;
+  }
+  const inspectedContainer = JSON.parse(inspectResult.stdout)[0];
+  const mounts = Array.isArray(inspectedContainer?.Mounts) ? inspectedContainer.Mounts : [];
+  const dests = mounts
+    .map((mount) => mount?.Destination)
+    .filter((destination) => typeof destination === "string");
   const skillsCount = dests.filter((d) => d === "/workspace/skills").length;
   console.log(`Mount destinations: ${dests.join(" ")}`);
   console.log(`/workspace/skills count: ${skillsCount}`);
@@ -180,16 +195,11 @@ try {
   }
 
   // Verify protected mount source (not user bind)
-  const mountResult = sudoDocker([
-    "inspect",
-    "-f",
-    '{{range .Mounts}}{{if eq .Destination "/workspace/skills"}}{{.Source}} {{.Mode}}{{end}}{{end}}',
-    containerName,
-  ]);
-  const mountSrc = (mountResult.stdout || "").trim();
+  const skillMount = mounts.find((mount) => mount?.Destination === "/workspace/skills");
+  const mountSrc = typeof skillMount?.Source === "string" ? skillMount.Source : "";
   console.log(`Mount source for /workspace/skills: ${mountSrc}`);
-  const isReadOnly = mountSrc.includes("ro");
-  const isProtectedSource = mountSrc.includes(path.join(workspaceDir, "skills"));
+  const isReadOnly = skillMount?.RW === false;
+  const isProtectedSource = mountSrc === path.join(workspaceDir, "skills");
   if (isReadOnly) {
     pass("mount is read-only");
   } else {
@@ -203,7 +213,7 @@ try {
 } catch (err) {
   const msg = err?.stderr ? String(err.stderr) : String(err.message ?? err);
   if (msg.includes("Duplicate mount point") || msg.includes("duplicate mount")) {
-    fail("Duplicate mount point rejected by Docker");
+    fail(`Duplicate mount point rejected by ${engine}`);
     console.log(msg.slice(0, 500));
   } else {
     console.log(`❌ Error: ${msg.slice(0, 500)}`);
@@ -211,7 +221,7 @@ try {
   }
 } finally {
   if (created) {
-    sudoDocker(["rm", "-f", containerName]);
+    runEngine(["rm", "-f", containerName]);
   }
   fs.rmSync(workspaceDir, { recursive: true, force: true });
 }
