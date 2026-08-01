@@ -14,13 +14,15 @@ import {
 } from "../manager.test-harness.js";
 import { setVoiceCallStateRuntime } from "../runtime-state.js";
 import { CallRecordSchema } from "../types.js";
-import { MAX_CALL_REPLAY_KEYS, MAX_MANAGER_REPLAY_KEYS } from "./replay-keys.js";
+import { MAX_CALL_REPLAY_KEYS } from "./replay-keys.js";
 import {
   findCallMatchesInStore,
   getCallHistoryFromStore,
   loadActiveCallsFromStore,
   persistCallRecord,
 } from "./store.js";
+
+const MANAGER_REPLAY_KEY_LIMIT = 10_000;
 
 function installStateRuntime(): void {
   setVoiceCallStateRuntime({
@@ -191,7 +193,7 @@ describe("voice-call call record store", () => {
     );
     for (
       let callIndex = 0;
-      callIndex < MAX_MANAGER_REPLAY_KEYS / MAX_CALL_REPLAY_KEYS;
+      callIndex < MANAGER_REPLAY_KEY_LIMIT / MAX_CALL_REPLAY_KEYS;
       callIndex++
     ) {
       persistCallRecord(
@@ -221,7 +223,7 @@ describe("voice-call call record store", () => {
 
     const restored = loadActiveCallsFromStore(storePath);
 
-    expect(restored.processedEventIds.size).toBe(MAX_MANAGER_REPLAY_KEYS);
+    expect(restored.processedEventIds.size).toBe(MANAGER_REPLAY_KEY_LIMIT);
     expect(restored.processedEventIds.has("evt-latest-old")).toBe(true);
     expect(restored.processedEventIds.has("evt-latest-new")).toBe(true);
     expect(restored.processedEventIds.has("evt-fill-0-0")).toBe(false);
