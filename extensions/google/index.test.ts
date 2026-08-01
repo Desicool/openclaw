@@ -56,6 +56,7 @@ function createDeferred<T>() {
 function createMockRealtimeBridge(connectImpl: () => Promise<void> = async () => {}) {
   const connect = vi.fn(connectImpl);
   const sendUserMessage = vi.fn();
+  const triggerGreeting = vi.fn();
   const close = vi.fn();
   const bridge: RealtimeVoiceBridge = {
     supportsToolResultContinuation: false,
@@ -64,17 +65,17 @@ function createMockRealtimeBridge(connectImpl: () => Promise<void> = async () =>
     sendAudio: vi.fn(),
     setMediaTimestamp: vi.fn(),
     sendUserMessage,
-    triggerGreeting: vi.fn(),
+    triggerGreeting,
     handleBargeIn: vi.fn(),
     submitToolResult: vi.fn(),
     acknowledgeMark: vi.fn(),
     close,
     isConnected: vi.fn(() => false),
   };
-  return { bridge, close, connect, sendUserMessage };
+  return { bridge, close, connect, sendUserMessage, triggerGreeting };
 }
 
-function createLazyRealtimeBridge(onError = vi.fn()) {
+function createLazyRealtimeBridge(onError = vi.fn(), onReady?: () => void) {
   let realtimeProvider: RealtimeVoiceProviderPlugin | undefined;
   googlePlugin.register(
     createTestPluginApi({
@@ -88,6 +89,7 @@ function createLazyRealtimeBridge(onError = vi.fn()) {
     onAudio() {},
     onClearAudio() {},
     onError,
+    onReady,
   });
   if (!bridge) {
     throw new Error("expected Google realtime bridge");
@@ -588,5 +590,24 @@ describe("google provider plugin hooks", () => {
 
     expect(loaded.close).toHaveBeenCalledOnce();
     expect(loaded.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps close precedence when the readiness callback closes the lazy bridge", async () => {
+    const loaded = createMockRealtimeBridge();
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const bridgeRef: { current?: RealtimeVoiceBridge } = {};
+    const onReady = vi.fn(() => bridgeRef.current?.close());
+    const { bridge } = createLazyRealtimeBridge(vi.fn(), onReady);
+    bridgeRef.current = bridge;
+
+    bridge.sendUserMessage?.("queued prompt");
+    bridge.triggerGreeting?.("queued greeting");
+    await bridge.connect();
+    signalRealtimeBridgeReady();
+
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(loaded.close).toHaveBeenCalledOnce();
+    expect(loaded.sendUserMessage).not.toHaveBeenCalled();
+    expect(loaded.triggerGreeting).not.toHaveBeenCalled();
   });
 });
