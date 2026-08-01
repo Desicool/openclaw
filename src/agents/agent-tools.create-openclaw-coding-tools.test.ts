@@ -808,7 +808,7 @@ describe("createOpenClawCodingTools", () => {
       sourceTool: "subagent_announce",
       sourceReplyDeliveryMode: "message_tool_only" as const,
       runtimeToolAllowlist: ["message", "read"],
-      expected: false,
+      expected: true,
     },
     {
       name: "automatic completion delivery",
@@ -818,7 +818,7 @@ describe("createOpenClawCodingTools", () => {
       runtimeToolAllowlist: ["message"],
       expected: false,
     },
-  ])("limits $name to the source only when its trusted grant is exact", async (testCase) => {
+  ])("limits $name to the source only for verified completion delivery", async (testCase) => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-source-reply-only-"));
     try {
       const storeTemplate = path.join(tmpDir, "sessions-{agentId}.json");

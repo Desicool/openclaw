@@ -559,15 +559,13 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     const normalized = normalizeToolName(toolName);
     return normalized === "*" || normalized === "message";
   });
-  // Frozen child output may use only the parent's existing source-delivery grant.
-  // Trusted ingress plus its exact one-tool cap prevent ordinary private turns from narrowing.
+  // A verified completion may retain parent tools, but its mandatory delivery
+  // grant stays bound to the current source regardless of allowlist width.
   const sourceReplyOnly =
     capabilityProfile.policy.requesterPolicySource === "completion-handoff" &&
     options?.inputProvenance?.kind === "inter_session" &&
     options.inputProvenance.sourceTool === "subagent_announce" &&
-    options.sourceReplyDeliveryMode === "message_tool_only" &&
-    options.runtimeToolAllowlist?.length === 1 &&
-    normalizeToolName(options.runtimeToolAllowlist[0] ?? "") === "message";
+    options.sourceReplyDeliveryMode === "message_tool_only";
   const localModelLeanPreserveToolNames = resolveLocalModelLeanPreserveToolNames({
     toolNames: capabilityProfile.policy.explicitToolOverrideAllowlist,
     forceMessageTool: options?.forceMessageTool,
