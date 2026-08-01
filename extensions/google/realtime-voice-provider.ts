@@ -533,8 +533,13 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
     if (this.hasConnectedSession && !canResumeSession) {
       // An unfinished recognition hypothesis cannot cross into a fresh server session.
-      // Dropping it avoids treating a transport break as a completed user utterance.
+      // Notify consumers before connect because the SDK can replay fresh-session
+      // callbacks before its connect promise returns.
       this.resetPendingTranscripts();
+      this.config.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
     }
     this.intentionallyClosed = false;
     this.closeNotified = false;

@@ -830,6 +830,46 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
     ]);
   });
 
+  it("preserves continuity when resumability recovers before reconnect", async () => {
+    vi.useFakeTimers();
+    const provider = buildGoogleRealtimeVoiceProvider();
+    const onEvent = vi.fn();
+    const onTranscript = vi.fn();
+    const bridge = provider.createBridge({
+      providerConfig: { apiKey: "gemini-key" },
+      onAudio: vi.fn(),
+      onClearAudio: vi.fn(),
+      onEvent,
+      onTranscript,
+    });
+
+    await bridge.connect();
+    const firstSession = lastConnectParams().callbacks;
+    firstSession.onmessage({
+      sessionResumptionUpdate: { resumable: true, newHandle: "resume-1" },
+      serverContent: { inputTranscription: { text: "Before " } },
+    });
+    firstSession.onmessage({
+      sessionResumptionUpdate: { resumable: false },
+    });
+    firstSession.onmessage({
+      sessionResumptionUpdate: { resumable: true, newHandle: "resume-2" },
+    });
+    expect(onEvent).not.toHaveBeenCalled();
+
+    firstSession.onclose({ code: 1011, reason: "temporary" });
+    await vi.advanceTimersByTimeAsync(250);
+    lastConnectParams().callbacks.onmessage({
+      serverContent: { inputTranscription: { text: "after", finished: true } },
+    });
+
+    expect(lastConnectParams().config.sessionResumption).toEqual({ handle: "resume-2" });
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onTranscript.mock.calls.filter((call) => call[2] === true)).toEqual([
+      ["user", "Before after", true],
+    ]);
+  });
+
   it("drops unfinished hypotheses when a new session has no continuity", async () => {
     vi.useFakeTimers();
     const provider = buildGoogleRealtimeVoiceProvider();
@@ -863,6 +903,7 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       const provider = buildGoogleRealtimeVoiceProvider();
       const onClose = vi.fn();
       const onError = vi.fn();
+      const onEvent = vi.fn();
       const onTranscript = vi.fn();
       const bridge = provider.createBridge({
         providerConfig: { apiKey: "gemini-key" },
@@ -870,6 +911,7 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
         onClearAudio: vi.fn(),
         onClose,
         onError,
+        onEvent,
         onTranscript,
       });
 
@@ -885,6 +927,7 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       lastConnectParams().callbacks.onmessage({
         sessionResumptionUpdate: { resumable: false, ...(newHandle ? { newHandle } : {}) },
       });
+      expect(onEvent).not.toHaveBeenCalled();
       lastConnectParams().callbacks.onclose({
         code: 1011,
         reason: "temporary upstream close",
@@ -899,6 +942,17 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
 
       expect(connectMock).toHaveBeenCalledTimes(2);
       expect(lastConnectParams().config.sessionResumption).toEqual({});
+      expect(onEvent).toHaveBeenCalledOnce();
+      expect(onEvent).toHaveBeenCalledWith({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
+      const resetOrder = onEvent.mock.invocationCallOrder[0];
+      const reconnectOrder = connectMock.mock.invocationCallOrder[1];
+      if (resetOrder === undefined || reconnectOrder === undefined) {
+        throw new Error("expected continuity reset before reconnect");
+      }
+      expect(resetOrder).toBeLessThan(reconnectOrder);
 
       lastConnectParams().callbacks.onmessage({
         setupComplete: { sessionId: "session-2" },
