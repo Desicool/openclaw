@@ -23,17 +23,16 @@ export function createGoogleRealtimeAudioQueue(overflowPolicy: GoogleRealtimeAud
       if (audio.byteLength > GOOGLE_REALTIME_MAX_PENDING_AUDIO_BYTES) {
         return false;
       }
-      const chunk = Buffer.from(audio);
       if (
         overflowPolicy === "reject-newest" &&
         (chunks.length >= GOOGLE_REALTIME_MAX_PENDING_AUDIO_CHUNKS ||
-          bytes + chunk.byteLength > GOOGLE_REALTIME_MAX_PENDING_AUDIO_BYTES)
+          bytes + audio.byteLength > GOOGLE_REALTIME_MAX_PENDING_AUDIO_BYTES)
       ) {
         return false;
       }
       while (
         chunks.length >= GOOGLE_REALTIME_MAX_PENDING_AUDIO_CHUNKS ||
-        bytes + chunk.byteLength > GOOGLE_REALTIME_MAX_PENDING_AUDIO_BYTES
+        bytes + audio.byteLength > GOOGLE_REALTIME_MAX_PENDING_AUDIO_BYTES
       ) {
         const dropped = chunks.shift();
         if (!dropped) {
@@ -41,6 +40,7 @@ export function createGoogleRealtimeAudioQueue(overflowPolicy: GoogleRealtimeAud
         }
         bytes -= dropped.byteLength;
       }
+      const chunk = Buffer.from(audio);
       chunks.push(chunk);
       bytes += chunk.byteLength;
       return true;
