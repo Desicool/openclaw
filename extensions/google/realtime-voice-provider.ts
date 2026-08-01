@@ -482,6 +482,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private hasConnectedSession = false;
+  private continuityResetEmitted = false;
   private terminalError: Error | undefined;
   private closeNotified = false;
   private connectionOwner: GoogleLiveConnectionAttempt | undefined;
@@ -532,10 +533,11 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private async connectOwned(attempt: GoogleLiveConnectionAttempt): Promise<void> {
     const canResumeSession =
       this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
-    if (this.hasConnectedSession && !canResumeSession) {
+    if (this.hasConnectedSession && !canResumeSession && !this.continuityResetEmitted) {
       // An unfinished recognition hypothesis cannot cross into a fresh server session.
       // Notify consumers before connect because the SDK can replay fresh-session
       // callbacks before its connect promise returns.
+      this.continuityResetEmitted = true;
       this.resetPendingTranscripts();
       this.config.onEvent?.({
         direction: "client",
@@ -868,6 +870,11 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private handleSetupComplete(): void {
+    if (!this.setupCompleteReceived) {
+      // setupComplete proves Google selected a new server session. A later
+      // continuity loss therefore owns a new reset generation.
+      this.continuityResetEmitted = false;
+    }
     this.setupCompleteReceived = true;
     this.maybeActivateSession();
   }

@@ -1071,6 +1071,89 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
     );
   });
 
+  it("emits one continuity reset across failed fresh reconnect attempts", async () => {
+    vi.useFakeTimers();
+    const provider = buildGoogleRealtimeVoiceProvider();
+    const onClose = vi.fn();
+    const onEvent = vi.fn();
+    const bridge = provider.createBridge({
+      providerConfig: { apiKey: "gemini-key", sessionResumption: false },
+      onAudio: vi.fn(),
+      onClearAudio: vi.fn(),
+      onClose,
+      onEvent,
+    });
+
+    await bridge.connect();
+    const firstSession = lastConnectParams().callbacks;
+    firstSession.onmessage({ setupComplete: {} });
+    connectMock
+      .mockRejectedValueOnce(new Error("connect failed 1"))
+      .mockRejectedValueOnce(new Error("connect failed 2"))
+      .mockRejectedValueOnce(new Error("connect failed 3"));
+    firstSession.onclose({ code: 1011, reason: "temporary" });
+
+    await vi.advanceTimersByTimeAsync(1_750);
+
+    expect(connectMock).toHaveBeenCalledTimes(4);
+    expect(onEvent.mock.calls).toEqual([
+      [{ direction: "client", type: "session.continuity.reset" }],
+    ]);
+    expect(onClose).toHaveBeenCalledWith("error");
+  });
+
+  it("rearms continuity reset after pre-return setup selects a fresh session", async () => {
+    vi.useFakeTimers();
+    const pendingSession = createDeferred<MockGoogleLiveSession>();
+    const freshSession = createMockGoogleLiveSession();
+    connectMock
+      .mockReturnValueOnce(Promise.resolve(session))
+      .mockReturnValueOnce(pendingSession.promise);
+    const provider = buildGoogleRealtimeVoiceProvider();
+    const onEvent = vi.fn();
+    const onReady = vi.fn();
+    const onTranscript = vi.fn();
+    const bridge = provider.createBridge({
+      providerConfig: { apiKey: "gemini-key", sessionResumption: false },
+      onAudio: vi.fn(),
+      onClearAudio: vi.fn(),
+      onEvent,
+      onReady,
+      onTranscript,
+    });
+
+    await bridge.connect();
+    const firstCallbacks = lastConnectParams().callbacks;
+    firstCallbacks.onopen();
+    firstCallbacks.onmessage({ setupComplete: {} });
+    firstCallbacks.onclose({ code: 1011, reason: "temporary" });
+    await vi.advanceTimersByTimeAsync(250);
+
+    const freshCallbacks = lastConnectParams().callbacks;
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    freshCallbacks.onopen();
+    freshCallbacks.onmessage({
+      setupComplete: {},
+      serverContent: { inputTranscription: { text: "Fresh partial " } },
+    });
+    expect(onReady).toHaveBeenCalledTimes(1);
+
+    pendingSession.resolve(freshSession);
+    await vi.waitFor(() => {
+      expect(onReady).toHaveBeenCalledTimes(2);
+    });
+    freshCallbacks.onclose({ code: 1011, reason: "temporary again" });
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    lastConnectParams().callbacks.onmessage({
+      serverContent: { inputTranscription: { text: "Next", finished: true } },
+    });
+    expect(onTranscript.mock.calls.filter((call) => call[2] === true)).toEqual([
+      ["user", "Next", true],
+    ]);
+  });
+
   it("waits for the returned session after setup completion before activating", async () => {
     const pendingSession = createDeferred<MockGoogleLiveSession>();
     const connectedSession = createMockGoogleLiveSession();
