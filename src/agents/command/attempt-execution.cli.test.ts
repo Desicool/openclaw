@@ -228,15 +228,22 @@ const SUBAGENT_ANNOUNCE_DELIVERY_CASES: readonly SubagentAnnounceDeliveryCase[] 
 ];
 
 const SUBAGENT_ANNOUNCE_EMBEDDED_DELIVERY_CASES: readonly SubagentAnnounceDeliveryCase[] = [
-  ...SUBAGENT_ANNOUNCE_DELIVERY_CASES.map((testCase) =>
-    testCase.name === "automatic source replies"
-      ? {
-          ...testCase,
-          expectedDisableTools: false,
-          expectedToolsAllow: SUBAGENT_ANNOUNCE_REQUESTER_TOOLS,
-        }
-      : testCase,
-  ),
+  ...SUBAGENT_ANNOUNCE_DELIVERY_CASES.map((testCase) => {
+    if (testCase.name === "automatic source replies") {
+      return {
+        ...testCase,
+        expectedDisableTools: false,
+        expectedToolsAllow: SUBAGENT_ANNOUNCE_REQUESTER_TOOLS,
+      };
+    }
+    if (!testCase.expectedDisableTools) {
+      return {
+        ...testCase,
+        expectedToolsAllow: testCase.runtimeToolsAllow ?? SUBAGENT_ANNOUNCE_REQUESTER_TOOLS,
+      };
+    }
+    return testCase;
+  }),
   {
     name: "a raw model run despite message-tool-only delivery",
     sourceReplyDeliveryMode: "message_tool_only",

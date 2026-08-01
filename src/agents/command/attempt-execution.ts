@@ -731,7 +731,10 @@ export function runAgentAttempt(params: {
     trustedSubagentAnnounceHandoff &&
     !isRawModelRun &&
     !isCliExecutionProvider &&
-    !messageToolOwnsVisibleReply(params.opts);
+    (!messageToolOwnsVisibleReply(params.opts) || completionNeedsMessageDelivery);
+  // Message-tool-only delivery constrains the visible reply, not the parent
+  // continuation's verified authority. Keep the inherited cap while requiring
+  // message to survive every applicable policy before enabling any tools.
   // An explicit cap is enforced even when tools are disabled; clear it so a
   // denied completion can finish tool-free and its owner can relay frozen text.
   const runtimeToolsAllow = isSubagentAnnounceHandoff
