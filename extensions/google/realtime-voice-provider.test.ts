@@ -1131,6 +1131,8 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
     firstCallbacks.onopen();
     firstCallbacks.onmessage({ setupComplete: {} });
     firstCallbacks.onclose({ code: 1011, reason: "temporary" });
+    const queuedAudio = Buffer.from([0x7f]);
+    bridge.sendAudio(queuedAudio);
     await vi.advanceTimersByTimeAsync(250);
 
     const freshCallbacks = lastConnectParams().callbacks;
@@ -1145,17 +1147,31 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       "session.created",
     ]);
     expect(onReady).toHaveBeenCalledTimes(1);
+    expect(freshSession.sendRealtimeInput).not.toHaveBeenCalled();
 
     pendingSession.resolve(freshSession);
     await vi.waitFor(() => {
       expect(onReady).toHaveBeenCalledTimes(2);
     });
     const sessionCreatedOrder = onEvent.mock.invocationCallOrder[1];
+    const queuedAudioOrder = freshSession.sendRealtimeInput.mock.invocationCallOrder[0];
     const freshReadyOrder = onReady.mock.invocationCallOrder[1];
-    if (sessionCreatedOrder === undefined || freshReadyOrder === undefined) {
-      throw new Error("expected fresh session creation before readiness");
+    if (
+      sessionCreatedOrder === undefined ||
+      queuedAudioOrder === undefined ||
+      freshReadyOrder === undefined
+    ) {
+      throw new Error("expected fresh session creation, queued audio, and readiness");
     }
-    expect(sessionCreatedOrder).toBeLessThan(freshReadyOrder);
+    expect(sessionCreatedOrder).toBeLessThan(queuedAudioOrder);
+    expect(queuedAudioOrder).toBeLessThan(freshReadyOrder);
+    expect(freshSession.sendRealtimeInput).toHaveBeenCalledOnce();
+    expect(freshSession.sendRealtimeInput).toHaveBeenCalledWith({
+      audio: {
+        data: expect.any(String),
+        mimeType: "audio/pcm;rate=16000",
+      },
+    });
     freshCallbacks.onclose({ code: 1011, reason: "temporary again" });
     await vi.advanceTimersByTimeAsync(250);
 
