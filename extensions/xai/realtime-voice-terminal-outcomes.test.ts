@@ -140,53 +140,8 @@ describe("xAI realtime terminal event ownership", () => {
       expected: { errors: [], transcripts: [], tools: [] },
     },
     {
-      name: "does not dispatch completed output items before their response succeeds",
+      name: "ignores output-item events and waits for canonical terminal output",
       event: { type: "response.output_item.done", item: completedTool },
-      expected: { errors: [], transcripts: [], tools: [] },
-    },
-    {
-      name: "recovers completed output items only after their response succeeds",
-      event: [
-        { type: "response.output_item.done", item: completedTool },
-        { type: "response.done", response: { status: "completed", output: [] } },
-      ],
-      expected: { errors: [], transcripts: [], tools: [expectedTool] },
-    },
-    {
-      name: "deduplicates recovered output items against authoritative terminal output",
-      event: [
-        { type: "response.output_item.done", item: completedTool },
-        { type: "response.done", response: { status: "completed", output: [completedTool] } },
-      ],
-      expected: { errors: [], transcripts: [], tools: [expectedTool] },
-    },
-    ...["incomplete", "in_progress"].map((status) => ({
-      name: `does not dispatch ${status} function-call items`,
-      event: [
-        { type: "response.output_item.done", item: { ...completedTool, status } },
-        { type: "response.done", response: { status: "completed", output: [] } },
-      ],
-      expected: { errors: [], transcripts: [], tools: [] },
-    })),
-    ...["failed", "incomplete", "cancelled"].map((status) => ({
-      name: `discards recovered output items when their response is ${status}`,
-      event: [
-        { type: "response.output_item.done", item: completedTool },
-        { type: "response.done", response: { status, output: [completedTool] } },
-      ],
-      expected: {
-        errors: status === "cancelled" ? [] : [`xAI realtime voice response ${status}`],
-        transcripts: [],
-        tools: [],
-      },
-    })),
-    {
-      name: "does not carry recovered output items into the next response",
-      event: [
-        { type: "response.output_item.done", item: completedTool },
-        { type: "response.created", response: { id: "response_2" } },
-        { type: "response.done", response: { status: "completed", output: [] } },
-      ],
       expected: { errors: [], transcripts: [], tools: [] },
     },
     {
@@ -237,6 +192,20 @@ describe("xAI realtime terminal event ownership", () => {
         type: "response.done",
         response: { status: "completed", output: [completedTool] },
       },
+      expected: { errors: [], transcripts: [], tools: [expectedTool] },
+    },
+    {
+      name: "deduplicates immediate tool delivery against terminal output",
+      event: [
+        {
+          type: "response.function_call_arguments.done",
+          item_id: completedTool.id,
+          call_id: completedTool.call_id,
+          name: completedTool.name,
+          arguments: completedTool.arguments,
+        },
+        { type: "response.done", response: { status: "completed", output: [completedTool] } },
+      ],
       expected: { errors: [], transcripts: [], tools: [expectedTool] },
     },
     ...["failed", "incomplete", "cancelled"].map((status) => ({
