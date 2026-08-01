@@ -1186,6 +1186,128 @@ describe("buildXaiRealtimeVoiceProvider", () => {
     },
   );
 
+  it.each(["completed arguments", "resumed item replay"] as const)(
+    "rejects malformed and non-object tool arguments from %s without retaining pending state",
+    async (ingress) => {
+      const onEvent = vi.fn();
+      const onToolCall = vi.fn();
+      const bridge = buildXaiRealtimeVoiceProvider().createBridge({
+        providerConfig: {
+          apiKey: "xai-test", // pragma: allowlist secret
+          sessionResumption: ingress === "resumed item replay",
+        },
+        onAudio: vi.fn(),
+        onClearAudio: vi.fn(),
+        onEvent,
+        onToolCall,
+      });
+      const { connecting, socket } = await openRealtimeBridge(bridge);
+      await connecting;
+
+      for (const [index, rawArgs] of [
+        "{",
+        "null",
+        "[]",
+        JSON.stringify("text"),
+        "1",
+        "true",
+      ].entries()) {
+        const itemId = `item_invalid_${index}`;
+        const callId = `call_invalid_${index}`;
+        const event =
+          ingress === "completed arguments"
+            ? {
+                type: "response.function_call_arguments.done",
+                item_id: itemId,
+                call_id: callId,
+                name: "lookup_weather",
+                arguments: rawArgs,
+              }
+            : {
+                type: "conversation.item.created",
+                item: {
+                  id: itemId,
+                  type: "function_call",
+                  call_id: callId,
+                  name: "lookup_weather",
+                  arguments: rawArgs,
+                },
+              };
+        socket.emit("message", Buffer.from(JSON.stringify(event)));
+      }
+
+      expect(onToolCall).not.toHaveBeenCalled();
+      expect(
+        onEvent.mock.calls
+          .map(([event]) => event)
+          .filter((event) => event.type === "tool_call.arguments.rejected"),
+      ).toEqual([
+        {
+          direction: "server",
+          type: "tool_call.arguments.rejected",
+          detail: "reason=malformed-json",
+          itemId: "item_invalid_0",
+        },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          direction: "server",
+          type: "tool_call.arguments.rejected",
+          detail: "reason=non-object-json",
+          itemId: `item_invalid_${index + 1}`,
+        })),
+      ]);
+
+      bridge.sendUserMessage?.("Continue after rejected tool arguments.");
+      expect(parseSent(socket).slice(-2)).toEqual([
+        {
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Continue after rejected tool arguments." }],
+          },
+        },
+        { type: "response.create" },
+      ]);
+      bridge.close();
+    },
+  );
+
+  it("allows corrected completed arguments after rejecting the same tool call identity", async () => {
+    const onToolCall = vi.fn();
+    const bridge = buildXaiRealtimeVoiceProvider().createBridge({
+      providerConfig: { apiKey: "xai-test" }, // pragma: allowlist secret
+      onAudio: vi.fn(),
+      onClearAudio: vi.fn(),
+      onToolCall,
+    });
+    const { connecting, socket } = await openRealtimeBridge(bridge);
+    await connecting;
+
+    for (const rawArgs of ['{"city":', JSON.stringify({ city: "Paris" })]) {
+      socket.emit(
+        "message",
+        Buffer.from(
+          JSON.stringify({
+            type: "response.function_call_arguments.done",
+            item_id: "item_corrected",
+            call_id: "call_corrected",
+            name: "lookup_weather",
+            arguments: rawArgs,
+          }),
+        ),
+      );
+    }
+
+    expect(onToolCall).toHaveBeenCalledTimes(1);
+    expect(onToolCall).toHaveBeenCalledWith({
+      itemId: "item_corrected",
+      callId: "call_corrected",
+      name: "lookup_weather",
+      args: { city: "Paris" },
+    });
+    bridge.close();
+  });
+
   it("waits for all parallel tool results before sending response.create", async () => {
     vi.stubEnv("XAI_API_KEY", "xai-env"); // pragma: allowlist secret
     const provider = buildXaiRealtimeVoiceProvider();
