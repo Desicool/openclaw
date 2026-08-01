@@ -134,6 +134,37 @@ async function createEngineFixture(options?: {
 }
 
 describe("meeting realtime engine output ownership", () => {
+  it("rearms continuity reset when the provider creates a fresh session before ready", async () => {
+    const fixture = await createEngineFixture();
+    try {
+      fixture.callbacks.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
+      fixture.callbacks.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
+      await vi.waitFor(() => {
+        expect(fixture.clearOutput).toHaveBeenCalledOnce();
+      });
+
+      fixture.callbacks.onEvent?.({
+        direction: "server",
+        type: "session.created",
+      });
+      fixture.callbacks.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
+      await vi.waitFor(() => {
+        expect(fixture.clearOutput).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      await fixture.handle.stop();
+    }
+  });
+
   it("resets provider continuity without replaying old output or tool work", async () => {
     let releaseTool: (() => void) | undefined;
     const toolGate = new Promise<void>((resolve) => {

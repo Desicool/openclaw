@@ -564,6 +564,9 @@ export async function startMeetingRealtimeEngine(params: {
         }
       },
       onEvent: (event) => {
+        if (event.direction === "server" && event.type === "session.created") {
+          continuityResetActive = false;
+        }
         if (event.direction === "client" && event.type === "session.continuity.reset") {
           if (continuityResetActive) {
             return;
