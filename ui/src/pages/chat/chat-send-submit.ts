@@ -202,8 +202,10 @@ async function sendDetachedCommandMessage(
   }
   if (ok) {
     const submittedScopeIsVisible = submittedCommandScopeIsVisible(host, opts.recovery);
-    if (submittedScopeIsVisible) {
+    if (submittedCommandConnectionIsCurrent(host, opts.recovery)) {
       clearOwnedCommandComposerFallback(host, opts.recovery);
+    }
+    if (submittedScopeIsVisible) {
       setLastActiveSessionKey(
         host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
         host.sessionKey,

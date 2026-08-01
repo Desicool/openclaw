@@ -3087,6 +3087,49 @@ describe("handleSendChat", () => {
     expect(host.chatComposerFallbackByScope).toEqual({});
   });
 
+  it("clears detached command recovery after offscreen success", async () => {
+    const ack = createDeferred<{ runId: string; status: "started" }>();
+    const attachment = registerChatAttachmentPayload({
+      attachment: {
+        id: "successful-detached-attachment",
+        mimeType: "text/plain",
+      },
+      dataUrl: "data:text/plain;base64,c3VjY2Vzcw==",
+      file: new File(["success"], "success.txt", { type: "text/plain" }),
+    });
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": () => ack.promise,
+      },
+      chatAttachments: [attachment],
+      chatMessage: "/approve approval-123 allow-once",
+      chatRunId: "run-main",
+      chatStream: "Waiting for approval...",
+      sessionKey: "agent:main:first",
+    });
+    const scopeKey = storedChatOutboxScopeKey(resolveStoredChatOutboxScope(host, host.sessionKey));
+    host.chatComposerFallbackByScope = {
+      [scopeKey]: {
+        message: host.chatMessage,
+        attachments: [attachment],
+        storageFailed: true,
+        sequence: 42,
+      },
+    };
+
+    const send = handleSendChat(host);
+    await waitForFast(() => expect(host.request).toHaveBeenCalledOnce());
+    host.sessionKey = "agent:main:second";
+    host.chatMessage = "second session draft";
+
+    ack.resolve({ runId: "approval-command", status: "started" });
+    await send;
+
+    expect(host.chatMessage).toBe("second session draft");
+    expect(host.chatComposerFallbackByScope).toEqual({});
+    expect(getChatAttachmentDataUrl(attachment)).toBeNull();
+  });
+
   it("keeps a delayed local-command failure recoverable in its submitted session", async () => {
     const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
     executeSlashCommandMock.mockImplementationOnce(() => command.promise);
