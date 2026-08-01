@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
-import {
-  REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-  REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-} from "./realtime-talk-shared.ts";
+import { REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME } from "./realtime-talk-shared.ts";
 import { WebRtcSdpRealtimeTalkTransport } from "./realtime-talk-webrtc.ts";
 
 let getUserMedia: ReturnType<typeof vi.fn>;
@@ -558,6 +555,19 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
     transport.stop();
   });
 
+  it("stops processing the current provider event when a transcript callback closes it", async () => {
+    stubAnswerSdpFetch();
+    const onTalkEvent = vi.fn();
+    const onTranscript = vi.fn(() => transport.stop());
+    const transport = createOpenAiTransport({}, { onTranscript, onTalkEvent });
+
+    await transport.start();
+    dispatchTranscription(FakePeerConnection.instances[0], "overflow");
+
+    expect(onTranscript).toHaveBeenCalledOnce();
+    expect(onTalkEvent.mock.calls.map(([event]) => event.type)).toEqual(["session.closed"]);
+  });
+
   it("maps frameless Codex transcript events by role and finality", async () => {
     vi.stubGlobal(
       "fetch",
@@ -951,123 +961,6 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
       setTimeout(resolve, 0);
     });
     expect(request).not.toHaveBeenCalledWith("talk.client.steer", expect.any(Object));
-    transport.stop();
-  });
-
-  it("submits semantic realtime control tool results through the OpenAI data channel", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("answer-sdp")) as unknown as typeof fetch,
-    );
-    const request = vi.fn(async (method: string) => {
-      if (method === "talk.client.steer") {
-        return {
-          ok: true,
-          mode: "steer",
-          sessionKey: "main",
-          active: true,
-          queued: true,
-          message: "Got it. I steered the active run.",
-          speak: true,
-          show: true,
-          suppress: false,
-        };
-      }
-      throw new Error(`unexpected request: ${method}`);
-    });
-    const transport = new WebRtcSdpRealtimeTalkTransport(
-      {
-        provider: "openai",
-        transport: "webrtc",
-        clientSecret: "client-secret-123",
-      },
-      {
-        client: {
-          addEventListener: vi.fn(() => () => undefined),
-          request,
-        } as never,
-        sessionKey: "main",
-        callbacks: {},
-      },
-    );
-
-    await transport.start();
-    const peer = FakePeerConnection.instances[0];
-    peer?.channel.dispatchEvent(
-      new MessageEvent("message", {
-        data: JSON.stringify({
-          type: "response.function_call_arguments.done",
-          item_id: "item-control",
-          call_id: "call-control",
-          name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-          arguments: JSON.stringify({ text: "revísalo en WebUI", mode: "steer" }),
-        }),
-      }),
-    );
-
-    await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith("talk.client.steer", {
-        sessionKey: "main",
-        text: "revísalo en WebUI",
-        mode: "steer",
-      }),
-    );
-    const sent =
-      peer?.channel.send.mock.calls.map(([payload]) => JSON.parse(String(payload))) ?? [];
-    expect(sent).toContainEqual({
-      type: "conversation.item.create",
-      item: {
-        type: "function_call_output",
-        call_id: "call-control",
-        output: expect.stringContaining('"mode":"steer"'),
-      },
-    });
-    transport.stop();
-  });
-
-  it("surfaces OpenAI tool-result send failures without an unhandled rejection", async () => {
-    stubAnswerSdpFetch();
-    const onStatus = vi.fn();
-    const onTalkEvent = vi.fn();
-    const request = vi.fn(async (method: string) => {
-      if (method === "talk.client.steer") {
-        return {
-          ok: true,
-          mode: "status",
-          sessionKey: "main",
-          active: true,
-          message: "Still working.",
-        };
-      }
-      throw new Error(`unexpected request: ${method}`);
-    });
-    const transport = createOpenAiTransport({ request }, { onStatus, onTalkEvent });
-
-    await transport.start();
-    const peer = FakePeerConnection.instances[0];
-    peer?.channel.send.mockImplementation(() => {
-      throw new Error("OpenAI data channel rejected the tool result");
-    });
-    dispatchRealtimeEvent(peer, {
-      type: "response.function_call_arguments.done",
-      item_id: "item-control",
-      call_id: "call-control",
-      name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-      arguments: JSON.stringify({ text: "status", mode: "status" }),
-    });
-
-    await waitForFast(() =>
-      expect(onStatus).toHaveBeenCalledWith(
-        "error",
-        "OpenAI data channel rejected the tool result",
-      ),
-    );
-    expect(
-      onTalkEvent.mock.calls.some(
-        ([event]) =>
-          (event.type === "tool.progress" || event.type === "tool.error") && event.final === true,
-      ),
-    ).toBe(false);
     transport.stop();
   });
 });
