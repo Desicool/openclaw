@@ -1463,7 +1463,7 @@ export class DiscordRealtimeVoiceSession implements VoiceRealtimeSession {
     this.lastControlSpeech = undefined;
     this.clearProviderConsultState();
     const replayExactSpeech =
-      this.exactSpeechResponseActive && !this.exactSpeechAudioStarted
+      this.exactSpeechResponseActive && !this.harness.outputActivity.snapshot().playbackStarted
         ? this.activeExactSpeechMessage
         : undefined;
     this.exactSpeechResponseActive = false;

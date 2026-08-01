@@ -3590,7 +3590,7 @@ describe("DiscordVoiceManager", () => {
     );
   });
 
-  it("does not replay partially spoken exact speech after provider continuity reset", async () => {
+  it("replays exact speech buffered below playback preroll after continuity reset", async () => {
     agentCommandMock
       .mockResolvedValueOnce({ payloads: [{ text: "first answer" }] })
       .mockResolvedValueOnce({ payloads: [{ text: "second answer" }] });
@@ -3598,12 +3598,50 @@ describe("DiscordVoiceManager", () => {
 
     await manager.join({ guildId: "g1", channelId: "1001" });
     const entry = getSessionEntry(manager);
+    const player = getLastAudioPlayer();
     const bridgeParams = lastRealtimeBridgeParams();
 
     beginSpeakerTurn(entry);
     await emitFinalRealtimeUserTranscript(bridgeParams, "first question");
     await vi.waitFor(() => expectUserMessageIncludes("first answer"));
     bridgeParams?.audioSink?.sendAudio(Buffer.alloc(480));
+    expect(player.play).not.toHaveBeenCalled();
+    beginSpeakerTurn(entry);
+    await emitFinalRealtimeUserTranscript(bridgeParams, "second question");
+    expectUserMessageNotIncludes("second answer");
+
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onReady?.();
+
+    expect(sentUserMessages().filter((message) => message.includes("first answer"))).toHaveLength(
+      2,
+    );
+    expectUserMessageNotIncludes("second answer");
+    bridgeParams?.onEvent?.({ direction: "server", type: "response.done" });
+    expect(sentUserMessages().filter((message) => message.includes("second answer"))).toHaveLength(
+      1,
+    );
+  });
+
+  it("does not replay exact speech after Discord playback starts", async () => {
+    agentCommandMock
+      .mockResolvedValueOnce({ payloads: [{ text: "first answer" }] })
+      .mockResolvedValueOnce({ payloads: [{ text: "second answer" }] });
+    const manager = createAgentProxyManager();
+
+    await manager.join({ guildId: "g1", channelId: "1001" });
+    const entry = getSessionEntry(manager);
+    const player = getLastAudioPlayer();
+    const bridgeParams = lastRealtimeBridgeParams();
+
+    beginSpeakerTurn(entry);
+    await emitFinalRealtimeUserTranscript(bridgeParams, "first question");
+    await vi.waitFor(() => expectUserMessageIncludes("first answer"));
+    for (let index = 0; index < 50; index += 1) {
+      bridgeParams?.audioSink?.sendAudio(Buffer.alloc(480));
+    }
+    expect(player.play).toHaveBeenCalledOnce();
     beginSpeakerTurn(entry);
     await emitFinalRealtimeUserTranscript(bridgeParams, "second question");
     expectUserMessageNotIncludes("second answer");
