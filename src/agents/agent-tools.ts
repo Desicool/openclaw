@@ -563,7 +563,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   // Trusted ingress plus its exact one-tool cap prevent ordinary private turns from narrowing.
   const sourceReplyOnly =
     capabilityProfile.policy.requesterPolicySource === "completion-handoff" &&
-    options.inputProvenance?.kind === "inter_session" &&
+    options?.inputProvenance?.kind === "inter_session" &&
     options.inputProvenance.sourceTool === "subagent_announce" &&
     options.sourceReplyDeliveryMode === "message_tool_only" &&
     options.runtimeToolAllowlist?.length === 1 &&

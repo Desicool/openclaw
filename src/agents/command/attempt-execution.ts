@@ -626,6 +626,7 @@ export function runAgentAttempt(params: {
     ? resolveConversationCapabilityProfile({
         config: params.cfg,
         sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
         agentId: params.sessionAgentId,
         agentAccountId: params.runContext.accountId,
         messageProvider: params.opts.messageProvider ?? params.messageChannel,
