@@ -3377,6 +3377,7 @@ describe("DiscordVoiceManager", () => {
     bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
     expect(wakeAckCount()).toBe(1);
 
+    bridgeParams?.onEvent?.({ direction: "server", type: "response.done" });
     bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
     bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
     expect(wakeAckCount()).toBe(2);
