@@ -131,6 +131,10 @@ function isExpectedLeg(value: string): value is ExpectedLeg {
   return EXPECTED_LEGS.some((leg) => leg === value);
 }
 
+function isLegStatus(value: string): value is LegStatus {
+  return value === "ok" || value === "failed";
+}
+
 export function createRealtimeTalkResultParser() {
   const statuses = new Map<ExpectedLeg, LegStatus[]>();
   let carry = "";
@@ -140,11 +144,11 @@ export function createRealtimeTalkResultParser() {
       /^(openai-backend-bridge|openai-backend-audio-roundtrip|openai-webrtc-browser): (ok|failed)\b/u.exec(
         line,
       );
-    if (!match || !isExpectedLeg(match[1] ?? "")) {
+    const leg = match?.[1] ?? "";
+    const status = match?.[2] ?? "";
+    if (!isExpectedLeg(leg) || !isLegStatus(status)) {
       return;
     }
-    const leg = match[1];
-    const status = match[2] as LegStatus;
     const entries = statuses.get(leg) ?? [];
     entries.push(status);
     statuses.set(leg, entries);
