@@ -216,8 +216,7 @@ describeLive("google plugin live", () => {
     let assistantPartialCount = 0;
     let lastAssistantOutputAt = 0;
     let readyCount = 0;
-    let bridge: RealtimeVoiceBridge;
-    bridge = provider.createBridge({
+    const bridge: RealtimeVoiceBridge = provider.createBridge({
       providerConfig: { apiKey: GOOGLE_API_KEY },
       instructions: "Reply briefly and plainly.",
       onAudio: (audio) => {
@@ -255,7 +254,9 @@ describeLive("google plugin live", () => {
       assistantFinalCount: finalAssistantTranscripts.length,
       errors: errors.map(shortGoogleLiveError),
       closeReasons,
-      eventTypeCounts: Object.fromEntries([...eventTypeCounts.entries()].toSorted()),
+      eventTypeCounts: Object.fromEntries(
+        [...eventTypeCounts.entries()].toSorted(([left], [right]) => left.localeCompare(right)),
+      ),
     });
 
     try {
