@@ -266,6 +266,17 @@ export function retainChatComposerMemoryFallback(
   if (existing && existingMatches) {
     return { sequence: existing.sequence };
   }
+  if (existing?.storageFailed && !existing.message.trim() && existing.attachments.length === 0) {
+    state.chatComposerFallbackByScope = {
+      ...state.chatComposerFallbackByScope,
+      [scopeKey]: {
+        ...existing,
+        message: composer.message,
+        attachments: [...composer.attachments],
+      },
+    };
+    return { sequence: existing.sequence };
+  }
   if (
     existing &&
     (existing.storageFailed || existing.message.trim() || existing.attachments.length > 0)

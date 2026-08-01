@@ -3055,6 +3055,38 @@ describe("handleSendChat", () => {
     );
   });
 
+  it("fences a detached transport rejection when the composer and session changed", async () => {
+    const settingsPatch = createDeferred<boolean>();
+    const request = createDeferred<never>();
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": () => request.promise,
+      },
+      chatMessage: "/approve approval-123 allow-once",
+      chatRunId: "run-main",
+      chatStream: "Waiting for approval...",
+      pendingSettingsPatches: { "agent:main:first": settingsPatch.promise },
+      sessionKey: "agent:main:first",
+    });
+
+    const send = handleSendChat(host);
+    host.chatMessage = "newer first-session draft";
+    settingsPatch.resolve(true);
+    await waitForFast(() => expect(host.request).toHaveBeenCalledOnce());
+    host.sessionKey = "agent:main:second";
+    host.chatMessage = "second session draft";
+    host.lastError = "second session error";
+    host.chatError = "second session error";
+
+    request.reject(new Error("transport failed"));
+    await send;
+
+    expect(host.chatMessage).toBe("second session draft");
+    expect(host.lastError).toBe("second session error");
+    expect(host.chatError).toBe("second session error");
+    expect(host.chatComposerFallbackByScope).toEqual({});
+  });
+
   it("keeps a delayed local-command failure recoverable in its submitted session", async () => {
     const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
     executeSlashCommandMock.mockImplementationOnce(() => command.promise);
@@ -3150,6 +3182,47 @@ describe("handleSendChat", () => {
 
     expect(host.chatMessage).toBe("newer draft");
     expect(host.chatComposerFallbackByScope).toEqual({});
+  });
+
+  it("does not combine a failed command with a newer attachment-only draft", async () => {
+    const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
+    executeSlashCommandMock.mockImplementationOnce(() => command.promise);
+    const submittedAttachment = registerChatAttachmentPayload({
+      attachment: {
+        id: "submitted-command-attachment",
+        mimeType: "text/plain",
+      },
+      dataUrl: "data:text/plain;base64,c3VibWl0dGVk",
+      file: new File(["submitted"], "submitted.txt", { type: "text/plain" }),
+    });
+    const newerAttachment = registerChatAttachmentPayload({
+      attachment: {
+        id: "newer-draft-attachment",
+        mimeType: "text/plain",
+      },
+      dataUrl: "data:text/plain;base64,bmV3ZXI=",
+      file: new File(["newer"], "newer.txt", { type: "text/plain" }),
+    });
+    const host = makeHost({
+      chatAttachments: [submittedAttachment],
+      chatMessage: "/redirect start over",
+      client: clientWithRequest(vi.fn()),
+      connectionEpoch: 1,
+      sessionKey: "agent:main:first",
+    });
+
+    const send = handleSendChat(host);
+    await waitForFast(() => expect(executeSlashCommandMock).toHaveBeenCalledOnce());
+    host.chatAttachments = [newerAttachment];
+
+    command.resolve({ content: "Redirect failed.", failed: true });
+    await send;
+
+    expect(host.chatMessage).toBe("");
+    expect(host.chatAttachments).toEqual([newerAttachment]);
+    expect(host.chatComposerFallbackByScope).toEqual({});
+    expect(getChatAttachmentDataUrl(submittedAttachment)).toBeNull();
+    expect(getChatAttachmentDataUrl(newerAttachment)).toBe("data:text/plain;base64,bmV3ZXI=");
   });
 
   it("clears the owned fallback after a successful local command retry", async () => {

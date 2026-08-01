@@ -1712,6 +1712,47 @@ describe("route composer fallback", () => {
     });
   });
 
+  it("recovers into an empty storage-failure fallback without dropping retry metadata", () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const { state } = createRouteState("");
+    state.chatAttachments = [];
+    const scope = resolveStoredChatOutboxScope(state, state.sessionKey);
+    const scopeKey = storedChatOutboxScopeKey(scope);
+    state.chatComposerFallbackByScope = {
+      [scopeKey]: {
+        message: "",
+        attachments: [],
+        storageFailed: true,
+        draftRetry: { expectedDraftRevision: 4, draftRevision: 5 },
+        sequence: 43,
+      },
+    };
+
+    expect(
+      retainChatComposerMemoryFallback(state, scope, {
+        message: "/approve approval-123 allow-once",
+        attachments: [
+          {
+            id: "failed-clear-attachment",
+            mimeType: "text/plain",
+          },
+        ],
+      }),
+    ).toEqual({ sequence: 43 });
+    expect(state.chatComposerFallbackByScope[scopeKey]).toEqual({
+      message: "/approve approval-123 allow-once",
+      attachments: [
+        {
+          id: "failed-clear-attachment",
+          mimeType: "text/plain",
+        },
+      ],
+      storageFailed: true,
+      draftRetry: { expectedDraftRevision: 4, draftRevision: 5 },
+      sequence: 43,
+    });
+  });
+
   it("does not replace a newer alias-equivalent fallback", () => {
     vi.stubGlobal("sessionStorage", createStorageMock());
     const { state } = createRouteState("");
@@ -1770,6 +1811,31 @@ describe("route composer fallback", () => {
         sequence: 45,
       },
     });
+  });
+
+  it("keeps command recovery pane-local without overwriting a newer stored draft", () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const { state } = createRouteState("");
+    state.chatAttachments = [];
+    const scope = resolveStoredChatOutboxScope(state, state.sessionKey);
+    resetChatStateForRouteSession(state, "agent:main:second");
+
+    const { state: peer } = createRouteState("newer split-pane draft");
+    peer.chatAttachments = [];
+    expect(persistChatComposerState(peer, "agent:main:first")).toBe(true);
+    expect(
+      retainChatComposerMemoryFallback(state, scope, {
+        message: "/redirect start over",
+        attachments: [],
+      }),
+    ).toBeDefined();
+
+    resetChatStateForRouteSession(state, "agent:main:first");
+
+    expect(state.chatMessage).toBe("/redirect start over");
+    expect(loadChatComposerSnapshot(state, "agent:main:first")?.draft).toBe(
+      "newer split-pane draft",
+    );
   });
 
   it("adopts an unresolved bare-main fallback when the default agent becomes known", () => {

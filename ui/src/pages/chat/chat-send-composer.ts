@@ -17,11 +17,13 @@ import {
 import type { StoredChatOutboxScope } from "./composer-persistence.ts";
 
 export type ChatCommandComposerRecovery = {
-  attachments: ChatAttachment[];
   client: ChatHost["client"];
+  composer?: {
+    attachments: ChatAttachment[];
+    draft: string;
+    fallbackOwnership?: ChatComposerMemoryFallbackOwnership;
+  };
   connectionEpoch: ChatHost["connectionEpoch"];
-  draft: string;
-  fallbackOwnership?: ChatComposerMemoryFallbackOwnership;
   scope: StoredChatOutboxScope;
 };
 
@@ -36,23 +38,31 @@ function chatCommandRecoveryHost(host: ChatHost): ChatPageHost | undefined {
 export function captureChatCommandComposerRecovery(
   host: ChatHost,
   scope: StoredChatOutboxScope,
-  draft: string,
-  attachments: ChatAttachment[],
+  composer?: { draft: string; attachments: ChatAttachment[] },
 ): ChatCommandComposerRecovery {
   const fallbackHost = chatCommandRecoveryHost(host);
   return {
-    attachments,
     client: host.client,
-    connectionEpoch: host.connectionEpoch,
-    draft,
-    ...(fallbackHost
+    ...(composer
       ? {
-          fallbackOwnership: captureChatComposerMemoryFallbackOwnership(fallbackHost, scope, {
-            message: draft,
-            attachments,
-          }),
+          composer: {
+            ...composer,
+            ...(fallbackHost
+              ? {
+                  fallbackOwnership: captureChatComposerMemoryFallbackOwnership(
+                    fallbackHost,
+                    scope,
+                    {
+                      message: composer.draft,
+                      attachments: composer.attachments,
+                    },
+                  ),
+                }
+              : {}),
+          },
         }
       : {}),
+    connectionEpoch: host.connectionEpoch,
     scope,
   };
 }
@@ -78,21 +88,19 @@ export function clearOwnedCommandComposerFallback(
   host: ChatHost,
   recovery: ChatCommandComposerRecovery,
 ): boolean {
+  const ownership = recovery.composer?.fallbackOwnership;
   const fallbackHost = chatCommandRecoveryHost(host);
-  return fallbackHost
-    ? clearChatComposerMemoryFallback(fallbackHost, recovery.fallbackOwnership)
-    : false;
+  return fallbackHost ? clearChatComposerMemoryFallback(fallbackHost, ownership) : false;
 }
 
 export function commandComposerFallbackRetainsAttachments(
   host: ChatHost,
   recovery: ChatCommandComposerRecovery,
 ): boolean {
+  const ownership = recovery.composer?.fallbackOwnership;
   const fallbackHost = chatCommandRecoveryHost(host);
   return Boolean(
-    recovery.fallbackOwnership &&
-    fallbackHost &&
-    ownsChatComposerMemoryFallback(fallbackHost, recovery.fallbackOwnership),
+    ownership && fallbackHost && ownsChatComposerMemoryFallback(fallbackHost, ownership),
   );
 }
 
@@ -100,34 +108,42 @@ export function restoreFailedCommandComposer(
   host: ChatHost,
   recovery: ChatCommandComposerRecovery,
 ): boolean {
+  const composer = recovery.composer;
+  if (!composer) {
+    return true;
+  }
   const fallbackHost = chatCommandRecoveryHost(host);
   if (!submittedCommandConnectionIsCurrent(host, recovery)) {
     return (
-      recovery.attachments.length === 0 || commandComposerFallbackRetainsAttachments(host, recovery)
+      composer.attachments.length === 0 || commandComposerFallbackRetainsAttachments(host, recovery)
     );
   }
   if (!submittedCommandScopeIsVisible(host, recovery)) {
     if (!fallbackHost) {
-      return recovery.attachments.length === 0;
+      return composer.attachments.length === 0;
     }
     const ownership = retainChatComposerMemoryFallback(fallbackHost, recovery.scope, {
-      message: recovery.draft,
-      attachments: recovery.attachments,
+      message: composer.draft,
+      attachments: composer.attachments,
     });
-    recovery.fallbackOwnership = ownership;
-    return recovery.attachments.length === 0 || ownership !== undefined;
+    composer.fallbackOwnership = ownership;
+    return composer.attachments.length === 0 || ownership !== undefined;
+  }
+  if (host.chatAttachments.length > 0) {
+    clearOwnedCommandComposerFallback(host, recovery);
+    return composer.attachments.length === 0;
   }
   const restorePlan = pendingComposerRestorePlan(host, {
-    previousAttachments: recovery.attachments,
-    previousDraft: recovery.draft,
+    previousAttachments: composer.attachments,
+    previousDraft: composer.draft,
   });
   if (restorePlan.willRestoreDraft) {
-    host.chatMessage = recovery.draft;
+    host.chatMessage = composer.draft;
   }
   if (restorePlan.willRestoreAttachments) {
-    host.chatAttachments = recovery.attachments;
+    host.chatAttachments = composer.attachments;
   }
-  const retained = recovery.attachments.length === 0 || restorePlan.willRestoreAttachments;
+  const retained = composer.attachments.length === 0 || restorePlan.willRestoreAttachments;
   if (!restorePlan.complete) {
     clearOwnedCommandComposerFallback(host, recovery);
   }

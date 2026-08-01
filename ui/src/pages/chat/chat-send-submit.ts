@@ -178,9 +178,9 @@ function snapshotChatAttachments(attachments: readonly ChatAttachment[]): ChatAt
 async function sendDetachedCommandMessage(
   host: ChatHost,
   message: string,
-  opts?: {
+  opts: {
     attachments?: ChatAttachment[];
-    recovery?: ChatCommandComposerRecovery;
+    recovery: ChatCommandComposerRecovery;
     runId?: string;
   },
 ) {
@@ -188,28 +188,29 @@ async function sendDetachedCommandMessage(
     host as unknown as ChatState,
     message,
     opts?.attachments,
-    { runId: opts?.runId },
+    {
+      canApplyError: () => submittedCommandScopeIsVisible(host, opts.recovery),
+      runId: opts.runId,
+    },
   );
   const ok = ack?.status === "ok" || ack?.status === "started" || ack?.status === "in_flight";
-  if (!ok && opts?.recovery && !restoreFailedCommandComposer(host, opts.recovery)) {
+  if (!ok && !restoreFailedCommandComposer(host, opts.recovery)) {
     releaseChatAttachmentPayloads(excludeComposerAttachments(host, opts.attachments));
   }
-  if (
-    isTerminalFailureChatSendAck(ack) &&
-    (!opts?.recovery || submittedCommandScopeIsVisible(host, opts.recovery))
-  ) {
+  if (isTerminalFailureChatSendAck(ack) && submittedCommandScopeIsVisible(host, opts.recovery)) {
     setChatError(host, formatTerminalChatSendAckError(ack, "detached"));
   }
   if (ok) {
-    if (opts?.recovery && submittedCommandConnectionIsCurrent(host, opts.recovery)) {
+    const submittedScopeIsVisible = submittedCommandScopeIsVisible(host, opts.recovery);
+    if (submittedScopeIsVisible) {
       clearOwnedCommandComposerFallback(host, opts.recovery);
+      setLastActiveSessionKey(
+        host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
+        host.sessionKey,
+      );
     }
-    setLastActiveSessionKey(
-      host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
-      host.sessionKey,
-    );
-    if (!opts?.recovery || !commandComposerFallbackRetainsAttachments(host, opts.recovery)) {
-      releaseChatAttachmentPayloads(excludeComposerAttachments(host, opts?.attachments));
+    if (!commandComposerFallbackRetainsAttachments(host, opts.recovery)) {
+      releaseChatAttachmentPayloads(excludeComposerAttachments(host, opts.attachments));
     }
   }
   return ack;
@@ -306,15 +307,16 @@ export async function handleSendChat(
         const recoveryScope = resolveStoredChatOutboxScope(host, submittedSessionKey);
         const ack = await sendDetachedCommandMessage(host, message, {
           attachments: hasAttachments ? attachmentsToSend : undefined,
-          recovery:
+          recovery: captureChatCommandComposerRecovery(
+            host,
+            recoveryScope,
             cleared.previousDraft === undefined
               ? undefined
-              : captureChatCommandComposerRecovery(
-                  host,
-                  recoveryScope,
-                  cleared.previousDraft,
-                  cleared.previousAttachments ?? [],
-                ),
+              : {
+                  draft: cleared.previousDraft,
+                  attachments: cleared.previousAttachments ?? [],
+                },
+          ),
         });
         void ack;
       });
@@ -394,28 +396,24 @@ export async function handleSendChat(
           }
         }
         let prevDraft = messageOverride == null ? previousDraft : undefined;
-        let recovery: ChatCommandComposerRecovery | undefined;
+        let recoveryComposer: { draft: string; attachments: ChatAttachment[] } | undefined;
+        const recoveryScope = resolveStoredChatOutboxScope(host, submittedSessionKey);
         if (messageOverride == null) {
-          const recoveryScope = resolveStoredChatOutboxScope(host, submittedSessionKey);
           recordNonTranscriptInputHistory(host, message);
           if (waitsForPicker) {
             const cleared = clearSubmittedComposerState(host, previousDraft, attachmentsToSend);
             prevDraft = cleared.previousDraft;
             if (cleared.previousDraft !== undefined) {
-              recovery = captureChatCommandComposerRecovery(
-                host,
-                recoveryScope,
-                cleared.previousDraft,
-                cleared.previousAttachments ?? [],
-              );
+              recoveryComposer = {
+                draft: cleared.previousDraft,
+                attachments: cleared.previousAttachments ?? [],
+              };
             }
           } else {
-            recovery = captureChatCommandComposerRecovery(
-              host,
-              recoveryScope,
-              previousDraft,
-              parsed.command.key === "export-session" ? [] : attachmentsToSend,
-            );
+            recoveryComposer = {
+              draft: previousDraft,
+              attachments: parsed.command.key === "export-session" ? [] : attachmentsToSend,
+            };
             host.chatMessage = "";
             // Export leaves the composer in its current session; /new must clear
             // attachments before its handoff can capture them under both routes.
@@ -425,6 +423,7 @@ export async function handleSendChat(
             resetChatInputHistoryNavigation(host);
           }
         }
+        const recovery = captureChatCommandComposerRecovery(host, recoveryScope, recoveryComposer);
         const dispatchResult = await dispatchChatSlashCommand(
           host,
           parsed.command.key,
@@ -437,23 +436,24 @@ export async function handleSendChat(
           },
         );
         if (dispatchResult === "failed") {
-          if (
-            messageOverride != null ||
-            (recovery && submittedCommandScopeIsVisible(host, recovery))
-          ) {
+          if (messageOverride != null || submittedCommandScopeIsVisible(host, recovery)) {
             opts?.onLocalCommandSendRejected?.();
           }
         }
-        if ((dispatchResult === "failed" || dispatchResult === "cancelled") && recovery) {
+        if (dispatchResult === "failed" || dispatchResult === "cancelled") {
           if (!restoreFailedCommandComposer(host, recovery)) {
-            releaseChatAttachmentPayloads(excludeComposerAttachments(host, recovery.attachments));
+            releaseChatAttachmentPayloads(
+              excludeComposerAttachments(host, recovery.composer?.attachments),
+            );
           }
-        } else if (dispatchResult === "completed" && recovery) {
+        } else if (dispatchResult === "completed") {
           if (submittedCommandConnectionIsCurrent(host, recovery)) {
             clearOwnedCommandComposerFallback(host, recovery);
           }
           if (!commandComposerFallbackRetainsAttachments(host, recovery)) {
-            releaseChatAttachmentPayloads(excludeComposerAttachments(host, recovery.attachments));
+            releaseChatAttachmentPayloads(
+              excludeComposerAttachments(host, recovery.composer?.attachments),
+            );
           }
         }
       };
