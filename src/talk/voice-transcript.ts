@@ -2,22 +2,25 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { BoundedSerialQueue } from "../shared/bounded-serial-queue.js";
 
 const VOICE_TRANSCRIPT_MAX_CHARS = 8_000;
-export const VOICE_TRANSCRIPT_QUEUE_MAX_PENDING = 40;
+const VOICE_TRANSCRIPT_QUEUE_MAX_PENDING = 40;
 const VOICE_TRANSCRIPT_QUEUE_MAX_PENDING_CHARS =
   VOICE_TRANSCRIPT_QUEUE_MAX_PENDING * VOICE_TRANSCRIPT_MAX_CHARS;
-export const VOICE_TRANSCRIPT_QUEUE_OVERFLOW_MESSAGE =
+const VOICE_TRANSCRIPT_QUEUE_OVERFLOW_MESSAGE =
   "Voice transcript persistence could not keep up; the realtime session was stopped.";
 
 export function normalizeVoiceTranscriptText(text: string): string {
   return truncateUtf16Safe(text.trim(), VOICE_TRANSCRIPT_MAX_CHARS);
 }
 
-export function createVoiceTranscriptQueue(): BoundedSerialQueue {
-  return new BoundedSerialQueue({
-    maxPendingCount: VOICE_TRANSCRIPT_QUEUE_MAX_PENDING,
-    maxPendingWeight: VOICE_TRANSCRIPT_QUEUE_MAX_PENDING_CHARS,
-  });
-}
+export const VOICE_TRANSCRIPT_QUEUE_POLICY = {
+  maxPendingCount: VOICE_TRANSCRIPT_QUEUE_MAX_PENDING,
+  overflowMessage: VOICE_TRANSCRIPT_QUEUE_OVERFLOW_MESSAGE,
+  createQueue: () =>
+    new BoundedSerialQueue({
+      maxPendingCount: VOICE_TRANSCRIPT_QUEUE_MAX_PENDING,
+      maxPendingWeight: VOICE_TRANSCRIPT_QUEUE_MAX_PENDING_CHARS,
+    }),
+} as const;
 
 type VoiceTranscriptOperationOwner = {
   queue: BoundedSerialQueue;
@@ -27,12 +30,16 @@ type VoiceTranscriptOperationOwner = {
 class VoiceTranscriptOperationRegistry {
   private readonly owners = new Map<string, VoiceTranscriptOperationOwner>();
 
+  constructor(
+    private readonly queuePolicy: Pick<typeof VOICE_TRANSCRIPT_QUEUE_POLICY, "createQueue">,
+  ) {}
+
   private getOrCreate(key: string): VoiceTranscriptOperationOwner {
     const existing = this.owners.get(key);
     if (existing) {
       return existing;
     }
-    const created = { queue: createVoiceTranscriptQueue() };
+    const created = { queue: this.queuePolicy.createQueue() };
     this.owners.set(key, created);
     return created;
   }
@@ -115,6 +122,8 @@ class VoiceTranscriptOperationRegistry {
   }
 }
 
-export function createVoiceTranscriptOperationRegistry(): VoiceTranscriptOperationRegistry {
-  return new VoiceTranscriptOperationRegistry();
+export function createVoiceTranscriptOperationRegistry(
+  queuePolicy: Pick<typeof VOICE_TRANSCRIPT_QUEUE_POLICY, "createQueue">,
+): VoiceTranscriptOperationRegistry {
+  return new VoiceTranscriptOperationRegistry(queuePolicy);
 }

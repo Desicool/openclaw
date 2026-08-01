@@ -41,10 +41,13 @@ import {
 import {
   createVoiceTranscriptOperationRegistry,
   normalizeVoiceTranscriptText,
+  VOICE_TRANSCRIPT_QUEUE_POLICY,
 } from "./voice-transcript.js";
 
 const voiceSessionByRunId = new Map<string, ClientVoiceRunBinding>();
-const voiceSessionOperations = createVoiceTranscriptOperationRegistry();
+const voiceSessionOperations = createVoiceTranscriptOperationRegistry(
+  VOICE_TRANSCRIPT_QUEUE_POLICY,
+);
 const deferredDigestConfigs = new Map<string, OpenClawConfig>();
 let unsubscribeToolEffects: (() => void) | undefined;
 let unsubscribeRunCompletion: (() => void) | undefined;
