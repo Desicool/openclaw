@@ -300,6 +300,11 @@ type UserTranscriptState = {
   recentFinalTimer?: ReturnType<typeof setTimeout>;
 };
 
+type UserTranscriptOwnerAdoption = {
+  owner: UserTranscriptState;
+  previous?: UserTranscriptState;
+};
+
 type TelephonyCloseReason = "completed" | "error";
 
 async function waitForNativeConsult(state: NativeConsultState): Promise<NativeConsultOutcome> {
@@ -768,11 +773,11 @@ export class RealtimeCallHandler {
         : undefined;
     // Providers may close synchronously before createBridge returns; no consult can exist yet.
     const nativeConsultOwner: { current?: ActiveRealtimeVoiceBridge } = {};
-    // Adopt transcript ownership before bridge creation so synchronous callbacks
-    // belong to this session while late callbacks from replaced sessions are ignored.
-    const userTranscriptOwner: UserTranscriptState = {};
-    this.adoptUserTranscriptOwner(callId, userTranscriptOwner);
-    const session = harness.createBridge({
+    // Provisional ownership accepts callbacks fired during createBridge. Commit
+    // retires the predecessor only after creation succeeds; failure restores it.
+    const userTranscriptAdoption = this.beginUserTranscriptOwnerAdoption(callId);
+    const userTranscriptOwner = userTranscriptAdoption.owner;
+    const bridgeParams: Parameters<typeof harness.createBridge>[0] = {
       provider: this.realtimeProvider,
       cfg: this.coreConfig,
       providerConfig: this.providerConfig,
@@ -994,7 +999,9 @@ export class RealtimeCallHandler {
           this.clearActiveBridgeMappings(callId, callSid, owner);
           this.cancelConsultSession(callId, owner);
         }
-        this.clearUserTranscriptState(callId, userTranscriptOwner);
+        if (ownsCallState) {
+          this.clearUserTranscriptState(callId, userTranscriptOwner);
+        }
         harness.finishOutputAudio(reason);
         harness.emit({
           type: "session.closed",
@@ -1021,7 +1028,15 @@ export class RealtimeCallHandler {
             );
           });
       },
-    });
+    };
+    let session: ActiveRealtimeVoiceBridge;
+    try {
+      session = harness.createBridge(bridgeParams);
+    } catch (error) {
+      this.rollbackUserTranscriptOwnerAdoption(callId, userTranscriptAdoption);
+      throw error;
+    }
+    this.commitUserTranscriptOwnerAdoption(callId, userTranscriptAdoption);
     nativeConsultOwner.current = session;
     providerHandlesInputAudioBargeIn =
       session.bridge.handlesInputAudioBargeIn ?? providerHandlesInputAudioBargeIn;
@@ -1093,12 +1108,44 @@ export class RealtimeCallHandler {
     return session;
   }
 
-  private adoptUserTranscriptOwner(callId: string, owner: UserTranscriptState): void {
-    const previous = this.userTranscriptStatesByCallId.get(callId);
-    if (previous?.recentFinalTimer) {
-      clearTimeout(previous.recentFinalTimer);
+  private beginUserTranscriptOwnerAdoption(callId: string): UserTranscriptOwnerAdoption {
+    const adoption = {
+      owner: {},
+      previous: this.userTranscriptStatesByCallId.get(callId),
+    } satisfies UserTranscriptOwnerAdoption;
+    this.userTranscriptStatesByCallId.set(callId, adoption.owner);
+    return adoption;
+  }
+
+  private commitUserTranscriptOwnerAdoption(
+    callId: string,
+    adoption: UserTranscriptOwnerAdoption,
+  ): void {
+    if (this.userTranscriptStatesByCallId.get(callId) !== adoption.owner) {
+      return;
     }
-    this.userTranscriptStatesByCallId.set(callId, owner);
+    if (adoption.previous?.recentFinalTimer) {
+      clearTimeout(adoption.previous.recentFinalTimer);
+      adoption.previous.recentFinalTimer = undefined;
+    }
+  }
+
+  private rollbackUserTranscriptOwnerAdoption(
+    callId: string,
+    adoption: UserTranscriptOwnerAdoption,
+  ): void {
+    if (this.userTranscriptStatesByCallId.get(callId) !== adoption.owner) {
+      return;
+    }
+    if (adoption.owner.recentFinalTimer) {
+      clearTimeout(adoption.owner.recentFinalTimer);
+      adoption.owner.recentFinalTimer = undefined;
+    }
+    if (adoption.previous) {
+      this.userTranscriptStatesByCallId.set(callId, adoption.previous);
+      return;
+    }
+    this.userTranscriptStatesByCallId.delete(callId);
   }
 
   private getUserTranscriptState(
