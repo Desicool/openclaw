@@ -147,6 +147,24 @@ describe("realtime Talk live QA producer", () => {
     expect(evidence.entries[0]?.result.status).toBe("blocked");
   });
 
+  it("keeps an observed smoke failure terminal when the harness is also blocked", async () => {
+    const options = await makeOptions();
+    const evidence = await runRealtimeTalkLiveProducer(
+      options,
+      { OPENAI_API_KEY: "test-key" },
+      {
+        runChild: async ({ onStderr, onStdout }) => {
+          onStdout("openai-backend-bridge: failed { error: 'provider rejected session' }\n");
+          onStderr("Executable doesn't exist. Run npx playwright install chromium.");
+          return { exitCode: 1, signal: null };
+        },
+      },
+    );
+
+    expect(evidence.entries[0]?.result.status).toBe("fail");
+    expect(evidence.entries[0]?.result.failure?.reason).toContain("openai-backend-bridge=failed");
+  });
+
   it("builds catalog-compatible evidence for the live scenario", async () => {
     const options = await makeOptions();
     const evidence = buildRealtimeTalkLiveEvidence({

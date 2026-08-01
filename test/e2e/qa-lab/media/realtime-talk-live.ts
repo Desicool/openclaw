@@ -300,11 +300,12 @@ async function runRealtimeTalkLiveProof(params: {
   const digest = statusDigest(summary);
   const complete = EXPECTED_LEGS.every((leg) => statuses.get(leg)?.length === 1);
   const allPassed = EXPECTED_LEGS.every((leg) => statuses.get(leg)?.[0] === "ok");
+  const observedFailure = EXPECTED_LEGS.some((leg) => statuses.get(leg)?.includes("failed"));
   const exitedCleanly = childResult.exitCode === 0 && childResult.signal === null;
   const status: QaScriptEvidenceStatus =
     exitedCleanly && complete && allPassed
       ? "pass"
-      : blockedTracker.status() === "blocked"
+      : !observedFailure && blockedTracker.status() === "blocked"
         ? "blocked"
         : "fail";
   const exit = childResult.signal
