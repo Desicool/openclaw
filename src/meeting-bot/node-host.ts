@@ -133,7 +133,10 @@ function splitCommand(argv: string[]): { command: string; args: string[] } {
   return { command, args };
 }
 
-function waitForInputDrain(stream: ChildProcess["stdout"], timeoutMs: number): Promise<void> {
+function waitForInputDrain(
+  stream: ChildProcess["stdout"] | undefined,
+  timeoutMs: number,
+): Promise<void> {
   if (!stream || stream.readableEnded || stream.destroyed) {
     return Promise.resolve();
   }
