@@ -58,7 +58,6 @@ const ROOT_TEST_ENTRY_GLOBS = [
   "scripts/e2e-sandbox-bind-conflict.mjs!",
   // The Voice Call QA scenario loads this fixture through a generated plugin directory.
   "test/e2e/qa-lab/runtime/fixtures/voice-call-runtime-plugin/index.js!",
-  "test/scripts/fixtures/secret-provider-integrations-harness.mjs!",
   // Loaded with cache-busting query strings so configuration fallback tests
   // get independent module initialization.
   "test/helpers/config/bundled-channel-config-runtime.ts!",
@@ -88,7 +87,13 @@ const workspaces = Object.fromEntries(
         ...settings.entry,
         ...(workspace === "."
           ? [".agents/skills/**/scripts/**/*.{js,mjs,cjs,ts,mts,cts}!", ...ROOT_TEST_ENTRY_GLOBS]
-          : [TEST_ENTRY_GLOB]),
+          : [
+              TEST_ENTRY_GLOB,
+              // QA Lab loads this plugin fixture by path during the Gateway E2E.
+              ...(workspace === "extensions/qa-lab"
+                ? ["test-fixtures/current-requester-subagent-plugin/index.js!"]
+                : []),
+            ]),
       ],
       project:
         workspace === "."

@@ -76,6 +76,8 @@ export type FeishuMessageInfo = {
   content: string;
   contentType: string;
   createTime?: number;
+  /** Root message ID for replies inside Feishu topics. */
+  rootId?: string;
   /** Feishu thread ID (omt_xxx) — present when the message belongs to a topic thread. */
   threadId?: string;
 };
@@ -89,7 +91,7 @@ export interface FeishuProbeResult extends BaseProbeResult {
 export type FeishuMediaInfo = {
   path?: string;
   contentType?: string;
-  kind: "image" | "video" | "audio" | "document" | "sticker";
+  kind: Exclude<import("openclaw/plugin-sdk/media-runtime").MediaKind, "unknown">;
 };
 
 export type FeishuToolsConfig = {
@@ -101,8 +103,6 @@ export type FeishuToolsConfig = {
   scopes?: boolean;
   /** Bitable/Base operations (default: true). */
   bitable?: boolean;
-  /** @deprecated Use bitable. */
-  base?: boolean;
 };
 
 export type DynamicAgentCreationConfig = {

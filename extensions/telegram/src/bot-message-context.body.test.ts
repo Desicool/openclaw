@@ -83,6 +83,38 @@ function transcribeCallContext(index = 0): Record<string, unknown> {
 }
 
 describe("resolveTelegramInboundBody", () => {
+  it("delivers native poll questions, options, voter totals, and state", async () => {
+    const result = await resolveTelegramBody({
+      msg: {
+        message_id: 12,
+        date: 1_700_000_012,
+        chat: { id: 42, type: "private", first_name: "Pat" },
+        from: { id: 42, first_name: "Pat" },
+        poll: {
+          id: "poll-12",
+          question: "Approve deploy?",
+          options: [
+            { persistent_id: "approve", text: "Approve", voter_count: 4 },
+            { persistent_id: "hold", text: "Hold", voter_count: 0 },
+          ],
+          total_voter_count: 4,
+          is_closed: true,
+          is_anonymous: true,
+          type: "regular",
+          allows_multiple_answers: true,
+        },
+      } as never,
+    });
+
+    expect(result?.rawBody).toContain("[Poll] Approve deploy?");
+    expect(result?.bodyText).toContain("1. Approve — 4 votes");
+    expect(result?.bodyText).toContain("2. Hold — 0 votes");
+    expect(result?.bodyText).toContain("Total voters: 4");
+    expect(result?.bodyText).toContain("Visibility: anonymous");
+    expect(result?.bodyText).toContain("Selection: multiple answers");
+    expect(result?.bodyText).toContain("Status: closed");
+  });
+
   it("delivers rich-message-only updates as a sanitized placeholder", async () => {
     const result = await resolveTelegramBody({
       msg: {
@@ -669,14 +701,13 @@ describe("resolveTelegramInboundBody", () => {
     expect(result).toBeNull();
   });
 
-  it("still transcribes when commands.useAccessGroups is false", async () => {
+  it("transcribes when the group sender is authorized", async () => {
     transcribeFirstAudioMock.mockReset();
     transcribeFirstAudioMock.mockResolvedValueOnce("hey bot please help");
 
     const result = await resolveTelegramBody({
       cfg: {
         channels: { telegram: {} },
-        commands: { useAccessGroups: false },
         messages: { groupChat: { mentionPatterns: ["\\bbot\\b"] } },
         tools: { media: { audio: { enabled: true } } },
       } as never,
@@ -694,7 +725,7 @@ describe("resolveTelegramInboundBody", () => {
       senderId: "46",
       senderUsername: "",
       routeAgentId: undefined,
-      effectiveGroupAllow: normalizeAllowFrom(["999"]),
+      effectiveGroupAllow: normalizeAllowFrom(["46"]),
       effectiveDmAllow: normalizeAllowFrom([]),
       groupConfig: { requireMention: true } as never,
       requireMention: true,
@@ -776,7 +807,6 @@ describe("resolveTelegramInboundBody", () => {
     await resolveTelegramBody({
       cfg: {
         channels: { telegram: {} },
-        commands: { useAccessGroups: false },
         messages: { groupChat: { mentionPatterns: ["\\bbot\\b"] } },
         tools: { media: { audio: { enabled: true, echoTranscript: true } } },
       } as never,
@@ -794,6 +824,7 @@ describe("resolveTelegramInboundBody", () => {
       isGroup: true,
       chatId: -1001234567890,
       senderId: "46",
+      effectiveGroupAllow: normalizeAllowFrom(["46"]),
       groupConfig: { requireMention: true } as never,
       requireMention: true,
       resolvedThreadId: 99,
@@ -862,7 +893,6 @@ describe("resolveTelegramInboundBody", () => {
     const result = await resolveTelegramBody({
       cfg: {
         channels: { telegram: {} },
-        commands: { useAccessGroups: false },
         messages: { groupChat: { mentionPatterns: ["\\bbot\\b"] } },
         tools: { media: { audio: { enabled: true } } },
       } as never,
@@ -879,7 +909,7 @@ describe("resolveTelegramInboundBody", () => {
       chatId: -1001234567892,
       senderId: "46",
       senderUsername: "",
-      effectiveGroupAllow: normalizeAllowFrom(["999"]),
+      effectiveGroupAllow: normalizeAllowFrom(["46"]),
       groupConfig: { requireMention: true } as never,
       requireMention: true,
     });
