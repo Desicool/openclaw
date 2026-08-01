@@ -268,7 +268,7 @@ export function createTalkRealtimeRelaySession(
         currentOutputItemId = undefined;
         currentOutputResponseId = undefined;
         const talkEvent = resetTalkRealtimeRelayContinuity(relay, event.type);
-        const clearEvent = { relaySessionId, type: "clear" as const, reason: event.type };
+        const clearEvent = { relaySessionId, type: "clear" as const };
         broadcastToOwner(
           params.context,
           params.connId,
