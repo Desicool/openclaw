@@ -67,6 +67,7 @@ export type MeetingAgentConsultParams = {
 export type MeetingRealtimeToolCallParams = {
   strategy: string;
   session: RealtimeVoiceBridgeSession;
+  abortSignal?: AbortSignal;
   event: RealtimeVoiceToolCallEvent;
   meetingSessionId: string;
   requesterSessionKey?: string;
@@ -135,7 +136,10 @@ export async function startMeetingRealtimeEngine(params: {
   let outputPendingBytes = 0;
   let outputPendingFrames = 0;
   let outputGenerationActive = false;
+  let continuityResetActive = false;
+  let toolContinuityEpoch = 0;
   let outputClearTail = Promise.resolve();
+  const activeToolCalls = new Set<AbortController>();
   const outputQueue: Array<{ audio: Buffer; generation: number }> = [];
   const outputOwner = createMeetingRealtimeOutputOwner();
   const outputMaxPendingBytes =
@@ -160,6 +164,11 @@ export async function startMeetingRealtimeEngine(params: {
       outputOwner.reset();
       outputClearAfterActive = false;
       invalidateOutputQueue();
+      toolContinuityEpoch += 1;
+      for (const controller of activeToolCalls) {
+        controller.abort("meeting realtime stopped");
+      }
+      activeToolCalls.clear();
     }
     if (stopPromise) {
       await stopPromise;
@@ -549,6 +558,31 @@ export async function startMeetingRealtimeEngine(params: {
         }
       },
       onEvent: (event) => {
+        if (event.direction === "client" && event.type === "session.continuity.reset") {
+          if (continuityResetActive) {
+            return;
+          }
+          continuityResetActive = true;
+          realtimeReady = false;
+          outputOwner.reset();
+          outputGenerationActive = false;
+          toolContinuityEpoch += 1;
+          for (const controller of activeToolCalls) {
+            controller.abort(event.type);
+          }
+          activeToolCalls.clear();
+          const turnId = harness.talk.activeTurnId;
+          invalidateOutputPlayback();
+          harness.flushOutput(clearOutputPlayback);
+          harness.finishOutputAudio(event.type);
+          if (turnId) {
+            harness.talk.cancelTurn({
+              turnId,
+              payload: { ...outputTalkPayload, reason: event.type },
+            });
+          }
+          return;
+        }
         outputOwner.noteEvent(event);
         if (event.type === "input_audio_buffer.speech_started") {
           harness.ensureTurn();
@@ -601,6 +635,9 @@ export async function startMeetingRealtimeEngine(params: {
         }
       },
       onToolCall: (event, session) => {
+        const epoch = toolContinuityEpoch;
+        const controller = new AbortController();
+        activeToolCalls.add(controller);
         harness.emit({
           type: "tool.call",
           turnId: harness.ensureTurn(),
@@ -609,16 +646,38 @@ export async function startMeetingRealtimeEngine(params: {
           payload: { name: event.name, args: event.args },
         });
         const turnId = harness.ensureTurn();
-        return params.handleToolCall({
-          strategy,
-          session,
-          event,
-          meetingSessionId: params.meetingSessionId,
-          requesterSessionKey: params.requesterSessionKey,
-          transcript: harness.transcript,
-          onTalkEvent: (inputLocal) =>
-            harness.emit({ ...inputLocal, turnId: inputLocal.turnId ?? turnId }),
-        });
+        const guardedSession = Object.create(session) as RealtimeVoiceBridgeSession;
+        guardedSession.submitToolResult = (callId, result, options) => {
+          if (controller.signal.aborted || epoch !== toolContinuityEpoch) {
+            return;
+          }
+          return session.submitToolResult(callId, result, options);
+        };
+        return params
+          .handleToolCall({
+            strategy,
+            session: guardedSession,
+            abortSignal: controller.signal,
+            event,
+            meetingSessionId: params.meetingSessionId,
+            requesterSessionKey: params.requesterSessionKey,
+            transcript: harness.transcript,
+            onTalkEvent: (inputLocal) => {
+              if (controller.signal.aborted || epoch !== toolContinuityEpoch) {
+                return;
+              }
+              harness.emit({ ...inputLocal, turnId: inputLocal.turnId ?? turnId });
+            },
+          })
+          .catch((error: unknown) => {
+            if (controller.signal.aborted || epoch !== toolContinuityEpoch) {
+              return;
+            }
+            throw error;
+          })
+          .finally(() => {
+            activeToolCalls.delete(controller);
+          });
       },
       onError: (error) => {
         harness.emit({
@@ -644,6 +703,7 @@ export async function startMeetingRealtimeEngine(params: {
       },
       onReady: () => {
         realtimeReady = true;
+        continuityResetActive = false;
         harness.emit({
           type: "session.ready",
           payload: outputTalkPayload,
