@@ -181,7 +181,7 @@ async function awaitRealtimeTalkMediaRequest(
     );
     throw realtimeTalkAbortReason(signal);
   }
-  let removeAbortListener = () => undefined;
+  let removeAbortListener: () => void = () => undefined;
   const aborted = new Promise<never>((_resolve, reject) => {
     const onAbort = () => reject(realtimeTalkAbortReason(signal));
     signal.addEventListener("abort", onAbort, { once: true });

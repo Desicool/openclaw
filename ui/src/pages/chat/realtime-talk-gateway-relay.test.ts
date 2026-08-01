@@ -807,7 +807,18 @@ describe("GatewayRelayRealtimeTalkTransport", () => {
           reason: "error",
           talkEvent:
             callbackKind === "talk event"
-              ? ({ type: "session.closed", final: true } satisfies RealtimeTalkEvent)
+              ? ({
+                  id: "relay-1:1",
+                  type: "session.closed",
+                  sessionId: "relay-1",
+                  seq: 1,
+                  timestamp: "2026-05-05T00:00:00.000Z",
+                  mode: "realtime",
+                  transport: "gateway-relay",
+                  brain: "agent-consult",
+                  payload: {},
+                  final: true,
+                } satisfies RealtimeTalkEvent)
               : undefined,
         }),
       ).toThrow("consumer failed");
