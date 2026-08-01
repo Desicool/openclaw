@@ -209,28 +209,26 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     }
     try {
       this.ctx.callbacks.onStatus?.("listening");
-      if (this.closed) {
-        return;
-      }
+      this.assertActivationCurrent();
       this.emitTalkEvent({ type: "session.ready" });
-      if (this.closed) {
-        return;
-      }
+      this.assertActivationCurrent();
       if (this.ctx.callbacks.onInputLevel && this.media && this.inputContext) {
-        this.inputMeter = new RealtimeTalkMediaStreamMeter(this.ctx.callbacks.onInputLevel);
-        this.inputMeter.start(this.media, this.inputContext);
-      }
-      if (this.closed) {
-        return;
+        const inputMeter = new RealtimeTalkMediaStreamMeter(this.ctx.callbacks.onInputLevel);
+        this.inputMeter = inputMeter;
+        inputMeter.start(this.media, this.inputContext);
+        if (this.closed || !this.lifecycle.isActive || this.inputMeter !== inputMeter) {
+          // start() publishes synchronously before installing its interval. A
+          // reentrant stop must reclaim the interval that start() installs next.
+          inputMeter.stop(false);
+        }
+        this.assertActivationCurrent();
       }
       this.startMicrophonePump();
       if (this.camera.stream && !this.cameraPublished) {
         this.cameraPublished = true;
         this.ctx.callbacks.onVideoStream?.(this.camera.stream);
       }
-      if (this.closed) {
-        return;
-      }
+      this.assertActivationCurrent();
       this.startVideoFrames();
     } catch (error) {
       try {
@@ -239,6 +237,12 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
         // Preserve the activation callback as the terminal cause after cleanup.
       }
       throw error;
+    }
+  }
+
+  private assertActivationCurrent(): void {
+    if (this.closed || !this.lifecycle.isActive) {
+      throw new Error("Google Live transport activation cancelled");
     }
   }
 

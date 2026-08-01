@@ -67,6 +67,15 @@ class FakeAudioContext {
   createGain() {
     return { connect() {}, disconnect() {}, gain: { value: 1 } };
   }
+
+  createAnalyser() {
+    return {
+      fftSize: 0,
+      smoothingTimeConstant: 0,
+      disconnect() {},
+      getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0.25),
+    };
+  }
 }
 
 function createSession(): RealtimeTalkJsonPcmWebSocketSessionResult {
@@ -242,6 +251,23 @@ describe("Google Live setup timeout", () => {
     await expect(start).resolves.toBe("ready");
 
     expect(() => transport.activate()).toThrow("consumer failed");
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(socket.readyState).toBe(3);
+    expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("reclaims the meter when an input-level callback cancels activation", async () => {
+    let stopDuringActivation = () => undefined;
+    const onInputLevel = vi.fn(() => stopDuringActivation());
+    const transport = createTransport({ onInputLevel });
+    stopDuringActivation = () => transport.stop({ emitClosed: false });
+    const { start, socket } = await beginTransport(transport);
+    socket.emitOpen();
+    socket.emitMessage({ setupComplete: {} });
+    await expect(start).resolves.toBe("ready");
+
+    expect(() => transport.activate()).toThrow("Google Live transport activation cancelled");
+    expect(vi.getTimerCount()).toBe(0);
     expect(stopInputTrack).toHaveBeenCalledOnce();
     expect(socket.readyState).toBe(3);
     expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);

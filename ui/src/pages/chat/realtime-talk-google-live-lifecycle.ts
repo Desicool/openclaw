@@ -32,7 +32,7 @@ export function buildGoogleLiveUrl(session: RealtimeTalkJsonPcmWebSocketSessionR
   return url.toString();
 }
 
-export type GoogleLiveConnectionState =
+type GoogleLiveConnectionState =
   | "idle"
   | "connecting"
   | "ready"
