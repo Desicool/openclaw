@@ -5,6 +5,7 @@ import {
 } from "../talk/agent-run-control.js";
 import { registerClientVoiceConsultRun } from "../talk/client-voice-session.js";
 import type { RealtimeVoiceToolResultOptions } from "../talk/provider-types.js";
+import type { TalkEvent } from "../talk/talk-session-controller.js";
 import { abortChatRunById } from "./chat-abort.js";
 import { formatError } from "./server-utils.js";
 import {
@@ -449,6 +450,49 @@ export function cancelTalkRealtimeRelayTurn(params: {
     type: "clear",
     talkEvent: cancelled.ok ? cancelled.event : undefined,
   });
+}
+
+/** Drops one provider generation without sending cancellation into its replacement. */
+export function resetTalkRealtimeRelayContinuity(
+  session: RelaySession,
+  reason = "session.continuity.reset",
+): TalkEvent | undefined {
+  session.toolResultEpoch += 1;
+  const retiredCallIds = new Set<string>([
+    ...session.activeAgentToolCalls.keys(),
+    ...session.cancelledAgentToolCalls.keys(),
+    ...session.pendingFinalToolResults.keys(),
+    ...session.pendingProviderToolResults.keys(),
+    ...session.pendingWorkingToolResults.keys(),
+    ...session.forcedTerminalProviderResults.keys(),
+  ]);
+  for (const handle of session.harness.forcedConsults.handles()) {
+    retiredCallIds.add(handle.id);
+    for (const nativeCallId of session.harness.forcedConsults.nativeCallIds(handle)) {
+      retiredCallIds.add(nativeCallId);
+    }
+  }
+  for (const callId of retiredCallIds) {
+    session.completedAgentToolCalls.add(callId);
+  }
+  session.cancelledAgentToolCalls.clear();
+  session.pendingFinalToolResults.clear();
+  session.pendingProviderToolResults.clear();
+  session.pendingWorkingToolResults.clear();
+  session.forcedTerminalProviderResults.clear();
+  session.harness.forcedConsults.clear();
+  abortRelayAgentRuns(session, reason);
+  const turnId = session.harness.talk.activeTurnId;
+  session.harness.flushOutput(noFallbackRelayOutputFlush);
+  session.harness.finishOutputAudio(reason);
+  if (!turnId) {
+    return undefined;
+  }
+  const cancelled = session.harness.talk.cancelTurn({
+    turnId,
+    payload: { reason },
+  });
+  return cancelled.ok ? cancelled.event : undefined;
 }
 
 /** Closes a realtime relay session owned by the current connection. */

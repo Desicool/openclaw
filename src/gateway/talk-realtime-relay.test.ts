@@ -989,6 +989,123 @@ describe("talk realtime gateway relay", () => {
     expectRecordFields(mockCallArg(mock, 0, 2), { runId: "run-1", state: "aborted" });
   }
 
+  it("resets provider continuity without cancelling the replacement provider", async () => {
+    let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
+    const pendingWorking = createDeferredVoid();
+    const handleBargeIn = vi.fn();
+    const submitToolResult = vi
+      .fn<RealtimeVoiceBridge["submitToolResult"]>()
+      .mockReturnValueOnce(pendingWorking.promise);
+    const bridge = {
+      supportsToolResultContinuation: true,
+      connect: vi.fn(async () => undefined),
+      sendAudio: vi.fn(),
+      setMediaTimestamp: vi.fn(),
+      sendUserMessage: vi.fn(),
+      handleBargeIn,
+      submitToolResult,
+      acknowledgeMark: vi.fn(),
+      close: vi.fn(),
+      isConnected: vi.fn(() => true),
+    };
+    const provider: RealtimeVoiceProviderPlugin = {
+      id: "relay-test",
+      label: "Relay Test",
+      isConfigured: () => true,
+      createBridge: (request) => {
+        bridgeRequest = request;
+        return bridge;
+      },
+    };
+    const fixture = createAbortableRelayRunFixture(provider);
+    const relay = relaySessions.get(fixture.session.relaySessionId);
+    if (!relay || !bridgeRequest) {
+      throw new Error("expected active relay continuity fixture");
+    }
+    const request = bridgeRequest;
+    request.onReady?.();
+    request.onEvent?.({
+      direction: "server",
+      type: "response.audio.delta",
+      itemId: "old-item",
+      responseId: "old-response",
+    });
+    request.onAudio(Buffer.from("old audio"));
+    const working = submitTalkRealtimeRelayToolResult({
+      relaySessionId: fixture.session.relaySessionId,
+      connId: "conn-1",
+      callId: "call-1",
+      result: { status: "working" },
+      options: { willContinue: true },
+    });
+
+    request.onEvent?.({
+      direction: "client",
+      type: "session.continuity.reset",
+    });
+    request.onEvent?.({
+      direction: "client",
+      type: "session.continuity.reset",
+    });
+
+    expect(fixture.abortController.signal.aborted).toBe(true);
+    expect(handleBargeIn).not.toHaveBeenCalled();
+    expect(bridge.close).not.toHaveBeenCalled();
+    expect(submitToolResult).toHaveBeenCalledTimes(1);
+    expect(relay.pendingWorkingToolResults.size).toBe(0);
+    expect(relay.activeAgentRuns.size).toBe(0);
+    expect(relay.activeAgentToolCalls.size).toBe(0);
+    const payloads = fixture.broadcastToConnIds.mock.calls.map(([, payload]) => payload);
+    const clears = payloads.filter(
+      (payload): payload is Record<string, unknown> =>
+        typeof payload === "object" &&
+        payload !== null &&
+        (payload as Record<string, unknown>).type === "clear",
+    );
+    expect(clears).toHaveLength(1);
+    expectRecordFields(clears[0]?.talkEvent, {
+      type: "turn.cancelled",
+      payload: { reason: "session.continuity.reset" },
+      final: true,
+    });
+
+    pendingWorking.resolve();
+    await working;
+    expect(submitToolResult).toHaveBeenCalledTimes(1);
+
+    request.onReady?.();
+    request.onAudio(Buffer.from("fresh audio"));
+    const freshAudio = fixture.broadcastToConnIds.mock.calls
+      .map(([, payload]) => payload)
+      .filter(
+        (payload): payload is Record<string, unknown> =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as Record<string, unknown>).type === "audio",
+      )
+      .at(-1);
+    expectRecordFields(freshAudio, {
+      type: "audio",
+      audioBase64: Buffer.from("fresh audio").toString("base64"),
+    });
+    expect(freshAudio).not.toHaveProperty("itemId");
+    expect(freshAudio).not.toHaveProperty("responseId");
+
+    request.onToolCall?.({
+      itemId: "fresh-item",
+      callId: "fresh-call",
+      name: "custom_tool",
+      args: {},
+    });
+    await submitTalkRealtimeRelayToolResult({
+      relaySessionId: fixture.session.relaySessionId,
+      connId: "conn-1",
+      callId: "fresh-call",
+      result: { ok: true },
+    });
+    expect(submitToolResult).toHaveBeenLastCalledWith("fresh-call", { ok: true }, undefined);
+  });
+
   it("bridges browser audio, transcripts, and tool results through a backend provider", async () => {
     let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
     const bridge = {

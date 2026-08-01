@@ -35,6 +35,7 @@ import {
   enforceRelaySessionLimits,
   pruneInactiveRelayAgentRuns,
   registerTalkRealtimeRelayAgentRun,
+  resetTalkRealtimeRelayContinuity,
   steerTalkRealtimeRelayAgentRun,
 } from "./talk-realtime-relay-operations.js";
 import { suppressedToolResultOptions } from "./talk-realtime-relay-provider-results.js";
@@ -105,6 +106,7 @@ export function createTalkRealtimeRelaySession(
   let currentOutputItemId: string | undefined;
   let currentOutputResponseId: string | undefined;
   let ready = false;
+  let continuityResetActive = false;
   let failureEmitted = false;
   let transcriptPersistenceFailed = false;
   const constructionTerminal: {
@@ -253,7 +255,26 @@ export function createTalkRealtimeRelaySession(
       },
     },
     onEvent: (event) => {
-      if (!getActiveRelay()) {
+      const relay = getActiveRelay();
+      if (!relay) {
+        return;
+      }
+      if (event.direction === "client" && event.type === "session.continuity.reset") {
+        if (continuityResetActive) {
+          return;
+        }
+        continuityResetActive = true;
+        ready = false;
+        currentOutputItemId = undefined;
+        currentOutputResponseId = undefined;
+        const talkEvent = resetTalkRealtimeRelayContinuity(relay, event.type);
+        const clearEvent = { relaySessionId, type: "clear" as const, reason: event.type };
+        broadcastToOwner(
+          params.context,
+          params.connId,
+          { ...clearEvent, ...(talkEvent ? { talkEvent } : {}) },
+          relayEventDeliveryOptions(clearEvent),
+        );
         return;
       }
       if (event.direction !== "server") {
@@ -419,6 +440,7 @@ export function createTalkRealtimeRelaySession(
         return;
       }
       ready = true;
+      continuityResetActive = false;
       emit({ relaySessionId, type: "ready" }, { type: "session.ready", payload: null });
     },
     onError: (error) => {

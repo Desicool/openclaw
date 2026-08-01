@@ -63,8 +63,12 @@ export function submitFinalProviderToolResult(params: {
   options?: RealtimeVoiceToolResultOptions;
   onAccepted?: () => void;
 }): void | Promise<void> {
+  const epoch = params.session.toolResultEpoch;
   if (params.session.completedProviderToolResults.has(params.callId)) {
-    if (relaySessions.get(params.session.id) === params.session) {
+    if (
+      relaySessions.get(params.session.id) === params.session &&
+      params.session.toolResultEpoch === epoch
+    ) {
       params.onAccepted?.();
     }
     return;
@@ -76,7 +80,6 @@ export function submitFinalProviderToolResult(params: {
   const submit = () =>
     params.session.bridge.submitToolResult(params.callId, params.result, params.options);
   const working = params.session.pendingWorkingToolResults.get(params.callId);
-  const epoch = params.session.toolResultEpoch;
   const submitAfterWorking = async () => {
     if (relaySessions.get(params.session.id) !== params.session) {
       return false;
@@ -105,6 +108,9 @@ export function submitFinalProviderToolResult(params: {
   };
   const submission = working ? working.then(submitAfterWorking, submitAfterWorking) : submit();
   const accept = () => {
+    if (params.session.toolResultEpoch !== epoch) {
+      return;
+    }
     params.session.completedProviderToolResults.add(params.callId);
     if (relaySessions.get(params.session.id) === params.session) {
       params.onAccepted?.();
