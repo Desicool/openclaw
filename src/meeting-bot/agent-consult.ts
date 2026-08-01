@@ -19,12 +19,11 @@ import type {
   MeetingAgentConsultSurface,
   MeetingPlatformRuntimeMetadata,
 } from "./platform-adapter-contract.js";
+import type { MeetingAgentConsultParams, MeetingRuntimePlatform } from "./realtime-engine.js";
 import {
   readMeetingRealtimeToolAbortSignal,
-  type MeetingAgentConsultParams,
   type MeetingRealtimeToolCallParams,
-  type MeetingRuntimePlatform,
-} from "./realtime-engine.js";
+} from "./realtime-tool-continuity.js";
 
 function resolveMeetingRealtimeTools(
   policy: RealtimeVoiceAgentConsultToolPolicy,

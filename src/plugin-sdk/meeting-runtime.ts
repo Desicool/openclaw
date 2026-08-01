@@ -8,9 +8,9 @@ export {
   type MeetingRealtimeAudioEngineHandle,
   type MeetingRealtimeAudioEngineHealth,
   type MeetingRealtimeEngineConfig,
-  type MeetingRealtimeToolCallParams,
   type MeetingRuntimePlatform,
 } from "../meeting-bot/realtime-engine.js";
+export type { MeetingRealtimeToolCallParams } from "../meeting-bot/realtime-tool-continuity.js";
 export { startMeetingAgentRealtimeEngine } from "../meeting-bot/realtime-agent-engine.js";
 export {
   type MeetingRealtimeAudioTransport,
