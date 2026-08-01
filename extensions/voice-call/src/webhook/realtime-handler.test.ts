@@ -958,7 +958,7 @@ describe("RealtimeCallHandler path routing", () => {
       async ({ callbacks, call, outboundMessages, processEvent }) => {
         callbacks.onTranscript?.("user", "Old caller ", false);
         callbacks.onTranscript?.("assistant", "Old assistant ", false);
-        callbacks.audioSink?.sendAudio(Buffer.alloc(320, 0xff));
+        callbacks.onAudio?.(Buffer.alloc(320, 0xff));
         const oldTurnId = recentTalkEvents(call).findLast(
           (event) => event.type === "turn.started",
         )?.turnId;
