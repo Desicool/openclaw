@@ -167,6 +167,82 @@ describe("RealtimeTalkSession lifecycle", () => {
     secondReplacement.stop();
   });
 
+  it("restores the existing owner when same-session transport startup fails", async () => {
+    const transcriptEntryIds: string[] = [];
+    const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: "voice-existing",
+          clientSecret: "secret",
+        };
+      }
+      if (method === "talk.client.transcript") {
+        transcriptEntryIds.push(String(params?.entryId));
+      }
+      return { ok: true };
+    });
+    const client = { request } as never;
+    const session = new RealtimeTalkSession(client, "agent:main:main");
+
+    await session.start();
+    const existingContext = transcriptContext(transportMock.webRtcContexts);
+    transportMock.start.mockRejectedValueOnce(new Error("replacement startup failed"));
+
+    await expect(session.start()).rejects.toThrow("replacement startup failed");
+    expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(false);
+
+    existingContext.callbacks.onTranscript?.({ role: "user", text: "still active", final: true });
+    await existingContext.flushTranscriptWrites?.();
+    expect(transcriptEntryIds).toEqual(["1"]);
+
+    const concurrent = new RealtimeTalkSession(client, "agent:main:main");
+    await concurrent.start();
+    concurrent.stop();
+    session.stop();
+  });
+
+  it("releases newly allocated owners after transport startup failures", async () => {
+    let createCount = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "talk.client.create") {
+        createCount += 1;
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: `voice-start-${createCount}`,
+          clientSecret: "secret",
+        };
+      }
+      return { ok: true };
+    });
+    const client = { request } as never;
+    transportMock.start
+      .mockRejectedValueOnce(new Error("first startup failed"))
+      .mockRejectedValueOnce(new Error("second startup failed"));
+
+    const first = new RealtimeTalkSession(client, "agent:main:main");
+    await expect(first.start()).rejects.toThrow("first startup failed");
+    await vi.waitFor(() =>
+      expect(request.mock.calls.filter(([method]) => method === "talk.client.close")).toHaveLength(
+        1,
+      ),
+    );
+
+    const second = new RealtimeTalkSession(client, "agent:main:main");
+    await expect(second.start()).rejects.toThrow("second startup failed");
+    await vi.waitFor(() =>
+      expect(request.mock.calls.filter(([method]) => method === "talk.client.close")).toHaveLength(
+        2,
+      ),
+    );
+
+    const recovered = new RealtimeTalkSession(client, "agent:main:main");
+    await recovered.start();
+    recovered.stop();
+  });
+
   it("surfaces transcript failure after three attempts", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

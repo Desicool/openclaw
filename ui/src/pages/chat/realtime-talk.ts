@@ -240,8 +240,20 @@ export class RealtimeTalkSession {
     const lifecycleGeneration = ++this.lifecycleGeneration;
     this.closed = false;
     this.callbacks.onStatus?.("connecting");
+    const existingTransport = this.transport;
+    const existingTransportGeneration = this.transportGeneration;
     const existingVoiceSessionId = this.voiceSessionId;
+    const existingAcceptingTranscripts = this.acceptingTranscripts;
+    const existingServerOwnedVoiceSession = this.serverOwnedVoiceSession;
     const existingOwner = this.clientVoiceSessionOwner;
+    const restoreExistingSession = () => {
+      this.transport = existingTransport;
+      this.transportGeneration = existingTransportGeneration;
+      this.voiceSessionId = existingVoiceSessionId;
+      this.acceptingTranscripts = existingAcceptingTranscripts;
+      this.serverOwnedVoiceSession = existingServerOwnedVoiceSession;
+      this.clientVoiceSessionOwner = existingOwner;
+    };
     const owner = reserveClientVoiceSessionOwner(this.client, this.sessionKey);
     let ownerTransferred = false;
     try {
@@ -307,21 +319,39 @@ export class RealtimeTalkSession {
               adoptedOwner.signal,
             );
       const transcriptQueue = this.transcriptQueue;
-      this.transport = createTransport(session, {
-        client: this.client,
-        sessionKey: this.sessionKey,
-        voiceSessionId,
-        flushTranscriptWrites: async () => await transcriptQueue.flush(),
-        callbacks,
-        inputDeviceId: this.localOptions.inputDeviceId,
-        videoDeviceId: this.localOptions.videoDeviceId,
-        consultThinkingLevel: session.consultThinkingLevel,
-        consultFastMode: session.consultFastMode,
-      });
-      this.callbacks.onVideoCapability?.(
-        providerVideoCapable && typeof this.transport.setVideoEnabled === "function",
-      );
-      await this.transport.start();
+      let nextTransport: RealtimeTalkTransport | null = null;
+      try {
+        nextTransport = createTransport(session, {
+          client: this.client,
+          sessionKey: this.sessionKey,
+          voiceSessionId,
+          flushTranscriptWrites: async () => await transcriptQueue.flush(),
+          callbacks,
+          inputDeviceId: this.localOptions.inputDeviceId,
+          videoDeviceId: this.localOptions.videoDeviceId,
+          consultThinkingLevel: session.consultThinkingLevel,
+          consultFastMode: session.consultFastMode,
+        });
+        this.transport = nextTransport;
+        this.callbacks.onVideoCapability?.(
+          providerVideoCapable && typeof nextTransport.setVideoEnabled === "function",
+        );
+        await nextTransport.start();
+      } catch (error) {
+        nextTransport?.stop();
+        if (existingOwner && adoptedOwner === existingOwner) {
+          // A same-session replacement borrows the existing owner and queue.
+          // Restore the live transport instead of closing their shared allocation.
+          restoreExistingSession();
+        } else {
+          const detached = this.detachVoiceSession();
+          restoreExistingSession();
+          if (detached) {
+            this.closeLogicalVoiceSession(detached);
+          }
+        }
+        throw error;
+      }
     } finally {
       if (!ownerTransferred) {
         owner.release();
