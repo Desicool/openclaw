@@ -326,7 +326,7 @@ function createLazyGoogleRealtimeVoiceBridge(
       if (closed || providerTerminated) {
         return;
       }
-      if (bridge) {
+      if (bridgeReady && bridge) {
         bridge.sendAudio(audio);
         return;
       }

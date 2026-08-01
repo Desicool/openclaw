@@ -517,6 +517,29 @@ describe("google provider plugin hooks", () => {
     expect(loaded.sendAudio.mock.calls.at(-1)?.[0]).toEqual(Buffer.from([65]));
   });
 
+  it("preserves lazy audio order across bridge loading and provider readiness", async () => {
+    const connected = createDeferred<void>();
+    const loaded = createMockRealtimeBridge(() => connected.promise);
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const { bridge } = createLazyRealtimeBridge();
+
+    bridge.sendAudio(Buffer.from([0x01]));
+    const connectPromise = bridge.connect();
+    await vi.waitFor(() => expect(loaded.connect).toHaveBeenCalledOnce());
+    bridge.sendAudio(Buffer.from([0x02]));
+
+    expect(loaded.sendAudio).not.toHaveBeenCalled();
+    connected.resolve();
+    await connectPromise;
+    expect(loaded.sendAudio).not.toHaveBeenCalled();
+
+    signalRealtimeBridgeReady();
+    expect(loaded.sendAudio.mock.calls.map(([audio]) => audio)).toEqual([
+      Buffer.from([0x01]),
+      Buffer.from([0x02]),
+    ]);
+  });
+
   it("copies lazy audio and evicts oldest chunks to enforce the byte limit", async () => {
     const loaded = createMockRealtimeBridge();
     createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
