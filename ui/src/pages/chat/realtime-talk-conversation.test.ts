@@ -217,6 +217,29 @@ describe("realtime Talk conversation", () => {
     expect(state.entries[0]?.text.endsWith("NEWEST")).toBe(true);
   });
 
+  it.each([255, 256])(
+    "does not retain a lone high surrogate before a natural marker at offset %i",
+    (markerOffset) => {
+      let state = createRealtimeTalkConversationState();
+      const retainedText = "a".repeat(markerOffset - 1);
+
+      state = updateRealtimeTalkConversation(state, {
+        role: "assistant",
+        text: `${retainedText}\uD800\n…\n${"b".repeat(8_000)}NEWEST`,
+        final: true,
+        nowMs: 1,
+      });
+
+      const text = state.entries[0]?.text ?? "";
+      expect(text.length).toBeLessThanOrEqual(8_000);
+      expect(text.startsWith(`${retainedText}\n…\n`)).toBe(true);
+      expect(text.endsWith("NEWEST")).toBe(true);
+      expect(text).not.toMatch(
+        /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/,
+      );
+    },
+  );
+
   it.each(["user", "assistant"] as const)(
     "bounds oversized final %s entries while retaining the newest text",
     (role) => {

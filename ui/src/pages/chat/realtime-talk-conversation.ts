@@ -285,9 +285,10 @@ function boundRealtimeConversationText(text: string): string {
   const hasBoundedPrefix =
     markerIndex >= CONVERSATION_ENTRY_PREFIX_CHARS - 1 &&
     markerIndex <= CONVERSATION_ENTRY_PREFIX_CHARS;
-  const prefix = hasBoundedPrefix
-    ? text.slice(0, markerIndex)
-    : sliceUtf16Safe(text, 0, CONVERSATION_ENTRY_PREFIX_CHARS);
+  const prefixEnd = hasBoundedPrefix ? markerIndex : CONVERSATION_ENTRY_PREFIX_CHARS;
+  // A natural marker can follow malformed provider text ending in a lone high
+  // surrogate. Keep that code unit out of the retained truncation boundary.
+  const prefix = sliceUtf16Safe(text, 0, prefixEnd).replace(/[\uD800-\uDBFF]$/, "");
   const tailChars =
     MAX_CONVERSATION_ENTRY_CHARS - prefix.length - CONVERSATION_ENTRY_TRUNCATION_MARKER.length;
   const tail = sliceUtf16Safe(text, -tailChars);
