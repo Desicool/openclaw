@@ -3,16 +3,10 @@ type BoundedSerialQueueAdmission<T> =
   | { accepted: false; reason: "overflow" | "sealed" };
 
 type BoundedSerialQueueTask = {
-  sequence: number;
   weight: number;
   run: () => unknown;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
-};
-
-type BoundedSerialQueueFlushWaiter = {
-  sequence: number;
-  resolve: () => void;
 };
 
 /**
@@ -27,9 +21,7 @@ export class BoundedSerialQueue {
   private active = false;
   private sealed = false;
   private overflowed = false;
-  private acceptedSequence = 0;
-  private settledSequence = 0;
-  private readonly flushWaiters: BoundedSerialQueueFlushWaiter[] = [];
+  private settledPrefix: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly options: {
@@ -81,12 +73,15 @@ export class BoundedSerialQueue {
       reject = fail;
     });
     const task: BoundedSerialQueueTask = {
-      sequence: ++this.acceptedSequence,
       weight,
       run,
       resolve: (value) => resolve(value as T),
       reject,
     };
+    this.settledPrefix = completion.then(
+      () => undefined,
+      () => undefined,
+    );
     if (this.active) {
       this.pending.push(task);
       this.pendingWeight += weight;
@@ -108,13 +103,7 @@ export class BoundedSerialQueue {
    * finite while close can seal first to drain the entire accepted prefix.
    */
   flush(): Promise<void> {
-    const sequence = this.acceptedSequence;
-    if (sequence <= this.settledSequence) {
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => {
-      this.flushWaiters.push({ sequence, resolve });
-    });
+    return this.settledPrefix;
   }
 
   private startTask(task: BoundedSerialQueueTask): void {
@@ -127,24 +116,12 @@ export class BoundedSerialQueue {
     } catch (error) {
       task.reject(error);
     } finally {
-      this.settledSequence = task.sequence;
-      this.resolveFlushWaiters();
       const next = this.pending.shift();
       if (next) {
         this.pendingWeight -= next.weight;
         queueMicrotask(() => this.startTask(next));
       } else {
         this.active = false;
-      }
-    }
-  }
-
-  private resolveFlushWaiters(): void {
-    for (let index = this.flushWaiters.length - 1; index >= 0; index -= 1) {
-      const waiter = this.flushWaiters[index];
-      if (waiter && waiter.sequence <= this.settledSequence) {
-        this.flushWaiters.splice(index, 1);
-        waiter.resolve();
       }
     }
   }

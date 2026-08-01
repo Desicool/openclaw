@@ -76,6 +76,8 @@ describe("BoundedSerialQueue", () => {
     const queue = new BoundedSerialQueue({ maxPendingCount: 2, maxPendingWeight: 2 });
     const active = queue.enqueue(async () => await first.promise);
     const flush = queue.flush();
+    const repeatedFlushes = Array.from({ length: 10_000 }, () => queue.flush());
+    expect(new Set([flush, ...repeatedFlushes]).size).toBe(1);
     const late = queue.enqueue(async () => await second.promise);
     const flushed = vi.fn();
     void flush.then(flushed);
