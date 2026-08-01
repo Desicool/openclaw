@@ -15,9 +15,7 @@ import type { AnswerCallInput, HangupCallInput, NormalizedEvent } from "../types
 import type { CallManagerContext } from "./context.js";
 import { processEvent } from "./events.js";
 import { speakInitialMessage } from "./outbound.js";
-import { MAX_CALL_REPLAY_KEYS } from "./replay-keys.js";
-
-const MANAGER_REPLAY_KEY_LIMIT = 10_000;
+import { MAX_CALL_REPLAY_KEYS, MAX_MANAGER_REPLAY_KEYS } from "./replay-keys.js";
 
 const logSpy = vi.hoisted(() => {
   const logEntries: string[] = [];
@@ -777,7 +775,7 @@ describe("processEvent (functional)", () => {
   it("bounds committed replay keys in both manager and persisted call owners", () => {
     const now = Date.now();
     const managerKeys = Array.from(
-      { length: MANAGER_REPLAY_KEY_LIMIT },
+      { length: MAX_MANAGER_REPLAY_KEYS },
       (_, index) => `manager-${index}`,
     );
     const callKeys = Array.from({ length: MAX_CALL_REPLAY_KEYS }, (_, index) => `call-${index}`);
@@ -808,7 +806,7 @@ describe("processEvent (functional)", () => {
 
     const call = ctx.activeCalls.get("call-bounded");
     expect(result).toEqual({ kind: "processed" });
-    expect(ctx.processedEventIds.size).toBe(MANAGER_REPLAY_KEY_LIMIT);
+    expect(ctx.processedEventIds.size).toBe(MAX_MANAGER_REPLAY_KEYS);
     expect(ctx.processedEventIds.has("manager-0")).toBe(false);
     expect(ctx.processedEventIds.has("evt-bounded-new")).toBe(true);
     expect(call?.processedEventIds).toHaveLength(MAX_CALL_REPLAY_KEYS);
@@ -829,7 +827,7 @@ describe("processEvent (functional)", () => {
   it("bounds rejected provider calls while retaining hangup-once behavior", () => {
     const rejectedProviderCallIds = new Map<string, symbol>(
       Array.from(
-        { length: MANAGER_REPLAY_KEY_LIMIT },
+        { length: MAX_MANAGER_REPLAY_KEYS },
         (_, index) => [`provider-${index}`, Symbol(`provider-${index}`)] as const,
       ),
     );
@@ -853,7 +851,7 @@ describe("processEvent (functional)", () => {
       }),
     );
 
-    expect(ctx.rejectedProviderCallIds.size).toBe(MANAGER_REPLAY_KEY_LIMIT);
+    expect(ctx.rejectedProviderCallIds.size).toBe(MAX_MANAGER_REPLAY_KEYS);
     expect(ctx.rejectedProviderCallIds.has("provider-0")).toBe(false);
     expect(ctx.rejectedProviderCallIds.has("provider-new")).toBe(true);
     expect(hangupCalls).toHaveLength(1);
