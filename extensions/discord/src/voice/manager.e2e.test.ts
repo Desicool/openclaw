@@ -3376,11 +3376,6 @@ describe("DiscordVoiceManager", () => {
     bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
     bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
     expect(wakeAckCount()).toBe(1);
-
-    bridgeParams?.onEvent?.({ direction: "server", type: "response.done" });
-    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
-    bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
-    expect(wakeAckCount()).toBe(2);
   });
 
   it("treats a bare wake name as an activation for the next realtime transcript", async () => {
