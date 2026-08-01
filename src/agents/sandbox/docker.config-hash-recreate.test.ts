@@ -588,65 +588,30 @@ describe("ensureSandboxContainer config-hash recreation", () => {
     expect(customMountIdx).toBeGreaterThan(workspaceMountIdx);
   });
 
-  it("skips user binds that conflict with protected skill overlay container paths", async () => {
-    // Protected skill overlays are authoritative; a user bind targeting the same
-    // container path is skipped so the read-only skill overlay wins and Docker does
-    // not reject the container with a "Duplicate mount point" error.
-    const workspaceDir = makeTempDir();
-    const customRoot = makeTempDir();
-    fs.mkdirSync(path.join(workspaceDir, "skills", "demo"), { recursive: true });
-    fs.mkdirSync(customRoot, { recursive: true });
-    const cfg = createSandboxConfig([], [`${customRoot}:/workspace/skills:rw`]);
-    cfg.docker.dangerouslyAllowExternalBindSources = true;
+  it.each(["docker", "podman"] as const)(
+    "skips user binds that conflict with protected skill overlays for %s",
+    async (backend) => {
+      // The protected overlay remains authoritative for both engines, avoiding
+      // duplicate mount rejection without making checked-in skills writable.
+      const workspaceDir = makeTempDir();
+      const customRoot = makeTempDir();
+      fs.mkdirSync(path.join(workspaceDir, "skills", "demo"), { recursive: true });
+      const customMount = `${customRoot}:/workspace/skills:rw`;
+      const cfg = createSandboxConfig([], [customMount]);
+      cfg.backend = backend;
+      cfg.docker.dangerouslyAllowExternalBindSources = true;
+      spawnState.inspectRunning = false;
+      registryMocks.readRegistryEntry.mockResolvedValue(null);
 
-    spawnState.inspectRunning = false;
-    spawnState.labelHash = "stale-hash";
-    registryMocks.readRegistryEntry.mockResolvedValue({
-      containerName: "oc-test-shared",
-      sessionKey: "shared",
-      createdAtMs: 1,
-      lastUsedAtMs: 0,
-      image: cfg.docker.image,
-      configHash: "stale-hash",
-    });
+      const engine = backend === "podman" ? PODMAN_SANDBOX_ENGINE : undefined;
+      const createCall = await ensureSandboxCreateCallForTest({ cfg, workspaceDir, engine });
+      const bindArgs = collectDockerFlagValues(createCall.args, "-v");
 
-    const createCall = await ensureSandboxCreateCallForTest({ cfg, workspaceDir });
-    const bindArgs = collectDockerFlagValues(createCall.args, "-v");
-    const workspaceMountIdx = bindArgs.indexOf(`${workspaceDir}:/workspace:z`);
-    const customMount = `${customRoot}:/workspace/skills:rw`;
-    const protectedMount = `${path.join(workspaceDir, "skills")}:/workspace/skills:ro,z`;
-    const protectedMountIdx = bindArgs.indexOf(protectedMount);
-
-    expect(workspaceMountIdx).toBeGreaterThanOrEqual(0);
-    // User bind is skipped because it conflicts with the protected skill overlay
-    expect(bindArgs).not.toContain(customMount);
-    // Protected skill overlay is present and appended after user binds
-    expect(protectedMountIdx).toBeGreaterThan(workspaceMountIdx);
-  });
-
-  it("skips protected skill bind conflicts for Podman containers", async () => {
-    const workspaceDir = makeTempDir();
-    const customRoot = makeTempDir();
-    fs.mkdirSync(path.join(workspaceDir, "skills", "demo"), { recursive: true });
-    const customMount = `${customRoot}:/workspace/skills:rw`;
-    const cfg = createSandboxConfig([], [customMount]);
-    cfg.backend = "podman";
-    cfg.docker.dangerouslyAllowExternalBindSources = true;
-
-    spawnState.inspectRunning = false;
-    registryMocks.readRegistryEntry.mockResolvedValue(null);
-
-    const createCall = await ensureSandboxCreateCallForTest({
-      cfg,
-      workspaceDir,
-      engine: PODMAN_SANDBOX_ENGINE,
-    });
-    const bindArgs = collectDockerFlagValues(createCall.args, "-v");
-
-    expect(createCall.command).toBe("podman");
-    expect(bindArgs).not.toContain(customMount);
-    expect(bindArgs).toContain(`${path.join(workspaceDir, "skills")}:/workspace/skills:ro,z`);
-  });
+      expect(createCall.command).toBe(backend);
+      expect(bindArgs).not.toContain(customMount);
+      expect(bindArgs).toContain(`${path.join(workspaceDir, "skills")}:/workspace/skills:ro,z`);
+    },
+  );
 
   it.each([
     { workspaceAccess: "rw" as const, expectedMainMount: "/tmp/workspace:/workspace:z" },
