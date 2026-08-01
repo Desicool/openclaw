@@ -1,6 +1,13 @@
+import type { RealtimeVoiceToolCallEvent } from "../talk/provider-types.js";
 import type { RealtimeVoiceSessionHarness } from "../talk/realtime-session-harness.js";
 import type { RealtimeVoiceBridgeSession } from "../talk/session-runtime.js";
-import type { MeetingRealtimeToolCallParams } from "./realtime-engine.js";
+import type { TalkEventInput } from "../talk/talk-events.js";
+
+type MeetingRealtimeToolContinuityCall = {
+  session: RealtimeVoiceBridgeSession;
+  event: RealtimeVoiceToolCallEvent;
+  onTalkEvent: (event: TalkEventInput) => void;
+};
 
 const meetingRealtimeToolAbortSignals = new WeakMap<RealtimeVoiceBridgeSession, AbortSignal>();
 
@@ -10,9 +17,9 @@ export function readMeetingRealtimeToolAbortSignal(
   return meetingRealtimeToolAbortSignals.get(session);
 }
 
-export function createMeetingRealtimeToolContinuity(
-  handleToolCall: (call: MeetingRealtimeToolCallParams) => Promise<void>,
-) {
+export function createMeetingRealtimeToolContinuity<
+  TCall extends MeetingRealtimeToolContinuityCall,
+>(handleToolCall: (call: TCall) => Promise<void>) {
   let epoch = 0;
   const activeControllers = new Set<AbortController>();
 
@@ -28,7 +35,7 @@ export function createMeetingRealtimeToolContinuity(
 
   const run = (params: {
     session: RealtimeVoiceBridgeSession;
-    call: Omit<MeetingRealtimeToolCallParams, "session" | "onTalkEvent">;
+    call: Omit<TCall, "session" | "onTalkEvent">;
     harness: Pick<RealtimeVoiceSessionHarness, "emit" | "ensureTurn">;
   }): Promise<void> => {
     const callEpoch = epoch;
@@ -59,7 +66,7 @@ export function createMeetingRealtimeToolContinuity(
           params.harness.emit({ ...event, turnId: event.turnId ?? turnId });
         }
       },
-    })
+    } as TCall)
       .catch((error: unknown) => {
         if (isActive()) {
           throw error;
