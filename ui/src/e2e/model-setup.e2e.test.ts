@@ -482,7 +482,8 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
       });
       await page.getByRole("button", { name: "Stay in settings" }).click();
       const currentConnection = page.locator(".model-setup__current");
-      await currentConnection.getByText("ollama/qwen3:0.6b", { exact: true }).waitFor();
+      await currentConnection.getByText("Ollama", { exact: true }).waitFor();
+      await currentConnection.getByText("qwen3:0.6b", { exact: true }).waitFor();
       await expect
         .poll(() => currentConnection.locator('[data-provider-icon="ollama"]').count())
         .toBe(1);
