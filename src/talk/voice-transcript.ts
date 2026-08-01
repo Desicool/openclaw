@@ -38,7 +38,12 @@ class VoiceTranscriptOperationRegistry {
   }
 
   private cleanup(key: string, owner: VoiceTranscriptOperationOwner): void {
-    if (this.owners.get(key) === owner && !owner.closePromise && owner.queue.isIdle) {
+    if (
+      this.owners.get(key) === owner &&
+      !owner.closePromise &&
+      owner.queue.isIdle &&
+      !owner.queue.didOverflow
+    ) {
       this.owners.delete(key);
     }
   }

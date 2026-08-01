@@ -415,13 +415,13 @@ function appendVoiceTranscript(params: {
 }): Promise<void> {
   // Normalize before admission so the queued task retains only bounded text.
   const normalized = { ...params, text: normalizeVoiceTranscriptText(params.text) };
+  if (!normalized.text) {
+    return Promise.resolve();
+  }
   return runVoiceSessionOperation(
     normalized.agentId,
     normalized.voiceSessionId,
     async () => {
-      if (!normalized.text) {
-        return;
-      }
       const record = readRecord(normalized.agentId, normalized.voiceSessionId);
       if (!record) {
         throw new Error("voice session not found");
