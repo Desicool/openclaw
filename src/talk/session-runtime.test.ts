@@ -443,6 +443,7 @@ describe("realtime voice bridge session runtime", () => {
 
     session.sendAudio(Buffer.from("closed-input"));
     callbacks?.onAudio(Buffer.from("closed-output"));
+    callbacks?.onClose?.("error");
     callbacks?.onReady?.();
     expect(onReady).not.toHaveBeenCalled();
 
