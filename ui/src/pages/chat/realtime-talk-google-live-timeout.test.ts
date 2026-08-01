@@ -35,6 +35,14 @@ class FakeGoogleLiveWebSocket extends EventTarget {
   emitMessage(message: unknown): void {
     this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
   }
+
+  emitClose(): void {
+    this.dispatchEvent(new Event("close"));
+  }
+
+  emitError(): void {
+    this.dispatchEvent(new Event("error"));
+  }
 }
 
 class FakeAudioContext {
@@ -94,6 +102,15 @@ function latestSocket(): FakeGoogleLiveWebSocket {
   return socket;
 }
 
+async function beginTransport(transport: GoogleLiveRealtimeTalkTransport): Promise<{
+  start: Promise<"ready" | "cancelled">;
+  socket: FakeGoogleLiveWebSocket;
+}> {
+  const start = transport.start();
+  await vi.advanceTimersByTimeAsync(0);
+  return { start, socket: latestSocket() };
+}
+
 describe("Google Live setup timeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -121,22 +138,18 @@ describe("Google Live setup timeout", () => {
     const onTalkEvent = vi.fn();
     const transport = createTransport({ onStatus, onTalkEvent });
 
-    await expect(transport.start()).resolves.toBe("ready");
-    const socket = latestSocket();
+    const { start, socket } = await beginTransport(transport);
     socket.readyState = 0;
+    const rejected = expect(start).rejects.toThrow("Realtime connection timed out after 30000ms");
     await vi.advanceTimersByTimeAsync(SETUP_TIMEOUT_MS);
 
-    expect(onStatus).toHaveBeenCalledExactlyOnceWith(
-      "error",
-      "Realtime connection timed out after 30000ms",
-    );
+    await rejected;
+    expect(onStatus).not.toHaveBeenCalled();
     expect(stopInputTrack).toHaveBeenCalledOnce();
     expect(audioContexts).toHaveLength(2);
     expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);
     expect(socket.readyState).toBe(3);
-    expect(onTalkEvent).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ type: "session.closed", final: true }),
-    );
+    expect(onTalkEvent).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -144,51 +157,106 @@ describe("Google Live setup timeout", () => {
     const onStatus = vi.fn();
     const transport = createTransport({ onStatus });
 
-    await transport.start();
-    latestSocket().emitOpen();
+    const { start, socket } = await beginTransport(transport);
+    socket.emitOpen();
+    const rejected = expect(start).rejects.toThrow("Realtime connection timed out after 30000ms");
     await vi.advanceTimersByTimeAsync(SETUP_TIMEOUT_MS);
 
-    expect(onStatus).toHaveBeenCalledExactlyOnceWith(
-      "error",
-      "Realtime connection timed out after 30000ms",
-    );
+    await rejected;
+    expect(onStatus).not.toHaveBeenCalled();
     expect(stopInputTrack).toHaveBeenCalledOnce();
     expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);
   });
 
-  it.each(["status", "talk event"] as const)(
-    "releases timed-out resources when the terminal %s callback throws",
-    async (callbackKind) => {
-      const throwingCallback = vi.fn(() => {
-        throw new Error("consumer failed");
-      });
-      const transport = createTransport(
-        callbackKind === "status"
-          ? { onStatus: throwingCallback }
-          : { onTalkEvent: throwingCallback },
-      );
+  it("does not publish provisional terminal callbacks when setup times out", async () => {
+    const onStatus = vi.fn(() => {
+      throw new Error("status callback must remain provisional");
+    });
+    const onTalkEvent = vi.fn(() => {
+      throw new Error("talk callback must remain provisional");
+    });
+    const transport = createTransport({ onStatus, onTalkEvent });
 
-      await transport.start();
-      const socket = latestSocket();
-      socket.readyState = 0;
-      expect(() => vi.advanceTimersByTime(SETUP_TIMEOUT_MS)).toThrow("consumer failed");
+    const { start, socket } = await beginTransport(transport);
+    socket.readyState = 0;
+    const rejected = expect(start).rejects.toThrow("Realtime connection timed out after 30000ms");
+    await vi.advanceTimersByTimeAsync(SETUP_TIMEOUT_MS);
 
-      expect(stopInputTrack).toHaveBeenCalledOnce();
-      expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);
-      expect(socket.readyState).toBe(3);
-      expect(vi.getTimerCount()).toBe(0);
-    },
-  );
+    await rejected;
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(onTalkEvent).not.toHaveBeenCalled();
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);
+    expect(socket.readyState).toBe(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["close", "Realtime connection closed"],
+    ["error", "Realtime connection failed"],
+  ] as const)("rejects startup when the WebSocket emits %s", async (event, detail) => {
+    const onStatus = vi.fn();
+    const transport = createTransport({ onStatus });
+    const { start, socket } = await beginTransport(transport);
+    const rejected = expect(start).rejects.toThrow(detail);
+
+    if (event === "close") {
+      socket.emitClose();
+    } else {
+      socket.emitError();
+    }
+
+    await rejected;
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(socket.readyState).toBe(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects when the socket closes after setup but before activation", async () => {
+    const onStatus = vi.fn();
+    const transport = createTransport({ onStatus });
+    const { start, socket } = await beginTransport(transport);
+    socket.emitOpen();
+    socket.emitMessage({ setupComplete: {} });
+    await Promise.resolve();
+    const rejected = expect(start).rejects.toThrow("Realtime connection closed");
+
+    socket.emitClose();
+
+    await rejected;
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(socket.readyState).toBe(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("releases resources when a readiness callback throws during activation", async () => {
+    const onStatus = vi.fn(() => {
+      throw new Error("consumer failed");
+    });
+    const transport = createTransport({ onStatus });
+    const { start, socket } = await beginTransport(transport);
+    socket.emitOpen();
+    socket.emitMessage({ setupComplete: {} });
+    await expect(start).resolves.toBe("ready");
+
+    expect(() => transport.activate()).toThrow("consumer failed");
+    expect(stopInputTrack).toHaveBeenCalledOnce();
+    expect(socket.readyState).toBe(3);
+    expect(audioContexts.every((context) => context.close.mock.calls.length === 1)).toBe(true);
+  });
 
   it("clears the deadline after Google setup completes", async () => {
     const onStatus = vi.fn();
     const transport = createTransport({ onStatus });
 
-    await transport.start();
-    const socket = latestSocket();
+    const { start, socket } = await beginTransport(transport);
     socket.emitOpen();
     socket.emitMessage({ setupComplete: {} });
-    await Promise.resolve();
+    await expect(start).resolves.toBe("ready");
+    expect(onStatus).not.toHaveBeenCalled();
+    transport.activate();
     await vi.advanceTimersByTimeAsync(SETUP_TIMEOUT_MS);
 
     expect(onStatus).toHaveBeenCalledExactlyOnceWith("listening");
@@ -199,8 +267,9 @@ describe("Google Live setup timeout", () => {
     const onStatus = vi.fn();
     const transport = createTransport({ onStatus });
 
-    await transport.start();
+    const { start } = await beginTransport(transport);
     transport.stop();
+    await expect(start).resolves.toBe("cancelled");
     await vi.advanceTimersByTimeAsync(SETUP_TIMEOUT_MS);
 
     expect(onStatus).not.toHaveBeenCalled();
