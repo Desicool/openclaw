@@ -815,6 +815,9 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       sessionResumptionUpdate: { resumable: true, newHandle: "resume-1" },
       serverContent: { inputTranscription: { text: "Before " } },
     });
+    firstSession.onmessage({
+      sessionResumptionUpdate: { newHandle: "unconfirmed-handle" },
+    });
     firstSession.onclose({ code: 1011, reason: "temporary" });
     await vi.advanceTimersByTimeAsync(250);
     lastConnectParams().callbacks.onmessage({
@@ -854,27 +857,33 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
     ]);
   });
 
-  it("reconnects unexpected Google Live closes with the latest resumption handle", async () => {
+  it.each([undefined, "invalidated-handle"])("invalidates resume handles %#", async (newHandle) => {
     vi.useFakeTimers();
     try {
       const provider = buildGoogleRealtimeVoiceProvider();
       const onClose = vi.fn();
       const onError = vi.fn();
+      const onTranscript = vi.fn();
       const bridge = provider.createBridge({
         providerConfig: { apiKey: "gemini-key" },
         onAudio: vi.fn(),
         onClearAudio: vi.fn(),
         onClose,
         onError,
+        onTranscript,
       });
 
       await bridge.connect();
       lastConnectParams().callbacks.onmessage({
         setupComplete: { sessionId: "session-1" },
         sessionResumptionUpdate: { resumable: true, newHandle: "resume-1" },
+        serverContent: {
+          inputTranscription: { text: "Previous caller " },
+          outputTranscription: { text: "Previous assistant " },
+        },
       });
       lastConnectParams().callbacks.onmessage({
-        sessionResumptionUpdate: { resumable: false },
+        sessionResumptionUpdate: { resumable: false, ...(newHandle ? { newHandle } : {}) },
       });
       lastConnectParams().callbacks.onclose({
         code: 1011,
@@ -889,7 +898,20 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       await vi.advanceTimersByTimeAsync(250);
 
       expect(connectMock).toHaveBeenCalledTimes(2);
-      expect(lastConnectParams().config.sessionResumption).toEqual({ handle: "resume-1" });
+      expect(lastConnectParams().config.sessionResumption).toEqual({});
+
+      lastConnectParams().callbacks.onmessage({
+        setupComplete: { sessionId: "session-2" },
+        serverContent: {
+          inputTranscription: { text: "Fresh caller", finished: true },
+          outputTranscription: { text: "Fresh assistant", finished: true },
+        },
+      });
+
+      expect(onTranscript.mock.calls.filter((call) => call[2] === true)).toEqual([
+        ["user", "Fresh caller", true],
+        ["assistant", "Fresh assistant", true],
+      ]);
     } finally {
       vi.useRealTimers();
     }

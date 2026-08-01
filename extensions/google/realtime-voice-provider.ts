@@ -842,7 +842,9 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       sessionResumptionUpdate?: { newHandle?: string; resumable?: boolean };
     };
     const update = raw.sessionResumptionUpdate;
-    if (update?.resumable && update.newHandle) {
+    if (update?.resumable === false) {
+      this.resumptionHandle = undefined;
+    } else if (update?.resumable && update.newHandle) {
       this.resumptionHandle = update.newHandle;
     }
     if (raw.goAway?.timeLeft) {
