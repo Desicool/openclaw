@@ -276,6 +276,21 @@ function installModelsListCommandForwardCompatMocks() {
     },
   }));
 
+  vi.doMock("./list.scoped-catalog.js", () => ({
+    loadScopedListModelCatalogSnapshot: async (params: {
+      providerIds: readonly string[];
+      runtimeProviderIds?: readonly string[];
+      manifestFallbackProviderIds?: readonly string[];
+    }) => {
+      const entries = await mocks.loadModelCatalog({
+        providerDiscoveryProviderIds: params.providerIds,
+        providerRuntimeDiscoveryProviderIds: params.runtimeProviderIds,
+        providerManifestFallbackProviderIds: params.manifestFallbackProviderIds,
+      });
+      return { entries, routeVariants: entries };
+    },
+  }));
+
   vi.doMock("../../agents/embedded-agent-runner/model.js", () => ({
     resolveModelWithRegistry: mocks.resolveModelWithRegistry,
   }));
@@ -674,6 +689,11 @@ describe("modelsListCommand forward-compat", () => {
             provider: "google",
             key: "google-fixture",
           },
+          "openai:platform": {
+            type: "api_key",
+            provider: "openai",
+            key: "openai-fixture",
+          },
         },
         order: {},
       });
@@ -701,6 +721,13 @@ describe("modelsListCommand forward-compat", () => {
       await modelsListCommand({ json: true }, runtime as never);
 
       expect(mocks.loadModelRegistry).not.toHaveBeenCalled();
+      expect(mocks.loadModelCatalog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerDiscoveryProviderIds: ["google", "openai", "xiaomi"],
+          providerRuntimeDiscoveryProviderIds: [],
+          providerManifestFallbackProviderIds: ["google", "openai"],
+        }),
+      );
       const rows = lastPrintedRows<{ key: string; name: string; available: boolean }>();
       expectRowKeys(rows, [
         "xiaomi/mimo-v2.5-pro",
@@ -1144,6 +1171,11 @@ describe("modelsListCommand forward-compat", () => {
       expect(modelRegistryOptions().normalizeModels).toBe(false);
       expect(mocks.resolveModelWithRegistry).not.toHaveBeenCalled();
       expect(mocks.loadModelCatalog).toHaveBeenCalledOnce();
+      expect(mocks.loadModelCatalog).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          providerDiscoveryProviderIds: expect.anything(),
+        }),
+      );
       expectRowKeys(lastPrintedRows<{ key: string }>(), ["openai/gpt-5.4", "moonshot/kimi-k2.6"]);
     });
 
@@ -1164,6 +1196,11 @@ describe("modelsListCommand forward-compat", () => {
       expect(modelRegistryOptions().providerFilter).toBe("openai");
       expect(modelRegistryOptions().normalizeModels).toBe(true);
       expect(mocks.loadModelCatalog).toHaveBeenCalledOnce();
+      expect(mocks.loadModelCatalog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerDiscoveryProviderIds: ["openai"],
+        }),
+      );
       const rows = lastPrintedRows<{ key: string; available: boolean }>();
       expectRowKeys(rows, ["openai/gpt-5.4"]);
       expectRowFields(rows, "openai/gpt-5.4", { available: true });
