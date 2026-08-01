@@ -517,6 +517,9 @@ export class DiscordRealtimeVoiceSession implements VoiceRealtimeSession {
       onToolCall: (event, session) => this.handleToolCall(event, session),
       onEvent: (event) => {
         const detail = event.detail ? ` ${event.detail}` : "";
+        if (event.direction === "client" && event.type === "session.continuity.reset") {
+          this.resetPartialWakeNameTracking();
+        }
         if (event.direction === "server" && event.type === "input_audio_buffer.speech_started") {
           this.resetPartialWakeNameTracking();
         }

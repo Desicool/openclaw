@@ -3359,6 +3359,29 @@ describe("DiscordVoiceManager", () => {
     expectUserMessageIncludes("wake answer");
   });
 
+  it("does not carry partial wake-name state across provider continuity resets", async () => {
+    const { entry, bridgeParams } = await createWakeNameFixture();
+    const wakeAckCount = () =>
+      sentUserMessages().filter((message) => message.includes('Answer: "Yeah."')).length;
+
+    beginSpeakerTurn(entry);
+    bridgeParams?.onEvent?.({ direction: "server", type: "input_audio_buffer.speech_started" });
+    bridgeParams?.onTranscript?.("user", "Hey, Mol", false);
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onTranscript?.("user", "ty", false);
+
+    expect(wakeAckCount()).toBe(0);
+
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
+    expect(wakeAckCount()).toBe(1);
+
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
+    expect(wakeAckCount()).toBe(2);
+  });
+
   it("treats a bare wake name as an activation for the next realtime transcript", async () => {
     agentCommandMock.mockResolvedValueOnce({ payloads: [{ text: "follow-up answer" }] });
     const onUtterance = vi.fn();
