@@ -43,6 +43,9 @@ import {
   QA_TELEGRAM_LONG_FINAL_PROMPT_RE,
   QA_WHATSAPP_LONG_FINAL_PROMPT_RE,
   QA_SLACK_CHART_PRESENTATION_PROMPT_RE,
+  QA_SLACK_MPIM_HISTORY_RECALL_PROMPT_RE,
+  QA_SLACK_MPIM_HISTORY_SEED_PROMPT_RE,
+  buildSlackMpimHistoryBotReply,
   QA_WHATSAPP_AGENT_MESSAGE_ACTION_REACT_PROMPT_RE,
   QA_WHATSAPP_AGENT_MESSAGE_ACTION_UPLOAD_PROMPT_RE,
   QA_SUBAGENT_DIRECT_FALLBACK_PROMPT_RE,
@@ -126,6 +129,7 @@ import {
   extractLatestToolOutput,
   extractAllToolOutputText,
   extractUserTextAfterLatestToolOutput,
+  extractSlackMpimRetainedBotNonce,
   extractAllUserTexts,
   extractAllInputTexts,
   extractInstructionsText,
@@ -1015,6 +1019,20 @@ async function buildResponsesPayload(
   if (whatsAppStickerMarker) {
     return buildAssistantEvents(whatsAppStickerMarker);
   }
+  const slackMpimHistoryRecall = QA_SLACK_MPIM_HISTORY_RECALL_PROMPT_RE.exec(prompt);
+  if (slackMpimHistoryRecall) {
+    const [, botReplyPrefix, recalledMarker, missingMarker] = slackMpimHistoryRecall;
+    const nonce = botReplyPrefix
+      ? extractSlackMpimRetainedBotNonce(prompt, botReplyPrefix)
+      : undefined;
+    return buildAssistantEvents(
+      nonce && recalledMarker ? `${recalledMarker}_${nonce}` : (missingMarker ?? ""),
+    );
+  }
+  const slackMpimHistorySeed = QA_SLACK_MPIM_HISTORY_SEED_PROMPT_RE.exec(prompt)?.[1];
+  if (slackMpimHistorySeed) {
+    return buildAssistantEvents(buildSlackMpimHistoryBotReply(slackMpimHistorySeed));
+  }
   if (/\bmarker\b/i.test(prompt) && promptExactMarkerDirective) {
     return buildAssistantEvents(promptExactMarkerDirective);
   }
@@ -1458,6 +1476,10 @@ async function buildResponsesPayload(
   ) {
     scenarioState.subagentFanoutPhase = 0;
     scenarioState.subagentFanoutCompletedWorkers.clear();
+  }
+  // A later requester-settle wake must replay the completed synthesis without spawning again.
+  if (isSubagentFanoutPrompt && scenarioState.subagentFanoutPhase === 3) {
+    return buildAssistantEvents("subagent-1: ok\nsubagent-2: ok");
   }
   if (canCallSessionsSpawn && isSubagentFanoutPrompt) {
     if (!toolOutput && scenarioState.subagentFanoutPhase === 0) {

@@ -308,6 +308,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Guided setup
   - H3: Bot approval
   - H2: Agent tools and messaging
+  - H3: Directory and sender labels
   - H3: Route rooms to different agents
   - H2: Access control
   - H2: Manual configuration
@@ -523,6 +524,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 
 - Route: /channels/imessage
 - Headings:
+  - H2: Install the plugin
   - H2: Quick setup
   - H2: Requirements and permissions (macOS)
   - H2: Enabling the imsg private API
@@ -4043,6 +4045,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Supported capability matrix
   - H2: Docker backend
   - H3: Sandboxed browser
+  - H2: Podman backend
   - H2: SSH backend
   - H2: OpenShell backend
   - H2: Workspace access
@@ -4858,6 +4861,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Prerequisites
   - H2: Quick start
+  - H2: Agent sandbox backend
   - H2: Podman and Tailscale
   - H2: Systemd (Quadlet, optional)
   - H2: Config, env, and storage
@@ -8501,7 +8505,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Setup
   - H2: Defaults
-  - H2: Bundled model catalog
+  - H2: Model catalog
   - H2: When to choose Novita
   - H2: Troubleshooting
   - H2: Related
@@ -8582,7 +8586,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Getting started
   - H2: Config example
-  - H2: Built-in catalog
+  - H2: Catalog
   - H2: Advanced configuration
   - H2: Related
 
@@ -8592,7 +8596,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Getting started
   - H2: Config example
-  - H2: Built-in catalogs
+  - H2: Provider catalogs
   - H3: Zen
   - H3: Go
   - H2: Advanced configuration
