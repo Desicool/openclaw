@@ -316,37 +316,43 @@ describe("meeting node host audio output", () => {
     });
   });
 
-  it("delivers stdout buffered after failure to a pending empty pull", async () => {
-    const inputStdout = new EventEmitter();
-    const inputProcess = createProcess({ stdout: inputStdout, autoClose: false });
-    const outputProcess = createProcess({ stdin: createStdin(true) });
-    childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
-    const host = createHost();
-    const started = await invokeHost(host, {
-      action: "start",
-      audioInputCommand: ["capture"],
-      audioOutputCommand: ["play"],
-      launch: false,
-      mode: "bidi",
-    });
-    const bridgeId = started.bridgeId as string;
-    const finalAudio = Buffer.from([7, 8, 9]);
-    const pulling = invokeHost(host, {
-      action: "pullAudio",
-      bridgeId,
-      timeoutMs: 2_000,
-    });
+  it("delivers stdout flushed after 250ms to a pending empty pull", async () => {
+    vi.useFakeTimers();
+    try {
+      const inputStdout = new EventEmitter();
+      const inputProcess = createProcess({ stdout: inputStdout, autoClose: false });
+      const outputProcess = createProcess({ stdin: createStdin(true) });
+      childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
+      const host = createHost();
+      const started = await invokeHost(host, {
+        action: "start",
+        audioInputCommand: ["capture"],
+        audioOutputCommand: ["play"],
+        launch: false,
+        mode: "bidi",
+      });
+      const bridgeId = started.bridgeId as string;
+      const finalAudio = Buffer.from([7, 8, 9]);
+      const pulling = invokeHost(host, {
+        action: "pullAudio",
+        bridgeId,
+        timeoutMs: 2_000,
+      });
 
-    inputProcess.stderr.emit("error", new Error("capture failed"));
-    inputStdout.emit("data", finalAudio);
-    inputStdout.emit("end");
-    inputStdout.emit("close");
+      inputProcess.stderr.emit("error", new Error("capture failed"));
+      await vi.advanceTimersByTimeAsync(300);
+      inputStdout.emit("data", finalAudio);
+      inputStdout.emit("end");
+      inputStdout.emit("close");
 
-    await expect(pulling).resolves.toEqual({
-      bridgeId,
-      closed: true,
-      base64: finalAudio.toString("base64"),
-    });
+      await expect(pulling).resolves.toEqual({
+        bridgeId,
+        closed: true,
+        base64: finalAudio.toString("base64"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("drains final audio when input closes between sequential pulls", async () => {
