@@ -66,7 +66,12 @@ class VoiceTranscriptOperationRegistry {
         }
         continue;
       }
-      const admission = owner.queue.enqueue(operation, { weight: options.weight });
+      // Control work may wait for the accepted transcript prefix, but must not
+      // be the event that seals transcript admission. Real overflow stays terminal.
+      const admission = owner.queue.enqueue(operation, {
+        weight: options.weight,
+        sealOnOverflow: options.waitForCapacity !== true,
+      });
       if (admission.accepted) {
         void admission.completion.then(
           () => this.cleanup(key, owner),
@@ -74,12 +79,15 @@ class VoiceTranscriptOperationRegistry {
         );
         return await admission.completion;
       }
-      if (options.waitForCapacity !== true) {
+      if (owner.queue.didOverflow || options.waitForCapacity !== true) {
         throw new Error(
           owner.queue.didOverflow
             ? "voice transcript persistence queue capacity exceeded"
             : "voice transcript persistence session is closed",
         );
+      }
+      if (admission.reason !== "capacity") {
+        throw new Error("voice transcript persistence session is closed");
       }
       await owner.queue.flush();
       this.cleanup(key, owner);

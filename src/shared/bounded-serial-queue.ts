@@ -1,6 +1,6 @@
 type BoundedSerialQueueAdmission<T> =
   | { accepted: true; completion: Promise<T> }
-  | { accepted: false; reason: "overflow" | "sealed" };
+  | { accepted: false; reason: "capacity" | "overflow" | "sealed" };
 
 type BoundedSerialQueueTask = {
   weight: number;
@@ -47,7 +47,7 @@ export class BoundedSerialQueue {
 
   enqueue<T>(
     run: () => T | Promise<T>,
-    options: { weight?: number } = {},
+    options: { weight?: number; sealOnOverflow?: boolean } = {},
   ): BoundedSerialQueueAdmission<T> {
     if (this.sealed) {
       return { accepted: false, reason: "sealed" };
@@ -61,6 +61,9 @@ export class BoundedSerialQueue {
       (this.pending.length >= this.options.maxPendingCount ||
         this.pendingWeight + weight > this.options.maxPendingWeight)
     ) {
+      if (options.sealOnOverflow === false) {
+        return { accepted: false, reason: "capacity" };
+      }
       this.sealed = true;
       this.overflowed = true;
       return { accepted: false, reason: "overflow" };

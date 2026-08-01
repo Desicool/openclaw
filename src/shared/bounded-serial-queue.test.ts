@@ -70,6 +70,34 @@ describe("BoundedSerialQueue", () => {
     first.resolve();
   });
 
+  it("can reject at capacity without sealing admission", async () => {
+    const first = deferred();
+    const queue = new BoundedSerialQueue({ maxPendingCount: 1, maxPendingWeight: 1 });
+    const active = queue.enqueue(async () => await first.promise);
+    const waiting = queue.enqueue(async () => undefined);
+
+    expect(
+      queue.enqueue(async () => undefined, {
+        sealOnOverflow: false,
+      }),
+    ).toEqual({ accepted: false, reason: "capacity" });
+    expect(queue.didOverflow).toBe(false);
+
+    first.resolve();
+    await queue.flush();
+    const afterDrain = queue.enqueue(async () => "accepted");
+    expect(afterDrain.accepted).toBe(true);
+    if (afterDrain.accepted) {
+      await expect(afterDrain.completion).resolves.toBe("accepted");
+    }
+    if (active.accepted) {
+      await active.completion;
+    }
+    if (waiting.accepted) {
+      await waiting.completion;
+    }
+  });
+
   it("flushes only the accepted prefix visible at call time", async () => {
     const first = deferred();
     const second = deferred();
