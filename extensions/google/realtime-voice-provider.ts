@@ -52,6 +52,7 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { createGoogleGenAI } from "./google-genai-runtime.js";
+import { createGoogleRealtimeAudioQueue } from "./realtime-audio-queue.js";
 import { resolveGoogleGemini3ThinkingLevel } from "./thinking.js";
 
 const GOOGLE_REALTIME_DEFAULT_MODEL = "gemini-3.1-flash-live-preview";
@@ -61,8 +62,6 @@ const GOOGLE_REALTIME_INPUT_SAMPLE_RATE = 16_000;
 const GOOGLE_REALTIME_BROWSER_API_VERSION = "v1alpha";
 const GOOGLE_REALTIME_BROWSER_WEBSOCKET_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained";
-const MAX_PENDING_AUDIO_CHUNKS = 320;
-const MAX_PENDING_AUDIO_BYTES = 1024 * 1024;
 const DEFAULT_AUDIO_STREAM_END_SILENCE_MS = 500;
 const GOOGLE_REALTIME_BROWSER_SESSION_TTL_MS = 30 * 60 * 1000;
 const GOOGLE_REALTIME_BROWSER_NEW_SESSION_TTL_MS = 60 * 1000;
@@ -472,8 +471,8 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private setupCompleteReceived = false;
   private sessionConfigured = false;
   private intentionallyClosed = false;
-  private pendingAudio: Buffer[] = [];
-  private pendingAudioBytes = 0;
+  // Native reconnect keeps the already accepted FIFO prefix stable.
+  private readonly pendingAudio = createGoogleRealtimeAudioQueue("reject-newest");
   private sessionReadyFired = false;
   private consecutiveSilenceMs = 0;
   private audioStreamEnded = false;
@@ -647,15 +646,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       return;
     }
     if (!this.session || !this.connected || !this.sessionConfigured) {
-      if (
-        this.pendingAudio.length >= MAX_PENDING_AUDIO_CHUNKS ||
-        this.pendingAudioBytes + audio.byteLength > MAX_PENDING_AUDIO_BYTES
-      ) {
-        return;
-      }
-      const queuedAudio = Buffer.from(audio);
-      this.pendingAudio.push(queuedAudio);
-      this.pendingAudioBytes += queuedAudio.byteLength;
+      this.pendingAudio.enqueue(audio);
       return;
     }
     const silent = this.isSilence(audio);
@@ -888,10 +879,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     }
     this.sessionConfigured = true;
     this.reconnectAttempts = 0;
-    const pendingAudio = this.pendingAudio;
-    this.pendingAudio = [];
-    this.pendingAudioBytes = 0;
-    for (const chunk of pendingAudio) {
+    for (const chunk of this.pendingAudio.drain()) {
       this.sendAudio(chunk);
     }
     if (!this.sessionReadyFired) {
@@ -1035,8 +1023,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private clearPendingAudio(): void {
-    this.pendingAudio = [];
-    this.pendingAudioBytes = 0;
+    this.pendingAudio.clear();
   }
 
   private cancelConnectAttempt(attempt: GoogleLiveConnectionAttempt | undefined): void {

@@ -20,6 +20,7 @@ import {
 } from "./generation-provider-metadata.js";
 import { geminiMemoryEmbeddingProviderAdapter } from "./memory-embedding-adapter.js";
 import { registerGoogleProvider } from "./provider-registration.js";
+import { createGoogleRealtimeAudioQueue } from "./realtime-audio-queue.js";
 import { buildGoogleSpeechProvider } from "./speech-provider.js";
 import { createGeminiWebSearchProvider } from "./src/gemini-web-search-provider.js";
 
@@ -201,8 +202,6 @@ function resolveGoogleRealtimeEnvApiKey(): string | undefined {
   );
 }
 
-const GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_CHUNKS = 320;
-const GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_BYTES = 1024 * 1024;
 const GOOGLE_REALTIME_LAZY_MAX_PENDING_USER_MESSAGES = 128;
 const GOOGLE_REALTIME_LAZY_MAX_PENDING_USER_MESSAGE_BYTES = 256 * 1024;
 
@@ -219,14 +218,10 @@ function createLazyGoogleRealtimeVoiceBridge(
   let providerTerminated = false;
   let latestMediaTimestamp: number | undefined;
   let pendingGreeting: string | undefined;
-  const pendingAudio: Buffer[] = [];
-  let pendingAudioBytes = 0;
+  // Lazy startup keeps the newest microphone tail when loading stalls.
+  const pendingAudio = createGoogleRealtimeAudioQueue("drop-oldest");
   const pendingUserMessages: string[] = [];
   let pendingUserMessageBytes = 0;
-  const clearPendingAudio = () => {
-    pendingAudio.length = 0;
-    pendingAudioBytes = 0;
-  };
   // Loading and connecting finish on separate async boundaries. Keep close ownership
   // here so either late completion closes the provider bridge exactly once.
   const closeBridge = (loadedBridge = bridge) => {
@@ -257,7 +252,7 @@ function createLazyGoogleRealtimeVoiceBridge(
           onClose: (reason) => {
             bridgeReady = false;
             providerTerminated = true;
-            clearPendingAudio();
+            pendingAudio.clear();
             req.onClose?.(reason);
           },
         }),
@@ -282,9 +277,7 @@ function createLazyGoogleRealtimeVoiceBridge(
     if (typeof latestMediaTimestamp === "number") {
       loadedBridge.setMediaTimestamp(latestMediaTimestamp);
     }
-    const audioChunks = pendingAudio.splice(0);
-    pendingAudioBytes = 0;
-    for (const audio of audioChunks) {
+    for (const audio of pendingAudio.drain()) {
       loadedBridge.sendAudio(audio);
     }
     const userMessages = pendingUserMessages.splice(0);
@@ -315,7 +308,7 @@ function createLazyGoogleRealtimeVoiceBridge(
       } catch (error) {
         bridgeReady = false;
         providerTerminated = true;
-        clearPendingAudio();
+        pendingAudio.clear();
         throw error;
       }
       if (closed) {
@@ -330,22 +323,7 @@ function createLazyGoogleRealtimeVoiceBridge(
         bridge.sendAudio(audio);
         return;
       }
-      if (audio.byteLength > GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_BYTES) {
-        return;
-      }
-      const queuedAudio = Buffer.from(audio);
-      while (
-        pendingAudio.length >= GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_CHUNKS ||
-        pendingAudioBytes + queuedAudio.byteLength > GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_BYTES
-      ) {
-        const droppedAudio = pendingAudio.shift();
-        if (!droppedAudio) {
-          return;
-        }
-        pendingAudioBytes -= droppedAudio.byteLength;
-      }
-      pendingAudio.push(queuedAudio);
-      pendingAudioBytes += queuedAudio.byteLength;
+      pendingAudio.enqueue(audio);
     },
     setMediaTimestamp: (ts) => {
       if (closed) {
@@ -393,7 +371,7 @@ function createLazyGoogleRealtimeVoiceBridge(
       closed = true;
       bridgeReady = false;
       providerTerminated = true;
-      clearPendingAudio();
+      pendingAudio.clear();
       pendingUserMessages.length = 0;
       pendingUserMessageBytes = 0;
       pendingGreeting = undefined;
