@@ -172,6 +172,22 @@ function createDeepgramRealtimeTranscriptionSession(
   let lastTranscript: string | undefined;
   let speechStarted = false;
 
+  // Deepgram emits `is_final: true` at internal phrase boundaries mid-utterance,
+  // independently of the `endpointing` silence window that gates `speech_final`.
+  // Ending the turn on `is_final` therefore cuts the speaker off during natural
+  // pauses and ignores the configured endpointing entirely. Instead we buffer the
+  // finalized segments and only end the turn when the speaker actually goes quiet:
+  // either Deepgram sends `speech_final`, or a client-side silence timer expires.
+  // The timer is the reliable signal on noisy telephony audio, where comfort noise
+  // means `speech_final` may never arrive.
+  let finalizedSegments: string[] = [];
+  let pendingPartial = "";
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const silenceFlushMs =
+    typeof config.endpointingMs === "number" && config.endpointingMs > 0
+      ? config.endpointingMs
+      : DEEPGRAM_REALTIME_DEFAULT_ENDPOINTING_MS;
+
   const emitTranscript = (text: string) => {
     if (text === lastTranscript) {
       return;
@@ -180,10 +196,45 @@ function createDeepgramRealtimeTranscriptionSession(
     config.onTranscript?.(text);
   };
 
+  const clearFlushTimer = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+  };
+
+  const collapseWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
+
+  const flushTurn = () => {
+    clearFlushTimer();
+    const full = collapseWhitespace([...finalizedSegments, pendingPartial].join(" "));
+    finalizedSegments = [];
+    pendingPartial = "";
+    speechStarted = false;
+    if (full) {
+      emitTranscript(full);
+    }
+  };
+
+  const scheduleFlush = () => {
+    clearFlushTimer();
+    flushTimer = setTimeout(flushTurn, silenceFlushMs);
+    flushTimer.unref?.();
+  };
+
   const handleEvent = (event: DeepgramRealtimeTranscriptionEvent) => {
     switch (event.type) {
       case "Results": {
         const text = readTranscriptText(event);
+        // `speech_final` means the speaker has been silent for `endpointing` ms:
+        // end the turn immediately, appending any final words on this event.
+        if (event.speech_final) {
+          if (text) {
+            finalizedSegments.push(text);
+          }
+          flushTurn();
+          return;
+        }
         if (!text) {
           return;
         }
@@ -191,14 +242,17 @@ function createDeepgramRealtimeTranscriptionSession(
           speechStarted = true;
           config.onSpeechStart?.();
         }
-        if (event.is_final || event.speech_final) {
-          emitTranscript(text);
-          if (event.speech_final) {
-            speechStarted = false;
-          }
-          return;
+        // Buffer finalized segments and interim words instead of ending the turn,
+        // then (re)arm the silence timer so a mid-sentence pause no longer cuts in.
+        if (event.is_final) {
+          finalizedSegments.push(text);
+          pendingPartial = "";
+          config.onPartial?.(collapseWhitespace(finalizedSegments.join(" ")));
+        } else {
+          pendingPartial = text;
+          config.onPartial?.(collapseWhitespace([...finalizedSegments, text].join(" ")));
         }
-        config.onPartial?.(text);
+        scheduleFlush();
         return;
       }
       case "SpeechStarted":
@@ -232,6 +286,7 @@ function createDeepgramRealtimeTranscriptionSession(
       transport.sendBinary(audio);
     },
     onClose: (transport) => {
+      clearFlushTimer();
       transport.sendJson({ type: "Finalize" });
     },
     onMessage: handleEvent,
