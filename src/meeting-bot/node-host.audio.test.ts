@@ -269,6 +269,42 @@ describe("meeting node host audio output", () => {
     expect(inputProcess.kill).toHaveBeenCalledTimes(1);
   });
 
+  it("delivers final audio before terminal close deletes the session", async () => {
+    const inputStdout = new EventEmitter();
+    const inputProcess = createProcess({ stdout: inputStdout });
+    const outputProcess = createProcess({ stdin: createStdin(true) });
+    childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
+    const host = createHost();
+    const started = await invokeHost(host, {
+      action: "start",
+      audioInputCommand: ["capture"],
+      audioOutputCommand: ["play"],
+      launch: false,
+      mode: "bidi",
+    });
+    const bridgeId = started.bridgeId as string;
+    const pulling = invokeHost(host, {
+      action: "pullAudio",
+      bridgeId,
+      timeoutMs: 2_000,
+    });
+    const finalAudio = Buffer.from([1, 2, 3]);
+
+    inputStdout.emit("data", finalAudio);
+    inputProcess.stderr.emit("error", new Error("capture failed"));
+
+    await expect(pulling).resolves.toEqual({
+      bridgeId,
+      closed: true,
+      base64: finalAudio.toString("base64"),
+    });
+    await vi.waitFor(async () => {
+      await expect(invokeHost(host, { action: "pullAudio", bridgeId })).rejects.toThrow(
+        `unknown bridgeId: ${bridgeId}`,
+      );
+    });
+  });
+
   it("clears and deletes input retention on explicit stop", async () => {
     const inputStdout = new EventEmitter();
     childProcessMocks.spawn
@@ -296,6 +332,26 @@ describe("meeting node host audio output", () => {
     await expect(invokeHost(host, { action: "pullAudio", bridgeId })).rejects.toThrow(
       `unknown bridgeId: ${bridgeId}`,
     );
+  });
+
+  it("terminates output when input process construction throws", async () => {
+    const outputProcess = createProcess({ stdin: createStdin(true) });
+    const spawnError = new Error("input spawn failed");
+    childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockImplementationOnce(() => {
+      throw spawnError;
+    });
+    const host = createHost();
+
+    await expect(
+      invokeHost(host, {
+        action: "start",
+        audioInputCommand: ["capture"],
+        audioOutputCommand: ["play"],
+        launch: false,
+        mode: "bidi",
+      }),
+    ).rejects.toBe(spawnError);
+    expect(outputProcess.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("deletes a hidden audio session after browser launch fails", async () => {
@@ -328,6 +384,34 @@ describe("meeting node host audio output", () => {
     await expect(invokeHost(host, { action: "pullAudio", bridgeId })).rejects.toThrow(
       `unknown bridgeId: ${bridgeId}`,
     );
+  });
+
+  it("deletes a hidden audio session when browser launch throws", async () => {
+    const inputProcess = createProcess({ stdout: new EventEmitter() });
+    const outputProcess = createProcess({ stdin: createStdin(true) });
+    const launchError = new Error("browser launch threw");
+    childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
+    childProcessMocks.spawnSync.mockImplementationOnce(() => {
+      throw launchError;
+    });
+    const host = createHost();
+    const bridgeId = `test-bridge-${TEST_UUID}`;
+
+    await expect(
+      invokeHost(host, {
+        action: "start",
+        audioInputCommand: ["capture"],
+        audioOutputCommand: ["play"],
+        mode: "bidi",
+      }),
+    ).rejects.toBe(launchError);
+    await vi.waitFor(async () => {
+      await expect(invokeHost(host, { action: "pullAudio", bridgeId })).rejects.toThrow(
+        `unknown bridgeId: ${bridgeId}`,
+      );
+    });
+    expect(outputProcess.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(inputProcess.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("waits for the output stream to accept a backpressured chunk", async () => {

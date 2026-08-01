@@ -164,8 +164,6 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     }
     session.closed = true;
     session.closedAt = new Date().toISOString();
-    session.chunks.length = 0;
-    session.queuedInputBytes = 0;
     wake(session);
     releaseOutputWriteWaiters(session);
     session.stopPromise = Promise.all([
@@ -177,6 +175,10 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       }),
       ...session.retiredOutputStops,
     ]).then(() => {
+      // A woken pull may still need the final queued frame. Release any
+      // unconsumed retention only after bounded process termination settles.
+      session.chunks.length = 0;
+      session.queuedInputBytes = 0;
       if (sessions.get(session.id) === session) {
         sessions.delete(session.id);
       }
@@ -225,9 +227,17 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       retiredOutputStops: new Set(),
     };
     const outputProcess = startOutputProcess(output);
-    const inputProcess = spawn(input.command, input.args, {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let inputProcess: ChildProcess;
+    try {
+      inputProcess = spawn(input.command, input.args, {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      void terminateMeetingBridgeProcess(outputProcess, {
+        graceMs: NODE_BRIDGE_TERMINATION_GRACE_MS,
+      });
+      throw error;
+    }
     session.input = inputProcess;
     session.output = outputProcess;
     inputProcess.stdout?.on("data", (chunk) => {
@@ -462,17 +472,21 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       if (browserProfile) {
         argv.push(...options.browser.buildProfileArgs(browserProfile));
       }
-      const result = runCommandWithTimeout(argv, timeoutMs);
-      if (result.code !== 0) {
+      try {
+        const result = runCommandWithTimeout(argv, timeoutMs);
+        if (result.code !== 0) {
+          throw new Error(
+            `failed to launch Chrome for ${options.browserLabel}: ${result.stderr || result.stdout || result.code}`,
+          );
+        }
+      } catch (error) {
         if (bridgeId) {
           const session = sessions.get(bridgeId);
           if (session) {
             void stopSession(session);
           }
         }
-        throw new Error(
-          `failed to launch Chrome for ${options.browserLabel}: ${result.stderr || result.stdout || result.code}`,
-        );
+        throw error;
       }
     }
     return {
