@@ -4,7 +4,7 @@ const MAX_PENDING_RELAY_FRAMES = 250;
 export const OPENAI_QUICKSILVER_RELAY_FRAME_BYTES = RELAY_FRAME_SAMPLES * 2;
 // One five-second tail spans peer startup and the connected media pump.
 // Keeping the newest PCM bounds latency without changing policy at adoption.
-export const OPENAI_QUICKSILVER_MAX_PENDING_AUDIO_BYTES =
+const OPENAI_QUICKSILVER_MAX_PENDING_AUDIO_BYTES =
   OPENAI_QUICKSILVER_RELAY_FRAME_BYTES * MAX_PENDING_RELAY_FRAMES;
 
 export function appendOpenAIQuicksilverPendingAudio(pending: Buffer, incoming: Buffer): Buffer {
