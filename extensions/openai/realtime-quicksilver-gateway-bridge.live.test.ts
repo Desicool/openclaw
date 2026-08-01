@@ -30,7 +30,9 @@ async function waitForLiveCondition(
     if (predicate()) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100);
+    });
   }
   throw new Error(describeFailure());
 }
@@ -223,7 +225,9 @@ describeLive("OpenAI GPT-Live gateway WebRTC peer", () => {
         closed = true;
         bridge.close();
         bridge.close();
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
 
         expect(closeNotifications).toBe(1);
         expect(lateAudioBytes).toBe(0);
