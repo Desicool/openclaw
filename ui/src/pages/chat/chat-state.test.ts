@@ -12,6 +12,10 @@ import {
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { applyRemoteSlashCommandsResult } from "./chat-commands.ts";
 import {
+  clearChatComposerMemoryFallback,
+  retainChatComposerMemoryFallback,
+} from "./chat-composer-memory-fallback.ts";
+import {
   admitQueuedMessageForSession,
   removeQueuedMessage,
   subscribeChatOutboxProjection,
@@ -28,8 +32,6 @@ import {
   refreshChatModelAuthStatus,
 } from "./chat-state-refresh.ts";
 import {
-  clearChatComposerMemoryFallback,
-  retainChatComposerMemoryFallback,
   resetChatStateForRouteSession,
   retryChatComposerMemoryFallback,
   resolveChatAvatarUrl,

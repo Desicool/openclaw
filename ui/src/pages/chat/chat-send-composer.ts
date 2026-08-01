@@ -2,18 +2,18 @@ import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts
 import { visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { releaseChatAttachmentPayloads } from "./attachment-payload-store.ts";
 import {
-  excludeComposerAttachments,
-  removeVisibleOrScopedQueuedMessageWithoutReleasing,
-} from "./chat-queue.ts";
-import type { ChatHost } from "./chat-send-contract.ts";
-import type { ChatPageHost } from "./chat-state-host.ts";
-import {
   captureChatComposerMemoryFallbackOwnership,
   clearChatComposerMemoryFallback,
   ownsChatComposerMemoryFallback,
   retainChatComposerMemoryFallback,
   type ChatComposerMemoryFallbackOwnership,
-} from "./chat-state-route.ts";
+} from "./chat-composer-memory-fallback.ts";
+import {
+  excludeComposerAttachments,
+  removeVisibleOrScopedQueuedMessageWithoutReleasing,
+} from "./chat-queue.ts";
+import type { ChatHost } from "./chat-send-contract.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
 import type { StoredChatOutboxScope } from "./composer-persistence.ts";
 
 export type ChatCommandComposerRecovery = {
