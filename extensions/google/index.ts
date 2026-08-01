@@ -230,7 +230,22 @@ function createLazyGoogleRealtimeVoiceBridge(
   const loadBridge = async () => {
     if (!bridgePromise) {
       bridgePromise = loadGoogleRealtimeVoiceProvider().then((provider) =>
-        provider.createBridge(req),
+        provider.createBridge({
+          ...req,
+          onReady: () => {
+            if (closed) {
+              return;
+            }
+            req.onReady?.();
+            if (closed || !bridge) {
+              return;
+            }
+            bridgeReady = true;
+            // `connect()` and provider readiness are separate lifecycle facts.
+            // Release prompts only after the provider can accept user content.
+            flushPending(bridge);
+          },
+        }),
       );
     }
     bridge = await bridgePromise;
@@ -280,12 +295,7 @@ function createLazyGoogleRealtimeVoiceBridge(
       await loadedBridge.connect();
       if (closed) {
         closeBridge(loadedBridge);
-        return;
       }
-      bridgeReady = true;
-      // The provider drops user messages before setup completes, so the lazy wrapper
-      // owns them until connect resolves and the provider reports readiness.
-      flushPending(loadedBridge);
     },
     sendAudio: (audio) => {
       if (closed) {

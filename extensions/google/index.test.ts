@@ -15,6 +15,7 @@ import {
 import { createCapturedThinkingConfigStream } from "openclaw/plugin-sdk/provider-test-contracts";
 import type {
   RealtimeVoiceBridge,
+  RealtimeVoiceBridgeCreateRequest,
   RealtimeVoiceProviderPlugin,
 } from "openclaw/plugin-sdk/realtime-voice";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +25,7 @@ import googleProviderDiscovery from "./provider-discovery.js";
 import { registerGoogleProvider } from "./provider-registration.js";
 
 const { createRealtimeBridgeMock } = vi.hoisted(() => ({
-  createRealtimeBridgeMock: vi.fn(),
+  createRealtimeBridgeMock: vi.fn<(req: RealtimeVoiceBridgeCreateRequest) => RealtimeVoiceBridge>(),
 }));
 
 vi.mock("./realtime-voice-provider.js", () => ({
@@ -92,6 +93,14 @@ function createLazyRealtimeBridge(onError = vi.fn()) {
     throw new Error("expected Google realtime bridge");
   }
   return { bridge, onError };
+}
+
+function signalRealtimeBridgeReady() {
+  const request = createRealtimeBridgeMock.mock.calls.at(-1)?.[0];
+  if (!request) {
+    throw new Error("expected Google realtime bridge request");
+  }
+  request.onReady?.();
 }
 
 describe("google provider plugin hooks", () => {
@@ -476,7 +485,7 @@ describe("google provider plugin hooks", () => {
     expect(bridge.sendUserMessage?.("hello")).toBeUndefined();
   });
 
-  it("preserves queued user messages until the loaded bridge is connected", async () => {
+  it("preserves queued user messages until the loaded bridge reports ready", async () => {
     const connected = createDeferred<void>();
     const loaded = createMockRealtimeBridge(() => connected.promise);
     createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
@@ -490,6 +499,9 @@ describe("google provider plugin hooks", () => {
     expect(loaded.sendUserMessage).not.toHaveBeenCalled();
     connected.resolve();
     await connectPromise;
+
+    expect(loaded.sendUserMessage).not.toHaveBeenCalled();
+    signalRealtimeBridgeReady();
 
     expect(loaded.sendUserMessage.mock.calls.map(([text]) => text)).toEqual([
       "before connect",
@@ -506,6 +518,7 @@ describe("google provider plugin hooks", () => {
       bridge.sendUserMessage?.(`message-${index}`);
     }
     await bridge.connect();
+    signalRealtimeBridgeReady();
 
     expect(loaded.sendUserMessage).toHaveBeenCalledTimes(128);
     expect(loaded.sendUserMessage.mock.calls.map(([text]) => text)).toEqual(
@@ -532,6 +545,7 @@ describe("google provider plugin hooks", () => {
     bridge.sendUserMessage?.(exactLimit);
     bridge.sendUserMessage?.("overflow");
     await bridge.connect();
+    signalRealtimeBridgeReady();
 
     expect(loaded.sendUserMessage).toHaveBeenCalledOnce();
     expect(loaded.sendUserMessage).toHaveBeenCalledWith(exactLimit);
@@ -570,6 +584,7 @@ describe("google provider plugin hooks", () => {
     bridge.sendUserMessage?.("after close");
     connected.resolve();
     await connectPromise;
+    signalRealtimeBridgeReady();
 
     expect(loaded.close).toHaveBeenCalledOnce();
     expect(loaded.sendUserMessage).not.toHaveBeenCalled();
