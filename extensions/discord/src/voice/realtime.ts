@@ -1379,7 +1379,7 @@ export class DiscordRealtimeVoiceSession implements VoiceRealtimeSession {
       usesAgentProxy && params.usesRealtimeAgentHandoff
         ? this.prepareForcedAgentProxyConsult(acceptedText, forcedSpeakerContext)
         : undefined;
-    let control: Awaited<ReturnType<typeof maybeControlDiscordVoiceAgentRun>>;
+    let control: Awaited<ReturnType<typeof maybeControlDiscordVoiceAgentRun>> | undefined;
     try {
       control = await maybeControlDiscordVoiceAgentRun({
         entry: this.params.entry,
