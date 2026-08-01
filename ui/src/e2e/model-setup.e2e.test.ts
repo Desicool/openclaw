@@ -872,17 +872,21 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
         });
         await page.setViewportSize({ height: 900, width: 1280 });
       }
-      await page.getByRole("button", { name: "Verify connection" }).click();
+      await page.getByRole("button", { name: "Check model" }).click();
       const verify = await gateway.waitForRequest("openclaw.setup.verify");
       expect(verify.params).toEqual({});
-      await page.getByText("Answered in 1234 ms").waitFor();
+      await page.getByText("Ready · 1234 ms").waitFor();
       const detectCountBeforeRefresh = (await gateway.getRequests("openclaw.setup.detect")).length;
+      const verifyCountBeforeRefresh = (await gateway.getRequests("openclaw.setup.verify")).length;
       await page.getByRole("button", { name: "Check again" }).click();
       await expect
-        .poll(async () => (await gateway.getRequests("openclaw.setup.detect")).length)
-        .toBe(detectCountBeforeRefresh + 1);
-      await page.getByRole("button", { name: "Verify connection" }).waitFor();
-      expect(await page.getByText("Answered in 1234 ms").count()).toBe(0);
+        .poll(async () => (await gateway.getRequests("openclaw.setup.verify")).length)
+        .toBe(verifyCountBeforeRefresh + 1);
+      expect((await gateway.getRequests("openclaw.setup.detect")).length).toBe(
+        detectCountBeforeRefresh,
+      );
+      await page.getByRole("button", { name: "Check again" }).waitFor();
+      await page.getByText("Ready · 1234 ms").waitFor();
     } finally {
       await context.close();
     }
