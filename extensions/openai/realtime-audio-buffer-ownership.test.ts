@@ -1,11 +1,20 @@
 import { once } from "node:events";
 import type { RealtimeVoiceBridge } from "openclaw/plugin-sdk/realtime-voice";
 import { describe, expect, it, vi } from "vitest";
-import WebSocket, { WebSocketServer } from "ws";
+import WebSocket, { type RawData, WebSocketServer } from "ws";
 import { OpenAIQuicksilverVoiceBridge } from "./realtime-quicksilver-bridge.js";
 import { buildOpenAIRealtimeVoiceProvider } from "./realtime-voice-provider.js";
 
 type RealtimeProviderKind = "native" | "gpt-live";
+
+function parseWebSocketMessage(data: RawData): Record<string, unknown> {
+  const bytes = Buffer.isBuffer(data)
+    ? data
+    : Array.isArray(data)
+      ? Buffer.concat(data)
+      : Buffer.from(data);
+  return JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+}
 
 async function withRealtimeProvider(
   kind: RealtimeProviderKind,
@@ -21,7 +30,7 @@ async function withRealtimeProvider(
   const received: Array<Record<string, unknown>> = [];
   server.once("connection", (socket) => {
     socket.on("message", (payload) => {
-      const event = JSON.parse(payload.toString()) as Record<string, unknown>;
+      const event = parseWebSocketMessage(payload);
       received.push(event);
       if (event.type === "session.update") {
         socket.send(
