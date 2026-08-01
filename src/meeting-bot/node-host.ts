@@ -38,6 +38,7 @@ type NodeBridgeSession = {
   outputWriteWaiters: Set<NodeOutputWriteWaiter>;
   stopPromise?: Promise<void>;
   retiredOutputStops: Set<Promise<void>>;
+  stopping: boolean;
   discardQueuedAudioOnStop: boolean;
   terminalEvictionTimer?: ReturnType<typeof setTimeout>;
 };
@@ -201,13 +202,29 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     }
   };
 
+  const armTerminalEviction = (session: NodeBridgeSession): void => {
+    if (session.terminalEvictionTimer) {
+      clearTimeout(session.terminalEvictionTimer);
+    }
+    session.terminalEvictionTimer = setTimeout(() => {
+      deleteSession(session);
+    }, NODE_BRIDGE_TERMINAL_RETENTION_MS);
+    session.terminalEvictionTimer.unref?.();
+  };
+
   const stopSession = (
     session: NodeBridgeSession,
     options: { discardQueuedAudio?: boolean } = {},
   ): Promise<void> => {
+    session.stopping = true;
     if (options.discardQueuedAudio) {
       session.discardQueuedAudioOnStop = true;
-      deleteSession(session);
+      if (session.terminalEvictionTimer) {
+        clearTimeout(session.terminalEvictionTimer);
+        session.terminalEvictionTimer = undefined;
+      }
+      session.chunks.length = 0;
+      session.queuedInputBytes = 0;
       if (!session.closed) {
         session.closed = true;
         session.closedAt = new Date().toISOString();
@@ -220,16 +237,16 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     if (session.stopPromise) {
       return session.stopPromise;
     }
-    if (!session.discardQueuedAudioOnStop) {
-      void waitForInputDrain(session.input?.stdout, NODE_BRIDGE_INPUT_DRAIN_MS).then(() => {
-        if (session.discardQueuedAudioOnStop || session.closed) {
-          return;
-        }
-        session.closed = true;
-        session.closedAt = new Date().toISOString();
-        wake(session);
-      });
-    }
+    const terminalReady = session.discardQueuedAudioOnStop
+      ? Promise.resolve()
+      : waitForInputDrain(session.input?.stdout, NODE_BRIDGE_INPUT_DRAIN_MS).then(() => {
+          if (session.discardQueuedAudioOnStop || session.closed) {
+            return;
+          }
+          session.closed = true;
+          session.closedAt = new Date().toISOString();
+          wake(session);
+        });
     session.stopPromise = Promise.all([
       terminateMeetingBridgeProcess(session.input, {
         graceMs: NODE_BRIDGE_TERMINATION_GRACE_MS,
@@ -238,6 +255,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
         graceMs: NODE_BRIDGE_TERMINATION_GRACE_MS,
       }),
       ...session.retiredOutputStops,
+      terminalReady,
     ]).then(() => {
       if (session.discardQueuedAudioOnStop) {
         deleteSession(session);
@@ -245,10 +263,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       }
       // A terminal pull normally deletes the session first. This deadline
       // releases bounded retention when no consumer returns to drain it.
-      session.terminalEvictionTimer = setTimeout(() => {
-        deleteSession(session);
-      }, NODE_BRIDGE_TERMINAL_RETENTION_MS);
-      session.terminalEvictionTimer.unref?.();
+      armTerminalEviction(session);
     });
     return session.stopPromise;
   };
@@ -292,6 +307,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       outputGeneration: 0,
       outputWriteWaiters: new Set(),
       retiredOutputStops: new Set(),
+      stopping: false,
       discardQueuedAudioOnStop: false,
     };
     const outputProcess = startOutputProcess(output);
@@ -367,6 +383,10 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     const closed = session.closed && session.chunks.length === 0;
     if (closed) {
       deleteSession(session);
+    } else if (chunk && session.closed && session.terminalEvictionTimer) {
+      // Terminal audio can span many node RPCs. Retain only while the consumer
+      // keeps making progress, then evict after one full idle window.
+      armTerminalEviction(session);
     }
     return {
       bridgeId,
@@ -425,7 +445,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       throw new Error("bridgeId and base64 required");
     }
     const session = sessions.get(bridgeId);
-    if (!session || session.closed) {
+    if (!session || session.stopping || session.closed) {
       throw new Error(`bridge is not open: ${bridgeId}`);
     }
     const requestedGeneration = readOutputGeneration(params.outputGeneration);
@@ -450,6 +470,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       throw new Error(`bridge is not open: ${bridgeId}`);
     }
     if (
+      session.stopping ||
       session.closed ||
       session.output !== output ||
       (requestedGeneration !== undefined && requestedGeneration !== session.outputGeneration)
@@ -467,7 +488,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       throw new Error("bridgeId required");
     }
     const session = sessions.get(bridgeId);
-    if (!session || session.closed) {
+    if (!session || session.stopping || session.closed) {
       throw new Error(`bridge is not open: ${bridgeId}`);
     }
     const requestedGeneration = readOutputGeneration(params.outputGeneration);
@@ -585,7 +606,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       bridge: session
         ? {
             bridgeId,
-            closed: session.closed,
+            closed: session.stopping || session.closed,
             createdAt: session.createdAt,
             lastInputAt: session.lastInputAt,
             lastOutputAt: session.lastOutputAt,
@@ -618,7 +639,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     const urlKey = options.normalizeMeetingKey(readString(params.url));
     const mode = readString(params.mode);
     const bridges = [...sessions.values()]
-      .filter((session) => !session.closed)
+      .filter((session) => !session.stopping && !session.closed)
       .filter((session) => !urlKey || options.normalizeMeetingKey(session.url) === urlKey)
       .filter((session) => !mode || session.mode === mode)
       .map(summarizeSession);
@@ -644,7 +665,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       if (mode && session.mode !== mode) {
         continue;
       }
-      const wasClosed = session.closed;
+      const wasClosed = session.stopping || session.closed;
       stopping.push(stopSession(session, { discardQueuedAudio: true }));
       if (!wasClosed) {
         stopped += 1;
@@ -663,8 +684,9 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     if (!session) {
       return { ok: true, stopped: false };
     }
+    const wasStopped = session.stopping || session.closed;
     await stopSession(session, { discardQueuedAudio: true });
-    return { ok: true, stopped: true };
+    return { ok: true, stopped: !wasStopped };
   };
 
   return {

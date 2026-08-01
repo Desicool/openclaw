@@ -355,6 +355,65 @@ describe("meeting node host audio output", () => {
     }
   });
 
+  it("blocks output commands as soon as terminal teardown starts", async () => {
+    const inputStdout = new EventEmitter();
+    const inputProcess = createProcess({ stdout: inputStdout, autoClose: false });
+    const outputStdin = createStdin(false);
+    const outputProcess = createProcess({ stdin: outputStdin });
+    childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
+    const host = createHost();
+    const started = await invokeHost(host, {
+      action: "start",
+      audioInputCommand: ["capture"],
+      audioOutputCommand: ["play"],
+      launch: false,
+      mode: "bidi",
+    });
+    const bridgeId = started.bridgeId as string;
+    const pushing = invokeHost(host, {
+      action: "pushAudio",
+      base64: Buffer.from([1, 2, 3]).toString("base64"),
+      bridgeId,
+      outputGeneration: 0,
+    });
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+
+    inputProcess.stderr.emit("error", new Error("capture failed"));
+
+    await expect(pushing).resolves.toEqual({ bridgeId, ok: true, stale: true });
+    await expect(
+      invokeHost(host, {
+        action: "pushAudio",
+        base64: Buffer.from([4, 5, 6]).toString("base64"),
+        bridgeId,
+        outputGeneration: 0,
+      }),
+    ).rejects.toThrow(`bridge is not open: ${bridgeId}`);
+    await expect(
+      invokeHost(host, { action: "clearAudio", bridgeId, outputGeneration: 1 }),
+    ).rejects.toThrow(`bridge is not open: ${bridgeId}`);
+    await expect(invokeHost(host, { action: "status", bridgeId })).resolves.toMatchObject({
+      bridge: { bridgeId, closed: true },
+    });
+    await expect(
+      invokeHost(host, {
+        action: "list",
+        url: "https://meeting.test",
+        mode: "bidi",
+      }),
+    ).resolves.toEqual({ bridges: [] });
+    expect(childProcessMocks.spawn).toHaveBeenCalledTimes(2);
+
+    inputStdout.emit("end");
+    inputStdout.emit("close");
+    await expect(invokeHost(host, { action: "stop", bridgeId })).resolves.toEqual({
+      ok: true,
+      stopped: false,
+    });
+  });
+
   it("drains final audio when input closes between sequential pulls", async () => {
     const inputStdout = new EventEmitter();
     const inputProcess = createProcess({ stdout: inputStdout });
@@ -394,7 +453,56 @@ describe("meeting node host audio output", () => {
     });
   });
 
-  it("evicts undrained terminal audio after the bounded drain window", async () => {
+  it("starts terminal eviction after capture drain becomes ready", async () => {
+    vi.useFakeTimers();
+    try {
+      const inputStdout = new EventEmitter();
+      const inputProcess = createProcess({ stdout: inputStdout, autoClose: false });
+      const outputProcess = createProcess({ stdin: createStdin(true) });
+      childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
+      const host = createHost();
+      const started = await invokeHost(host, {
+        action: "start",
+        audioInputCommand: ["capture"],
+        audioOutputCommand: ["play"],
+        launch: false,
+        mode: "bidi",
+      });
+      const bridgeId = started.bridgeId as string;
+
+      const firstAudio = Buffer.from([1, 2, 3]);
+      const finalAudio = Buffer.from([4, 5, 6]);
+      inputStdout.emit("data", firstAudio);
+      inputStdout.emit("data", finalAudio);
+      inputProcess.stderr.emit("error", new Error("capture failed"));
+      await expect(invokeHost(host, { action: "pullAudio", bridgeId })).resolves.toEqual({
+        bridgeId,
+        closed: false,
+        base64: firstAudio.toString("base64"),
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      inputStdout.emit("end");
+      inputStdout.emit("close");
+      await vi.advanceTimersByTimeAsync(2_100);
+
+      await expect(invokeHost(host, { action: "status", bridgeId })).resolves.toMatchObject({
+        bridge: { bridgeId, closed: true, queuedInputChunks: 1 },
+      });
+      await vi.advanceTimersByTimeAsync(2_899);
+      await expect(invokeHost(host, { action: "status", bridgeId })).resolves.toMatchObject({
+        bridge: { bridgeId, closed: true, queuedInputChunks: 1 },
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(invokeHost(host, { action: "pullAudio", bridgeId })).rejects.toThrow(
+        `unknown bridgeId: ${bridgeId}`,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps terminal audio while pull progress continues", async () => {
     vi.useFakeTimers();
     try {
       const inputStdout = new EventEmitter();
@@ -410,15 +518,25 @@ describe("meeting node host audio output", () => {
         mode: "bidi",
       });
       const bridgeId = started.bridgeId as string;
+      const firstAudio = Buffer.from([1, 2, 3]);
+      const finalAudio = Buffer.from([4, 5, 6]);
 
-      inputStdout.emit("data", Buffer.from([1, 2, 3]));
+      inputStdout.emit("data", firstAudio);
+      inputStdout.emit("data", finalAudio);
       inputProcess.stderr.emit("error", new Error("capture failed"));
       await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(4_000);
 
+      await expect(invokeHost(host, { action: "pullAudio", bridgeId })).resolves.toEqual({
+        bridgeId,
+        closed: false,
+        base64: firstAudio.toString("base64"),
+      });
+      await vi.advanceTimersByTimeAsync(4_999);
       await expect(invokeHost(host, { action: "status", bridgeId })).resolves.toMatchObject({
         bridge: { bridgeId, closed: true, queuedInputChunks: 1 },
       });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(1);
       await expect(invokeHost(host, { action: "pullAudio", bridgeId })).rejects.toThrow(
         `unknown bridgeId: ${bridgeId}`,
       );
