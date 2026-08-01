@@ -3,13 +3,12 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { PluginRuntime, RuntimeLogger } from "../plugins/runtime/types.js";
 import type { RealtimeVoiceProviderPlugin } from "../plugins/types.js";
-import type { RealtimeVoiceTool, RealtimeVoiceToolCallEvent } from "../talk/provider-types.js";
+import type { RealtimeVoiceTool } from "../talk/provider-types.js";
 import {
   createRealtimeVoiceSessionHarness,
   type RealtimeVoiceSessionHarness,
 } from "../talk/realtime-session-harness.js";
 import type { RealtimeVoiceBridgeSession } from "../talk/session-runtime.js";
-import type { TalkEventInput } from "../talk/talk-events.js";
 import {
   resolveMeetingRealtimeAudioFormat,
   type MeetingRealtimeAudioFormat,
@@ -26,7 +25,10 @@ import {
   resolveMeetingRealtimeProvider,
 } from "./realtime-engine-support.js";
 import { createMeetingRealtimeOutputOwner } from "./realtime-output-owner.js";
-import { createMeetingRealtimeToolContinuity } from "./realtime-tool-continuity.js";
+import {
+  createMeetingRealtimeToolContinuity,
+  type MeetingRealtimeToolCallParams,
+} from "./realtime-tool-continuity.js";
 
 export {
   formatMeetingAgentAudioModelLog,
@@ -36,6 +38,7 @@ export {
   normalizeMeetingTtsPromptText,
   resolveMeetingRealtimeTranscriptionProvider,
 } from "./realtime-engine-support.js";
+export type { MeetingRealtimeToolCallParams } from "./realtime-tool-continuity.js";
 
 export type MeetingRuntimePlatform = {
   /** Adapter-owned identity keeps platform names and log prefixes out of core. */
@@ -63,16 +66,6 @@ export type MeetingAgentConsultParams = {
   requesterSessionKey?: string;
   args: unknown;
   transcript: Array<{ role: "user" | "assistant"; text: string }>;
-};
-
-export type MeetingRealtimeToolCallParams = {
-  strategy: string;
-  session: RealtimeVoiceBridgeSession;
-  event: RealtimeVoiceToolCallEvent;
-  meetingSessionId: string;
-  requesterSessionKey?: string;
-  transcript: Array<{ role: "user" | "assistant"; text: string }>;
-  onTalkEvent: (event: TalkEventInput) => void;
 };
 
 export type MeetingRealtimeAudioEngineHealth = ReturnType<

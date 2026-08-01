@@ -1,6 +1,17 @@
+import type { RealtimeVoiceToolCallEvent } from "../talk/provider-types.js";
 import type { RealtimeVoiceSessionHarness } from "../talk/realtime-session-harness.js";
 import type { RealtimeVoiceBridgeSession } from "../talk/session-runtime.js";
-import type { MeetingRealtimeToolCallParams } from "./realtime-engine.js";
+import type { TalkEventInput } from "../talk/talk-events.js";
+
+export type MeetingRealtimeToolCallParams = {
+  strategy: string;
+  session: RealtimeVoiceBridgeSession;
+  event: RealtimeVoiceToolCallEvent;
+  meetingSessionId: string;
+  requesterSessionKey?: string;
+  transcript: Array<{ role: "user" | "assistant"; text: string }>;
+  onTalkEvent: (event: TalkEventInput) => void;
+};
 
 const meetingRealtimeToolAbortSignals = new WeakMap<RealtimeVoiceBridgeSession, AbortSignal>();
 
