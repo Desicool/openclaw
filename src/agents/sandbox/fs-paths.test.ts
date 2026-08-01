@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import {
   buildSandboxFsMounts,
   hasSandboxBindContainerPathAliases,
@@ -14,19 +15,7 @@ import {
 import { createSandboxTestContext } from "./test-fixtures.js";
 import type { SandboxContext } from "./types.js";
 
-const tmpDirs: string[] = [];
-
-function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-fs-mounts-"));
-  tmpDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  for (const dir of tmpDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function createSandbox(overrides?: Partial<SandboxContext>): SandboxContext {
   return createSandboxTestContext({ overrides });
@@ -219,8 +208,8 @@ describe("resolveSandboxFsPathWithMounts", () => {
   });
 
   it("omits binds that collide with protected skill mounts", () => {
-    const workspaceDir = makeTempDir();
-    const customRoot = makeTempDir();
+    const workspaceDir = tempDirs.make("openclaw-fs-mounts-");
+    const customRoot = tempDirs.make("openclaw-fs-mounts-");
     fs.mkdirSync(path.join(workspaceDir, "skills", "demo"), { recursive: true });
     const sandbox = createSandbox({
       workspaceDir,
