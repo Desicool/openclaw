@@ -343,6 +343,70 @@ describe("realtime voice bridge session runtime", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("stops audio admission and closes the provider once after local close", () => {
+    let callbacks: Parameters<RealtimeVoiceProviderPlugin["createBridge"]>[0] | undefined;
+    const close = vi.fn();
+    const sendProviderAudio = vi.fn();
+    const sendSinkAudio = vi.fn();
+    const provider: RealtimeVoiceProviderPlugin = {
+      id: "test",
+      label: "Test",
+      isConfigured: () => true,
+      createBridge: (request) => {
+        callbacks = request;
+        return makeBridge({ close, sendAudio: sendProviderAudio });
+      },
+    };
+    const session = createRealtimeVoiceBridgeSession({
+      provider,
+      providerConfig: {},
+      audioSink: { sendAudio: sendSinkAudio },
+    });
+
+    session.close();
+    session.close();
+    session.sendAudio(Buffer.from("late-input"));
+    callbacks?.onAudio(Buffer.from("late-output"));
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(sendProviderAudio).not.toHaveBeenCalled();
+    expect(sendSinkAudio).not.toHaveBeenCalled();
+  });
+
+  it("stops audio admission after the provider reports a terminal close", () => {
+    let callbacks: Parameters<RealtimeVoiceProviderPlugin["createBridge"]>[0] | undefined;
+    const close = vi.fn();
+    const sendProviderAudio = vi.fn();
+    const sendSinkAudio = vi.fn();
+    const onClose = vi.fn();
+    const provider: RealtimeVoiceProviderPlugin = {
+      id: "test",
+      label: "Test",
+      isConfigured: () => true,
+      createBridge: (request) => {
+        callbacks = request;
+        return makeBridge({ close, sendAudio: sendProviderAudio });
+      },
+    };
+    const session = createRealtimeVoiceBridgeSession({
+      provider,
+      providerConfig: {},
+      audioSink: { sendAudio: sendSinkAudio },
+      onClose,
+    });
+
+    callbacks?.onClose?.("completed");
+    callbacks?.onClose?.("completed");
+    session.sendAudio(Buffer.from("late-input"));
+    callbacks?.onAudio(Buffer.from("late-output"));
+    session.close();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+    expect(sendProviderAudio).not.toHaveBeenCalled();
+    expect(sendSinkAudio).not.toHaveBeenCalled();
+  });
+
   it("forwards tool result continuation options and async acceptance to the provider bridge", () => {
     const acceptance = Promise.resolve();
     const submitToolResult = vi.fn(() => acceptance);
