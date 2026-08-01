@@ -219,7 +219,9 @@ export function createRealtimeVoiceBridgeSession(
     },
     onError: params.onError,
     onClose: (reason) => {
-      terminalBeforeBridgeAdoption = !bridgeRef.current;
+      if (!bridgeRef.current) {
+        terminalBeforeBridgeAdoption = true;
+      }
       if (phase !== "disposed") {
         phase = "provider-terminal";
       }
