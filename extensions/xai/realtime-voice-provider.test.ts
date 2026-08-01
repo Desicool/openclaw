@@ -93,6 +93,9 @@ type FakeWebSocketInstance = InstanceType<typeof FakeWebSocket>;
 type SentRealtimeEvent = {
   type: string;
   audio?: string;
+  item?: {
+    type?: string;
+  };
   session?: {
     voice?: string;
     model?: string;
