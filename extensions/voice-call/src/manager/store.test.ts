@@ -223,7 +223,7 @@ describe("voice-call call record store", () => {
 
     const restored = loadActiveCallsFromStore(storePath);
 
-    expect(restored.processedEventIds).toHaveLength(MANAGER_REPLAY_KEY_LIMIT);
+    expect(restored.processedEventIds.size).toBe(MANAGER_REPLAY_KEY_LIMIT);
     expect(restored.processedEventIds.has("evt-latest-old")).toBe(true);
     expect(restored.processedEventIds.has("evt-latest-new")).toBe(true);
     expect(restored.processedEventIds.has("evt-fill-0-0")).toBe(false);

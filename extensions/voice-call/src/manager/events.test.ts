@@ -808,7 +808,7 @@ describe("processEvent (functional)", () => {
 
     const call = ctx.activeCalls.get("call-bounded");
     expect(result).toEqual({ kind: "processed" });
-    expect(ctx.processedEventIds).toHaveLength(MANAGER_REPLAY_KEY_LIMIT);
+    expect(ctx.processedEventIds.size).toBe(MANAGER_REPLAY_KEY_LIMIT);
     expect(ctx.processedEventIds.has("manager-0")).toBe(false);
     expect(ctx.processedEventIds.has("evt-bounded-new")).toBe(true);
     expect(call?.processedEventIds).toHaveLength(MAX_CALL_REPLAY_KEYS);
@@ -853,7 +853,7 @@ describe("processEvent (functional)", () => {
       }),
     );
 
-    expect(ctx.rejectedProviderCallIds).toHaveLength(MANAGER_REPLAY_KEY_LIMIT);
+    expect(ctx.rejectedProviderCallIds.size).toBe(MANAGER_REPLAY_KEY_LIMIT);
     expect(ctx.rejectedProviderCallIds.has("provider-0")).toBe(false);
     expect(ctx.rejectedProviderCallIds.has("provider-new")).toBe(true);
     expect(hangupCalls).toHaveLength(1);
