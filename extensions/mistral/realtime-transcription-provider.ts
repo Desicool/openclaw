@@ -277,7 +277,6 @@ function createMistralRealtimeTranscriptionSession(
       }
       case "error":
         failTerminal(new Error(readErrorDetail(event)), transport);
-        return;
       default:
     }
   };
