@@ -282,22 +282,27 @@ export function buildSlackQaConfig(
             allowFrom: params.overrides?.allowFrom ?? [params.driverBotUserId],
             groupPolicy: "allowlist",
             allowBots: true,
-            replyToMode: params.overrides?.replyToMode ?? "off",
-            ...(progressOverrides
-              ? {
-                  streaming: {
-                    mode: "progress" as const,
-                    progress: {
-                      label: false,
-                      maxLines: 4,
-                      toolProgress: progressOverrides.toolProgress,
-                      ...(progressOverrides.commentary === undefined
-                        ? {}
-                        : { commentary: progressOverrides.commentary }),
-                    },
-                  },
-                }
+            ...(params.overrides?.groupDmEnabled
+              ? { dm: { enabled: true, groupEnabled: true } }
               : {}),
+            replyToMode: params.overrides?.replyToMode ?? "off",
+            ...(params.overrides?.streamingMode
+              ? { streaming: { mode: params.overrides.streamingMode } }
+              : progressOverrides
+                ? {
+                    streaming: {
+                      mode: "progress" as const,
+                      progress: {
+                        label: false,
+                        maxLines: 4,
+                        toolProgress: progressOverrides.toolProgress,
+                        ...(progressOverrides.commentary === undefined
+                          ? {}
+                          : { commentary: progressOverrides.commentary }),
+                      },
+                    },
+                  }
+                : {}),
             ...(execApprovalsConfig ? { execApprovals: execApprovalsConfig } : {}),
             channels: {
               [params.channelId]: {

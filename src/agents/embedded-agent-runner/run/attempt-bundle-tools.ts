@@ -6,6 +6,7 @@ import {
 } from "../../agent-bundle-mcp-tools.js";
 import { filterLocalModelLeanTools } from "../../local-model-lean.js";
 import { normalizeAgentRuntimeTools } from "../../runtime-plan/tools.js";
+import { replaceWithEffectiveToolAllowlist } from "../../tool-policy.js";
 import { filterRuntimeCompatibleTools } from "../../tool-schema-projection.js";
 import { logRuntimeToolSchemaQuarantine } from "../../tool-schema-quarantine.js";
 import { replaceWithEffectiveCronCreatorToolAllowlist } from "../../tools/cron-tool.js";
@@ -36,6 +37,7 @@ export async function prepareEmbeddedAttemptBundleTools(params: {
   const {
     cronCreatorToolAllowlist,
     effectiveToolsAllow,
+    inheritedToolAllowlist,
     localModelLeanPreserveToolNames,
     runtimeCapabilityProfile,
     toolsEnabled,
@@ -62,10 +64,25 @@ export async function prepareEmbeddedAttemptBundleTools(params: {
         sessionId: params.attempt.sessionId,
       }),
   });
-  const clientTools =
-    toolsEnabled && !params.isRawModelRun && !params.attempt.forceRestartSafeTools
+  const providedClientTools =
+    toolsEnabled &&
+    !params.attempt.disableTools &&
+    !params.isRawModelRun &&
+    !params.attempt.forceRestartSafeTools
       ? params.attempt.clientTools
       : undefined;
+  // Client functions share the attempt's authority; filter before their names
+  // can reserve bundled tools or enter deferred catalogs and provider requests.
+  const clientTools =
+    providedClientTools && effectiveToolsAllow
+      ? applyEmbeddedAttemptToolsAllow(
+          providedClientTools.map((definition) => ({
+            name: definition.function.name,
+            definition,
+          })),
+          effectiveToolsAllow,
+        ).map(({ definition }) => definition)
+      : providedClientTools;
   const bundleMcpEnabled =
     !params.attempt.forceRestartSafeTools &&
     shouldCreateBundleMcpRuntimeForAttempt({
@@ -93,6 +110,7 @@ export async function prepareEmbeddedAttemptBundleTools(params: {
         requesterSenderId: params.attempt.senderId,
         agentAccountId: params.attempt.agentAccountId,
         messageChannel: params.attempt.messageChannel ?? params.attempt.messageProvider,
+        toolOverrides: params.attempt.toolOverrides,
       })
     : undefined;
   const bundleMcpRuntime = bundleMcpSessionRuntime
@@ -199,6 +217,12 @@ export async function prepareEmbeddedAttemptBundleTools(params: {
       );
     }
     const schemaProjection = filterRuntimeCompatibleTools(projectedTools);
+    if (inheritedToolAllowlist?.length) {
+      // Spawn tools close over this ref before MCP/LSP materialize. Refresh it
+      // only after final policy and schema projection so children inherit the
+      // parent's complete authorized surface, never denied bundled tools.
+      replaceWithEffectiveToolAllowlist(inheritedToolAllowlist, schemaProjection.tools);
+    }
     logRuntimeToolSchemaQuarantine({
       diagnostics: schemaProjection.diagnostics,
       tools: projectedTools,

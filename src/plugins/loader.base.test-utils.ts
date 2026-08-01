@@ -16,12 +16,14 @@ import {
 import { withEnv } from "../test-utils/env.js";
 import { clearPluginCommands } from "./command-registry-state.js";
 import { getPluginCommandSpecs } from "./command-specs.js";
+import { setCurrentPluginMetadataSnapshot } from "./current-plugin-metadata-snapshot.js";
 import { getGlobalHookRunner, resetGlobalHookRunner } from "./hook-runner-global.js";
 import { writePersistedInstalledPluginIndexInstallRecordsSync } from "./installed-plugin-index-records.js";
 import {
   clearPluginInteractiveHandlers,
   resolvePluginInteractiveNamespaceMatch,
 } from "./interactive-registry.js";
+import { resolvePluginRegistryLoadCacheKey } from "./loader-cache.js";
 import { loadOpenClawPlugins, resolveRuntimePluginRegistry } from "./loader.js";
 import {
   EMPTY_PLUGIN_SCHEMA,
@@ -51,6 +53,7 @@ import {
   globalAfterAll1,
 } from "./loader.test-harness.js";
 import { loadPluginManifestRegistry } from "./manifest-registry.js";
+import { loadPluginMetadataSnapshot } from "./plugin-metadata-snapshot.js";
 import { createEmptyPluginRegistry } from "./registry.js";
 import {
   getActivePluginRegistry,
@@ -439,6 +442,66 @@ describe("loadOpenClawPlugins", () => {
     });
 
     expect(registry.plugins.find((entry) => entry.id === plugin.id)?.status).toBe("loaded");
+  });
+
+  it("loads scoped plugins from the current metadata snapshot without rediscovering manifests", () => {
+    useNoBundledPlugins();
+    const plugin = writePlugin({
+      id: "snapshot-manifest",
+      body: `module.exports = { id: "snapshot-manifest", register() {} };`,
+    });
+    const config = {
+      plugins: {
+        load: { paths: [plugin.file] },
+        allow: [plugin.id],
+      },
+    };
+    const metadataSnapshot = loadPluginMetadataSnapshot({ config, env: process.env });
+    setCurrentPluginMetadataSnapshot(metadataSnapshot, { config, env: process.env });
+    fs.rmSync(path.join(plugin.dir, "openclaw.plugin.json"));
+
+    const registry = loadOpenClawPlugins({
+      cache: false,
+      config,
+      onlyPluginIds: [plugin.id],
+    });
+
+    expect(registry.plugins.find((entry) => entry.id === plugin.id)?.status).toBe("loaded");
+  });
+
+  it("discovers plugin paths supplied only by the activation source", () => {
+    useNoBundledPlugins();
+    const snapshotPlugin = writePlugin({
+      id: "snapshot-base",
+      body: `module.exports = { id: "snapshot-base", register() {} };`,
+    });
+    const sourcePlugin = writePlugin({
+      id: "activation-source-only",
+      body: `module.exports = { id: "activation-source-only", register() {} };`,
+    });
+    const config = {
+      plugins: {
+        load: { paths: [snapshotPlugin.file] },
+        allow: [snapshotPlugin.id, sourcePlugin.id],
+      },
+    };
+    const metadataSnapshot = loadPluginMetadataSnapshot({ config, env: process.env });
+    setCurrentPluginMetadataSnapshot(metadataSnapshot, { config, env: process.env });
+
+    const registry = loadOpenClawPlugins({
+      activate: false,
+      cache: false,
+      config,
+      activationSourceConfig: {
+        plugins: {
+          load: { paths: [sourcePlugin.file] },
+          allow: [sourcePlugin.id],
+        },
+      },
+      onlyPluginIds: [sourcePlugin.id],
+    });
+
+    expect(registry.plugins.find((entry) => entry.id === sourcePlugin.id)?.status).toBe("loaded");
   });
 
   it("loads installed plugin packages discovered from persisted install records", () => {
@@ -1322,9 +1385,10 @@ describe("loadOpenClawPlugins", () => {
       },
     },
     {
-      label: "fails loudly when a plugin reenters the same snapshot load during register",
+      label: "does not expose plugin config in cache keys or reentry diagnostics",
       run: () => {
         useNoBundledPlugins();
+        const pluginConfigSentinel = "hunter2-sentinel";
         const marker = "__openclaw_loader_reentry_error";
         const reenterFnMarker = "__openclaw_loader_reentry_fn";
         Reflect.deleteProperty(globalThis, marker);
@@ -1343,6 +1407,9 @@ describe("loadOpenClawPlugins", () => {
             plugins: {
               load: { paths: [pluginFile] },
               allow: ["reentrant-snapshot"],
+              entries: {
+                "reentrant-snapshot": { config: { token: pluginConfigSentinel } },
+              },
             },
           },
         } satisfies Parameters<typeof loadOpenClawPlugins>[0];
@@ -1350,6 +1417,11 @@ describe("loadOpenClawPlugins", () => {
           id: "reentrant-snapshot",
           dir: pluginDir,
           filename: "reentrant-snapshot.cjs",
+          configSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: { token: { type: "string" } },
+          },
           body: `module.exports = {
     id: "reentrant-snapshot",
     register() {
@@ -1366,6 +1438,9 @@ describe("loadOpenClawPlugins", () => {
   };`,
         });
 
+        const cacheKey = resolvePluginRegistryLoadCacheKey(nestedOptions);
+        expect(cacheKey).toMatch(/^[a-f0-9]{64}$/);
+        expect(cacheKey).not.toContain(pluginConfigSentinel);
         const registry = loadOpenClawPlugins(nestedOptions);
 
         try {
@@ -1373,10 +1448,14 @@ describe("loadOpenClawPlugins", () => {
             | { name?: unknown; message?: unknown }
             | undefined;
           expect(reentryError?.name).toBe("PluginLoadReentryError");
-          expect(String(reentryError?.message)).toContain("plugin load reentry detected");
+          expect(reentryError?.message).toBe(
+            `plugin load reentry detected for cache key: ${cacheKey}`,
+          );
+          expect(String(reentryError?.message)).not.toContain(pluginConfigSentinel);
           const record = registry.plugins.find((entry) => entry.id === "reentrant-snapshot");
           expect(record?.status).toBe("error");
-          expect(record?.error).toContain("plugin load reentry detected");
+          expect(record?.error).toContain(cacheKey);
+          expect(record?.error).not.toContain(pluginConfigSentinel);
           expect(record?.failurePhase).toBe("register");
         } finally {
           Reflect.deleteProperty(globalThis, marker);
@@ -1727,6 +1806,13 @@ describe("loadOpenClawPlugins", () => {
           api.registerAgentToolResultMiddleware(() => undefined, {
             runtimes: ["openclaw"],
           });
+          api.registerHook(
+            "gateway:startup",
+            (event) => {
+              event.messages.push("rollback-hook-fired");
+            },
+            { name: "reload-rollback-hook" },
+          );
           api.on("gateway_stop", async () => {});
         },
       };`,
@@ -1749,7 +1835,7 @@ describe("loadOpenClawPlugins", () => {
     };
 
     const activeRegistry = loadOpenClawPlugins(loadOptions);
-    const expectRegistrationsIntact = () => {
+    const expectRegistrationsIntact = async () => {
       expect(getActivePluginRegistry()).toBe(activeRegistry);
       expect(getRegisteredAgentHarness("codex")).toBeDefined();
       expect(getPluginCommandSpecs().map((entry) => entry.name)).toEqual(["pair"]);
@@ -1758,8 +1844,11 @@ describe("loadOpenClawPlugins", () => {
       ]);
       expect(activeRegistry.agentToolResultMiddlewares).toHaveLength(1);
       expect(activeRegistry.typedHooks.map((entry) => entry.hookName)).toEqual(["gateway_stop"]);
+      const event = createInternalHookEvent("gateway", "startup", "gateway:startup");
+      await triggerInternalHook(event);
+      expect(event.messages).toEqual(["rollback-hook-fired"]);
     };
-    expectRegistrationsIntact();
+    await expectRegistrationsIntact();
 
     const manifestRegistry = await import("./manifest-registry.js");
     const manifestSpy = vi
@@ -1770,7 +1859,7 @@ describe("loadOpenClawPlugins", () => {
 
     try {
       expect(() => loadOpenClawPlugins(loadOptions)).toThrow("corrupt plugin manifest");
-      expectRegistrationsIntact();
+      await expectRegistrationsIntact();
     } finally {
       manifestSpy.mockRestore();
     }
@@ -1796,7 +1885,7 @@ describe("loadOpenClawPlugins", () => {
         onlyPluginIds: ["reload-rollback", "reload-rollback-failure"],
       }),
     ).toThrow("plugin load failed: reload-rollback-failure: Error: register failed");
-    expectRegistrationsIntact();
+    await expectRegistrationsIntact();
   });
 
   it("rejects malformed plugin agent harness registrations", () => {
@@ -1917,6 +2006,72 @@ describe("loadOpenClawPlugins", () => {
 
     clearInternalHooks();
   });
+
+  it.each(["disabled", "removed"] as const)(
+    "clears legacy internal hooks when their plugin is %s",
+    async (nextState) => {
+      useNoBundledPlugins();
+      const plugin = writePlugin({
+        id: "internal-hook-lifecycle",
+        filename: "internal-hook-lifecycle.cjs",
+        body: `module.exports = {
+          id: "internal-hook-lifecycle",
+          register(api) {
+            api.registerHook(
+              "gateway:startup",
+              (event) => {
+                event.messages.push("legacy-hook-fired");
+              },
+              { name: "legacy-lifecycle-hook" },
+            );
+          },
+        };`,
+      });
+
+      clearInternalHooks();
+      loadOpenClawPlugins({
+        cache: false,
+        workspaceDir: plugin.dir,
+        config: {
+          plugins: {
+            load: { paths: [plugin.file] },
+            allow: ["internal-hook-lifecycle"],
+          },
+        },
+      });
+
+      const activeEvent = createInternalHookEvent("gateway", "startup", "gateway:startup");
+      await triggerInternalHook(activeEvent);
+      expect(activeEvent.messages).toEqual(["legacy-hook-fired"]);
+
+      loadOpenClawPlugins({
+        cache: false,
+        workspaceDir: plugin.dir,
+        config: {
+          plugins:
+            nextState === "disabled"
+              ? {
+                  load: { paths: [plugin.file] },
+                  allow: ["internal-hook-lifecycle"],
+                  entries: {
+                    "internal-hook-lifecycle": {
+                      enabled: false,
+                    },
+                  },
+                }
+              : {
+                  allow: [],
+                },
+        },
+      });
+
+      const retiredEvent = createInternalHookEvent("gateway", "startup", "gateway:startup");
+      await triggerInternalHook(retiredEvent);
+      expect(retiredEvent.messages).toStrictEqual([]);
+
+      clearInternalHooks();
+    },
+  );
 
   it("injects plugin config into internal hook event context", async () => {
     useNoBundledPlugins();
