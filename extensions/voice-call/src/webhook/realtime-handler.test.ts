@@ -1871,7 +1871,12 @@ describe("RealtimeCallHandler path routing", () => {
 
   it("ignores late continuity reset and close from a replaced bridge", async () => {
     const callbacks: RealtimeBridgeRequest[] = [];
-    const bridges = [makeBridge(), makeBridge()];
+    const oldCloseBridge = vi.fn();
+    const replacementCloseBridge = vi.fn();
+    const bridges = [
+      makeBridge({ close: oldCloseBridge }),
+      makeBridge({ close: replacementCloseBridge }),
+    ];
     const createBridge = vi.fn((request: RealtimeBridgeRequest) => {
       callbacks.push(request);
       const bridge = bridges[callbacks.length - 1];
@@ -1881,11 +1886,15 @@ describe("RealtimeCallHandler path routing", () => {
       return bridge;
     });
     const processEvent = vi.fn();
+    const hangupCall = vi.fn(async () => {});
+    const sharedCallSid = "CA-continuity-shared";
+    const call = makeCallRecord(sharedCallSid);
     const handler = makeHandler(undefined, {
       manager: {
-        getCallByProviderCallId: vi.fn((providerCallId: string) => makeCallRecord(providerCallId)),
+        getCallByProviderCallId: vi.fn(() => call),
         processEvent,
       },
+      provider: { hangupCall },
       realtimeProvider: makeRealtimeProvider(createBridge),
     });
     const oldServer = await startRealtimeServer(handler);
@@ -1897,7 +1906,7 @@ describe("RealtimeCallHandler path routing", () => {
       oldWs.send(
         JSON.stringify({
           event: "start",
-          start: { streamSid: "MZ-continuity-old", callSid: "CA-continuity-old" },
+          start: { streamSid: "MZ-continuity-old", callSid: sharedCallSid },
         }),
       );
       await waitForRealtimeTest(() => {
@@ -1912,7 +1921,7 @@ describe("RealtimeCallHandler path routing", () => {
             event: "start",
             start: {
               streamSid: "MZ-continuity-replacement",
-              callSid: "CA-continuity-replacement",
+              callSid: sharedCallSid,
             },
           }),
         );
@@ -1921,6 +1930,9 @@ describe("RealtimeCallHandler path routing", () => {
         });
 
         callbacks[1]?.onTranscript?.("user", "Fresh ", false);
+        callbacks[0]?.onTranscript?.("user", "stale partial", false);
+        callbacks[0]?.onTranscript?.("user", "stale final", true);
+        callbacks[0]?.onTranscript?.("assistant", "stale assistant", true);
         callbacks[0]?.onEvent?.({
           direction: "client",
           type: "session.continuity.reset",
@@ -1929,7 +1941,18 @@ describe("RealtimeCallHandler path routing", () => {
           direction: "client",
           type: "session.continuity.reset",
         });
-        callbacks[0]?.onClose?.("completed");
+        callbacks[0]?.onClose?.("error");
+        oldWs.terminate();
+        await waitForRealtimeTest(() => {
+          expect(oldCloseBridge).toHaveBeenCalledOnce();
+        });
+        expect(replacementCloseBridge).not.toHaveBeenCalled();
+        expect(hangupCall).not.toHaveBeenCalled();
+        expect(
+          processEvent.mock.calls
+            .map(([event]) => event as NormalizedEvent)
+            .filter((event) => event.type === "call.ended"),
+        ).toHaveLength(0);
         callbacks[1]?.onTranscript?.("user", "caller", true);
 
         await waitForRealtimeTest(() => {
@@ -1940,6 +1963,11 @@ describe("RealtimeCallHandler path routing", () => {
               .map((event) => (event.type === "call.speech" ? event.transcript : undefined)),
           ).toEqual(["Fresh caller"]);
         });
+        expect(
+          processEvent.mock.calls
+            .map(([event]) => event as NormalizedEvent)
+            .filter((event) => event.type === "call.assistant-speech"),
+        ).toHaveLength(0);
       } finally {
         if (
           replacementWs.readyState !== WebSocket.CLOSED &&

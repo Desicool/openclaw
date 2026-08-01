@@ -339,7 +339,10 @@ export class RealtimeCallHandler {
   private readonly activeBridgesByCallId = new Map<string, ActiveRealtimeVoiceBridge>();
   private readonly activeTelephonyClosersByCallId = new Map<
     string,
-    (reason: TelephonyCloseReason) => void
+    {
+      owner: ActiveRealtimeVoiceBridge;
+      close: (reason: TelephonyCloseReason) => void;
+    }
   >();
   private readonly partialUserTranscriptsByCallId = new Map<string, string>();
   private readonly rawPartialUserTranscriptsByCallId = new Map<string, string>();
@@ -797,6 +800,10 @@ export class RealtimeCallHandler {
         },
       },
       onTranscript: (role, text, isFinal) => {
+        const owner = nativeConsultOwner.current;
+        if (owner && !this.isActiveBridgeOwner(callId, owner)) {
+          return;
+        }
         const turnId = harness.ensureTurn();
         const eventType =
           role === "assistant"
@@ -979,7 +986,7 @@ export class RealtimeCallHandler {
           payload: { reason },
           final: true,
         });
-        if (reason !== "error") {
+        if (reason !== "error" || (owner && !ownsCallState)) {
           return;
         }
         emitCallEnd("error");
@@ -1017,8 +1024,9 @@ export class RealtimeCallHandler {
     });
     this.activeBridgesByCallId.set(callId, session);
     this.activeBridgesByCallId.set(callSid, session);
-    this.activeTelephonyClosersByCallId.set(callId, closeTelephony);
-    this.activeTelephonyClosersByCallId.set(callSid, closeTelephony);
+    const telephonyCloser = { owner: session, close: closeTelephony };
+    this.activeTelephonyClosersByCallId.set(callId, telephonyCloser);
+    this.activeTelephonyClosersByCallId.set(callSid, telephonyCloser);
     const sendAudioToSession = session.sendAudio.bind(session);
     session.sendAudio = (audio) => {
       if (speechDetector.accept({ rms: calculateMulawRms(audio), peak: 0 })) {
@@ -1059,8 +1067,11 @@ export class RealtimeCallHandler {
 
     session.connect().catch((error: unknown) => {
       console.error("[voice-call] Failed to connect realtime bridge:", error);
+      const ownsCallState = this.isActiveBridgeOwner(callId, session);
       session.close();
-      emitCallEnd("error");
+      if (ownsCallState) {
+        emitCallEnd("error");
+      }
       ws.close(1011, "Failed to connect");
     });
 
@@ -1246,8 +1257,8 @@ export class RealtimeCallHandler {
     reason: TelephonyCloseReason,
   ): void {
     const closer = this.activeTelephonyClosersByCallId.get(callIdOrSid);
-    if (closer) {
-      closer(reason);
+    if (closer && closer.owner === bridge) {
+      closer.close(reason);
       return;
     }
     bridge?.close();
