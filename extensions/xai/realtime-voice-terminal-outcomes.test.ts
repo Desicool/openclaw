@@ -22,7 +22,7 @@ async function captureRealtimeOutcome(
   });
   const server = createServer();
   const sockets = new Set<WebSocket>();
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   server.on("upgrade", (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
       sockets.add(ws);
