@@ -1,7 +1,7 @@
 const GOOGLE_REALTIME_MAX_PENDING_AUDIO_CHUNKS = 320;
 const GOOGLE_REALTIME_MAX_PENDING_AUDIO_BYTES = 1024 * 1024;
 
-export type GoogleRealtimeAudioOverflowPolicy = "drop-oldest" | "reject-newest";
+type GoogleRealtimeAudioOverflowPolicy = "drop-oldest" | "reject-newest";
 
 export function createGoogleRealtimeAudioQueue(overflowPolicy: GoogleRealtimeAudioOverflowPolicy) {
   let chunks: Buffer[] = [];
