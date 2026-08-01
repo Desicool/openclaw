@@ -202,6 +202,21 @@ describe("realtime Talk conversation", () => {
     );
   });
 
+  it("does not trust a natural truncation marker outside the bounded prefix", () => {
+    let state = createRealtimeTalkConversationState();
+
+    state = updateRealtimeTalkConversation(state, {
+      role: "assistant",
+      text: `${"a".repeat(7_998)}\n…\n${"b".repeat(500)}NEWEST`,
+      final: true,
+      nowMs: 1,
+    });
+
+    expect(state.entries[0]?.text.length).toBeLessThanOrEqual(8_000);
+    expect(state.entries[0]?.text.startsWith("a".repeat(256))).toBe(true);
+    expect(state.entries[0]?.text.endsWith("NEWEST")).toBe(true);
+  });
+
   it.each(["user", "assistant"] as const)(
     "bounds oversized final %s entries while retaining the newest text",
     (role) => {

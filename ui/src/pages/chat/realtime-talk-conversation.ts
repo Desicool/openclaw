@@ -282,10 +282,12 @@ function boundRealtimeConversationText(text: string): string {
   // the newest tail for the visible conversation. Reuse the original prefix
   // so repeated streaming deltas do not move the truncation boundary.
   const markerIndex = text.indexOf(CONVERSATION_ENTRY_TRUNCATION_MARKER);
-  const prefix =
-    markerIndex > 0
-      ? text.slice(0, markerIndex)
-      : sliceUtf16Safe(text, 0, CONVERSATION_ENTRY_PREFIX_CHARS);
+  const hasBoundedPrefix =
+    markerIndex >= CONVERSATION_ENTRY_PREFIX_CHARS - 1 &&
+    markerIndex <= CONVERSATION_ENTRY_PREFIX_CHARS;
+  const prefix = hasBoundedPrefix
+    ? text.slice(0, markerIndex)
+    : sliceUtf16Safe(text, 0, CONVERSATION_ENTRY_PREFIX_CHARS);
   const tailChars =
     MAX_CONVERSATION_ENTRY_CHARS - prefix.length - CONVERSATION_ENTRY_TRUNCATION_MARKER.length;
   const tail = sliceUtf16Safe(text, -tailChars);
