@@ -13,12 +13,27 @@ import {
   requireRegisteredProvider,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { createCapturedThinkingConfigStream } from "openclaw/plugin-sdk/provider-test-contracts";
-import type { RealtimeVoiceProviderPlugin } from "openclaw/plugin-sdk/realtime-voice";
-import { describe, expect, it } from "vitest";
+import type {
+  RealtimeVoiceBridge,
+  RealtimeVoiceProviderPlugin,
+} from "openclaw/plugin-sdk/realtime-voice";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerGoogleGeminiCliProvider } from "./gemini-cli-provider.js";
 import googlePlugin from "./index.js";
 import googleProviderDiscovery from "./provider-discovery.js";
 import { registerGoogleProvider } from "./provider-registration.js";
+
+const { createRealtimeBridgeMock } = vi.hoisted(() => ({
+  createRealtimeBridgeMock: vi.fn(),
+}));
+
+vi.mock("./realtime-voice-provider.js", () => ({
+  buildGoogleRealtimeVoiceProvider: () => ({
+    id: "google",
+    label: "Google Live Voice",
+    createBridge: createRealtimeBridgeMock,
+  }),
+}));
 
 const googleProviderPlugin = {
   register(api: Parameters<typeof registerGoogleProvider>[0]) {
@@ -27,7 +42,63 @@ const googleProviderPlugin = {
   },
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function createMockRealtimeBridge(connectImpl: () => Promise<void> = async () => {}) {
+  const connect = vi.fn(connectImpl);
+  const sendUserMessage = vi.fn();
+  const close = vi.fn();
+  const bridge: RealtimeVoiceBridge = {
+    supportsToolResultContinuation: false,
+    supportsToolResultSuppression: false,
+    connect,
+    sendAudio: vi.fn(),
+    setMediaTimestamp: vi.fn(),
+    sendUserMessage,
+    triggerGreeting: vi.fn(),
+    handleBargeIn: vi.fn(),
+    submitToolResult: vi.fn(),
+    acknowledgeMark: vi.fn(),
+    close,
+    isConnected: vi.fn(() => false),
+  };
+  return { bridge, close, connect, sendUserMessage };
+}
+
+function createLazyRealtimeBridge(onError = vi.fn()) {
+  let realtimeProvider: RealtimeVoiceProviderPlugin | undefined;
+  googlePlugin.register(
+    createTestPluginApi({
+      registerRealtimeVoiceProvider(provider) {
+        realtimeProvider = provider;
+      },
+    }),
+  );
+  const bridge = realtimeProvider?.createBridge({
+    providerConfig: { apiKey: "gemini-key" },
+    onAudio() {},
+    onClearAudio() {},
+    onError,
+  });
+  if (!bridge) {
+    throw new Error("expected Google realtime bridge");
+  }
+  return { bridge, onError };
+}
+
 describe("google provider plugin hooks", () => {
+  beforeEach(() => {
+    createRealtimeBridgeMock.mockReset();
+  });
+
   it("owns replay policy and reasoning mode for the direct Gemini provider", async () => {
     const { providers } = await registerProviderPlugin({
       plugin: googleProviderPlugin,
@@ -397,28 +468,110 @@ describe("google provider plugin hooks", () => {
   });
 
   it("buffers early realtime audio while the lazy Google bridge loads", () => {
-    let realtimeProvider: RealtimeVoiceProviderPlugin | undefined;
-    googlePlugin.register(
-      createTestPluginApi({
-        registerRealtimeVoiceProvider(provider) {
-          realtimeProvider = provider;
-        },
-      }),
-    );
-
-    const bridge = realtimeProvider?.createBridge({
-      providerConfig: { apiKey: "gemini-key" },
-      onAudio() {},
-      onClearAudio() {},
-    });
-
-    if (!bridge) {
-      throw new Error("expected Google realtime bridge");
-    }
+    const { bridge } = createLazyRealtimeBridge();
     expect(bridge.supportsToolResultContinuation).toBe(false);
     expect(bridge.supportsToolResultSuppression).toBe(false);
     expect(bridge.sendAudio(Buffer.alloc(160))).toBeUndefined();
     expect(bridge.setMediaTimestamp(20)).toBeUndefined();
     expect(bridge.sendUserMessage?.("hello")).toBeUndefined();
+  });
+
+  it("preserves queued user messages until the loaded bridge is connected", async () => {
+    const connected = createDeferred<void>();
+    const loaded = createMockRealtimeBridge(() => connected.promise);
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const { bridge } = createLazyRealtimeBridge();
+
+    bridge.sendUserMessage?.("before connect");
+    const connectPromise = bridge.connect();
+    await vi.waitFor(() => expect(loaded.connect).toHaveBeenCalledOnce());
+    bridge.sendUserMessage?.("during connect");
+
+    expect(loaded.sendUserMessage).not.toHaveBeenCalled();
+    connected.resolve();
+    await connectPromise;
+
+    expect(loaded.sendUserMessage.mock.calls.map(([text]) => text)).toEqual([
+      "before connect",
+      "during connect",
+    ]);
+  });
+
+  it("rejects each user message beyond the lazy startup queue count", async () => {
+    const loaded = createMockRealtimeBridge();
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const { bridge, onError } = createLazyRealtimeBridge();
+
+    for (let index = 0; index < 130; index += 1) {
+      bridge.sendUserMessage?.(`message-${index}`);
+    }
+    await bridge.connect();
+
+    expect(loaded.sendUserMessage).toHaveBeenCalledTimes(128);
+    expect(loaded.sendUserMessage.mock.calls.map(([text]) => text)).toEqual(
+      Array.from({ length: 128 }, (_, index) => `message-${index}`),
+    );
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ message: expect.stringContaining("queue overflow") }),
+    );
+    expect(onError).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ message: expect.stringContaining("queue overflow") }),
+    );
+  });
+
+  it("bounds the lazy startup queue by aggregate UTF-8 bytes", async () => {
+    const loaded = createMockRealtimeBridge();
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const { bridge, onError } = createLazyRealtimeBridge();
+    const exactLimit = "🙂".repeat((256 * 1024) / 4);
+
+    expect(Buffer.byteLength(exactLimit, "utf8")).toBe(256 * 1024);
+    bridge.sendUserMessage?.(exactLimit);
+    bridge.sendUserMessage?.("overflow");
+    await bridge.connect();
+
+    expect(loaded.sendUserMessage).toHaveBeenCalledOnce();
+    expect(loaded.sendUserMessage).toHaveBeenCalledWith(exactLimit);
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it("closes a bridge that loads after the lazy wrapper is closed", async () => {
+    const loaded = createMockRealtimeBridge();
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const { bridge } = createLazyRealtimeBridge();
+
+    bridge.sendUserMessage?.("before connect");
+    const connectPromise = bridge.connect();
+    bridge.close();
+    bridge.close();
+    bridge.sendUserMessage?.("after close");
+    await connectPromise;
+
+    expect(loaded.connect).not.toHaveBeenCalled();
+    expect(loaded.close).toHaveBeenCalledOnce();
+    expect(loaded.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("clears queued messages and ignores a late connect completion after close", async () => {
+    const connected = createDeferred<void>();
+    const loaded = createMockRealtimeBridge(() => connected.promise);
+    createRealtimeBridgeMock.mockReturnValue(loaded.bridge);
+    const { bridge } = createLazyRealtimeBridge();
+
+    bridge.sendUserMessage?.("before connect");
+    const connectPromise = bridge.connect();
+    await vi.waitFor(() => expect(loaded.connect).toHaveBeenCalledOnce());
+    bridge.sendUserMessage?.("during connect");
+    bridge.close();
+    bridge.close();
+    bridge.sendUserMessage?.("after close");
+    connected.resolve();
+    await connectPromise;
+
+    expect(loaded.close).toHaveBeenCalledOnce();
+    expect(loaded.sendUserMessage).not.toHaveBeenCalled();
   });
 });
