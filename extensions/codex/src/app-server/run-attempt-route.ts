@@ -25,7 +25,7 @@ export async function prepareCodexAttemptRoute(
   } = resources;
   const { connection } = prompt.context.runtime;
   const { params, runAbortController, abortFromUpstream } = connection;
-  const { state, turnIdRef, turnWatches } = turnRuntime;
+  const { state, turnIdRef, completeTurn } = turnRuntime;
   const { noteNotificationReceived, enqueueNotification } = notifications;
   const attachRouteAbort = (route: CodexThreadRouteReservation) => {
     const onAbort = () => {
@@ -61,9 +61,7 @@ export async function prepareCodexAttemptRoute(
         ...(state.clientClosedDiagnostic ? { transportError: state.clientClosedDiagnostic } : {}),
       });
       runAbortController.abort(closedClient ? "client_closed" : "turn_route_closed");
-      state.completed = true;
-      turnWatches.clearAllTimers();
-      state.resolveCompletion?.();
+      completeTurn();
     };
     route.signal.addEventListener("abort", onAbort, { once: true });
     if (route.signal.aborted) {
