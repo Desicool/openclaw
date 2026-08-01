@@ -986,13 +986,16 @@ export class RealtimeCallHandler {
           payload: { reason },
           final: true,
         });
-        if (reason !== "error" || (owner && !ownsCallState)) {
+        if (reason !== "error") {
           return;
         }
-        emitCallEnd("error");
         if (ws.readyState === WebSocket.OPEN) {
           ws.close(1011, "Bridge disconnected");
         }
+        if (owner && !ownsCallState) {
+          return;
+        }
+        emitCallEnd("error");
         void this.provider
           .hangupCall({ callId, providerCallId: callSid, reason: "error" })
           .catch((error: unknown) => {

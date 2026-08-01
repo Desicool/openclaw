@@ -1941,11 +1941,10 @@ describe("RealtimeCallHandler path routing", () => {
           direction: "client",
           type: "session.continuity.reset",
         });
+        const oldClosed = waitForClose(oldWs);
         callbacks[0]?.onClose?.("error");
-        oldWs.terminate();
-        await waitForRealtimeTest(() => {
-          expect(oldCloseBridge).toHaveBeenCalledOnce();
-        });
+        await oldClosed;
+        expect(oldCloseBridge).toHaveBeenCalledOnce();
         expect(replacementCloseBridge).not.toHaveBeenCalled();
         expect(hangupCall).not.toHaveBeenCalled();
         expect(
