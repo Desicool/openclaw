@@ -214,8 +214,10 @@ describe("resolveSandboxFsPathWithMounts", () => {
     const sandbox = createSandbox({
       workspaceDir,
       agentWorkspaceDir: workspaceDir,
+      containerWorkdir: "/workspace/.",
       docker: {
         ...createSandbox().docker,
+        workdir: "/workspace/.",
         binds: [`${customRoot}:/workspace/skills:rw`],
       },
     });

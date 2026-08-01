@@ -599,6 +599,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
       const customMount = `${customRoot}:/workspace/skills:rw`;
       const cfg = createSandboxConfig([], [customMount]);
       cfg.backend = backend;
+      cfg.docker.workdir = "/workspace/.";
       cfg.docker.dangerouslyAllowExternalBindSources = true;
       spawnState.inspectRunning = false;
       registryMocks.readRegistryEntry.mockResolvedValue(null);
@@ -609,7 +610,7 @@ describe("ensureSandboxContainer config-hash recreation", () => {
 
       expect(createCall.command).toBe(backend);
       expect(bindArgs).not.toContain(customMount);
-      expect(bindArgs).toContain(`${path.join(workspaceDir, "skills")}:/workspace/skills:ro,z`);
+      expect(bindArgs).toContain(`${path.join(workspaceDir, "skills")}:/workspace/./skills:ro,z`);
     },
   );
 

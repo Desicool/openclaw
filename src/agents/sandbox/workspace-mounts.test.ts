@@ -265,7 +265,7 @@ describe("resolveProtectedSkillMountContainerPaths", () => {
   it("returns container paths from skill mounts", () => {
     const mounts: ReadOnlyWorkspaceSkillMount[] = [
       { hostPath: "/host/skills", containerPath: "/workspace/skills" },
-      { hostPath: "/host/.agents/skills", containerPath: "/workspace/.agents/skills" },
+      { hostPath: "/host/.agents/skills", containerPath: "/workspace/./.agents/skills/" },
     ];
     const paths = resolveProtectedSkillMountContainerPaths(mounts);
     expect(paths).toEqual(new Set(["/workspace/skills", "/workspace/.agents/skills"]));

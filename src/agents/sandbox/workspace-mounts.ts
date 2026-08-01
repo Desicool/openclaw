@@ -38,6 +38,10 @@ function containerJoin(root: string, ...parts: string[]): string {
   return suffix ? `${normalizedRoot}/${suffix}` : normalizedRoot;
 }
 
+function normalizeMountContainerPath(containerPath: string): string {
+  return normalizeContainerPath(containerPath).replace(/\/+$/, "") || "/";
+}
+
 /** Hidden workspace used to materialize non-workspace skills for rw sandboxes. */
 export function resolveMaterializedSandboxSkillsWorkspaceDir(rootDir: string): string {
   return path.join(rootDir, ...MATERIALIZED_SANDBOX_SKILLS_WORKSPACE_PARTS);
@@ -126,7 +130,7 @@ export function formatReadOnlyWorkspaceSkillMountHashState(
 export function resolveProtectedSkillMountContainerPaths(
   mounts: readonly ReadOnlyWorkspaceSkillMount[],
 ): Set<string> {
-  return new Set(mounts.map((m) => m.containerPath));
+  return new Set(mounts.map((mount) => normalizeMountContainerPath(mount.containerPath)));
 }
 
 /**
@@ -151,8 +155,7 @@ export function filterBindsConflictingWithProtectedMounts(
       filtered.push(bind);
       continue;
     }
-    // Strip trailing slashes so /workspace/skills/ matches /workspace/skills from containerJoin.
-    const containerPath = normalizeContainerPath(spec.container).replace(/\/+$/, "") || "/";
+    const containerPath = normalizeMountContainerPath(spec.container);
     if (!protectedContainerPaths.has(containerPath)) {
       filtered.push(bind);
     }
