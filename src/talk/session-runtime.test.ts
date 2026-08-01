@@ -452,6 +452,7 @@ describe("realtime voice bridge session runtime", () => {
     callbacks?.onAudio(Buffer.from("next-output"));
     callbacks?.onClose?.("completed");
     callbacks?.onClose?.("completed");
+    await expect(session.connect()).rejects.toThrow("Realtime voice connection is closed");
 
     expect(connect).toHaveBeenCalledTimes(1);
     expect(onReady).toHaveBeenCalledWith(session);
@@ -462,9 +463,10 @@ describe("realtime voice bridge session runtime", () => {
     expect(sendSinkAudio).toHaveBeenCalledExactlyOnceWith(Buffer.from("next-output"));
   });
 
-  it("does not report an old-generation tool failure after reconnect", async () => {
+  it("rejects reconnect and ignores tool failures after an established provider close", async () => {
     let callbacks: Parameters<RealtimeVoiceProviderPlugin["createBridge"]>[0] | undefined;
     let rejectToolCall: ((error: Error) => void) | undefined;
+    const connect = vi.fn(async () => {});
     const onError = vi.fn();
     const provider: RealtimeVoiceProviderPlugin = {
       id: "test",
@@ -472,7 +474,7 @@ describe("realtime voice bridge session runtime", () => {
       isConfigured: () => true,
       createBridge: (request) => {
         callbacks = request;
-        return makeBridge();
+        return makeBridge({ connect });
       },
     };
     const session = createRealtimeVoiceBridgeSession({
@@ -493,10 +495,11 @@ describe("realtime voice bridge session runtime", () => {
       args: {},
     });
     callbacks?.onClose?.("error");
-    await session.connect();
+    await expect(session.connect()).rejects.toThrow("Realtime voice connection is closed");
     rejectToolCall?.(new Error("late tool callback failure"));
     await Promise.resolve();
 
+    expect(connect).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
 
