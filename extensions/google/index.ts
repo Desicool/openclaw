@@ -202,6 +202,7 @@ function resolveGoogleRealtimeEnvApiKey(): string | undefined {
 }
 
 const GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_CHUNKS = 320;
+const GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_BYTES = 1024 * 1024;
 const GOOGLE_REALTIME_LAZY_MAX_PENDING_USER_MESSAGES = 128;
 const GOOGLE_REALTIME_LAZY_MAX_PENDING_USER_MESSAGE_BYTES = 256 * 1024;
 
@@ -213,11 +214,19 @@ function createLazyGoogleRealtimeVoiceBridge(
   let bridgeReady = false;
   let bridgeClosed = false;
   let closed = false;
+  // Provider close is terminal for input admission. Only an explicit connect()
+  // call may reopen it; late callbacks and microphone frames stay ignored.
+  let providerTerminated = false;
   let latestMediaTimestamp: number | undefined;
   let pendingGreeting: string | undefined;
   const pendingAudio: Buffer[] = [];
+  let pendingAudioBytes = 0;
   const pendingUserMessages: string[] = [];
   let pendingUserMessageBytes = 0;
+  const clearPendingAudio = () => {
+    pendingAudio.length = 0;
+    pendingAudioBytes = 0;
+  };
   // Loading and connecting finish on separate async boundaries. Keep close ownership
   // here so either late completion closes the provider bridge exactly once.
   const closeBridge = (loadedBridge = bridge) => {
@@ -233,17 +242,23 @@ function createLazyGoogleRealtimeVoiceBridge(
         provider.createBridge({
           ...req,
           onReady: () => {
-            if (closed) {
+            if (closed || providerTerminated) {
               return;
             }
             req.onReady?.();
-            if (closed || !bridge) {
+            if (closed || providerTerminated || !bridge) {
               return;
             }
             bridgeReady = true;
             // `connect()` and provider readiness are separate lifecycle facts.
             // Release prompts only after the provider can accept user content.
             flushPending(bridge);
+          },
+          onClose: (reason) => {
+            bridgeReady = false;
+            providerTerminated = true;
+            clearPendingAudio();
+            req.onClose?.(reason);
           },
         }),
       );
@@ -261,13 +276,15 @@ function createLazyGoogleRealtimeVoiceBridge(
     return bridge;
   };
   const flushPending = (loadedBridge: RealtimeVoiceBridge) => {
-    if (closed) {
+    if (closed || providerTerminated) {
       return;
     }
     if (typeof latestMediaTimestamp === "number") {
       loadedBridge.setMediaTimestamp(latestMediaTimestamp);
     }
-    for (const audio of pendingAudio.splice(0)) {
+    const audioChunks = pendingAudio.splice(0);
+    pendingAudioBytes = 0;
+    for (const audio of audioChunks) {
       loadedBridge.sendAudio(audio);
     }
     const userMessages = pendingUserMessages.splice(0);
@@ -292,23 +309,43 @@ function createLazyGoogleRealtimeVoiceBridge(
         closeBridge(loadedBridge);
         return;
       }
-      await loadedBridge.connect();
+      providerTerminated = false;
+      try {
+        await loadedBridge.connect();
+      } catch (error) {
+        bridgeReady = false;
+        providerTerminated = true;
+        clearPendingAudio();
+        throw error;
+      }
       if (closed) {
         closeBridge(loadedBridge);
       }
     },
     sendAudio: (audio) => {
-      if (closed) {
+      if (closed || providerTerminated) {
         return;
       }
       if (bridge) {
         bridge.sendAudio(audio);
         return;
       }
-      if (pendingAudio.length >= GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_CHUNKS) {
-        pendingAudio.shift();
+      if (audio.byteLength > GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_BYTES) {
+        return;
       }
-      pendingAudio.push(audio);
+      const queuedAudio = Buffer.from(audio);
+      while (
+        pendingAudio.length >= GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_CHUNKS ||
+        pendingAudioBytes + queuedAudio.byteLength > GOOGLE_REALTIME_LAZY_MAX_PENDING_AUDIO_BYTES
+      ) {
+        const droppedAudio = pendingAudio.shift();
+        if (!droppedAudio) {
+          return;
+        }
+        pendingAudioBytes -= droppedAudio.byteLength;
+      }
+      pendingAudio.push(queuedAudio);
+      pendingAudioBytes += queuedAudio.byteLength;
     },
     setMediaTimestamp: (ts) => {
       if (closed) {
@@ -355,7 +392,8 @@ function createLazyGoogleRealtimeVoiceBridge(
     close: () => {
       closed = true;
       bridgeReady = false;
-      pendingAudio.length = 0;
+      providerTerminated = true;
+      clearPendingAudio();
       pendingUserMessages.length = 0;
       pendingUserMessageBytes = 0;
       pendingGreeting = undefined;
