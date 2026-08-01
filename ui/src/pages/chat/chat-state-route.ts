@@ -1,7 +1,7 @@
 import { loadLocalAssistantIdentity } from "../../app/assistant-identity.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { isRenderableControlUiAvatarUrl } from "../../lib/avatar.ts";
-import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
+import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { scopedAgentParamsForSession, type SessionCapability } from "../../lib/sessions/index.ts";
 import {
   DEFAULT_MAIN_KEY,
@@ -54,6 +54,10 @@ let lastChatComposerMemoryFallbackSequence = 0;
 type ChatComposerRouteResetResult = {
   restoredFallback: boolean;
   restoredStorageFailure: boolean;
+};
+
+export type ChatComposerMemoryFallbackOwnership = {
+  sequence: number;
 };
 
 export function canCreateChatSession(state: ChatPageHost) {
@@ -141,8 +145,9 @@ function restoreChatMessagesForSession(
 function resolveChatComposerMemoryFallback(
   state: ChatPageHost,
   sessionKey: string,
+  scopeOverride?: StoredChatOutboxScope,
 ): { fallback?: ChatComposerMemoryFallback; scopeKey: string } {
-  const scope = resolveStoredChatOutboxScope(state, sessionKey);
+  const scope = scopeOverride ?? resolveStoredChatOutboxScope(state, sessionKey);
   const scopeKey = storedChatOutboxScopeKey(scope);
   const fallback = state.chatComposerFallbackByScope[scopeKey];
   const selectedGlobalAgentId = resolveUiKnownSelectedGlobalAgentId(state);
@@ -233,6 +238,96 @@ export function saveRouteSessionSettings(state: ChatPageHost, sessionKey: string
     return;
   }
   state.settings = patchSettings({ sessionKey, lastActiveSessionKey: sessionKey });
+}
+
+function chatAttachmentsMatch(
+  left: readonly ChatAttachment[],
+  right: readonly ChatAttachment[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((attachment, index) => attachment.id === right[index]?.id)
+  );
+}
+
+export function retainChatComposerMemoryFallback(
+  state: ChatPageHost,
+  scope: StoredChatOutboxScope,
+  composer: { message: string; attachments: ChatAttachment[] },
+): ChatComposerMemoryFallbackOwnership | undefined {
+  const { fallback: existing, scopeKey } = resolveChatComposerMemoryFallback(
+    state,
+    scope.sessionKey,
+    scope,
+  );
+  const existingMatches =
+    existing?.message === composer.message &&
+    chatAttachmentsMatch(existing.attachments, composer.attachments);
+  if (existing && existingMatches) {
+    return { sequence: existing.sequence };
+  }
+  if (
+    existing &&
+    (existing.storageFailed || existing.message.trim() || existing.attachments.length > 0)
+  ) {
+    return undefined;
+  }
+  const sequence = ++lastChatComposerMemoryFallbackSequence;
+  state.chatComposerFallbackByScope = {
+    ...state.chatComposerFallbackByScope,
+    [scopeKey]: {
+      message: composer.message,
+      attachments: [...composer.attachments],
+      storageFailed: false,
+      sequence,
+    },
+  };
+  return { sequence };
+}
+
+export function captureChatComposerMemoryFallbackOwnership(
+  state: ChatPageHost,
+  scope: StoredChatOutboxScope,
+  composer: { message: string; attachments: ChatAttachment[] },
+): ChatComposerMemoryFallbackOwnership | undefined {
+  const { fallback: existing } = resolveChatComposerMemoryFallback(state, scope.sessionKey, scope);
+  if (
+    existing?.message !== composer.message ||
+    !chatAttachmentsMatch(existing.attachments, composer.attachments)
+  ) {
+    return undefined;
+  }
+  return { sequence: existing.sequence };
+}
+
+export function ownsChatComposerMemoryFallback(
+  state: Pick<ChatPageHost, "chatComposerFallbackByScope">,
+  ownership: ChatComposerMemoryFallbackOwnership,
+): boolean {
+  return Object.values(state.chatComposerFallbackByScope).some(
+    (fallback) => fallback.sequence === ownership.sequence,
+  );
+}
+
+export function clearChatComposerMemoryFallback(
+  state: Pick<ChatPageHost, "chatComposerFallbackByScope">,
+  ownership: ChatComposerMemoryFallbackOwnership | undefined,
+): boolean {
+  if (!ownership) {
+    return false;
+  }
+  const ownedEntries = Object.entries(state.chatComposerFallbackByScope).filter(
+    ([, fallback]) => fallback.sequence === ownership.sequence,
+  );
+  if (ownedEntries.length === 0) {
+    return false;
+  }
+  const nextFallbacks = { ...state.chatComposerFallbackByScope };
+  for (const [scopeKey] of ownedEntries) {
+    delete nextFallbacks[scopeKey];
+  }
+  state.chatComposerFallbackByScope = nextFallbacks;
+  return true;
 }
 
 export function resetChatStateForRouteSession(

@@ -28,6 +28,8 @@ import {
   refreshChatModelAuthStatus,
 } from "./chat-state-refresh.ts";
 import {
+  clearChatComposerMemoryFallback,
+  retainChatComposerMemoryFallback,
   resetChatStateForRouteSession,
   retryChatComposerMemoryFallback,
   resolveChatAvatarUrl,
@@ -1647,6 +1649,127 @@ describe("route composer fallback", () => {
     expect(state.chatError).toContain("remains available in this tab");
     expect(resetChatInputHistoryNavigation).toHaveBeenCalledTimes(2);
     expect(resetChatScroll).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores a retained command after leaving and returning to its session", () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const { state } = createRouteState("");
+    state.chatAttachments = [];
+    const scope = resolveStoredChatOutboxScope(state, state.sessionKey);
+    resetChatStateForRouteSession(state, "agent:main:second");
+
+    expect(
+      retainChatComposerMemoryFallback(state, scope, {
+        message: "/approve approval-123 allow-once",
+        attachments: [
+          {
+            id: "approval-command-attachment",
+            mimeType: "text/plain",
+            dataUrl: "data:text/plain;base64,YXBwcm92YWw=",
+          },
+        ],
+      }),
+    ).toBeDefined();
+
+    expect(resetChatStateForRouteSession(state, "agent:main:first")).toEqual({
+      restoredFallback: true,
+      restoredStorageFailure: false,
+    });
+    expect(state.chatMessage).toBe("/approve approval-123 allow-once");
+    expect(state.chatAttachments).toEqual([
+      expect.objectContaining({ id: "approval-command-attachment" }),
+    ]);
+  });
+
+  it("preserves matching storage-failure fallback metadata", () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const { state } = createRouteState("retry this draft");
+    state.chatAttachments = [];
+    const scope = resolveStoredChatOutboxScope(state, state.sessionKey);
+    const scopeKey = storedChatOutboxScopeKey(scope);
+    state.chatComposerFallbackByScope = {
+      [scopeKey]: {
+        message: state.chatMessage,
+        attachments: [],
+        storageFailed: true,
+        draftRetry: { expectedDraftRevision: 4, draftRevision: 5 },
+        sequence: 42,
+      },
+    };
+
+    expect(
+      retainChatComposerMemoryFallback(state, scope, {
+        message: state.chatMessage,
+        attachments: [],
+      }),
+    ).toEqual({ sequence: 42 });
+    expect(state.chatComposerFallbackByScope[scopeKey]).toEqual({
+      message: "retry this draft",
+      attachments: [],
+      storageFailed: true,
+      draftRetry: { expectedDraftRevision: 4, draftRevision: 5 },
+      sequence: 42,
+    });
+  });
+
+  it("does not replace a newer alias-equivalent fallback", () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const { state } = createRouteState("");
+    state.assistantAgentId = "work";
+    state.agentsList = {
+      agents: [],
+      defaultId: "work",
+      mainKey: "workspace",
+      scope: "global",
+    };
+    const unresolvedScopeKey = storedChatOutboxScopeKey({ sessionKey: "workspace" });
+    state.chatComposerFallbackByScope = {
+      [unresolvedScopeKey]: {
+        message: "newer alias draft",
+        attachments: [],
+        storageFailed: false,
+        sequence: 43,
+      },
+    };
+    const scope = resolveStoredChatOutboxScope(state, "agent:work:workspace");
+
+    expect(
+      retainChatComposerMemoryFallback(state, scope, {
+        message: "/redirect start over",
+        attachments: [],
+      }),
+    ).toBeUndefined();
+    const resolvedScopeKey = storedChatOutboxScopeKey(scope);
+    expect(state.chatComposerFallbackByScope[unresolvedScopeKey]).toBeUndefined();
+    expect(state.chatComposerFallbackByScope[resolvedScopeKey]?.message).toBe("newer alias draft");
+  });
+
+  it("clears only the fallback owned by a completed retry", () => {
+    const { state } = createRouteState("");
+    state.chatComposerFallbackByScope = {
+      first: {
+        message: "/redirect start over",
+        attachments: [],
+        storageFailed: false,
+        sequence: 44,
+      },
+      second: {
+        message: "newer draft",
+        attachments: [],
+        storageFailed: false,
+        sequence: 45,
+      },
+    };
+
+    expect(clearChatComposerMemoryFallback(state, { sequence: 44 })).toBe(true);
+    expect(state.chatComposerFallbackByScope).toEqual({
+      second: {
+        message: "newer draft",
+        attachments: [],
+        storageFailed: false,
+        sequence: 45,
+      },
+    });
   });
 
   it("adopts an unresolved bare-main fallback when the default agent becomes known", () => {
