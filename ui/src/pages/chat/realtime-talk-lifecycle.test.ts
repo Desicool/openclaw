@@ -308,6 +308,56 @@ describe("RealtimeTalkSession lifecycle", () => {
     session.stop();
   });
 
+  it("stops a pending replacement when transcript overflow closes the active call", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const replacementStart = createDeferred<void>();
+    const firstTranscript = createDeferred<void>();
+    const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: "voice-overflow-replacement",
+          clientSecret: "secret",
+        };
+      }
+      if (method === "talk.client.transcript" && params?.entryId === "1") {
+        await firstTranscript.promise;
+      }
+      return { ok: true };
+    });
+    const onStatus = vi.fn();
+    const session = new RealtimeTalkSession({ request } as never, "agent:main:main", {
+      onStatus,
+    });
+    await session.start();
+    const activeContext = transcriptContext(transportMock.webRtcContexts);
+    transportMock.start.mockImplementationOnce(async () => await replacementStart.promise);
+
+    const replacement = session.start();
+    await vi.waitFor(() => expect(transportMock.webRtcContexts).toHaveLength(2));
+    for (let index = 0; index < 42; index += 1) {
+      activeContext.callbacks.onTranscript?.({
+        role: "user",
+        text: "x".repeat(9_000),
+        final: true,
+      });
+    }
+
+    expect(onStatus).toHaveBeenCalledWith("error", expect.stringContaining("could not keep up"));
+    expect(warn).toHaveBeenCalledOnce();
+    expect(transportMock.webRtcStops[0]).toHaveBeenCalledWith();
+    expect(transportMock.webRtcStops[1]).toHaveBeenCalledWith({ emitClosed: false });
+
+    replacementStart.resolve();
+    await replacement;
+    firstTranscript.resolve();
+    await vi.waitFor(() =>
+      expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(true),
+    );
+    warn.mockRestore();
+  });
+
   it("releases newly allocated owners after transport startup failures", async () => {
     let createCount = 0;
     const request = vi.fn(async (method: string) => {

@@ -168,9 +168,7 @@ export class RealtimeTalkSession {
     let ownerTransferred = false;
     try {
       const lifecycleGeneration = ++this.lifecycleGeneration;
-      const supersededPendingTransport = this.pendingTransport;
-      this.pendingTransport = null;
-      supersededPendingTransport?.stop({ emitClosed: false });
+      this.stopPendingTransport();
       this.closed = false;
       this.callbacks.onStatus?.("connecting");
       const existingTransport = this.transport;
@@ -393,15 +391,19 @@ export class RealtimeTalkSession {
     this.videoEnabled = false;
     activeRealtimeTalkSessions.delete(this);
     this.callbacks.onStatus?.("idle");
-    const pendingTransport = this.pendingTransport;
-    this.pendingTransport = null;
-    pendingTransport?.stop({ emitClosed: false });
+    this.stopPendingTransport();
     const detached = this.detachVoiceSession();
     this.transport?.stop();
     this.transport = null;
     if (detached) {
       this.closeLogicalVoiceSession(detached);
     }
+  }
+
+  private stopPendingTransport(): void {
+    const pendingTransport = this.pendingTransport;
+    this.pendingTransport = null;
+    pendingTransport?.stop({ emitClosed: false });
   }
 
   private closeUnadoptedVoiceSession(
@@ -511,6 +513,7 @@ export class RealtimeTalkSession {
     this.videoOperation += 1;
     this.videoEnabled = false;
     activeRealtimeTalkSessions.delete(this);
+    this.stopPendingTransport();
     const detached = this.detachVoiceSession();
     // Retire the overflowing transport before accepted-write and close failures
     // settle so the first terminal persistence error keeps precedence.
