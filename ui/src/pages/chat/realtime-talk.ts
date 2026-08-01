@@ -142,6 +142,7 @@ function compactLaunchParams(
 
 export class RealtimeTalkSession {
   private transport: RealtimeTalkTransport | null = null;
+  private pendingTransport: RealtimeTalkTransport | null = null;
   private closed = false;
   private lifecycleGeneration = 0;
   private videoEnabled = false;
@@ -164,22 +165,14 @@ export class RealtimeTalkSession {
 
   async start(): Promise<void> {
     const lifecycleGeneration = ++this.lifecycleGeneration;
+    const supersededPendingTransport = this.pendingTransport;
+    this.pendingTransport = null;
+    supersededPendingTransport?.stop({ emitClosed: false });
     this.closed = false;
     this.callbacks.onStatus?.("connecting");
     const existingTransport = this.transport;
-    const existingTransportGeneration = this.transportGeneration;
     const existingVoiceSessionId = this.voiceSessionId;
-    const existingAcceptingTranscripts = this.acceptingTranscripts;
-    const existingServerOwnedVoiceSession = this.serverOwnedVoiceSession;
     const existingOwner = this.clientVoiceSessionOwner;
-    const restoreExistingSession = () => {
-      this.transport = existingTransport;
-      this.transportGeneration = existingTransportGeneration;
-      this.voiceSessionId = existingVoiceSessionId;
-      this.acceptingTranscripts = existingAcceptingTranscripts;
-      this.serverOwnedVoiceSession = existingServerOwnedVoiceSession;
-      this.clientVoiceSessionOwner = existingOwner;
-    };
     const owner = reserveClientVoiceSessionOwner(this.client, this.sessionKey);
     let ownerTransferred = false;
     try {
@@ -226,22 +219,15 @@ export class RealtimeTalkSession {
       if (adoptedOwner !== owner) {
         owner.release();
       }
-      this.voiceSessionId = voiceSessionId;
-      this.acceptingTranscripts = true;
-      this.serverOwnedVoiceSession = transport === "gateway-relay";
-      this.transportGeneration += 1;
-      if (this.serverOwnedVoiceSession) {
-        owner.release();
-      } else {
-        this.clientVoiceSessionOwner = adoptedOwner;
-      }
-      ownerTransferred = true;
+      // Candidate generations must be unique without retiring the committed transport.
+      // Overlapping starts can then fence every superseded candidate independently.
+      const nextTransportGeneration = lifecycleGeneration;
       const callbacks =
         transport === "gateway-relay"
           ? this.callbacks
           : this.clientOwnedTranscriptCallbacks(
               voiceSessionId,
-              this.transportGeneration,
+              nextTransportGeneration,
               adoptedOwner.signal,
             );
       const transcriptQueue = this.transcriptQueue;
@@ -258,41 +244,46 @@ export class RealtimeTalkSession {
           consultThinkingLevel: session.consultThinkingLevel,
           consultFastMode: session.consultFastMode,
         });
-        this.transport = nextTransport;
+        this.pendingTransport = nextTransport;
         this.callbacks.onVideoCapability?.(
           providerVideoCapable && typeof nextTransport.setVideoEnabled === "function",
         );
         await nextTransport.start();
-        if (
-          this.closed ||
-          lifecycleGeneration !== this.lifecycleGeneration ||
-          this.transport !== nextTransport
-        ) {
-          nextTransport.stop({ emitClosed: false });
-          return;
-        }
-        existingTransport?.stop({ emitClosed: false });
       } catch (error) {
-        const canRollback =
-          lifecycleGeneration === this.lifecycleGeneration &&
-          (!nextTransport || this.transport === nextTransport);
+        if (this.pendingTransport === nextTransport) {
+          this.pendingTransport = null;
+        }
         nextTransport?.stop({ emitClosed: false });
-        if (!canRollback) {
-          throw error;
+        if (!(existingOwner && adoptedOwner === existingOwner)) {
+          this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner);
         }
-        if (existingOwner && adoptedOwner === existingOwner) {
-          // A same-session replacement borrows the existing owner and queue.
-          // Restore the live transport instead of closing their shared allocation.
-          restoreExistingSession();
-        } else {
-          const detached = this.detachVoiceSession();
-          restoreExistingSession();
-          if (detached) {
-            this.closeLogicalVoiceSession(detached);
-          }
-        }
+        ownerTransferred = true;
         throw error;
       }
+      if (this.pendingTransport === nextTransport) {
+        this.pendingTransport = null;
+      }
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) {
+        nextTransport.stop({ emitClosed: false });
+        if (!(existingOwner && adoptedOwner === existingOwner)) {
+          this.closeUnadoptedVoiceSession(voiceSessionId, transport, adoptedOwner);
+        }
+        ownerTransferred = true;
+        return;
+      }
+      this.voiceSessionId = voiceSessionId;
+      this.acceptingTranscripts = true;
+      this.serverOwnedVoiceSession = transport === "gateway-relay";
+      this.transportGeneration = nextTransportGeneration;
+      this.transport = nextTransport;
+      if (this.serverOwnedVoiceSession) {
+        owner.release();
+        this.clientVoiceSessionOwner = undefined;
+      } else {
+        this.clientVoiceSessionOwner = adoptedOwner;
+      }
+      ownerTransferred = true;
+      existingTransport?.stop({ emitClosed: false });
     } finally {
       if (!ownerTransferred) {
         owner.release();
@@ -402,6 +393,9 @@ export class RealtimeTalkSession {
     this.videoEnabled = false;
     activeRealtimeTalkSessions.delete(this);
     this.callbacks.onStatus?.("idle");
+    const pendingTransport = this.pendingTransport;
+    this.pendingTransport = null;
+    pendingTransport?.stop({ emitClosed: false });
     const detached = this.detachVoiceSession();
     this.transport?.stop();
     this.transport = null;
