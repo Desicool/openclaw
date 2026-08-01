@@ -257,7 +257,7 @@ describe("Google Live setup timeout", () => {
   });
 
   it("reclaims the meter when an input-level callback cancels activation", async () => {
-    let stopDuringActivation = () => undefined;
+    let stopDuringActivation: () => void = () => undefined;
     const onInputLevel = vi.fn(() => stopDuringActivation());
     const transport = createTransport({ onInputLevel });
     stopDuringActivation = () => transport.stop({ emitClosed: false });
