@@ -5,6 +5,7 @@ import { terminateMeetingBridgeProcess } from "./bridge-process.js";
 import { MeetingNodeAudioPullWaiters } from "./node-audio-pull-waiters.js";
 
 const NODE_BRIDGE_TERMINATION_GRACE_MS = 2_000;
+const NODE_BRIDGE_INPUT_DRAIN_MS = 250;
 const NODE_BRIDGE_TERMINAL_RETENTION_MS = 5_000;
 const NODE_BRIDGE_MAX_QUEUED_INPUT_CHUNKS = 200;
 const NODE_BRIDGE_MAX_QUEUED_INPUT_BYTES = 1024 * 1024;
@@ -132,6 +133,32 @@ function splitCommand(argv: string[]): { command: string; args: string[] } {
   return { command, args };
 }
 
+function waitForInputDrain(stream: ChildProcess["stdout"], timeoutMs: number): Promise<void> {
+  if (!stream || stream.readableEnded || stream.destroyed) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      stream.off("end", finish);
+      stream.off("close", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, timeoutMs);
+    timeout.unref?.();
+    stream.once("end", finish);
+    stream.once("close", finish);
+    if (stream.readableEnded || stream.destroyed) {
+      finish();
+    }
+  });
+}
+
 export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
   handleCommand(paramsJSON?: string | null): Promise<string>;
 } {
@@ -178,17 +205,27 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     if (options.discardQueuedAudio) {
       session.discardQueuedAudioOnStop = true;
       deleteSession(session);
+      if (!session.closed) {
+        session.closed = true;
+        session.closedAt = new Date().toISOString();
+      }
+      wake(session);
     }
-    if (!session.closed) {
-      session.closed = true;
-      session.closedAt = new Date().toISOString();
-    }
-    wake(session);
     releaseOutputWriteWaiters(session);
     // Process and stream errors can arrive together during teardown. Close once
     // so every caller shares one bounded process-termination promise.
     if (session.stopPromise) {
       return session.stopPromise;
+    }
+    if (!session.discardQueuedAudioOnStop) {
+      void waitForInputDrain(session.input?.stdout, NODE_BRIDGE_INPUT_DRAIN_MS).then(() => {
+        if (session.discardQueuedAudioOnStop || session.closed) {
+          return;
+        }
+        session.closed = true;
+        session.closedAt = new Date().toISOString();
+        wake(session);
+      });
     }
     session.stopPromise = Promise.all([
       terminateMeetingBridgeProcess(session.input, {
@@ -199,12 +236,12 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       }),
       ...session.retiredOutputStops,
     ]).then(() => {
-      if (session.discardQueuedAudioOnStop || session.chunks.length === 0) {
+      if (session.discardQueuedAudioOnStop) {
         deleteSession(session);
         return;
       }
-      // Implicit close preserves final audio across sequential pulls, but the
-      // session and its bounded queue cannot outlive this terminal drain window.
+      // A terminal pull normally deletes the session first. This deadline
+      // releases bounded retention when no consumer returns to drain it.
       session.terminalEvictionTimer = setTimeout(() => {
         deleteSession(session);
       }, NODE_BRIDGE_TERMINAL_RETENTION_MS);
@@ -269,7 +306,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     session.input = inputProcess;
     session.output = outputProcess;
     inputProcess.stdout?.on("data", (chunk) => {
-      if (session.discardQueuedAudioOnStop) {
+      if (session.discardQueuedAudioOnStop || session.closed) {
         return;
       }
       const audio = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -291,7 +328,9 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
           session.queuedInputBytes -= evicted.byteLength;
         }
       }
-      wake(session);
+      if (!session.stopPromise) {
+        wake(session);
+      }
     });
     const stop = () => {
       void stopSession(session);

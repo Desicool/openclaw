@@ -52,7 +52,11 @@ function createStdin(writeResult: boolean): TestStdin {
   return stdin;
 }
 
-function createProcess(params: { stdin?: TestStdin | null; stdout?: EventEmitter | null }) {
+function createProcess(params: {
+  stdin?: TestStdin | null;
+  stdout?: EventEmitter | null;
+  autoClose?: boolean;
+}) {
   const events = new EventEmitter();
   const proc = {
     exitCode: null as number | null,
@@ -62,7 +66,14 @@ function createProcess(params: { stdin?: TestStdin | null; stdout?: EventEmitter
     stderr: new EventEmitter(),
     kill: vi.fn((signal: NodeJS.Signals = "SIGTERM") => {
       proc.signalCode = signal;
-      queueMicrotask(() => events.emit("exit", null, signal));
+      queueMicrotask(() => {
+        events.emit("exit", null, signal);
+        if (params.autoClose !== false) {
+          params.stdout?.emit("end");
+          params.stdout?.emit("close");
+          events.emit("close", null, signal);
+        }
+      });
       return true;
     }),
     on: events.on.bind(events),
@@ -305,9 +316,9 @@ describe("meeting node host audio output", () => {
     });
   });
 
-  it("retains stdout data buffered after an implicit failure", async () => {
+  it("delivers stdout buffered after failure to a pending empty pull", async () => {
     const inputStdout = new EventEmitter();
-    const inputProcess = createProcess({ stdout: inputStdout });
+    const inputProcess = createProcess({ stdout: inputStdout, autoClose: false });
     const outputProcess = createProcess({ stdin: createStdin(true) });
     childProcessMocks.spawn.mockReturnValueOnce(outputProcess).mockReturnValueOnce(inputProcess);
     const host = createHost();
@@ -320,16 +331,18 @@ describe("meeting node host audio output", () => {
     });
     const bridgeId = started.bridgeId as string;
     const finalAudio = Buffer.from([7, 8, 9]);
+    const pulling = invokeHost(host, {
+      action: "pullAudio",
+      bridgeId,
+      timeoutMs: 2_000,
+    });
 
     inputProcess.stderr.emit("error", new Error("capture failed"));
     inputStdout.emit("data", finalAudio);
+    inputStdout.emit("end");
+    inputStdout.emit("close");
 
-    await vi.waitFor(async () => {
-      await expect(invokeHost(host, { action: "status", bridgeId })).resolves.toMatchObject({
-        bridge: { bridgeId, closed: true },
-      });
-    });
-    await expect(invokeHost(host, { action: "pullAudio", bridgeId })).resolves.toEqual({
+    await expect(pulling).resolves.toEqual({
       bridgeId,
       closed: true,
       base64: finalAudio.toString("base64"),
