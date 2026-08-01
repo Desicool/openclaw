@@ -254,6 +254,7 @@ async function withBargeInHarness(
     createBridge: ReturnType<typeof vi.fn>;
     handleBargeIn: ReturnType<typeof vi.fn>;
     outboundMessages: Array<Record<string, unknown>>;
+    processEvent: ReturnType<typeof vi.fn>;
     sendAudio: ReturnType<typeof vi.fn>;
     ws: WebSocket;
   }) => Promise<void>,
@@ -261,6 +262,7 @@ async function withBargeInHarness(
   let callbacks: RealtimeBridgeRequest | undefined;
   const sendAudio = vi.fn();
   const handleBargeIn = vi.fn();
+  const processEvent = vi.fn();
   const call = makeCallRecord(params.providerCallId);
   const createBridge = vi.fn((request: RealtimeBridgeRequest) => {
     callbacks = request;
@@ -278,6 +280,7 @@ async function withBargeInHarness(
   const handler = makeHandler(undefined, {
     manager: {
       getCallByProviderCallId: vi.fn((): CallRecord => call),
+      processEvent,
     },
     providerConfig: {
       apiKey: "test-key",
@@ -313,6 +316,7 @@ async function withBargeInHarness(
         createBridge,
         handleBargeIn,
         outboundMessages,
+        processEvent,
         sendAudio,
         ws,
       });
@@ -944,6 +948,54 @@ describe("RealtimeCallHandler path routing", () => {
         expect(
           recentTalkEvents(call).findLast((event) => event.type === "output.audio.done")?.turnId,
         ).toBe(cancelled.turnId);
+      },
+    );
+  });
+
+  it("starts fresh transcript and Talk state after provider continuity resets", async () => {
+    await withBargeInHarness(
+      { providerCallId: "CA-continuity-reset" },
+      async ({ callbacks, call, outboundMessages, processEvent }) => {
+        callbacks.onTranscript?.("user", "Old caller ", false);
+        callbacks.onTranscript?.("assistant", "Old assistant ", false);
+        callbacks.audioSink?.sendAudio(Buffer.alloc(320, 0xff));
+        const oldTurnId = recentTalkEvents(call).findLast(
+          (event) => event.type === "turn.started",
+        )?.turnId;
+        expect(oldTurnId).toBeTruthy();
+
+        callbacks.onEvent?.({
+          direction: "client",
+          type: "session.continuity.reset",
+        });
+
+        await waitForRealtimeTest(() => {
+          expect(outboundMessages.some((message) => message.event === "clear")).toBe(true);
+        });
+        expect(requireCancelledTurn(call).turnId).toBe(oldTurnId);
+
+        callbacks.onTranscript?.("user", "Fresh caller", true);
+        callbacks.onTranscript?.("assistant", "Fresh assistant", true);
+        callbacks.onEvent?.({ direction: "server", type: "response.done" });
+
+        const processedEvents = processEvent.mock.calls.map(([event]) => event as NormalizedEvent);
+        expect(
+          processedEvents
+            .filter((event) => event.type === "call.speech")
+            .map((event) => (event.type === "call.speech" ? event.transcript : undefined)),
+        ).toEqual(["Fresh caller"]);
+        expect(
+          processedEvents
+            .filter((event) => event.type === "call.assistant-speech")
+            .map((event) =>
+              event.type === "call.assistant-speech" ? event.transcript : undefined,
+            ),
+        ).toEqual(["Fresh assistant"]);
+        const startedTurns = recentTalkEvents(call).filter(
+          (event) => event.type === "turn.started",
+        );
+        expect(startedTurns).toHaveLength(2);
+        expect(startedTurns[1]?.turnId).not.toBe(oldTurnId);
       },
     );
   });

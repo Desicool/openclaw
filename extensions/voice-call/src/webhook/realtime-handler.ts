@@ -898,6 +898,26 @@ export class RealtimeCallHandler {
         );
       },
       onEvent: (event) => {
+        if (event.direction === "client" && event.type === "session.continuity.reset") {
+          // A fresh provider session cannot complete the prior session's text,
+          // audio, tool work, or Talk turn.
+          const turnId = harness.talk.activeTurnId;
+          this.clearUserTranscriptState(callId);
+          if (nativeConsultOwner.current) {
+            this.resetConsultSession(callId, nativeConsultOwner.current);
+          }
+          harness.flushOutput(() => {
+            audioPacer.clearAudio();
+            harness.finishOutputAudio(event.type);
+          });
+          if (turnId) {
+            harness.talk.cancelTurn({
+              turnId,
+              payload: { callId, providerCallId: callSid, reason: event.type },
+            });
+          }
+          return;
+        }
         if (event.type === "input_audio_buffer.speech_started") {
           harness.ensureTurn();
           return;
@@ -1105,19 +1125,21 @@ export class RealtimeCallHandler {
     this.forcedConsultsByCallId.delete(callId);
   }
 
-  private cancelConsultSession(callId: string, owner: ActiveRealtimeVoiceBridge | undefined): void {
-    if (!owner) {
-      return;
-    }
+  private resetConsultSession(callId: string, owner: ActiveRealtimeVoiceBridge): boolean {
     const session = this.consultSessionsByCallId.get(callId);
     if (!session || session.owner !== owner) {
-      return;
+      return false;
     }
-    // Forced and native consults share bridge ownership. Replacement or close
-    // must invalidate both before a newer bridge can observe call-scoped state.
     session.coordinator.clearPending();
     this.cancelForcedConsult(callId, owner);
     this.cancelNativeConsult(callId, owner);
+    return true;
+  }
+
+  private cancelConsultSession(callId: string, owner: ActiveRealtimeVoiceBridge | undefined): void {
+    if (!owner || !this.resetConsultSession(callId, owner)) {
+      return;
+    }
     this.consultSessionsByCallId.delete(callId);
   }
 
