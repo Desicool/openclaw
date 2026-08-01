@@ -7,6 +7,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, spawnSync: spawnSyncMock };
 });
 
+import { teamsMeetingsConfig } from "./config.js";
 import { handleTeamsMeetingsNodeHostCommand } from "./node-host.js";
 
 const successfulProbe = {
@@ -51,6 +52,26 @@ describe("Teams meeting node-host prerequisite deadline", () => {
     expect(
       spawnSyncMock.mock.calls.map((call) => (call[2] as { timeout?: number }).timeout),
     ).toEqual([10_000, 7_000, 3_000]);
+  });
+
+  it("probes the default sox executable only once", async () => {
+    await expect(
+      handleTeamsMeetingsNodeHostCommand(
+        JSON.stringify({
+          action: "setup",
+          audioInputCommand: teamsMeetingsConfig.defaultAudioInputCommand,
+          audioOutputCommand: teamsMeetingsConfig.defaultAudioOutputCommand,
+        }),
+      ),
+    ).resolves.toBe(JSON.stringify({ ok: true }));
+
+    expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+    expect(spawnSyncMock.mock.calls[1]?.[1]).toEqual([
+      "-lc",
+      'command -v "$1" >/dev/null 2>&1',
+      "sh",
+      "sox",
+    ]);
   });
 
   it("does not start another probe after the shared deadline expires", async () => {

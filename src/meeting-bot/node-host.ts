@@ -674,11 +674,15 @@ export function createMeetingConfiguredNodeHost(options: MeetingConfiguredNodeHo
     ) {
       throw new Error("BlackHole 2ch audio device not found on the node.");
     }
+    const commandNames = new Set<string>();
     for (const argv of commands) {
       const command = argv[0];
       if (!command) {
         throw new Error(`Configured audio command not found on the node: ${command || "<empty>"}`);
       }
+      commandNames.add(command);
+    }
+    for (const command of commandNames) {
       if (options.sharePrerequisiteDeadline && Date.now() >= deadline) {
         throw new Error(`${options.meetingLabel} audio prerequisite check timed out on the node.`);
       }
