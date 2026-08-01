@@ -5,6 +5,8 @@ import { terminateMeetingBridgeProcess } from "./bridge-process.js";
 import { MeetingNodeAudioPullWaiters } from "./node-audio-pull-waiters.js";
 
 const NODE_BRIDGE_TERMINATION_GRACE_MS = 2_000;
+const NODE_BRIDGE_MAX_QUEUED_INPUT_CHUNKS = 200;
+const NODE_BRIDGE_MAX_QUEUED_INPUT_BYTES = 1024 * 1024;
 
 type NodeOutputWriteWaiter = {
   output: ChildProcess;
@@ -19,6 +21,7 @@ type NodeBridgeSession = {
   input?: ChildProcess;
   output?: ChildProcess;
   chunks: Buffer[];
+  queuedInputBytes: number;
   waiters: MeetingNodeAudioPullWaiters;
   closed: boolean;
   createdAt: string;
@@ -161,6 +164,8 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     }
     session.closed = true;
     session.closedAt = new Date().toISOString();
+    session.chunks.length = 0;
+    session.queuedInputBytes = 0;
     wake(session);
     releaseOutputWriteWaiters(session);
     session.stopPromise = Promise.all([
@@ -171,7 +176,11 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
         graceMs: NODE_BRIDGE_TERMINATION_GRACE_MS,
       }),
       ...session.retiredOutputStops,
-    ]).then(() => undefined);
+    ]).then(() => {
+      if (sessions.get(session.id) === session) {
+        sessions.delete(session.id);
+      }
+    });
     return session.stopPromise;
   };
 
@@ -204,6 +213,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       mode: params.mode,
       outputCommand: output,
       chunks: [],
+      queuedInputBytes: 0,
       waiters: new MeetingNodeAudioPullWaiters(),
       closed: false,
       createdAt: new Date().toISOString(),
@@ -221,12 +231,27 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     session.input = inputProcess;
     session.output = outputProcess;
     inputProcess.stdout?.on("data", (chunk) => {
+      if (session.closed) {
+        return;
+      }
       const audio = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       session.lastInputAt = new Date().toISOString();
       session.lastInputBytes += audio.byteLength;
-      session.chunks.push(audio);
-      if (session.chunks.length > 200) {
-        session.chunks.splice(0, session.chunks.length - 200);
+      // Keep the existing normal 200-chunk window while bounding custom capture
+      // commands whose stdout chunks are much larger than the default 4 KiB.
+      const retainedAudio = Buffer.from(
+        audio.subarray(Math.max(0, audio.byteLength - NODE_BRIDGE_MAX_QUEUED_INPUT_BYTES)),
+      );
+      session.chunks.push(retainedAudio);
+      session.queuedInputBytes += retainedAudio.byteLength;
+      while (
+        session.chunks.length > NODE_BRIDGE_MAX_QUEUED_INPUT_CHUNKS ||
+        session.queuedInputBytes > NODE_BRIDGE_MAX_QUEUED_INPUT_BYTES
+      ) {
+        const evicted = session.chunks.shift();
+        if (evicted) {
+          session.queuedInputBytes -= evicted.byteLength;
+        }
       }
       wake(session);
     });
@@ -256,6 +281,9 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       await session.waiters.wait(timeoutMs);
     }
     const chunk = session.chunks.shift();
+    if (chunk) {
+      session.queuedInputBytes -= chunk.byteLength;
+    }
     return {
       bridgeId,
       closed: session.closed,
@@ -517,11 +545,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     const mode = readString(params.mode);
     const exceptBridgeId = readString(params.exceptBridgeId);
     let stopped = 0;
-    const stopping: Array<{
-      bridgeId: string;
-      session: NodeBridgeSession;
-      stopPromise: Promise<void>;
-    }> = [];
+    const stopping: Promise<void>[] = [];
     for (const [bridgeId, session] of sessions) {
       if (exceptBridgeId && bridgeId === exceptBridgeId) {
         continue;
@@ -533,17 +557,12 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
         continue;
       }
       const wasClosed = session.closed;
-      stopping.push({ bridgeId, session, stopPromise: stopSession(session) });
+      stopping.push(stopSession(session));
       if (!wasClosed) {
         stopped += 1;
       }
     }
-    await Promise.all(stopping.map(({ stopPromise }) => stopPromise));
-    for (const { bridgeId, session } of stopping) {
-      if (sessions.get(bridgeId) === session) {
-        sessions.delete(bridgeId);
-      }
-    }
+    await Promise.all(stopping);
     return { ok: true, stopped };
   };
 
@@ -557,9 +576,6 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       return { ok: true, stopped: false };
     }
     await stopSession(session);
-    if (sessions.get(bridgeId) === session) {
-      sessions.delete(bridgeId);
-    }
     return { ok: true, stopped: true };
   };
 
