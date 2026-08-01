@@ -1031,6 +1031,12 @@ describe("talk realtime gateway relay", () => {
       responseId: "old-response",
     });
     request.onAudio(Buffer.from("old audio"));
+    request.onToolCall?.({
+      itemId: "old-item",
+      callId: "call-1",
+      name: "custom_tool",
+      args: {},
+    });
     const working = submitTalkRealtimeRelayToolResult({
       relaySessionId: fixture.session.relaySessionId,
       connId: "conn-1",
@@ -1073,7 +1079,7 @@ describe("talk realtime gateway relay", () => {
     await working;
     expect(submitToolResult).toHaveBeenCalledTimes(1);
 
-    request.onReady?.();
+    request.onEvent?.({ direction: "server", type: "session.created" });
     request.onAudio(Buffer.from("fresh audio"));
     const freshAudio = fixture.broadcastToConnIds.mock.calls
       .map(([, payload]) => payload)
@@ -1093,17 +1099,55 @@ describe("talk realtime gateway relay", () => {
 
     request.onToolCall?.({
       itemId: "fresh-item",
-      callId: "fresh-call",
+      callId: "call-1",
       name: "custom_tool",
       args: {},
     });
+    const freshToolCall = fixture.broadcastToConnIds.mock.calls
+      .map(([, payload]) => payload)
+      .filter(
+        (payload): payload is Record<string, unknown> =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as Record<string, unknown>).type === "toolCall",
+      )
+      .at(-1);
+    const freshCallId = freshToolCall?.callId;
+    expect(typeof freshCallId).toBe("string");
+    expect(freshCallId).not.toBe("call-1");
     await submitTalkRealtimeRelayToolResult({
       relaySessionId: fixture.session.relaySessionId,
       connId: "conn-1",
-      callId: "fresh-call",
+      callId: "call-1",
+      result: { stale: true },
+    });
+    expect(submitToolResult).toHaveBeenCalledTimes(1);
+    await submitTalkRealtimeRelayToolResult({
+      relaySessionId: fixture.session.relaySessionId,
+      connId: "conn-1",
+      callId: String(freshCallId),
       result: { ok: true },
     });
-    expect(submitToolResult).toHaveBeenLastCalledWith("fresh-call", { ok: true }, undefined);
+    expect(submitToolResult).toHaveBeenLastCalledWith("call-1", { ok: true }, undefined);
+
+    request.onEvent?.({
+      direction: "client",
+      type: "session.continuity.reset",
+    });
+    request.onEvent?.({
+      direction: "client",
+      type: "session.continuity.reset",
+    });
+    expect(
+      fixture.broadcastToConnIds.mock.calls
+        .map(([, payload]) => payload)
+        .filter(
+          (payload) =>
+            typeof payload === "object" &&
+            payload !== null &&
+            (payload as Record<string, unknown>).type === "clear",
+        ),
+    ).toHaveLength(2);
   });
 
   it("bridges browser audio, transcripts, and tool results through a backend provider", async () => {

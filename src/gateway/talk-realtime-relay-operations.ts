@@ -31,6 +31,7 @@ import {
   ensureRelayTurn,
   noFallbackRelayOutputFlush,
   relaySessions,
+  resolveRelayProviderToolCallId,
   type RelaySession,
 } from "./talk-realtime-relay-state.js";
 import {
@@ -299,7 +300,11 @@ export function submitTalkRealtimeRelayToolResult(params: {
     return trackAgentFinalToolResult(session, params.callId, completion);
   }
   const submit = () =>
-    session.bridge.submitToolResult(params.callId, params.result, params.options);
+    session.bridge.submitToolResult(
+      resolveRelayProviderToolCallId(session, params.callId),
+      params.result,
+      params.options,
+    );
   const pendingWorking = session.pendingWorkingToolResults.get(params.callId);
   if (pendingWorking) {
     const submission = pendingWorking.then(async () => {
@@ -461,6 +466,8 @@ export function resetTalkRealtimeRelayContinuity(
   const retiredCallIds = new Set<string>([
     ...session.activeAgentToolCalls.keys(),
     ...session.cancelledAgentToolCalls.keys(),
+    ...session.providerToolCallIds.keys(),
+    ...session.providerToolCallIds.values(),
     ...session.pendingFinalToolResults.keys(),
     ...session.pendingProviderToolResults.keys(),
     ...session.pendingWorkingToolResults.keys(),
@@ -476,7 +483,10 @@ export function resetTalkRealtimeRelayContinuity(
     session.completedAgentToolCalls.add(callId);
   }
   session.cancelledAgentToolCalls.clear();
+  session.providerToolCallIds.clear();
+  session.relayToolCallIdsByProviderId.clear();
   session.pendingFinalToolResults.clear();
+  session.completedProviderToolResults.clear();
   session.pendingProviderToolResults.clear();
   session.pendingWorkingToolResults.clear();
   session.forcedTerminalProviderResults.clear();

@@ -42,6 +42,7 @@ import { suppressedToolResultOptions } from "./talk-realtime-relay-provider-resu
 import {
   RELAY_SESSION_TTL_MS,
   RELAY_TRANSCRIPT_ECHO_LOOKBACK_MS,
+  adoptRelayProviderToolCallId,
   broadcastToOwner,
   ensureRelayTurn,
   relayEventDeliveryOptions,
@@ -280,6 +281,9 @@ export function createTalkRealtimeRelaySession(
       if (event.direction !== "server") {
         return;
       }
+      if (event.type === "session.created") {
+        continuityResetActive = false;
+      }
       if (
         event.type === "conversation.output_audio.delta" ||
         event.type === "response.audio.delta" ||
@@ -386,11 +390,13 @@ export function createTalkRealtimeRelaySession(
       if (!relay) {
         return;
       }
+      const providerCallId = toolCall.callId;
+      const relayCallId = adoptRelayProviderToolCallId(relay, providerCallId);
       let shouldSubmitWorkingResult = false;
       if (toolCall.name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME) {
         const forcedConsult = relay.harness.forcedConsults.recordNativeConsult(
           toolCall.args,
-          toolCall.callId,
+          providerCallId,
         );
         if (forcedConsult.kind === "in_flight" || forcedConsult.kind === "already_delivered") {
           if (forcedConsult.kind === "already_delivered") {
@@ -401,7 +407,7 @@ export function createTalkRealtimeRelaySession(
               : buildAlreadyDeliveredToolResult();
             return submitForcedConsultProviderResult(
               relay,
-              toolCall.callId,
+              providerCallId,
               result,
               suppressedToolResultOptions(relay),
             );
@@ -409,7 +415,7 @@ export function createTalkRealtimeRelaySession(
           if (relay.forcedTerminalProviderResults.has(forcedConsult.handle.id)) {
             return relay.pendingFinalToolResults.get(forcedConsult.handle.id);
           }
-          return submitRealtimeAgentConsultWorkingResponse(relay, toolCall.callId);
+          return submitRealtimeAgentConsultWorkingResponse(relay, relayCallId);
         }
         shouldSubmitWorkingResult = true;
       }
@@ -419,20 +425,20 @@ export function createTalkRealtimeRelaySession(
           relaySessionId,
           type: "toolCall",
           itemId: toolCall.itemId,
-          callId: toolCall.callId,
+          callId: relayCallId,
           name: toolCall.name,
           args: toolCall.args,
         },
         {
           type: "tool.call",
           itemId: toolCall.itemId,
-          callId: toolCall.callId,
+          callId: relayCallId,
           turnId,
           payload: { name: toolCall.name, args: toolCall.args },
         },
       );
       if (shouldSubmitWorkingResult) {
-        return submitRealtimeAgentConsultWorkingResponse(relay, toolCall.callId, turnId);
+        return submitRealtimeAgentConsultWorkingResponse(relay, relayCallId, turnId);
       }
     },
     onReady: () => {
@@ -558,6 +564,8 @@ export function createTalkRealtimeRelaySession(
     provider: params.provider.id,
     activeAgentToolCalls: new Map(),
     completedAgentToolCalls: new Set(),
+    providerToolCallIds: new Map(),
+    relayToolCallIdsByProviderId: new Map(),
     cancelledAgentToolCalls: new Map(),
     pendingFinalToolResults: new Map(),
     completedProviderToolResults: new Set(),

@@ -1,6 +1,11 @@
 import { buildRealtimeVoiceAgentCancelProviderResult } from "../talk/agent-run-control-shared.js";
 import type { RealtimeVoiceToolResultOptions } from "../talk/provider-types.js";
-import { broadcastToOwner, relaySessions, type RelaySession } from "./talk-realtime-relay-state.js";
+import {
+  broadcastToOwner,
+  relaySessions,
+  resolveRelayProviderToolCallId,
+  type RelaySession,
+} from "./talk-realtime-relay-state.js";
 
 export function suppressedToolResultOptions(
   session: RelaySession,
@@ -64,7 +69,8 @@ export function submitFinalProviderToolResult(params: {
   onAccepted?: () => void;
 }): void | Promise<void> {
   const epoch = params.session.toolResultEpoch;
-  if (params.session.completedProviderToolResults.has(params.callId)) {
+  const providerCallId = resolveRelayProviderToolCallId(params.session, params.callId);
+  if (params.session.completedProviderToolResults.has(providerCallId)) {
     if (
       relaySessions.get(params.session.id) === params.session &&
       params.session.toolResultEpoch === epoch
@@ -78,7 +84,7 @@ export function submitFinalProviderToolResult(params: {
     return pending;
   }
   const submit = () =>
-    params.session.bridge.submitToolResult(params.callId, params.result, params.options);
+    params.session.bridge.submitToolResult(providerCallId, params.result, params.options);
   const working = params.session.pendingWorkingToolResults.get(params.callId);
   const submitAfterWorking = async () => {
     if (relaySessions.get(params.session.id) !== params.session) {
@@ -92,13 +98,13 @@ export function submitFinalProviderToolResult(params: {
       // the provider's working-result acknowledgement. Finish the cancelled call
       // here so the provider is not left waiting for a terminal result.
       await params.session.bridge.submitToolResult(
-        params.callId,
+        providerCallId,
         buildRealtimeVoiceAgentCancelProviderResult(
           "OpenClaw cancelled this consult before completion. Do not restart it.",
         ),
         suppressedToolResultOptions(params.session),
       );
-      params.session.completedProviderToolResults.add(params.callId);
+      params.session.completedProviderToolResults.add(providerCallId);
       params.session.cancelledAgentToolCalls.delete(params.callId);
       params.session.completedAgentToolCalls.add(params.callId);
       return false;
@@ -111,7 +117,7 @@ export function submitFinalProviderToolResult(params: {
     if (params.session.toolResultEpoch !== epoch) {
       return;
     }
-    params.session.completedProviderToolResults.add(params.callId);
+    params.session.completedProviderToolResults.add(providerCallId);
     if (relaySessions.get(params.session.id) === params.session) {
       params.onAccepted?.();
     }
