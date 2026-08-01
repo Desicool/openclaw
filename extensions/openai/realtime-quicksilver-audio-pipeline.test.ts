@@ -29,6 +29,10 @@ type TestableAudioPeer = {
   };
 };
 
+type TestableGatewayBridge = {
+  pendingAudio: Buffer;
+};
+
 describe("GPT-Live gateway microphone audio pipeline", () => {
   it("retains the newest five seconds through delayed peer adoption and the RTP pump", async () => {
     vi.useFakeTimers();
@@ -65,12 +69,13 @@ describe("GPT-Live gateway microphone audio pipeline", () => {
     const connection = bridge.connect();
     const source = Buffer.alloc(256 * OPENAI_QUICKSILVER_RELAY_FRAME_BYTES);
     for (let frame = 0; frame < 256; frame += 1) {
-      source
-        .subarray(
-          frame * OPENAI_QUICKSILVER_RELAY_FRAME_BYTES,
-          (frame + 1) * OPENAI_QUICKSILVER_RELAY_FRAME_BYTES,
-        )
-        .fill(frame + 1);
+      const frameBuffer = source.subarray(
+        frame * OPENAI_QUICKSILVER_RELAY_FRAME_BYTES,
+        (frame + 1) * OPENAI_QUICKSILVER_RELAY_FRAME_BYTES,
+      );
+      for (let sample = 0; sample < frameBuffer.length; sample += 2) {
+        frameBuffer.writeUInt16LE(frame + 1, sample);
+      }
     }
     for (let offset = 0; offset < source.length; offset += 8_192) {
       const callerBuffer = Buffer.from(source.subarray(offset, offset + 8_192));
@@ -78,6 +83,9 @@ describe("GPT-Live gateway microphone audio pipeline", () => {
       callerBuffer.fill(0xff);
       await vi.advanceTimersByTimeAsync(171);
     }
+    expect((bridge as unknown as TestableGatewayBridge).pendingAudio).toEqual(
+      source.subarray(source.length - MAX_PENDING_AUDIO_BYTES),
+    );
     if (!peerCallbacks) {
       throw new Error("expected the bridge to start peer creation");
     }
@@ -113,10 +121,9 @@ describe("GPT-Live gateway microphone audio pipeline", () => {
 
       expect(testPeer.pendingAudio).toHaveLength(0);
       expect(emittedFrames).toHaveLength(MAX_PENDING_RELAY_FRAMES);
-      expect(emittedFrames.map((frame) => frame[0])).toEqual([
-        ...Array.from({ length: MAX_PENDING_RELAY_FRAMES - 1 }, (_, index) => index + 7),
-        0,
-      ]);
+      expect(emittedFrames.map((frame) => frame.readUInt16LE(0))).toEqual(
+        Array.from({ length: MAX_PENDING_RELAY_FRAMES }, (_, index) => index + 7),
+      );
       expect(sendRtp).toHaveBeenCalledTimes(MAX_PENDING_RELAY_FRAMES);
       const packets = sendRtp.mock.calls.map(
         ([packet]) =>
