@@ -214,6 +214,7 @@ describeLive("google plugin live", () => {
     const eventTypeCounts = new Map<string, number>();
     let outputAudioBytes = 0;
     let assistantPartialCount = 0;
+    let lastAssistantOutputAt = 0;
     let readyCount = 0;
     let bridge: RealtimeVoiceBridge;
     bridge = provider.createBridge({
@@ -221,6 +222,7 @@ describeLive("google plugin live", () => {
       instructions: "Reply briefly and plainly.",
       onAudio: (audio) => {
         outputAudioBytes += audio.byteLength;
+        lastAssistantOutputAt = Date.now();
       },
       onClearAudio: () => {},
       onTranscript: (role, text, isFinal) => {
@@ -232,6 +234,7 @@ describeLive("google plugin live", () => {
         } else {
           assistantPartialCount += 1;
         }
+        lastAssistantOutputAt = Date.now();
       },
       onEvent: (event) => {
         eventTypeCounts.set(event.type, (eventTypeCounts.get(event.type) ?? 0) + 1);
@@ -243,33 +246,47 @@ describeLive("google plugin live", () => {
       onError: (error) => errors.push(error),
       onClose: (reason) => closeReasons.push(reason),
     });
+    const describeState = () => ({
+      readyCount,
+      connected: bridge.isConnected(),
+      outputAudioBytes,
+      assistantPartialCount,
+      assistantIdleMs: lastAssistantOutputAt === 0 ? 0 : Date.now() - lastAssistantOutputAt,
+      assistantFinalCount: finalAssistantTranscripts.length,
+      errors: errors.map(shortGoogleLiveError),
+      closeReasons,
+      eventTypeCounts: Object.fromEntries([...eventTypeCounts.entries()].toSorted()),
+    });
 
     try {
       await bridge.connect();
+      // Gemini 3.1 can omit transcription.finished. Wait for output to go idle
+      // before close terminalizes the buffered transcript.
       await waitForGoogleLive(
-        "assistant audio and final transcript",
+        "assistant response drain",
         () =>
-          outputAudioBytes > 0 && finalAssistantTranscripts.some((text) => text.trim().length > 0),
+          outputAudioBytes > 0 &&
+          assistantPartialCount > 0 &&
+          Date.now() - lastAssistantOutputAt >= 1_000,
         45_000,
-        () => ({
-          readyCount,
-          connected: bridge.isConnected(),
-          outputAudioBytes,
-          assistantPartialCount,
-          assistantFinalCount: finalAssistantTranscripts.length,
-          errors: errors.map(shortGoogleLiveError),
-          closeReasons,
-          eventTypeCounts: Object.fromEntries([...eventTypeCounts.entries()].toSorted()),
-        }),
+        describeState,
       );
+      expect(readyCount).toBe(1);
       expect(bridge.isConnected()).toBe(true);
       expect(outputAudioBytes).toBeGreaterThan(0);
+      expect(assistantPartialCount).toBeGreaterThan(0);
       expect(errors).toStrictEqual([]);
     } finally {
       bridge.close();
     }
 
-    await waitForGoogleLive("clean close", () => closeReasons.length === 1, 5_000);
+    await waitForGoogleLive(
+      "final transcript and clean close",
+      () => finalAssistantTranscripts.length > 0 && closeReasons.length === 1,
+      5_000,
+      describeState,
+    );
+    expect(finalAssistantTranscripts.some((text) => text.trim().length > 0)).toBe(true);
     expect(closeReasons).toEqual(["completed"]);
   }, 120_000);
 
