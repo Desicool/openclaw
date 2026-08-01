@@ -3433,9 +3433,109 @@ describe("DiscordVoiceManager", () => {
     expect(wakeAckCount()).toBe(0);
 
     bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onReady?.();
     bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
     expect(wakeAckCount()).toBe(1);
     bridgeParams?.onEvent?.({ direction: "server", type: "response.done" });
+  });
+
+  it("preserves the wake-name acknowledgement across provider continuity resets", async () => {
+    const { entry, bridgeParams } = await createWakeNameFixture();
+    const wakeAckCount = () =>
+      sentUserMessages().filter((message) => message.includes('Answer: "')).length;
+
+    beginSpeakerTurn(entry);
+    bridgeParams?.onEvent?.({ direction: "server", type: "input_audio_buffer.speech_started" });
+    bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
+    expect(wakeAckCount()).toBe(1);
+    bridgeParams?.onEvent?.({ direction: "server", type: "response.done" });
+
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onReady?.();
+    bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
+    expect(wakeAckCount()).toBe(1);
+
+    bridgeParams?.onEvent?.({ direction: "server", type: "input_audio_buffer.speech_started" });
+    bridgeParams?.onTranscript?.("user", "Hey, Molty", false);
+    expect(wakeAckCount()).toBe(2);
+  });
+
+  it("keeps queued exact speech behind provider readiness after continuity reset", async () => {
+    agentCommandMock
+      .mockResolvedValueOnce({ payloads: [{ text: "first answer" }] })
+      .mockResolvedValueOnce({ payloads: [{ text: "second answer" }] });
+    const manager = createAgentProxyManager();
+
+    await manager.join({ guildId: "g1", channelId: "1001" });
+    const entry = getSessionEntry(manager);
+    const bridgeParams = lastRealtimeBridgeParams();
+
+    beginSpeakerTurn(entry);
+    await emitFinalRealtimeUserTranscript(bridgeParams, "first question");
+    await vi.waitFor(() => expectUserMessageIncludes("first answer"));
+    beginSpeakerTurn(entry);
+    await emitFinalRealtimeUserTranscript(bridgeParams, "second question");
+    expectUserMessageNotIncludes("second answer");
+
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    expectUserMessageNotIncludes("second answer");
+
+    bridgeParams?.onReady?.();
+    expectUserMessageIncludes("second answer");
+    expect(sentUserMessages().filter((message) => message.includes("second answer"))).toHaveLength(
+      1,
+    );
+  });
+
+  it("drops stale native consult delivery after provider continuity reset", async () => {
+    let resolveOld: ((result: { payloads: Array<{ text: string }> }) => void) | undefined;
+    agentCommandMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({ payloads: [{ text: "fresh answer" }] });
+    const manager = createAgentProxyManager();
+
+    await manager.join({ guildId: "g1", channelId: "1001" });
+    const entry = getSessionEntry(manager);
+    const bridgeParams = lastRealtimeBridgeParams();
+    beginSpeakerTurn(entry);
+    const oldSubmission = bridgeParams?.onToolCall?.(
+      {
+        itemId: "item-old",
+        callId: "call-old",
+        name: "openclaw_agent_consult",
+        args: { question: "same question" },
+      },
+      realtimeSessionMock,
+    );
+    await Promise.resolve();
+
+    bridgeParams?.onEvent?.({ direction: "client", type: "session.continuity.reset" });
+    resolveOld?.({ payloads: [{ text: "stale answer" }] });
+    await oldSubmission;
+    expect(
+      realtimeSessionMock.submitToolResult.mock.calls.some(([callId]) => callId === "call-old"),
+    ).toBe(false);
+
+    bridgeParams?.onReady?.();
+    beginSpeakerTurn(entry);
+    await bridgeParams?.onToolCall?.(
+      {
+        itemId: "item-fresh",
+        callId: "call-fresh",
+        name: "openclaw_agent_consult",
+        args: { question: "same question" },
+      },
+      realtimeSessionMock,
+    );
+    expect(realtimeSessionMock.submitToolResult).toHaveBeenCalledWith("call-fresh", {
+      text: "fresh answer",
+    });
   });
 
   it("treats a bare wake name as an activation for the next realtime transcript", async () => {

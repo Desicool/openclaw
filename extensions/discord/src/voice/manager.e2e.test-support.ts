@@ -45,6 +45,7 @@ export type TestRealtimeBridgeParams = {
   instructions?: string;
   interruptResponseOnInputAudio?: boolean;
   onEvent?: (event: { detail?: string; direction: "client" | "server"; type: string }) => void;
+  onReady?: () => void;
   onToolCall?: (
     event: { args: unknown; callId: string; itemId: string; name: string },
     session: unknown,
