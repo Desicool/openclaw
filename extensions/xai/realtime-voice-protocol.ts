@@ -5,6 +5,7 @@ import type {
   RealtimeVoiceToolResultOptions,
 } from "openclaw/plugin-sdk/realtime-voice";
 import { REALTIME_VOICE_AUDIO_FORMAT_G711_ULAW_8KHZ } from "openclaw/plugin-sdk/realtime-voice";
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   XAI_REALTIME_DEFAULT_PREFIX_PADDING_MS,
   XAI_REALTIME_DEFAULT_SILENCE_DURATION_MS,
@@ -219,18 +220,29 @@ export abstract class XaiRealtimeVoiceProtocol {
     if (this.deliveredToolCallKeys.has(dedupeKey)) {
       return;
     }
-    this.deliveredToolCallKeys.add(dedupeKey);
-    this.pendingToolCallIds.add(callId);
     let args: unknown;
     try {
       args = JSON.parse(fields.rawArgs || "{}");
     } catch {
+      this.recordRejectedToolCallArguments(itemId, "malformed-json");
       return;
     }
-    if (typeof args !== "object" || args === null || Array.isArray(args)) {
-      args = {};
+    if (!isRecord(args)) {
+      this.recordRejectedToolCallArguments(itemId, "non-object-json");
+      return;
     }
+    this.deliveredToolCallKeys.add(dedupeKey);
+    this.pendingToolCallIds.add(callId);
     this.config.onToolCall({ itemId, callId, name, args });
+  }
+
+  private recordRejectedToolCallArguments(itemId: string, reason: string): void {
+    this.config.onEvent?.({
+      direction: "server",
+      type: "tool_call.arguments.rejected",
+      detail: `reason=${reason}`,
+      itemId,
+    });
   }
 
   private flushPendingResponseCreateAfterToolResults(): void {
