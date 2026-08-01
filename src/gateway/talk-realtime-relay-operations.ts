@@ -26,6 +26,7 @@ import {
   MAX_RELAY_SESSIONS_GLOBAL,
   MAX_RELAY_SESSIONS_PER_CONN,
   broadcastToOwner,
+  drainingRelaySessions,
   ensureRelayTurn,
   noFallbackRelayOutputFlush,
   relaySessions,
@@ -143,12 +144,17 @@ function countRelaySessionsForConn(connId: string): number {
       count += 1;
     }
   }
+  for (const session of drainingRelaySessions.values()) {
+    if (session.connId === connId) {
+      count += 1;
+    }
+  }
   return count;
 }
 
 export function enforceRelaySessionLimits(connId: string): void {
   pruneExpiredRelaySessions();
-  if (relaySessions.size >= MAX_RELAY_SESSIONS_GLOBAL) {
+  if (relaySessions.size + drainingRelaySessions.size >= MAX_RELAY_SESSIONS_GLOBAL) {
     throw new Error("Too many active realtime relay sessions");
   }
   if (countRelaySessionsForConn(connId) >= MAX_RELAY_SESSIONS_PER_CONN) {

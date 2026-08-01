@@ -145,6 +145,10 @@ export type TalkRealtimeRelaySessionResult = {
 };
 
 export const relaySessions = new Map<string, RelaySession>();
+// Closed relays leave the active map immediately so late provider/client events
+// are ignored, but their accepted transcript prefix still owns bounded memory
+// until durable close settles. Session limits count both maps.
+export const drainingRelaySessions = new Set<RelaySession>();
 
 export function broadcastToOwner(
   context: GatewayRequestContext,

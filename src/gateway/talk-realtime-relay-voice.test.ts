@@ -64,9 +64,13 @@ describe("realtime relay voice transcript persistence", () => {
       },
     );
     const { session, failVoiceTranscriptPersistence } = createRelaySession();
-    let accepted = 0;
+    let accepted = enqueueRelayVoiceTranscript(session, "user", `  ${"x".repeat(9_000)}  `) ? 1 : 0;
 
     for (let index = 0; index < 10_000; index += 1) {
+      expect(enqueueRelayVoiceTranscript(session, "user", " \t\n ")).toBe(true);
+    }
+
+    for (let index = 1; index < 10_000; index += 1) {
       if (
         enqueueRelayVoiceTranscript(
           session,
@@ -108,6 +112,11 @@ describe("realtime relay voice transcript persistence", () => {
     const { session } = createRelaySession();
     session.sessionKey = undefined;
     session.agentId = undefined;
+
+    for (let index = 0; index < 100; index += 1) {
+      expect(enqueueRelayVoiceTranscript(session, "user", " \t\n ")).toBe(true);
+    }
+    expect(session.pendingVoiceTranscripts).toHaveLength(0);
 
     for (let index = 0; index < 100; index += 1) {
       expect(enqueueRelayVoiceTranscript(session, "user", `  ${"x".repeat(9_000)}  `)).toBe(true);

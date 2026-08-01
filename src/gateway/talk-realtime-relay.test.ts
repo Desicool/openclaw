@@ -23,7 +23,7 @@ import type {
 } from "../talk/provider-types.js";
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
 import { createChatRunState } from "./server-chat-state.js";
-import { relaySessions } from "./talk-realtime-relay-state.js";
+import { drainingRelaySessions, relaySessions } from "./talk-realtime-relay-state.js";
 import {
   acknowledgeTalkRealtimeRelayMark,
   cancelTalkRealtimeRelayTurn,
@@ -60,7 +60,7 @@ function stopTalkRealtimeRelaySession(
 }
 
 describe("talk realtime gateway relay", () => {
-  afterEach(() => {
+  afterEach(async () => {
     for (const [relaySessionId, connId] of activeRelaySessions) {
       try {
         stopTalkRealtimeRelaySessionRaw({ relaySessionId, connId });
@@ -74,6 +74,9 @@ describe("talk realtime gateway relay", () => {
       }
     }
     activeRelaySessions.clear();
+    await Promise.all(
+      [...drainingRelaySessions].map((session) => session.voiceSessionClose ?? Promise.resolve()),
+    );
     vi.useRealTimers();
     embeddedRunTesting.resetActiveEmbeddedRuns();
   });
@@ -504,9 +507,38 @@ describe("talk realtime gateway relay", () => {
       ]);
       expect(bridgeClose).toHaveBeenCalledOnce();
       expect(relaySessions.has(session.relaySessionId)).toBe(false);
+      expect(drainingRelaySessions.has(relay)).toBe(true);
+
+      createTalkRealtimeRelaySession({
+        context: {
+          broadcastToConnIds: vi.fn(),
+          getRuntimeConfig: () => ({}),
+          logGateway: { warn: vi.fn() },
+        } as never,
+        connId: "conn-voice-overflow",
+        provider,
+        providerConfig: {},
+        instructions: "brief",
+        tools: [],
+      });
+      expect(() =>
+        createTalkRealtimeRelaySession({
+          context: {
+            broadcastToConnIds: vi.fn(),
+            getRuntimeConfig: () => ({}),
+            logGateway: { warn: vi.fn() },
+          } as never,
+          connId: "conn-voice-overflow",
+          provider,
+          providerConfig: {},
+          instructions: "brief",
+          tools: [],
+        }),
+      ).toThrow("Too many active realtime relay sessions for this connection");
 
       releaseQueue();
       await relay.voiceSessionClose;
+      expect(drainingRelaySessions.has(relay)).toBe(false);
       expect(clientVoiceSessionTesting.readRecord("main", session.relaySessionId)?.status).toBe(
         "closed",
       );
