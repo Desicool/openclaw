@@ -86,6 +86,7 @@ export function createRealtimeVoiceBridgeSession(
 ): RealtimeVoiceBridgeSession {
   const bridgeRef: { current?: RealtimeVoiceBridge } = {};
   let isActive = true;
+  let closeReported = false;
   const requireBridge = () => {
     if (!bridgeRef.current) {
       throw new Error("Realtime voice bridge is not ready");
@@ -100,12 +101,19 @@ export function createRealtimeVoiceBridgeSession(
     },
     acknowledgeMark: (markName) => requireBridge().acknowledgeMark(markName),
     close: () => {
+      if (!isActive) {
+        return;
+      }
       const bridge = requireBridge();
       isActive = false;
       bridge.close();
     },
     connect: () => requireBridge().connect(),
-    sendAudio: (audio) => requireBridge().sendAudio(audio),
+    sendAudio: (audio) => {
+      if (isActive) {
+        requireBridge().sendAudio(audio);
+      }
+    },
     sendUserMessage: (text) => requireBridge().sendUserMessage?.(text),
     handleBargeIn: (options) => requireBridge().handleBargeIn?.(options),
     setMediaTimestamp: (ts) => requireBridge().setMediaTimestamp(ts),
@@ -118,7 +126,9 @@ export function createRealtimeVoiceBridgeSession(
     },
     triggerGreeting: (instructions) => requireBridge().triggerGreeting?.(instructions),
   };
-  const canSendAudio = () => params.audioSink.isOpen?.() ?? true;
+  // Session inactivity is the shared admission boundary for both audio directions.
+  // Provider and transport callbacks may still race after close, but cannot retain new audio.
+  const canSendAudio = () => isActive && (params.audioSink.isOpen?.() ?? true);
   const reportCallbackError = (error: unknown) => {
     // Async tool handlers can settle after the provider closes. Once inactive, no
     // callback may report stale failures into the next session lifecycle.
@@ -191,6 +201,10 @@ export function createRealtimeVoiceBridgeSession(
     onError: params.onError,
     onClose: (reason) => {
       isActive = false;
+      if (closeReported) {
+        return;
+      }
+      closeReported = true;
       params.onClose?.(reason);
     },
   });
