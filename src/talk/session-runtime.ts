@@ -78,6 +78,8 @@ export type RealtimeVoiceBridgeSessionParams = {
   onClose?: (reason: RealtimeVoiceCloseReason) => void;
 };
 
+type RealtimeVoiceSessionPhase = "admitting" | "provider-terminal" | "disposed";
+
 /**
  * Creates a realtime voice bridge session and wires provider events to the configured audio sink.
  */
@@ -85,8 +87,12 @@ export function createRealtimeVoiceBridgeSession(
   params: RealtimeVoiceBridgeSessionParams,
 ): RealtimeVoiceBridgeSession {
   const bridgeRef: { current?: RealtimeVoiceBridge } = {};
-  let isActive = true;
-  let closeReported = false;
+  // Local disposal owns provider cleanup; provider terminal state remains reconnectable.
+  // The generation scopes audio admission and terminal reporting across explicit reconnects.
+  let phase: RealtimeVoiceSessionPhase = "admitting";
+  let connectionGeneration = 0;
+  let closeReportedGeneration: number | undefined;
+  const isAdmitting = () => phase === "admitting";
   const requireBridge = () => {
     if (!bridgeRef.current) {
       throw new Error("Realtime voice bridge is not ready");
@@ -101,16 +107,25 @@ export function createRealtimeVoiceBridgeSession(
     },
     acknowledgeMark: (markName) => requireBridge().acknowledgeMark(markName),
     close: () => {
-      if (!isActive) {
+      if (phase === "disposed") {
         return;
       }
       const bridge = requireBridge();
-      isActive = false;
+      phase = "disposed";
       bridge.close();
     },
-    connect: () => requireBridge().connect(),
+    connect: () => {
+      if (phase === "disposed") {
+        return Promise.reject(new Error("Realtime voice session is closed"));
+      }
+      if (phase === "provider-terminal") {
+        phase = "admitting";
+        connectionGeneration += 1;
+      }
+      return requireBridge().connect();
+    },
     sendAudio: (audio) => {
-      if (isActive) {
+      if (isAdmitting()) {
         requireBridge().sendAudio(audio);
       }
     },
@@ -128,11 +143,11 @@ export function createRealtimeVoiceBridgeSession(
   };
   // Session inactivity is the shared admission boundary for both audio directions.
   // Provider and transport callbacks may still race after close, but cannot retain new audio.
-  const canSendAudio = () => isActive && (params.audioSink.isOpen?.() ?? true);
-  const reportCallbackError = (error: unknown) => {
+  const canSendAudio = () => isAdmitting() && (params.audioSink.isOpen?.() ?? true);
+  const reportCallbackError = (error: unknown, expectedGeneration: number) => {
     // Async tool handlers can settle after the provider closes. Once inactive, no
     // callback may report stale failures into the next session lifecycle.
-    if (!isActive) {
+    if (!isAdmitting() || connectionGeneration !== expectedGeneration) {
       return;
     }
     try {
@@ -177,20 +192,23 @@ export function createRealtimeVoiceBridgeSession(
     onTranscript: params.onTranscript,
     onEvent: params.onEvent,
     onToolCall: (event) => {
-      if (!bridgeRef.current || !isActive) {
+      if (!bridgeRef.current || !isAdmitting()) {
         return;
       }
+      const eventGeneration = connectionGeneration;
       try {
         const pending = params.onToolCall?.(event, session);
         if (pending) {
-          void pending.catch(reportCallbackError);
+          void pending.catch((error: unknown) => {
+            reportCallbackError(error, eventGeneration);
+          });
         }
       } catch (error) {
-        reportCallbackError(error);
+        reportCallbackError(error, eventGeneration);
       }
     },
     onReady: () => {
-      if (!bridgeRef.current) {
+      if (!bridgeRef.current || !isAdmitting()) {
         return;
       }
       if (params.triggerGreetingOnReady) {
@@ -200,11 +218,13 @@ export function createRealtimeVoiceBridgeSession(
     },
     onError: params.onError,
     onClose: (reason) => {
-      isActive = false;
-      if (closeReported) {
+      if (phase !== "disposed") {
+        phase = "provider-terminal";
+      }
+      if (closeReportedGeneration === connectionGeneration) {
         return;
       }
-      closeReported = true;
+      closeReportedGeneration = connectionGeneration;
       params.onClose?.(reason);
     },
   });
