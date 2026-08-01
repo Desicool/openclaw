@@ -19,10 +19,11 @@ import type {
   MeetingAgentConsultSurface,
   MeetingPlatformRuntimeMetadata,
 } from "./platform-adapter-contract.js";
-import type {
-  MeetingAgentConsultParams,
-  MeetingRealtimeToolCallParams,
-  MeetingRuntimePlatform,
+import {
+  readMeetingRealtimeToolAbortSignal,
+  type MeetingAgentConsultParams,
+  type MeetingRealtimeToolCallParams,
+  type MeetingRuntimePlatform,
 } from "./realtime-engine.js";
 
 function resolveMeetingRealtimeTools(
@@ -77,7 +78,8 @@ export function createMeetingRealtimeEngineBindings(params: {
         ...consult,
       }),
     tools: resolveMeetingRealtimeTools(params.config.realtime.toolPolicy),
-    handleToolCall: async (call) =>
+    handleToolCall: async (call) => {
+      const abortSignal = readMeetingRealtimeToolAbortSignal(call.session);
       await handleMeetingRealtimeConsultToolCall({
         surface,
         config: params.fullConfig,
@@ -85,8 +87,10 @@ export function createMeetingRealtimeEngineBindings(params: {
         logger: params.logger,
         agentId: params.config.realtime.agentId,
         toolPolicy: params.config.realtime.toolPolicy,
+        abortSignal,
         ...call,
-      }),
+      });
+    },
   };
 }
 

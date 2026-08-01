@@ -67,7 +67,6 @@ export type MeetingAgentConsultParams = {
 export type MeetingRealtimeToolCallParams = {
   strategy: string;
   session: RealtimeVoiceBridgeSession;
-  abortSignal?: AbortSignal;
   event: RealtimeVoiceToolCallEvent;
   meetingSessionId: string;
   requesterSessionKey?: string;
@@ -99,6 +98,13 @@ const MEETING_REALTIME_OUTPUT_MAX_PENDING_MS = 2_000;
 const MEETING_REALTIME_OUTPUT_MAX_WRITE_MS = 500;
 const MEETING_REALTIME_OUTPUT_MAX_PENDING_FRAMES = 256;
 const MEETING_REALTIME_CANCELLATION_RACE_DETAIL = "Cancellation failed: no active response found";
+const meetingRealtimeToolAbortSignals = new WeakMap<RealtimeVoiceBridgeSession, AbortSignal>();
+
+export function readMeetingRealtimeToolAbortSignal(
+  session: RealtimeVoiceBridgeSession,
+): AbortSignal | undefined {
+  return meetingRealtimeToolAbortSignals.get(session);
+}
 
 export async function startMeetingRealtimeEngine(params: {
   config: MeetingRealtimeEngineConfig;
@@ -647,6 +653,7 @@ export async function startMeetingRealtimeEngine(params: {
         });
         const turnId = harness.ensureTurn();
         const guardedSession = Object.create(session) as RealtimeVoiceBridgeSession;
+        meetingRealtimeToolAbortSignals.set(guardedSession, controller.signal);
         guardedSession.submitToolResult = (callId, result, options) => {
           if (controller.signal.aborted || epoch !== toolContinuityEpoch) {
             return;
@@ -657,7 +664,6 @@ export async function startMeetingRealtimeEngine(params: {
           .handleToolCall({
             strategy,
             session: guardedSession,
-            abortSignal: controller.signal,
             event,
             meetingSessionId: params.meetingSessionId,
             requesterSessionKey: params.requesterSessionKey,
@@ -676,6 +682,7 @@ export async function startMeetingRealtimeEngine(params: {
             throw error;
           })
           .finally(() => {
+            meetingRealtimeToolAbortSignals.delete(guardedSession);
             activeToolCalls.delete(controller);
           });
       },
