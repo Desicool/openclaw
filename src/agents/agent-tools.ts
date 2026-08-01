@@ -97,6 +97,7 @@ import {
 } from "./sandbox/workspace-mounts.js";
 import type { ScheduledToolPolicyContext } from "./scheduled-tool-policy.js";
 import { createCodingTools, createReadTool } from "./sessions/index.js";
+import type { TrustedSubagentCompletionHandoff } from "./subagent-announce-handoff.js";
 import { PROCESS_TOOL_DISPLAY_SUMMARY } from "./tool-description-presets.js";
 import { createToolFsPolicy, resolveToolFsConfig } from "./tool-fs-policy.js";
 import { resolveToolLoopDetectionConfig } from "./tool-loop-detection-config.js";
@@ -468,8 +469,8 @@ type OpenClawCodingToolsOptions = {
   /** Prepared conversation-scoped facts for callers that already resolved this run context. */
   conversationCapabilityProfile?: ResolvedConversationCapabilityProfile;
   inputProvenance?: InputProvenance;
-  /** Trusted in-process completion handoff; never derived from model-facing input. */
-  trustedInternalHandoff?: boolean;
+  /** Consumed in-process completion capability; never derived from model-facing input. */
+  trustedInternalHandoff?: TrustedSubagentCompletionHandoff;
   /** Trusted server-stamped authority for an explicitly capped scheduled run. */
   scheduledToolPolicy?: ScheduledToolPolicyContext;
 };
@@ -561,7 +562,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   // Frozen child output may use only the parent's existing source-delivery grant.
   // Trusted ingress plus its exact one-tool cap prevent ordinary private turns from narrowing.
   const sourceReplyOnly =
-    options?.trustedInternalHandoff === true &&
+    capabilityProfile.policy.requesterPolicySource === "completion-handoff" &&
     options.inputProvenance?.kind === "inter_session" &&
     options.inputProvenance.sourceTool === "subagent_announce" &&
     options.sourceReplyDeliveryMode === "message_tool_only" &&
