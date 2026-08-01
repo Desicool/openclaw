@@ -258,22 +258,14 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     const emitClosed = !this.closed && this.lifecycle.isActive && options?.emitClosed !== false;
     this.closed = true;
     this.lifecycle.cancel();
-    let firstError: unknown;
-    try {
-      if (emitClosed) {
-        this.emitTalkEvent({ type: "session.closed", final: true });
-      }
-    } catch (error) {
-      firstError = error;
-    }
-    try {
-      this.releaseResources();
-    } catch (error) {
-      firstError ??= error;
-    }
-    if (firstError) {
-      throw firstError;
-    }
+    runRealtimeTalkCleanup([
+      () => {
+        if (emitClosed) {
+          this.emitTalkEvent({ type: "session.closed", final: true });
+        }
+      },
+      () => this.releaseResources(),
+    ]);
   }
 
   private releaseResources(): void {

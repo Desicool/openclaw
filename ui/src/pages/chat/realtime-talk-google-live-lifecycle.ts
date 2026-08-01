@@ -131,12 +131,15 @@ export class GoogleLiveConnectionLifecycle {
 }
 
 export function runRealtimeTalkCleanup(steps: Array<() => void>): void {
-  let firstError: unknown;
+  let firstError: Error | undefined;
   for (const step of steps) {
     try {
       step();
     } catch (error) {
-      firstError ??= error;
+      firstError ??=
+        error instanceof Error
+          ? error
+          : new Error("Realtime Talk cleanup failed", { cause: error });
     }
   }
   if (firstError) {
