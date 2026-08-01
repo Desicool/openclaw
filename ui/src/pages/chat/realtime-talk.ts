@@ -164,18 +164,18 @@ export class RealtimeTalkSession {
   ) {}
 
   async start(): Promise<void> {
-    const lifecycleGeneration = ++this.lifecycleGeneration;
-    const supersededPendingTransport = this.pendingTransport;
-    this.pendingTransport = null;
-    supersededPendingTransport?.stop({ emitClosed: false });
-    this.closed = false;
-    this.callbacks.onStatus?.("connecting");
-    const existingTransport = this.transport;
-    const existingVoiceSessionId = this.voiceSessionId;
-    const existingOwner = this.clientVoiceSessionOwner;
     const owner = reserveClientVoiceSessionOwner(this.client, this.sessionKey);
     let ownerTransferred = false;
     try {
+      const lifecycleGeneration = ++this.lifecycleGeneration;
+      const supersededPendingTransport = this.pendingTransport;
+      this.pendingTransport = null;
+      supersededPendingTransport?.stop({ emitClosed: false });
+      this.closed = false;
+      this.callbacks.onStatus?.("connecting");
+      const existingTransport = this.transport;
+      const existingVoiceSessionId = this.voiceSessionId;
+      const existingOwner = this.clientVoiceSessionOwner;
       const providerVideoCapable = await this.resolveVideoCapability();
       if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) {
         return;

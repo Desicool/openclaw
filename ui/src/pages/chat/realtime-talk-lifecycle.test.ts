@@ -255,6 +255,59 @@ describe("RealtimeTalkSession lifecycle", () => {
     session.stop();
   });
 
+  it("does not supersede a replacement when owner admission fails", async () => {
+    const replacementCreate = createDeferred<{
+      provider: string;
+      transport: "webrtc";
+      voiceSessionId: string;
+      clientSecret: string;
+    }>();
+    let createCount = 0;
+    const transcriptEntryIds: string[] = [];
+    const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
+      if (method === "talk.client.create") {
+        createCount += 1;
+        if (createCount === 2) {
+          return await replacementCreate.promise;
+        }
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: "voice-owner-admission",
+          clientSecret: "secret",
+        };
+      }
+      if (method === "talk.client.transcript") {
+        transcriptEntryIds.push(String(params?.entryId));
+      }
+      return { ok: true };
+    });
+    const session = new RealtimeTalkSession({ request } as never, "agent:main:main");
+    await session.start();
+
+    const replacement = session.start();
+    await vi.waitFor(() => expect(createCount).toBe(2));
+    await expect(session.start()).rejects.toThrow(
+      "Too many active or closing realtime Talk voice sessions",
+    );
+
+    replacementCreate.resolve({
+      provider: "openai",
+      transport: "webrtc",
+      voiceSessionId: "voice-owner-admission",
+      clientSecret: "secret",
+    });
+    await replacement;
+    expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(false);
+    expect(transportMock.webRtcContexts).toHaveLength(2);
+
+    const activeContext = transcriptContext(transportMock.webRtcContexts, 1);
+    activeContext.callbacks.onTranscript?.({ role: "user", text: "still active", final: true });
+    await activeContext.flushTranscriptWrites?.();
+    expect(transcriptEntryIds).toEqual(["1"]);
+    session.stop();
+  });
+
   it("releases newly allocated owners after transport startup failures", async () => {
     let createCount = 0;
     const request = vi.fn(async (method: string) => {
