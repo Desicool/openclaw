@@ -651,6 +651,10 @@ export function runAgentAttempt(params: {
     ? resolveConversationToolPolicies({
         capabilityProfile: completionCapabilityProfile,
         additionalProfileAllow: ["message"],
+        // The source-bound delivery grant extends restrictive allowlists only;
+        // explicit denies still win at every policy layer.
+        additionalPolicyAllow: ["message"],
+        additionalInheritedAllow: ["message"],
       })
     : undefined;
   const completionRuntimeRestrictions = params.opts.toolsAllow

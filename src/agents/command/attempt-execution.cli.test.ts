@@ -140,12 +140,21 @@ const SUBAGENT_ANNOUNCE_DELIVERY_CASES: readonly SubagentAnnounceDeliveryCase[] 
     expectedDisableTools: true,
   },
   {
-    name: "a coding-only parent allowlist",
+    name: "a coding profile with a source-bound message grant",
     sourceReplyDeliveryMode: "message_tool_only",
     disableMessageTool: false,
     inheritedToolAllow: ["read", "exec", "sessions_spawn"],
     operatorTools: { profile: "coding" },
-    expectedDisableTools: true,
+    expectedDisableTools: false,
+    expectedToolsAllow: ["message"],
+  },
+  {
+    name: "an operator allowlist with a source-bound message grant",
+    sourceReplyDeliveryMode: "message_tool_only",
+    disableMessageTool: false,
+    operatorTools: { allow: ["read", "exec"] },
+    expectedDisableTools: false,
+    expectedToolsAllow: ["message"],
   },
   {
     name: "an inherited explicit message deny",
