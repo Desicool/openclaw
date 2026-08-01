@@ -193,11 +193,7 @@ describe("meeting realtime engine output ownership", () => {
       await Promise.resolve();
       expect(fixture.submitToolResult).not.toHaveBeenCalled();
       expect(
-        fixture.handle
-          .getHealth()
-          .recentTalkEvents.some(
-            (event) => event.type === "tool.result" && event.callId === "call-old",
-          ),
+        fixture.handle.getHealth().recentTalkEvents.some((event) => event.type === "tool.result"),
       ).toBe(false);
 
       fixture.releaseWrite(0);
