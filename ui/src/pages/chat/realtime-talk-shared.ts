@@ -106,7 +106,7 @@ export type RealtimeTalkSessionResult =
 
 export type RealtimeTalkTransport = {
   start(): Promise<void>;
-  stop(): void;
+  stop(options?: { emitClosed?: boolean }): void;
   setVideoEnabled?: (enabled: boolean) => Promise<void>;
   switchCamera?: (videoDeviceId: string | undefined) => Promise<void>;
 };

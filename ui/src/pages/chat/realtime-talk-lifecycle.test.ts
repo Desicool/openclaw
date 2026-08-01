@@ -44,10 +44,12 @@ type TranscriptContext = RealtimeTalkTransportContext & {
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 function transcriptContext(contexts: RealtimeTalkTransportContext[], index = 0): TranscriptContext {
@@ -135,6 +137,8 @@ describe("RealtimeTalkSession lifecycle", () => {
     await secondContext.flushTranscriptWrites?.();
 
     expect(transcriptEntryIds).toEqual(["1", "2"]);
+    expect(transportMock.stop).toHaveBeenCalledOnce();
+    expect(transportMock.stop).toHaveBeenCalledWith({ emitClosed: false });
     expect(request.mock.calls.filter(([method]) => method === "talk.client.create")).toEqual([
       [
         "talk.client.create",
@@ -192,6 +196,8 @@ describe("RealtimeTalkSession lifecycle", () => {
 
     await expect(session.start()).rejects.toThrow("replacement startup failed");
     expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(false);
+    expect(transportMock.stop).toHaveBeenCalledOnce();
+    expect(transportMock.stop).toHaveBeenCalledWith({ emitClosed: false });
 
     existingContext.callbacks.onTranscript?.({ role: "user", text: "still active", final: true });
     await existingContext.flushTranscriptWrites?.();
@@ -235,6 +241,49 @@ describe("RealtimeTalkSession lifecycle", () => {
     await vi.waitFor(() =>
       expect(request.mock.calls.filter(([method]) => method === "talk.client.close")).toHaveLength(
         2,
+      ),
+    );
+
+    const recovered = new RealtimeTalkSession(client, "agent:main:main");
+    await recovered.start();
+    recovered.stop();
+  });
+
+  it("does not restore a failed replacement after concurrent stop", async () => {
+    const replacementStart = createDeferred<void>();
+    const transcriptEntryIds: string[] = [];
+    const request = vi.fn(async (method: string, params?: { entryId?: string }) => {
+      if (method === "talk.client.create") {
+        return {
+          provider: "openai",
+          transport: "webrtc",
+          voiceSessionId: "voice-concurrent-stop",
+          clientSecret: "secret",
+        };
+      }
+      if (method === "talk.client.transcript") {
+        transcriptEntryIds.push(String(params?.entryId));
+      }
+      return { ok: true };
+    });
+    const client = { request } as never;
+    const session = new RealtimeTalkSession(client, "agent:main:main");
+    await session.start();
+    const existingContext = transcriptContext(transportMock.webRtcContexts);
+    transportMock.start.mockImplementationOnce(async () => await replacementStart.promise);
+
+    const replacing = session.start();
+    await vi.waitFor(() => expect(transportMock.webRtcContexts).toHaveLength(2));
+    session.stop();
+    replacementStart.reject(new Error("replacement failed after stop"));
+    await expect(replacing).rejects.toThrow("replacement failed after stop");
+
+    existingContext.callbacks.onTranscript?.({ role: "user", text: "too late", final: true });
+    await Promise.resolve();
+    expect(transcriptEntryIds).toEqual([]);
+    await vi.waitFor(() =>
+      expect(request.mock.calls.filter(([method]) => method === "talk.client.close")).toHaveLength(
+        1,
       ),
     );
 

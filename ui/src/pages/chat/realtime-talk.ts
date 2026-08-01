@@ -1,7 +1,6 @@
 // Control UI chat module implements realtime talk behavior.
 import { DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS } from "@openclaw/gateway-client/browser";
 import type { TalkCatalogResult } from "@openclaw/gateway-protocol";
-import type { BoundedSerialQueue } from "../../../../src/shared/bounded-serial-queue.js";
 import { normalizeTalkTransport } from "../../../../src/talk/talk-session-controller.js";
 import {
   normalizeVoiceTranscriptText,
@@ -20,6 +19,14 @@ import type {
   RealtimeTalkTransportContext,
   RealtimeTalkWebRtcSdpSessionResult,
 } from "./realtime-talk-shared.ts";
+import {
+  CLIENT_VOICE_TRANSCRIPT_DRAIN_TIMEOUT_MS,
+  type ClientVoiceSessionOwner,
+  type DetachedVoiceSession,
+  reserveClientVoiceSessionOwner,
+  transcriptPersistenceAbortError,
+  waitForTranscriptRetry,
+} from "./realtime-talk-transcript-owner.ts";
 import { WebRtcSdpRealtimeTalkTransport } from "./realtime-talk-webrtc.ts";
 
 export type { RealtimeTalkStatus };
@@ -64,14 +71,6 @@ export async function switchActiveRealtimeTalkCameras(
 
 type RealtimeTalkLaunchTransport = NonNullable<RealtimeTalkLaunchOptions["transport"]>;
 
-type DetachedVoiceSession = {
-  voiceSessionId: string;
-  serverOwned: boolean;
-  generation?: number;
-  transcriptQueue: BoundedSerialQueue;
-  owner?: ClientVoiceSessionOwner;
-};
-
 type RealtimeTalkConfigResult = {
   config?: {
     talk?: {
@@ -81,79 +80,6 @@ type RealtimeTalkConfigResult = {
     };
   };
 };
-
-type ClientVoiceSessionOwner = {
-  signal: AbortSignal;
-  abort: () => void;
-  release: () => void;
-};
-
-const MAX_CLIENT_VOICE_SESSION_OWNERS = 2;
-const CLIENT_VOICE_TRANSCRIPT_DRAIN_TIMEOUT_MS = DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS;
-// Count the active call and one retiring replacement across session objects.
-// The token stays owned through durable close so rapid restarts cannot orphan drains.
-const clientVoiceSessionOwnerCounts = new WeakMap<GatewayBrowserClient, Map<string, number>>();
-
-function reserveClientVoiceSessionOwner(
-  client: GatewayBrowserClient,
-  sessionKey: string,
-): ClientVoiceSessionOwner {
-  let counts = clientVoiceSessionOwnerCounts.get(client);
-  if (!counts) {
-    counts = new Map();
-    clientVoiceSessionOwnerCounts.set(client, counts);
-  }
-  const count = counts.get(sessionKey) ?? 0;
-  if (count >= MAX_CLIENT_VOICE_SESSION_OWNERS) {
-    throw new Error("Too many active or closing realtime Talk voice sessions");
-  }
-  counts.set(sessionKey, count + 1);
-  const ownerCounts = counts;
-  const controller = new AbortController();
-  let released = false;
-  return {
-    signal: controller.signal,
-    abort: () => controller.abort(),
-    release: () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      const nextCount = (ownerCounts.get(sessionKey) ?? 1) - 1;
-      if (nextCount > 0) {
-        ownerCounts.set(sessionKey, nextCount);
-      } else {
-        ownerCounts.delete(sessionKey);
-      }
-    },
-  };
-}
-
-function transcriptPersistenceAbortError(): Error {
-  const error = new Error("voice transcript persistence aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-async function waitForTranscriptRetry(delayMs: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) {
-    throw transcriptPersistenceAbortError();
-  }
-  if (delayMs <= 0) {
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, delayMs);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(transcriptPersistenceAbortError());
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
 
 function normalizeLaunchTransport(value: unknown): RealtimeTalkLaunchTransport | undefined {
   if (typeof value !== "string") {
@@ -337,8 +263,23 @@ export class RealtimeTalkSession {
           providerVideoCapable && typeof nextTransport.setVideoEnabled === "function",
         );
         await nextTransport.start();
+        if (
+          this.closed ||
+          lifecycleGeneration !== this.lifecycleGeneration ||
+          this.transport !== nextTransport
+        ) {
+          nextTransport.stop({ emitClosed: false });
+          return;
+        }
+        existingTransport?.stop({ emitClosed: false });
       } catch (error) {
-        nextTransport?.stop();
+        const canRollback =
+          lifecycleGeneration === this.lifecycleGeneration &&
+          (!nextTransport || this.transport === nextTransport);
+        nextTransport?.stop({ emitClosed: false });
+        if (!canRollback) {
+          throw error;
+        }
         if (existingOwner && adoptedOwner === existingOwner) {
           // A same-session replacement borrows the existing owner and queue.
           // Restore the live transport instead of closing their shared allocation.

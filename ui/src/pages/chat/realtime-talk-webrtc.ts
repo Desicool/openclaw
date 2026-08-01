@@ -213,8 +213,8 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     }
   }
 
-  stop(): void {
-    if (!this.closed) {
+  stop(options?: { emitClosed?: boolean }): void {
+    if (!this.closed && options?.emitClosed !== false) {
       this.emitTalkEvent({ type: "session.closed", final: true });
     }
     this.closed = true;
@@ -278,6 +278,9 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
         const role = event.turn?.role;
         if (role === "user" || role === "assistant") {
           this.emitFramelessTranscript(role, event.turn?.transcript, true, event.turn?.id);
+          if (this.closed) {
+            return;
+          }
           if (role === "assistant") {
             this.ctx.callbacks.onStatus?.("listening");
             this.emitTalkEvent({

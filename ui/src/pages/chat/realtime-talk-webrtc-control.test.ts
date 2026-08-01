@@ -191,4 +191,41 @@ describe("WebRtcSdpRealtimeTalkTransport control tool", () => {
     ).toBe(false);
     transport.stop();
   });
+
+  it("silently disposes a provisional OpenAI transport", async () => {
+    const onTalkEvent = vi.fn();
+    const transport = createOpenAiTransport({}, { onTalkEvent });
+    await transport.start();
+    onTalkEvent.mockClear();
+
+    transport.stop({ emitClosed: false });
+
+    expect(onTalkEvent).not.toHaveBeenCalled();
+    expect(FakePeerConnection.instances[0]?.connectionState).toBe("closed");
+  });
+
+  it("stops an assistant turn event when its transcript callback closes the transport", async () => {
+    const onStatus = vi.fn();
+    const onTalkEvent = vi.fn();
+    const transportRef: { current?: WebRtcSdpRealtimeTalkTransport } = {};
+    const onTranscript = vi.fn(() => transportRef.current?.stop());
+    const transport = createOpenAiTransport({}, { onStatus, onTalkEvent, onTranscript });
+    transportRef.current = transport;
+    await transport.start();
+    onStatus.mockClear();
+    onTalkEvent.mockClear();
+
+    FakePeerConnection.instances[0]?.channel.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "turn.done",
+          turn: { id: "assistant-final", role: "assistant", transcript: "finished" },
+        }),
+      }),
+    );
+
+    expect(onTranscript).toHaveBeenCalledOnce();
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(onTalkEvent.mock.calls.map(([event]) => event.type)).toEqual(["session.closed"]);
+  });
 });

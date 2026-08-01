@@ -555,6 +555,18 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
     expect(onTalkEvent.mock.calls.map(([event]) => event.type)).toEqual(["session.closed"]);
   });
 
+  it("silently disposes a provisional Google Live transport", async () => {
+    const onTalkEvent = vi.fn();
+    const transport = createTransport({ onTalkEvent });
+    await transport.start();
+    onTalkEvent.mockClear();
+
+    transport.stop({ emitClosed: false });
+
+    expect(onTalkEvent).not.toHaveBeenCalled();
+    expect(latestWebSocket().readyState).toBe(3);
+  });
+
   it("ignores late WebSocket events after stop", async () => {
     const onStatus = vi.fn();
     const transport = createTransport({ onStatus });

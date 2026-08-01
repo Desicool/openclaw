@@ -213,8 +213,8 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     await this.camera.switchDevice(videoDeviceId);
   }
 
-  stop(): void {
-    if (!this.closed) {
+  stop(options?: { emitClosed?: boolean }): void {
+    if (!this.closed && options?.emitClosed !== false) {
       this.emitTalkEvent({ type: "session.closed", final: true });
     }
     this.closed = true;
