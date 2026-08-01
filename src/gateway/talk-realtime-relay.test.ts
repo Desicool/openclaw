@@ -1083,13 +1083,12 @@ describe("talk realtime gateway relay", () => {
     request.onAudio(Buffer.from("fresh audio"));
     const freshAudio = fixture.broadcastToConnIds.mock.calls
       .map(([, payload]) => payload)
-      .filter(
+      .findLast(
         (payload): payload is Record<string, unknown> =>
           typeof payload === "object" &&
           payload !== null &&
           (payload as Record<string, unknown>).type === "audio",
-      )
-      .at(-1);
+      );
     expectRecordFields(freshAudio, {
       type: "audio",
       audioBase64: Buffer.from("fresh audio").toString("base64"),
@@ -1105,13 +1104,12 @@ describe("talk realtime gateway relay", () => {
     });
     const freshToolCall = fixture.broadcastToConnIds.mock.calls
       .map(([, payload]) => payload)
-      .filter(
+      .findLast(
         (payload): payload is Record<string, unknown> =>
           typeof payload === "object" &&
           payload !== null &&
           (payload as Record<string, unknown>).type === "toolCall",
-      )
-      .at(-1);
+      );
     const freshCallId = freshToolCall?.callId;
     expect(typeof freshCallId).toBe("string");
     expect(freshCallId).not.toBe("call-1");
