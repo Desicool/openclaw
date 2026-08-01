@@ -935,6 +935,11 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       });
 
       expect(onClose).not.toHaveBeenCalled();
+      expect(onEvent).toHaveBeenCalledOnce();
+      expect(onEvent).toHaveBeenCalledWith({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
       const error = requireFirstError(onError);
       expect(error.message).toContain("reconnecting 1/3");
 
@@ -943,10 +948,6 @@ describe("buildGoogleRealtimeVoiceProvider", () => {
       expect(connectMock).toHaveBeenCalledTimes(2);
       expect(lastConnectParams().config.sessionResumption).toEqual({});
       expect(onEvent).toHaveBeenCalledOnce();
-      expect(onEvent).toHaveBeenCalledWith({
-        direction: "client",
-        type: "session.continuity.reset",
-      });
       const resetOrder = onEvent.mock.invocationCallOrder[0];
       const reconnectOrder = connectMock.mock.invocationCallOrder[1];
       if (resetOrder === undefined || reconnectOrder === undefined) {

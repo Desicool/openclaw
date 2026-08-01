@@ -531,19 +531,6 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private async connectOwned(attempt: GoogleLiveConnectionAttempt): Promise<void> {
-    const canResumeSession =
-      this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
-    if (this.hasConnectedSession && !canResumeSession && !this.continuityResetEmitted) {
-      // An unfinished recognition hypothesis cannot cross into a fresh server session.
-      // Notify consumers before connect because the SDK can replay fresh-session
-      // callbacks before its connect promise returns.
-      this.continuityResetEmitted = true;
-      this.resetPendingTranscripts();
-      this.config.onEvent?.({
-        direction: "client",
-        type: "session.continuity.reset",
-      });
-    }
     this.intentionallyClosed = false;
     this.closeNotified = false;
     this.setupCompleteReceived = false;
@@ -1062,6 +1049,18 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private scheduleReconnect(closeDetails: string): boolean {
     if (this.reconnectAttempts >= GOOGLE_REALTIME_RECONNECT_MAX_ATTEMPTS) {
       return false;
+    }
+    const canResumeSession =
+      this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
+    if (this.hasConnectedSession && !canResumeSession && !this.continuityResetEmitted) {
+      // A non-resumable close ends the provider generation immediately. Reset
+      // consumers before backoff so stale work cannot finish into the replacement.
+      this.continuityResetEmitted = true;
+      this.resetPendingTranscripts();
+      this.config.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
     }
     const attempt = ++this.reconnectAttempts;
     const delayMs = Math.min(
