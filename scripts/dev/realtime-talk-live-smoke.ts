@@ -974,6 +974,7 @@ try {
     },
   );
   await transport.start();
+  transport.activate();
   emit({ event: "talk.event", payload: { relaySessionId: "relay-live-smoke", type: "ready" } });
   emit({
     event: "talk.event",
