@@ -224,11 +224,21 @@ export abstract class XaiRealtimeVoiceProtocol {
     try {
       args = JSON.parse(fields.rawArgs || "{}");
     } catch {
-      this.recordRejectedToolCallArguments(itemId, "malformed-json");
+      this.rejectToolCallArguments({
+        itemId,
+        callId,
+        dedupeKey,
+        reason: "malformed-json",
+      });
       return;
     }
     if (!isRecord(args)) {
-      this.recordRejectedToolCallArguments(itemId, "non-object-json");
+      this.rejectToolCallArguments({
+        itemId,
+        callId,
+        dedupeKey,
+        reason: "non-object-json",
+      });
       return;
     }
     this.deliveredToolCallKeys.add(dedupeKey);
@@ -236,13 +246,22 @@ export abstract class XaiRealtimeVoiceProtocol {
     this.config.onToolCall({ itemId, callId, name, args });
   }
 
-  private recordRejectedToolCallArguments(itemId: string, reason: string): void {
+  private rejectToolCallArguments(params: {
+    itemId: string;
+    callId: string;
+    dedupeKey: string;
+    reason: string;
+  }): void {
+    // xAI pauses until every function call receives an output. Treat rejection as
+    // terminal and dedupe it before sending so replay cannot complete the call twice.
+    this.deliveredToolCallKeys.add(params.dedupeKey);
     this.config.onEvent?.({
       direction: "server",
       type: "tool_call.arguments.rejected",
-      detail: `reason=${reason}`,
-      itemId,
+      detail: `reason=${params.reason}`,
+      itemId: params.itemId,
     });
+    this.submitToolResultNow(params.callId, { error: "Invalid tool arguments." });
   }
 
   private flushPendingResponseCreateAfterToolResults(): void {
