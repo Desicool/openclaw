@@ -7,6 +7,7 @@ import type {
   RealtimeVoiceBridgeCreateRequest,
 } from "openclaw/plugin-sdk/realtime-voice";
 import WebSocket, { type RawData } from "ws";
+import { appendOpenAIQuicksilverPendingAudio } from "./realtime-quicksilver-audio-buffer.js";
 import {
   buildOpenAIQuicksilverDelegationPrompt,
   type OpenAIQuicksilverTranscriptEntry,
@@ -40,7 +41,6 @@ const RELAY_SAMPLE_RATE = 24_000;
 const QUICKSILVER_SESSION_TTL_MS = 30 * 60_000;
 const QUICKSILVER_CONNECT_TIMEOUT_MS = 30_000;
 const WEBSOCKET_OPEN = 1;
-const MAX_PENDING_AUDIO = { chunks: 320, bytes: 1024 * 1024 };
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -165,8 +165,7 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
   private closed = false;
   private closeNotified = false;
   private peer: OpenAIQuicksilverAudioPeerContract | undefined;
-  private pendingAudio: Buffer[] = [];
-  private pendingAudioBytes = 0;
+  private pendingAudio: Buffer = Buffer.alloc(0);
   private ready = false;
   private sideband: ActiveSideband | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -186,15 +185,9 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
   sendAudio(audio: Buffer): void {
     if (this.peer) {
       this.peer.sendAudio(audio);
-    } else if (
-      !this.closed &&
-      !this.abortController.signal.aborted &&
-      this.pendingAudio.length < MAX_PENDING_AUDIO.chunks &&
-      this.pendingAudioBytes + audio.byteLength <= MAX_PENDING_AUDIO.bytes
-    ) {
+    } else if (!this.closed && !this.abortController.signal.aborted) {
       // Relay capture starts before asynchronous peer creation and may recycle its input buffers.
-      this.pendingAudio.push(Buffer.from(audio));
-      this.pendingAudioBytes += audio.byteLength;
+      this.pendingAudio = appendOpenAIQuicksilverPendingAudio(this.pendingAudio, audio);
     }
   }
 
@@ -269,10 +262,10 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
         () => undefined,
       );
       this.peer = await waitForConnectStep(peerPromise, connectSignal);
-      for (const audio of this.pendingAudio.splice(0)) {
-        this.peer.sendAudio(audio);
+      if (this.pendingAudio.length > 0) {
+        this.peer.sendAudio(this.pendingAudio);
+        this.pendingAudio = Buffer.alloc(0);
       }
-      this.pendingAudioBytes = 0;
       const offerSdp = await waitForConnectStep(this.peer.createOffer(), connectSignal);
       const auth = await waitForConnectStep(this.config.resolveAuth(), connectSignal);
       const requestIds = {
@@ -553,8 +546,7 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
   private releaseResources(): void {
     releaseOpenAIQuicksilverSession(this);
     this.connected = false;
-    this.pendingAudio = [];
-    this.pendingAudioBytes = 0;
+    this.pendingAudio = Buffer.alloc(0);
     this.abortController.abort(new Error("GPT-Live gateway relay bridge closed"));
     this.consultController?.abort(new Error("GPT-Live delegation stopped"));
     this.consultController = undefined;
