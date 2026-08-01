@@ -5,6 +5,7 @@ import { terminateMeetingBridgeProcess } from "./bridge-process.js";
 import { MeetingNodeAudioPullWaiters } from "./node-audio-pull-waiters.js";
 
 const NODE_BRIDGE_TERMINATION_GRACE_MS = 2_000;
+const NODE_BRIDGE_INPUT_DRAIN_MS = 250;
 const NODE_BRIDGE_TERMINAL_RETENTION_MS = 5_000;
 const NODE_BRIDGE_MAX_QUEUED_INPUT_CHUNKS = 200;
 const NODE_BRIDGE_MAX_QUEUED_INPUT_BYTES = 1024 * 1024;
@@ -38,7 +39,6 @@ type NodeBridgeSession = {
   stopPromise?: Promise<void>;
   retiredOutputStops: Set<Promise<void>>;
   discardQueuedAudioOnStop: boolean;
-  terminalDelivered: boolean;
   terminationSettled: boolean;
   terminalEvictionTimer?: ReturnType<typeof setTimeout>;
 };
@@ -134,6 +134,32 @@ function splitCommand(argv: string[]): { command: string; args: string[] } {
   return { command, args };
 }
 
+function waitForInputDrain(stream: ChildProcess["stdout"], timeoutMs: number): Promise<void> {
+  if (!stream || stream.readableEnded || stream.destroyed) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      stream.off("end", finish);
+      stream.off("close", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, timeoutMs);
+    timeout.unref?.();
+    stream.once("end", finish);
+    stream.once("close", finish);
+    if (stream.readableEnded || stream.destroyed) {
+      finish();
+    }
+  });
+}
+
 export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
   handleCommand(paramsJSON?: string | null): Promise<string>;
 } {
@@ -179,7 +205,15 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
   ): Promise<void> => {
     if (options.discardQueuedAudio) {
       session.discardQueuedAudioOnStop = true;
+      session.chunks.length = 0;
+      session.queuedInputBytes = 0;
+      if (!session.closed) {
+        session.closed = true;
+        session.closedAt = new Date().toISOString();
+      }
+      wake(session);
     }
+    releaseOutputWriteWaiters(session);
     // Process and stream errors can arrive together during teardown. Close once
     // so every caller shares one bounded process-termination promise.
     if (session.stopPromise) {
@@ -188,10 +222,9 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       }
       return session.stopPromise;
     }
-    session.closed = true;
-    session.closedAt = new Date().toISOString();
-    wake(session);
-    releaseOutputWriteWaiters(session);
+    const inputDrain = session.discardQueuedAudioOnStop
+      ? Promise.resolve()
+      : waitForInputDrain(session.input?.stdout, NODE_BRIDGE_INPUT_DRAIN_MS);
     session.stopPromise = Promise.all([
       terminateMeetingBridgeProcess(session.input, {
         graceMs: NODE_BRIDGE_TERMINATION_GRACE_MS,
@@ -200,12 +233,16 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
         graceMs: NODE_BRIDGE_TERMINATION_GRACE_MS,
       }),
       ...session.retiredOutputStops,
+      inputDrain,
     ]).then(() => {
       session.terminationSettled = true;
-      if (session.discardQueuedAudioOnStop || session.terminalDelivered) {
+      if (session.discardQueuedAudioOnStop) {
         deleteSession(session);
         return;
       }
+      session.closed = true;
+      session.closedAt = new Date().toISOString();
+      wake(session);
       // Implicit close preserves final audio across sequential pulls, but the
       // session and its bounded queue cannot outlive this terminal drain window.
       session.terminalEvictionTimer = setTimeout(() => {
@@ -256,7 +293,6 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       outputWriteWaiters: new Set(),
       retiredOutputStops: new Set(),
       discardQueuedAudioOnStop: false,
-      terminalDelivered: false,
       terminationSettled: false,
     };
     const outputProcess = startOutputProcess(output);
@@ -274,7 +310,7 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
     session.input = inputProcess;
     session.output = outputProcess;
     inputProcess.stdout?.on("data", (chunk) => {
-      if (session.closed) {
+      if (session.discardQueuedAudioOnStop || session.terminationSettled) {
         return;
       }
       const audio = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -328,11 +364,8 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       session.queuedInputBytes -= chunk.byteLength;
     }
     const closed = session.closed && session.chunks.length === 0;
-    if (closed) {
-      session.terminalDelivered = true;
-      if (session.terminationSettled) {
-        deleteSession(session);
-      }
+    if (closed && session.terminationSettled) {
+      deleteSession(session);
     }
     return {
       bridgeId,
