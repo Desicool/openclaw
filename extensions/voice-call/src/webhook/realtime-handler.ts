@@ -771,7 +771,7 @@ export class RealtimeCallHandler {
       typeof this.providerConfig.interruptResponseOnInputAudio === "boolean"
         ? this.providerConfig.interruptResponseOnInputAudio
         : undefined;
-    const predecessorBridge = this.activeBridgesByCallId.get(callId);
+    const hadPredecessorOnAdmission = this.activeBridgesByCallId.has(callId);
     // Providers may close synchronously before createBridge returns; no consult can exist yet.
     const nativeConsultOwner: { current?: ActiveRealtimeVoiceBridge } = {};
     // Provisional ownership accepts callbacks fired during createBridge. Commit
@@ -1019,7 +1019,7 @@ export class RealtimeCallHandler {
         // The active predecessor still owns call termination until creation succeeds.
         if (
           (owner && !ownsCallState) ||
-          (!owner && predecessorBridge && this.isActiveBridgeOwner(callId, predecessorBridge))
+          (!owner && hadPredecessorOnAdmission && this.activeBridgesByCallId.has(callId))
         ) {
           return;
         }
