@@ -976,6 +976,12 @@ describe("chat pane connection lifecycle", () => {
     pane.applyGatewaySnapshot({
       ...snapshot,
       phase: "connected",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.write"] },
+        features: { methods: ["chat.abort"] },
+      },
     });
 
     await vi.waitFor(() =>
