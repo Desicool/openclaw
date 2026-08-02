@@ -296,6 +296,7 @@ export class ClientVoiceMutationDigestOwner<TContext> {
           return;
         }
         this.options.warn(message);
+        this.pendingKeys.add(key);
       })
       .finally(() => {
         clearTimeout(timeout);

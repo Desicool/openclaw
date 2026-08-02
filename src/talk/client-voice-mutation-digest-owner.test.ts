@@ -246,8 +246,6 @@ describe("client voice mutation digest owner", () => {
     });
 
     owner.record({ agentId: "first", voiceSessionId: "v1", context: 1 });
-    await vi.waitFor(() => expect(owner.snapshot().active).toBe(0));
-    owner.retry({ agentId: "first", voiceSessionId: "v1" });
     await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
 
     owner.record({ agentId: "second", voiceSessionId: "v2", context: 2 });
