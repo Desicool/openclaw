@@ -625,13 +625,20 @@ function readSetupCommand(params: Record<string, unknown>, name: string): string
   return value as string[];
 }
 
+function isSpawnSyncTimeout(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ETIMEDOUT";
+}
+
 export function createMeetingConfiguredNodeHost(options: MeetingConfiguredNodeHostOptions) {
-  const commandExists = (command: string, timeoutMs: number): boolean => {
+  const probeCommand = (command: string, timeoutMs: number): "found" | "missing" | "timed-out" => {
     const result = spawnSync("/bin/sh", ["-lc", 'command -v "$1" >/dev/null 2>&1', "sh", command], {
       encoding: "utf8",
       timeout: timeoutMs,
     });
-    return result.status === 0;
+    if (isSpawnSyncTimeout(result.error)) {
+      return "timed-out";
+    }
+    return result.status === 0 ? "found" : "missing";
   };
   const assertAudioAvailable = (
     timeoutMs: number,
@@ -650,6 +657,9 @@ export function createMeetingConfiguredNodeHost(options: MeetingConfiguredNodeHo
       encoding: "utf8",
       timeout: commandTimeout(),
     });
+    if (isSpawnSyncTimeout(result.error)) {
+      throw new Error(`${options.meetingLabel} audio prerequisite check timed out on the node.`);
+    }
     const stderr =
       result.stderr ??
       (result.error
@@ -664,14 +674,24 @@ export function createMeetingConfiguredNodeHost(options: MeetingConfiguredNodeHo
     ) {
       throw new Error("BlackHole 2ch audio device not found on the node.");
     }
+    const commandNames = new Set<string>();
     for (const argv of commands) {
       const command = argv[0];
-      if (
-        !command ||
-        (options.sharePrerequisiteDeadline && Date.now() >= deadline) ||
-        !commandExists(command, commandTimeout())
-      ) {
+      if (!command) {
         throw new Error(`Configured audio command not found on the node: ${command || "<empty>"}`);
+      }
+      commandNames.add(command);
+    }
+    for (const command of commandNames) {
+      if (options.sharePrerequisiteDeadline && Date.now() >= deadline) {
+        throw new Error(`${options.meetingLabel} audio prerequisite check timed out on the node.`);
+      }
+      const probeResult = probeCommand(command, commandTimeout());
+      if (probeResult === "timed-out") {
+        throw new Error(`${options.meetingLabel} audio prerequisite check timed out on the node.`);
+      }
+      if (probeResult === "missing") {
+        throw new Error(`Configured audio command not found on the node: ${command}`);
       }
     }
   };
