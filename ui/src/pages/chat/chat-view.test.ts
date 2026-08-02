@@ -6031,7 +6031,7 @@ describe("chat model controls", () => {
     expect(host.chatThinkingLevel).toBe("high");
   });
 
-  it("does not restore or report a failed global model switch after the selected agent changes", async () => {
+  it("does not report a failed global model switch after the selected agent changes", async () => {
     const modelPatch = createDeferred<unknown>();
     const modelOverrides: Record<string, string | null> = {
       global: "openai/gpt-agent-a-old",
@@ -6081,12 +6081,11 @@ describe("chat model controls", () => {
     expect(patchOptions?.ownsModelOverride?.()).toBe(true);
 
     host.assistantAgentId = "main";
-    sessions.setModelOverride("global", "openai/gpt-agent-b");
     modelPatch.reject(new Error("agent A patch failed"));
 
     await expect(switching).resolves.toBe(false);
     expect(patchOptions?.ownsModelOverride?.()).toBe(false);
-    expect(modelOverrides.global).toBe("openai/gpt-agent-b");
+    expect(modelOverrides.global).toBe("openai/gpt-agent-a-old");
     expect(host.lastError ?? null).toBeNull();
     expect(host.chatError ?? null).toBeNull();
   });

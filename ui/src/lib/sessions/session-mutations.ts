@@ -41,6 +41,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
     string,
     { token: symbol; previous: string | null | undefined }
   >();
+  const modelOverrideRevisions = new Map<string, number>();
   const preparedWorkSessionKeys = new Set<string>();
 
   const setModelOverride = (key: string, value: string | null | undefined) => {
@@ -48,6 +49,8 @@ export function createSessionMutations(host: SessionMutationsHost) {
     if (!normalizedKey) {
       return;
     }
+    // Equal-value writes still transfer ownership between agent-scoped queues.
+    modelOverrideRevisions.set(normalizedKey, (modelOverrideRevisions.get(normalizedKey) ?? 0) + 1);
     const state = host.readState();
     const modelOverrides = { ...state.modelOverrides };
     if (value === undefined) {
@@ -165,6 +168,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
     const normalizedKey = key.trim();
     let previousModelOverride: string | null | undefined;
     let modelPatchStarted = false;
+    let modelPatchRevision = 0;
     const modelPatchToken = Symbol();
     const ownsModelOverride = () => options.ownsModelOverride?.() !== false;
     const startModelPatch = () => {
@@ -181,15 +185,20 @@ export function createSessionMutations(host: SessionMutationsHost) {
         previous: previousModelOverride,
       });
       setModelOverride(key, patchParams.model);
+      modelPatchRevision = modelOverrideRevisions.get(normalizedKey) ?? 0;
     };
     if (!options.waitFor) {
       startModelPatch();
     }
-    const restoreModelOverride = () => {
+    const settleModelOverride = (completed: boolean) => {
       if (modelPatchStarted && pendingModelPatches.get(normalizedKey)?.token === modelPatchToken) {
         pendingModelPatches.delete(normalizedKey);
-        if (ownsModelOverride()) {
-          setModelOverride(key, previousModelOverride);
+        if (host.connection.isCurrent(scope) && ownsModelOverride()) {
+          setModelOverride(key, completed ? patchParams.model : previousModelOverride);
+        } else if ((modelOverrideRevisions.get(normalizedKey) ?? 0) === modelPatchRevision) {
+          // The shared key now belongs to another agent/connection. Remove only
+          // this operation's untouched optimistic value; preserve newer claims.
+          setModelOverride(key, undefined);
         }
       }
     };
@@ -197,39 +206,33 @@ export function createSessionMutations(host: SessionMutationsHost) {
       if (options.waitFor) {
         await options.waitFor;
         if (!host.connection.isCurrent(scope)) {
-          restoreModelOverride();
+          settleModelOverride(false);
           return null;
         }
       }
       startModelPatch();
       const result = await requestSessionPatch(scope.client, key, patchParams, options);
       if (!host.connection.isCurrent(scope)) {
-        restoreModelOverride();
+        settleModelOverride(false);
         return null;
       }
       if (!options.deferListRefresh) {
         await host.refreshReplacement(options.agentId);
         if (!host.connection.isCurrent(scope)) {
-          restoreModelOverride();
+          settleModelOverride(false);
           return null;
         }
       }
-      if (
-        managesModelOverride &&
-        pendingModelPatches.get(normalizedKey)?.token === modelPatchToken
-      ) {
-        pendingModelPatches.delete(normalizedKey);
-        if (ownsModelOverride()) {
-          setModelOverride(key, patchParams.model);
-        }
-      }
+      settleModelOverride(true);
       return result;
     } catch (error) {
-      restoreModelOverride();
+      settleModelOverride(false);
       if (!host.connection.isCurrent(scope)) {
         return null;
       }
-      host.publish({ ...host.readState(), error: String(error) }, "operation");
+      if (ownsModelOverride()) {
+        host.publish({ ...host.readState(), error: String(error) }, "operation");
+      }
       throw error;
     }
   };
@@ -356,6 +359,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
     },
     dispose() {
       pendingModelPatches.clear();
+      modelOverrideRevisions.clear();
       preparedWorkSessionKeys.clear();
     },
   };
