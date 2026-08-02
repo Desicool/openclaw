@@ -146,7 +146,11 @@ describe("executeSlashCommand directives", () => {
 
   it("defers slash-command model cache publication to the captured chat owner", async () => {
     const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
-    const patch = vi.fn().mockResolvedValue(createResolvedModelPatch(OPENAI_GPT5_MINI_MODEL));
+    const patch = vi
+      .fn()
+      .mockResolvedValue(
+        createResolvedModelPatch(OPENAI_GPT5_MINI_MODEL.id, OPENAI_GPT5_MINI_MODEL.provider),
+      );
     const sessions = {
       ...createSessionCapability(client),
       patch,
@@ -160,7 +164,7 @@ describe("executeSlashCommand directives", () => {
         phase: "connected",
       },
       agentId: "work",
-      chatModelCatalog: createModelCatalog([OPENAI_GPT5_MINI_MODEL]),
+      chatModelCatalog: createModelCatalog(OPENAI_GPT5_MINI_MODEL),
     });
 
     expect(result.failed).not.toBe(true);
