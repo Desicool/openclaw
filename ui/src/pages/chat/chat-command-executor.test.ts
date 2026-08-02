@@ -153,6 +153,7 @@ describe("executeSlashCommand directives", () => {
         createResolvedModelPatch(OPENAI_GPT5_MINI_MODEL.id, OPENAI_GPT5_MINI_MODEL.provider),
       );
     const setModelOverride = vi.fn();
+    const ownsModelOverride = vi.fn(() => true);
     const sessions = {
       ...createSessionCapability(client),
       patch,
@@ -167,6 +168,7 @@ describe("executeSlashCommand directives", () => {
         phase: "connected",
       },
       agentId: "work",
+      ownsModelOverride,
       chatModelCatalog: createModelCatalog(OPENAI_GPT5_MINI_MODEL),
     });
 
@@ -177,7 +179,7 @@ describe("executeSlashCommand directives", () => {
       expect.objectContaining({
         agentId: "work",
         deferModelOverride: true,
-        ownsModelOverride: expect.any(Function),
+        ownsModelOverride,
       }),
     );
     expect(setModelOverride).toHaveBeenCalledWith("global", "openai/gpt-5-mini");
