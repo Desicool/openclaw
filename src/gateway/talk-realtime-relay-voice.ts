@@ -144,7 +144,7 @@ export function closeRelayVoiceSession(session: RelaySession): Promise<void> {
   }
   const sessionKey = session.sessionKey;
   session.voiceSessionClose = session.voiceTranscriptQueue
-    .flush()
+    .flush({ requireSuccess: true })
     .then(async () => {
       const config = session.voiceConfig ?? session.context.getRuntimeConfig();
       await closeClientVoiceSession({

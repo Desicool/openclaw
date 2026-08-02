@@ -106,7 +106,7 @@ class VoiceTranscriptOperationRegistry {
     if (!owner.closePromise) {
       // Seal synchronously so no transcript can enter behind the close barrier.
       owner.queue.seal();
-      owner.closePromise = owner.queue.flush().then(operation);
+      owner.closePromise = owner.queue.flush({ requireSuccess: true }).then(operation);
     }
     try {
       await owner.closePromise;

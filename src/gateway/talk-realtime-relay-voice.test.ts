@@ -108,6 +108,29 @@ describe("realtime relay voice transcript persistence", () => {
     expect(enqueueRelayVoiceTranscript(session, "user", "too late")).toBe(false);
   });
 
+  it("does not close the durable record after an accepted transcript fails", async () => {
+    vi.useFakeTimers();
+    try {
+      voiceSessionMocks.appendRelayVoiceTranscript.mockRejectedValue(
+        new Error("transcript write failed"),
+      );
+      const { session } = createRelaySession();
+
+      expect(enqueueRelayVoiceTranscript(session, "user", "persist me")).toBe(true);
+      const close = closeRelayVoiceSession(session);
+      await vi.runAllTimersAsync();
+      await close;
+
+      expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenCalledTimes(3);
+      expect(voiceSessionMocks.closeClientVoiceSession).not.toHaveBeenCalled();
+      expect(session.context.logGateway?.warn).toHaveBeenCalledWith(
+        expect.stringContaining("realtime relay voice session close failed"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("normalizes the bounded pre-bind transcript buffer", () => {
     const { session } = createRelaySession();
     session.sessionKey = undefined;
