@@ -928,6 +928,48 @@ describe("buildOpenAIRealtimeTranscriptionProvider", () => {
     session.close();
   });
 
+  it("keeps active predecessor satisfaction after tombstone eviction", async () => {
+    const transcripts: string[] = [];
+    const provider = buildOpenAIRealtimeTranscriptionProvider();
+    const session = provider.createSession({
+      providerConfig: { apiKey: "sk-test" }, // pragma: allowlist secret
+      onTranscript: (transcript) => transcripts.push(transcript),
+    });
+    const socket = await connectFakeSession(session);
+
+    emitJson(socket, {
+      type: "input_audio_buffer.committed",
+      item_id: "root",
+      previous_item_id: null,
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "root",
+      transcript: "root transcript",
+    });
+    emitJson(socket, {
+      type: "input_audio_buffer.committed",
+      item_id: "waiting",
+      previous_item_id: "root",
+    });
+    for (let index = 0; index < 64; index += 1) {
+      emitJson(socket, {
+        type: "conversation.item.input_audio_transcription.completed",
+        item_id: `uncommitted-${index}`,
+        transcript: "",
+      });
+    }
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "waiting",
+      transcript: "waiting transcript",
+    });
+
+    expect(transcripts).toEqual(["root transcript", "waiting transcript"]);
+    expect(session.isConnected()).toBe(true);
+    session.close();
+  });
+
   it("keeps the first failed terminal outcome when completion arrives late", async () => {
     const errors: string[] = [];
     const transcripts: string[] = [];
