@@ -906,7 +906,35 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
     transport.stop();
   });
 
-  it("requires response, item, call, name, and argument identities before executing tools", async () => {
+  it("accepts completed tool calls without optional response and item ids", async () => {
+    stubAnswerSdpFetch();
+    const request = vi.fn(async (method: string) => {
+      if (method === "talk.client.steer") {
+        return { ok: true, mode: "status" };
+      }
+      throw new Error(`unexpected request: ${method}`);
+    });
+    const transport = createOpenAiTransport({ request });
+
+    await transport.start();
+    dispatchCompletedToolCall(FakePeerConnection.instances[0], {
+      responseId: null,
+      itemId: null,
+      name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
+      arguments: JSON.stringify({ text: "status" }),
+    });
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith("talk.client.steer", {
+        sessionKey: "main",
+        text: "status",
+        mode: "status",
+      }),
+    );
+
+    transport.stop();
+  });
+
+  it("requires call, name, and arguments before executing tools", async () => {
     stubAnswerSdpFetch();
     const request = vi.fn();
     const transport = createOpenAiTransport({ request });
@@ -914,8 +942,6 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
     await transport.start();
     const peer = FakePeerConnection.instances[0];
     for (const overrides of [
-      { responseId: null, callId: "missing-response" },
-      { itemId: null, callId: "missing-item" },
       { callId: null, itemId: "missing-call" },
       { name: null, callId: "missing-name", itemId: "missing-name" },
       { arguments: null, callId: "missing-args", itemId: "missing-args" },

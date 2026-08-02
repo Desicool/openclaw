@@ -26,7 +26,7 @@ import {
 } from "./realtime-talk-webrtc-support.ts";
 
 type CompletedToolCall = {
-  itemId: string;
+  itemId?: string;
   name: string;
   callId: string;
   args: string;
@@ -497,13 +497,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
 
   private handleCompletedResponse(event: RealtimeServerEvent): void {
     const response: unknown = event.response;
-    if (
-      !isRecord(response) ||
-      response.status !== "completed" ||
-      typeof response.id !== "string" ||
-      !response.id.trim() ||
-      !Array.isArray(response.output)
-    ) {
+    if (!isRecord(response) || response.status !== "completed" || !Array.isArray(response.output)) {
       return;
     }
     for (const output of response.output) {
@@ -514,11 +508,11 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
       ) {
         continue;
       }
-      const itemId = typeof output.id === "string" ? output.id.trim() : "";
+      const itemId = typeof output.id === "string" ? output.id.trim() || undefined : undefined;
       const callId = typeof output.call_id === "string" ? output.call_id.trim() : "";
       const name = typeof output.name === "string" ? output.name.trim() : "";
       const args = typeof output.arguments === "string" ? output.arguments : "";
-      if (!itemId || !callId || !name || !args.trim()) {
+      if (!callId || !name || !args.trim()) {
         continue;
       }
       if (
@@ -595,7 +589,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     }
   }
 
-  private async handleDescribeViewToolCall(callId: string, itemId: string): Promise<void> {
+  private async handleDescribeViewToolCall(callId: string, itemId?: string): Promise<void> {
     this.emitTalkEvent({
       type: "tool.call",
       callId,
