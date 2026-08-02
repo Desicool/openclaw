@@ -230,7 +230,7 @@ function createOpenAIRealtimeTranscriptionSession(
     itemId: string,
     transport: RealtimeTranscriptionWebSocketTransport,
   ): boolean => {
-    if (settledItemIds.has(itemId)) {
+    if (settledItemIds.has(itemId) || completedTranscripts.has(itemId)) {
       return false;
     }
     if (trackedItemIds.has(itemId)) {
@@ -410,7 +410,10 @@ function createOpenAIRealtimeTranscriptionSession(
         return;
 
       case "conversation.item.input_audio_transcription.failed":
-        if (event.item_id && settledItemIds.has(event.item_id)) {
+        if (
+          event.item_id &&
+          (settledItemIds.has(event.item_id) || completedTranscripts.has(event.item_id))
+        ) {
           return;
         }
         completeItem(event.item_id, undefined, transport);
