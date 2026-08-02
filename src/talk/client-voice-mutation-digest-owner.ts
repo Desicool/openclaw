@@ -14,7 +14,8 @@ export const CLIENT_VOICE_MUTATION_DIGEST_POLICY = {
   maxRetainedIntents: 64,
   maxRetainedIdentityBytes: 64 * 1024,
   maxConcurrentAttempts: 2,
-  attemptTimeoutMs: 30_000,
+  maxAttemptFailures: 3,
+  attemptAbortAfterMs: 30_000,
 } as const;
 
 function formatMutationDigest(effects: ClientVoiceToolEffect[]): string | undefined {
@@ -94,18 +95,21 @@ type MutationDigestIntent<TContext> = {
   voiceSessionId: string;
   context: TContext;
   identityBytes: number;
+  failedAttempts: number;
 };
 
 type MutationDigestAttempt<TContext> = {
   controller: AbortController;
   intent: MutationDigestIntent<TContext>;
+  generation: number;
 };
 
 type MutationDigestPolicy = {
   maxRetainedIntents: number;
   maxRetainedIdentityBytes: number;
   maxConcurrentAttempts: number;
-  attemptTimeoutMs: number;
+  maxAttemptFailures: number;
+  attemptAbortAfterMs: number;
 };
 
 export class ClientVoiceMutationDigestOwner<TContext> {
@@ -114,6 +118,7 @@ export class ClientVoiceMutationDigestOwner<TContext> {
   private readonly retryAfterActiveKeys = new Set<string>();
   private readonly activeAttempts = new Map<string, MutationDigestAttempt<TContext>>();
   private retainedIdentityBytes = 0;
+  private generation = 0;
 
   constructor(
     private readonly options: {
@@ -160,7 +165,7 @@ export class ClientVoiceMutationDigestOwner<TContext> {
       this.options.warn("voice mutation digest retry owner is full");
       return;
     }
-    const intent = { ...params, identityBytes };
+    const intent = { ...params, identityBytes, failedAttempts: 0 };
     this.intents.set(key, intent);
     this.retainedIdentityBytes += identityBytes;
     this.pendingKeys.add(key);
@@ -213,6 +218,7 @@ export class ClientVoiceMutationDigestOwner<TContext> {
     for (const attempt of this.activeAttempts.values()) {
       attempt.controller.abort(new Error("voice mutation digest delivery owner reset"));
     }
+    this.generation += 1;
     this.intents.clear();
     this.pendingKeys.clear();
     this.retryAfterActiveKeys.clear();
@@ -255,27 +261,47 @@ export class ClientVoiceMutationDigestOwner<TContext> {
 
   private startAttempt(key: string, intent: MutationDigestIntent<TContext>): void {
     const controller = new AbortController();
-    const attempt = { controller, intent };
+    const attempt = { controller, intent, generation: this.generation };
     this.activeAttempts.set(key, attempt);
     const timeout = setTimeout(
-      () => controller.abort(new Error("voice mutation digest delivery timed out")),
-      this.policy.attemptTimeoutMs,
+      () => controller.abort(new Error("voice mutation digest delivery abort requested")),
+      this.policy.attemptAbortAfterMs,
     );
     timeout.unref?.();
-    // Do not race the timeout. An adapter that ignores abort keeps this exact
-    // attempt and concurrency slot until its underlying promise really settles.
-    void this.options
-      .attempt({ ...intent, signal: controller.signal })
+    // Abort is cooperative, not a wall-clock completion guarantee. An adapter
+    // that ignores it keeps this exact slot so repeated retries cannot fan out.
+    let completion: Promise<boolean>;
+    try {
+      completion = this.options.attempt({ ...intent, signal: controller.signal });
+    } catch (error) {
+      completion = Promise.reject(error);
+    }
+    void completion
       .then((complete) => {
         if (complete) {
           this.deleteIntent(key, intent);
         }
       })
       .catch((error: unknown) => {
-        this.options.warn(error instanceof Error ? error.message : String(error));
+        if (attempt.generation !== this.generation) {
+          return;
+        }
+        intent.failedAttempts += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        if (intent.failedAttempts >= this.policy.maxAttemptFailures) {
+          this.deleteIntent(key, intent);
+          this.options.warn(
+            `voice mutation digest dropped after ${intent.failedAttempts} failed attempts: ${message}`,
+          );
+          return;
+        }
+        this.options.warn(message);
       })
       .finally(() => {
         clearTimeout(timeout);
+        if (attempt.generation !== this.generation) {
+          return;
+        }
         if (this.activeAttempts.get(key) === attempt) {
           this.activeAttempts.delete(key);
         }

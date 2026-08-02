@@ -31,7 +31,8 @@ describe("client voice mutation digest owner", () => {
         maxRetainedIntents: 4,
         maxRetainedIdentityBytes: 64,
         maxConcurrentAttempts: 2,
-        attemptTimeoutMs: 60_000,
+        maxAttemptFailures: 3,
+        attemptAbortAfterMs: 60_000,
       },
       warn,
       attempt: async ({ voiceSessionId }) => {
@@ -91,7 +92,8 @@ describe("client voice mutation digest owner", () => {
         maxRetainedIntents: 2,
         maxRetainedIdentityBytes: 64,
         maxConcurrentAttempts: 1,
-        attemptTimeoutMs: 60_000,
+        maxAttemptFailures: 3,
+        attemptAbortAfterMs: 60_000,
       },
       warn: vi.fn(),
       attempt: async () => {
@@ -109,7 +111,7 @@ describe("client voice mutation digest owner", () => {
     await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
   });
 
-  it("keeps an ignored-abort attempt active until its real promise settles", async () => {
+  it("keeps an ignored abort request active until its real promise settles", async () => {
     const attempts: Array<{
       completion: ReturnType<typeof deferred<boolean>>;
       signal: AbortSignal;
@@ -119,7 +121,8 @@ describe("client voice mutation digest owner", () => {
         maxRetainedIntents: 2,
         maxRetainedIdentityBytes: 64,
         maxConcurrentAttempts: 1,
-        attemptTimeoutMs: 10,
+        maxAttemptFailures: 3,
+        attemptAbortAfterMs: 10,
       },
       warn: vi.fn(),
       attempt: async ({ signal }) => {
@@ -161,7 +164,8 @@ describe("client voice mutation digest owner", () => {
         maxRetainedIntents: 2,
         maxRetainedIdentityBytes: 8,
         maxConcurrentAttempts: 1,
-        attemptTimeoutMs: 60_000,
+        maxAttemptFailures: 3,
+        attemptAbortAfterMs: 60_000,
       },
       warn,
       attempt,
@@ -190,7 +194,8 @@ describe("client voice mutation digest owner", () => {
         maxRetainedIntents: 4,
         maxRetainedIdentityBytes: 10,
         maxConcurrentAttempts: 1,
-        attemptTimeoutMs: 60_000,
+        maxAttemptFailures: 3,
+        attemptAbortAfterMs: 60_000,
       },
       warn,
       attempt: async ({ voiceSessionId }) => {
@@ -217,5 +222,73 @@ describe("client voice mutation digest owner", () => {
     attempts[1]?.completion.resolve(true);
     await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
     expect(attempts.map((attempt) => attempt.id)).toEqual(["v1", "v2"]);
+  });
+
+  it("drops a permanently failing intent after a bounded budget and releases capacity", async () => {
+    const warn = vi.fn();
+    const attempts: string[] = [];
+    const owner = new ClientVoiceMutationDigestOwner<number>({
+      policy: {
+        maxRetainedIntents: 1,
+        maxRetainedIdentityBytes: 64,
+        maxConcurrentAttempts: 1,
+        maxAttemptFailures: 2,
+        attemptAbortAfterMs: 60_000,
+      },
+      warn,
+      attempt: async ({ agentId }) => {
+        attempts.push(agentId);
+        if (agentId === "first") {
+          throw new Error("permanent");
+        }
+        return true;
+      },
+    });
+
+    owner.record({ agentId: "first", voiceSessionId: "v1", context: 1 });
+    await vi.waitFor(() => expect(owner.snapshot().active).toBe(0));
+    owner.retry({ agentId: "first", voiceSessionId: "v1" });
+    await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
+
+    owner.record({ agentId: "second", voiceSessionId: "v2", context: 2 });
+    await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
+    expect(attempts).toEqual(["first", "first", "second"]);
+    expect(warn).toHaveBeenLastCalledWith(
+      "voice mutation digest dropped after 2 failed attempts: permanent",
+    );
+  });
+
+  it("ignores settlement from an attempt owned by a cleared generation", async () => {
+    const attempts: Array<{
+      context: number;
+      completion: ReturnType<typeof deferred<boolean>>;
+    }> = [];
+    const owner = new ClientVoiceMutationDigestOwner<number>({
+      policy: {
+        maxRetainedIntents: 1,
+        maxRetainedIdentityBytes: 64,
+        maxConcurrentAttempts: 1,
+        maxAttemptFailures: 3,
+        attemptAbortAfterMs: 60_000,
+      },
+      warn: vi.fn(),
+      attempt: async ({ context }) => {
+        const completion = deferred<boolean>();
+        attempts.push({ context, completion });
+        return await completion.promise;
+      },
+    });
+
+    owner.record({ agentId: "a", voiceSessionId: "v1", context: 1 });
+    owner.clear();
+    owner.record({ agentId: "a", voiceSessionId: "v1", context: 2 });
+    owner.record({ agentId: "a", voiceSessionId: "v1", context: 3 });
+
+    attempts[0]?.completion.reject(new Error("old generation"));
+    attempts[1]?.completion.resolve(false);
+    await vi.waitFor(() => expect(attempts).toHaveLength(3));
+    expect(attempts[2]?.context).toBe(3);
+    attempts[2]?.completion.resolve(true);
+    await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
   });
 });

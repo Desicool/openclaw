@@ -7,7 +7,8 @@ type ClientVoiceSessionTestApi = {
     maxRetainedIntents: number;
     maxRetainedIdentityBytes: number;
     maxConcurrentAttempts: number;
-    attemptTimeoutMs: number;
+    maxAttemptFailures: number;
+    attemptAbortAfterMs: number;
   };
   digestDeliverySnapshot(): {
     active: number;
