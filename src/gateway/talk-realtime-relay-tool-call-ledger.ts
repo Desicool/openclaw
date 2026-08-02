@@ -1,6 +1,9 @@
+import { Buffer } from "node:buffer";
+
 // Providers commonly cap native calls at 1,024, while the relay can retain both
 // a provider id and a synthetic owner-facing alias for one lifecycle.
 export const MAX_RELAY_TOOL_CALL_IDENTITIES = 2_048;
+export const MAX_RELAY_TOOL_CALL_IDENTITY_BYTES = 1024 * 1024;
 
 type RelayToolCallEntry = {
   agentCompleted?: true;
@@ -12,12 +15,14 @@ export class RelayToolCallLedger {
   // Identities remain for the session lifetime even when individual terminal
   // facts clear, so late events cannot regain admission after capacity pressure.
   private readonly entries = new Map<string, RelayToolCallEntry>();
+  private retainedBytes = 0;
   private overflowReported = false;
 
   constructor(
     private readonly options: {
       onOverflow: () => void;
       maxEntries?: number;
+      maxBytes?: number;
     },
   ) {}
 
@@ -31,24 +36,30 @@ export class RelayToolCallLedger {
 
   tryAdmit(callIds: Iterable<string>): boolean {
     const uniqueCallIds = new Set(callIds);
-    let additions = 0;
+    const additions: Array<{ callId: string; bytes: number }> = [];
+    let additionBytes = 0;
     for (const callId of uniqueCallIds) {
       if (callId && !this.entries.has(callId)) {
-        additions += 1;
+        const bytes = Buffer.byteLength(callId, "utf8");
+        additions.push({ callId, bytes });
+        additionBytes += bytes;
       }
     }
     const maxEntries = this.options.maxEntries ?? MAX_RELAY_TOOL_CALL_IDENTITIES;
-    if (this.entries.size + additions > maxEntries) {
+    const maxBytes = this.options.maxBytes ?? MAX_RELAY_TOOL_CALL_IDENTITY_BYTES;
+    if (
+      this.entries.size + additions.length > maxEntries ||
+      this.retainedBytes + additionBytes > maxBytes
+    ) {
       if (!this.overflowReported) {
         this.overflowReported = true;
         this.options.onOverflow();
       }
       return false;
     }
-    for (const callId of uniqueCallIds) {
-      if (callId && !this.entries.has(callId)) {
-        this.entries.set(callId, {});
-      }
+    for (const addition of additions) {
+      this.entries.set(addition.callId, {});
+      this.retainedBytes += addition.bytes;
     }
     return true;
   }

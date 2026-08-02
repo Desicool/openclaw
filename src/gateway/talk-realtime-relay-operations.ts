@@ -393,6 +393,13 @@ export function cancelTalkRealtimeRelayProviderToolCall(
   // A native call can alias an already-started forced consult. Cancellation owns
   // the forced handle because that is where the browser run was registered.
   const relayCallId = forcedConsult?.id ?? mappedRelayCallId;
+  if (
+    session.toolCalls.isAgentCompleted(relayCallId) ||
+    session.toolCalls.isAgentCompleted(mappedRelayCallId) ||
+    session.toolCalls.isProviderCompleted(providerCallId)
+  ) {
+    return undefined;
+  }
   if (forcedConsult) {
     session.harness.forcedConsults.markCancelled(forcedConsult);
     if (!session.toolCalls.markCancelled([relayCallId], ensureRelayTurn(session))) {

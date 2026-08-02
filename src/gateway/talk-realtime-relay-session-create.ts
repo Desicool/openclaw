@@ -55,6 +55,7 @@ import {
 } from "./talk-realtime-relay-state.js";
 import {
   MAX_RELAY_TOOL_CALL_IDENTITIES,
+  MAX_RELAY_TOOL_CALL_IDENTITY_BYTES,
   RelayToolCallLedger,
 } from "./talk-realtime-relay-tool-call-ledger.js";
 import {
@@ -274,6 +275,9 @@ export function createTalkRealtimeRelaySession(
         currentOutputItemId = undefined;
         currentOutputResponseId = undefined;
         const talkEvent = resetTalkRealtimeRelayContinuity(relay, event.type);
+        if (!getActiveRelay()) {
+          return;
+        }
         const clearEvent = { relaySessionId, type: "clear" as const };
         broadcastToOwner(
           params.context,
@@ -591,7 +595,7 @@ export function createTalkRealtimeRelaySession(
     toolCalls: new RelayToolCallLedger({
       onOverflow: () =>
         failSession(
-          `Realtime relay tool-call session limit exceeded (${MAX_RELAY_TOOL_CALL_IDENTITIES})`,
+          `Realtime relay tool-call session limit exceeded (${MAX_RELAY_TOOL_CALL_IDENTITIES} identities or ${MAX_RELAY_TOOL_CALL_IDENTITY_BYTES} UTF-8 bytes)`,
         ),
     }),
     providerToolCallIds: new Map(),

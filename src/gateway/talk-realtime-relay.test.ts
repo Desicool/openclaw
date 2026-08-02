@@ -1113,6 +1113,60 @@ describe("talk realtime gateway relay", () => {
     expect(submitToolResult).not.toHaveBeenCalled();
   });
 
+  it("ignores provider replay and cancellation after accepted completion", async () => {
+    let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
+    const submitToolResult = vi.fn();
+    const provider = createIdleRelayProvider();
+    provider.createBridge = (request) => {
+      bridgeRequest = request;
+      return {
+        ...createIdleRelayProvider().createBridge?.(request),
+        submitToolResult,
+      } as RealtimeVoiceBridge;
+    };
+    const fixture = createAbortableRelayRunFixture(provider);
+    await Promise.resolve();
+    bridgeRequest?.onToolCall?.({
+      itemId: "call-1",
+      callId: "call-1",
+      name: "openclaw_agent_consult",
+      args: { question: "status?" },
+    });
+    await submitTalkRealtimeRelayToolResult({
+      relaySessionId: fixture.session.relaySessionId,
+      connId: "conn-1",
+      callId: "call-1",
+      result: { result: "done" },
+    });
+    const toolEvents = () =>
+      fixture.broadcastToConnIds.mock.calls
+        .map(([, payload]) => payload)
+        .filter(
+          (payload) =>
+            typeof payload === "object" &&
+            payload !== null &&
+            ["toolCall", "toolCallCancelled"].includes(
+              String((payload as Record<string, unknown>).type),
+            ),
+        );
+    expect(toolEvents()).toHaveLength(1);
+
+    bridgeRequest?.onToolCall?.({
+      itemId: "call-1-replay",
+      callId: "call-1",
+      name: "openclaw_agent_consult",
+      args: { question: "status?" },
+    });
+    bridgeRequest?.onEvent?.({
+      direction: "server",
+      type: "tool.call.cancelled",
+      itemId: "call-1",
+    });
+
+    expect(toolEvents()).toHaveLength(1);
+    expect(submitToolResult).toHaveBeenCalledTimes(1);
+  });
+
   function expectRecordFields(record: unknown, expected: Record<string, unknown>) {
     if (!record || typeof record !== "object") {
       throw new Error("Expected record");
@@ -4079,6 +4133,63 @@ describe("talk realtime gateway relay", () => {
     expect(retainedSession?.toolCalls.has("call-late")).toBe(false);
     expect(toolCallEventCount()).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
     expect(submitToolResult).not.toHaveBeenCalled();
+  });
+
+  it("does not emit continuity events after tool-call overflow closes the relay", () => {
+    vi.useFakeTimers();
+    let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
+    const close = vi.fn();
+    const provider: RealtimeVoiceProviderPlugin = {
+      id: "relay-test",
+      label: "Relay Test",
+      isConfigured: () => true,
+      createBridge: (request) => {
+        bridgeRequest = request;
+        return {
+          connect: vi.fn(async () => undefined),
+          sendAudio: vi.fn(),
+          setMediaTimestamp: vi.fn(),
+          handleBargeIn: vi.fn(),
+          submitToolResult: vi.fn(),
+          acknowledgeMark: vi.fn(),
+          close,
+          isConnected: vi.fn(() => true),
+        };
+      },
+    };
+    const broadcastToConnIds = vi.fn();
+    const session = createTalkRealtimeRelaySession({
+      context: { broadcastToConnIds } as never,
+      connId: "conn-1",
+      provider,
+      providerConfig: {},
+      instructions: "brief",
+      tools: [],
+      forceAgentConsultOnFinalTranscript: true,
+    });
+    const retainedSession = relaySessions.get(session.relaySessionId);
+    expect(
+      retainedSession?.toolCalls.tryAdmit(
+        Array.from({ length: MAX_RELAY_TOOL_CALL_IDENTITIES }, (_, index) => `call-${index}`),
+      ),
+    ).toBe(true);
+    bridgeRequest?.onTranscript?.("user", "check this", true);
+
+    bridgeRequest?.onEvent?.({
+      direction: "client",
+      type: "session.continuity.reset",
+    });
+
+    const terminalTypes = broadcastToConnIds.mock.calls
+      .map(([, payload]) =>
+        typeof payload === "object" && payload !== null
+          ? (payload as { type?: string }).type
+          : undefined,
+      )
+      .filter((type) => type === "error" || type === "close" || type === "clear");
+    expect(terminalTypes).toEqual(["error", "close"]);
+    expect(close).toHaveBeenCalledOnce();
+    expect(relaySessions.has(session.relaySessionId)).toBe(false);
   });
 
   it("caps active relay sessions per browser connection", () => {

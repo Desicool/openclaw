@@ -155,6 +155,12 @@ export function adoptRelayProviderToolCallId(
 ): string | undefined {
   const current = session.relayToolCallIdsByProviderId.get(providerCallId);
   if (current) {
+    if (
+      session.toolCalls.isAgentCompleted(current) ||
+      session.toolCalls.isProviderCompleted(providerCallId)
+    ) {
+      return undefined;
+    }
     return current;
   }
   const relayCallId = session.toolCalls.isAgentCompleted(providerCallId)

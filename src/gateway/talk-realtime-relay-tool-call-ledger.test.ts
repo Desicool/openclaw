@@ -36,6 +36,15 @@ describe("RelayToolCallLedger", () => {
     expect(onOverflow).toHaveBeenCalledOnce();
   });
 
+  it("rejects identity bytes that exceed the session budget", () => {
+    const onOverflow = vi.fn();
+    const ledger = new RelayToolCallLedger({ onOverflow, maxBytes: 3 });
+
+    expect(ledger.tryAdmit(["\u00e9\u00e9"])).toBe(false);
+    expect(ledger.size).toBe(0);
+    expect(onOverflow).toHaveBeenCalledOnce();
+  });
+
   it("clears lifecycle facts without releasing the retained identity", () => {
     const ledger = new RelayToolCallLedger({ onOverflow: vi.fn(), maxEntries: 1 });
 
