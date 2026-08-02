@@ -116,6 +116,7 @@ export function patchChatSessionSettings(
   options: {
     agentId?: string;
     deferModelOverride?: boolean;
+    ownsModelOverride?: () => boolean;
     reconcile?: (result: SessionsPatchResult) => Promise<void> | void;
   } = {},
 ): Promise<SessionsPatchResult | null> {
@@ -127,6 +128,7 @@ export function patchChatSessionSettings(
     const result = await host.sessions.patch(sessionKey, patch, {
       agentId: options.agentId,
       deferModelOverride: options.deferModelOverride,
+      ownsModelOverride: options.ownsModelOverride,
       waitFor: previous,
     });
     if (result) {
@@ -168,6 +170,7 @@ export async function patchChatCommandSessionSettings(
   patch: SessionPatch,
   options: {
     deferModelOverride?: boolean;
+    ownsModelOverride?: () => boolean;
     reconcile?: (result: SessionsPatchResult) => Promise<void> | void;
   } = {},
 ): Promise<NonNullable<Awaited<ReturnType<SessionCapability["patch"]>>>> {

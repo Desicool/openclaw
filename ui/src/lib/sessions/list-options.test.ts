@@ -15,10 +15,12 @@ function sessionsResult(sessions: SessionsListResult["sessions"], ts: number): S
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((next) => {
+  let reject: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 function createSessions(client: GatewayBrowserClient, key: string) {
@@ -328,4 +330,44 @@ describe("session list replacement options", () => {
     expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
     sessions.dispose();
   });
+
+  it.each(["resolve", "reject"] as const)(
+    "does not %s an optimistic model patch into a replacement UI owner",
+    async (outcome) => {
+      const pendingPatch = deferred<unknown>();
+      const request = vi.fn(async (method: string) => {
+        if (method === "sessions.patch") {
+          return await pendingPatch.promise;
+        }
+        throw new Error(`Unexpected request: ${method}`);
+      });
+      const key = "global";
+      const sessions = createSessions({ request } as unknown as GatewayBrowserClient, key);
+      let ownsModelOverride = true;
+      sessions.setModelOverride(key, "openai/gpt-old");
+
+      const operation = sessions.patch(
+        key,
+        { model: "openai/gpt-agent-a" },
+        {
+          deferListRefresh: true,
+          ownsModelOverride: () => ownsModelOverride,
+        },
+      );
+      expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-agent-a");
+
+      ownsModelOverride = false;
+      sessions.setModelOverride(key, "openai/gpt-agent-b");
+      if (outcome === "resolve") {
+        pendingPatch.resolve({ ok: true, path: "", key, entry: {} });
+        await expect(operation).resolves.toMatchObject({ ok: true, key });
+      } else {
+        pendingPatch.reject(new Error("agent A patch failed"));
+        await expect(operation).rejects.toThrow("agent A patch failed");
+      }
+
+      expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-agent-b");
+      sessions.dispose();
+    },
+  );
 });

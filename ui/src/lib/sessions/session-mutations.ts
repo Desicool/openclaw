@@ -166,8 +166,9 @@ export function createSessionMutations(host: SessionMutationsHost) {
     let previousModelOverride: string | null | undefined;
     let modelPatchStarted = false;
     const modelPatchToken = Symbol();
+    const ownsModelOverride = () => options.ownsModelOverride?.() !== false;
     const startModelPatch = () => {
-      if (!managesModelOverride || modelPatchStarted) {
+      if (!managesModelOverride || modelPatchStarted || !ownsModelOverride()) {
         return;
       }
       const pendingModelPatch = pendingModelPatches.get(normalizedKey);
@@ -187,7 +188,9 @@ export function createSessionMutations(host: SessionMutationsHost) {
     const restoreModelOverride = () => {
       if (modelPatchStarted && pendingModelPatches.get(normalizedKey)?.token === modelPatchToken) {
         pendingModelPatches.delete(normalizedKey);
-        setModelOverride(key, previousModelOverride);
+        if (ownsModelOverride()) {
+          setModelOverride(key, previousModelOverride);
+        }
       }
     };
     try {
@@ -216,7 +219,9 @@ export function createSessionMutations(host: SessionMutationsHost) {
         pendingModelPatches.get(normalizedKey)?.token === modelPatchToken
       ) {
         pendingModelPatches.delete(normalizedKey);
-        setModelOverride(key, patchParams.model);
+        if (ownsModelOverride()) {
+          setModelOverride(key, patchParams.model);
+        }
       }
       return result;
     } catch (error) {

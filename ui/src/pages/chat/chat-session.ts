@@ -364,7 +364,10 @@ export async function switchChatModel(
   if (currentOverride === nextModel) {
     return true;
   }
-  const previousModelOverride = host.sessions.state.modelOverrides[targetSessionKey];
+  const modelOwnerAgentId = scopedAgentParamsForSession(host, targetSessionKey).agentId;
+  const ownsModelOverride = () =>
+    !isUiGlobalSessionKey(targetSessionKey) ||
+    scopedAgentParamsForSession(host, targetSessionKey).agentId === modelOwnerAgentId;
   setChatError(host, null, true);
   const switchPromiseRef: { current?: Promise<boolean> } = {};
   const clearPendingSwitch = () => {
@@ -384,6 +387,7 @@ export async function switchChatModel(
         },
         {
           ...scopedAgentParamsForSession(host, targetSessionKey),
+          ownsModelOverride,
           reconcile: async () => {
             await host.onModelChanged?.();
             await refreshCurrentChatSessionList(host);
@@ -395,8 +399,9 @@ export async function switchChatModel(
       }
       return true;
     } catch (err) {
-      host.sessions.setModelOverride(targetSessionKey, previousModelOverride);
-      setChatError(host, `Failed to set model: ${String(err)}`, true);
+      if (ownsModelOverride()) {
+        setChatError(host, `Failed to set model: ${String(err)}`, true);
+      }
       return false;
     } finally {
       clearPendingSwitch();
