@@ -72,11 +72,20 @@ function dispatchControlToolCall(
   peer?.channel.dispatchEvent(
     new MessageEvent("message", {
       data: JSON.stringify({
-        type: "response.function_call_arguments.done",
-        item_id: "item-control",
-        call_id: "call-control",
-        name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-        arguments: JSON.stringify(args),
+        type: "response.done",
+        response: {
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              status: "completed",
+              id: "item-control",
+              call_id: "call-control",
+              name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
+              arguments: JSON.stringify(args),
+            },
+          ],
+        },
       }),
     }),
   );
