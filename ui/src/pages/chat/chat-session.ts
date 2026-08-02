@@ -54,6 +54,25 @@ type ChatIdleSessionReconciliationHost = SessionScopeHost & {
   sessionsResult?: SessionsListResult | null;
 };
 
+export function retireChatModelSelectionOwnership(
+  host: Pick<
+    ChatModelSettingsHost,
+    "chatModelSwitchPromises" | "requestUpdate" | "sessionKey" | "sessions"
+  >,
+): void {
+  const hasPendingSwitch = Object.keys(host.chatModelSwitchPromises ?? {}).length > 0;
+  const hasModelOverride = Object.hasOwn(
+    host.sessions.state?.modelOverrides ?? {},
+    host.sessionKey,
+  );
+  if (!hasPendingSwitch && !hasModelOverride) {
+    return;
+  }
+  host.chatModelSwitchPromises = {};
+  host.sessions.setModelOverride(host.sessionKey, undefined);
+  host.requestUpdate?.();
+}
+
 function buildChatSessionListOptions(
   state: ChatSessionListHost,
   options: { offset?: number; append?: boolean; search?: string | null } = {},

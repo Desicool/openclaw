@@ -28,6 +28,7 @@ function createSessionCapability(client: GatewayBrowserClient): SessionCapabilit
     create: async () => null,
     patch: (key: string, patch: SessionPatch, options: SessionPatchOptions = {}) =>
       request("sessions.patch", { key, agentId: options.agentId, ...patch }),
+    setModelOverride: () => undefined,
     delete: async () => false,
     deleteMany: async () => ({ deleted: [], errors: [], preservedWorktrees: [] }),
     reset: async () => true,
@@ -176,6 +177,7 @@ describe("executeSlashCommand directives", () => {
       expect.objectContaining({
         agentId: "work",
         deferModelOverride: true,
+        ownsModelOverride: expect.any(Function),
       }),
     );
     expect(setModelOverride).toHaveBeenCalledWith("global", "openai/gpt-5-mini");

@@ -14,6 +14,7 @@ import { resolveSessionKey } from "../../lib/sessions/index.ts";
 import {
   buildAgentMainSessionKey,
   canonicalUiSessionKeyForPersistence,
+  isUiGlobalSessionKey,
   parseAgentSessionKey,
   resolveUiConfiguredMainKey,
   uiSessionEventMatches,
@@ -26,6 +27,7 @@ import { resolveAssistantAttachmentAuthToken } from "./chat-pane-state.ts";
 import { markQueuedChatSendsWaitingForReconnect } from "./chat-queue.ts";
 import { stopChatRealtimeTalk } from "./chat-realtime.ts";
 import { retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
+import { retireChatModelSelectionOwnership } from "./chat-session.ts";
 import {
   invalidateChatMetadataCache,
   refreshChatModelAuthStatus,
@@ -169,6 +171,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     }
     const previousMediaAuthToken = resolveAssistantAttachmentAuthToken(state);
     const wasConnected = state.connected;
+    const previousAssistantAgentId = state.assistantAgentId;
     const previousSidebarSessionKey = canonicalUiSessionKeyForPersistence(state, state.sessionKey);
     const connectionLifecycle = (this.gatewayConnectionLifecycle ??=
       createGatewayConnectionLifecycle({
@@ -215,6 +218,13 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       this.resetSessionPullRequests();
       this.resetOlderMessagesViewport();
       state.chatLoading = false;
+    }
+    if (
+      sourceChanged ||
+      (previousAssistantAgentId !== snapshot.assistantAgentId &&
+        isUiGlobalSessionKey(state.sessionKey))
+    ) {
+      retireChatModelSelectionOwnership(state);
     }
     state.client = snapshot.client;
     state.connected = snapshot.phase === "connected";

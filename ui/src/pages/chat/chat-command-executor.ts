@@ -316,6 +316,7 @@ async function executeModel(
       },
       {
         deferModelOverride: true,
+        ownsModelOverride: context.ownsModelOverride,
         reconcile: async (result) => {
           const resolvedModel = result.resolved?.model ?? requestedModel;
           let resolvedValue = resolvePreferredServerChatModelValue(

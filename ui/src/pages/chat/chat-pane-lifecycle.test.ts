@@ -920,6 +920,51 @@ describe("chat pane connection lifecycle", () => {
     expect(state.chatIsProgrammaticScroll).toBe(false);
   });
 
+  it("retires pending model selection state when the Gateway owner changes", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const setModelOverride = vi.fn();
+    const sessions = { setModelOverride } as unknown as SessionCapability;
+    const { pane, state } = createTestChatPane({ client, sessions });
+    state.sessionKey = "global";
+    state.chatModelSwitchPromises = {
+      global: new Promise<boolean>(() => {}),
+    };
+
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "reconnecting",
+      hello: null,
+    });
+
+    expect(state.chatModelSwitchPromises).toEqual({});
+    expect(setModelOverride).toHaveBeenCalledWith("global", undefined);
+  });
+
+  it("retires pending global model selection state when the selected agent changes", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const setModelOverride = vi.fn();
+    const sessions = { setModelOverride } as unknown as SessionCapability;
+    const { pane, state } = createTestChatPane({ client, sessions });
+    const snapshot = {
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "connected" as const,
+      assistantAgentId: "work",
+    };
+    pane.applyGatewaySnapshot(snapshot);
+    state.sessionKey = "global";
+    state.chatModelSwitchPromises = {
+      global: new Promise<boolean>(() => {}),
+    };
+    setModelOverride.mockClear();
+
+    pane.applyGatewaySnapshot({ ...snapshot, assistantAgentId: "main" });
+
+    expect(state.chatModelSwitchPromises).toEqual({});
+    expect(setModelOverride).toHaveBeenCalledWith("global", undefined);
+  });
+
   it("refreshes the transcript before secondary hydration after a same-client reconnect", () => {
     const request = vi.fn(() => new Promise<never>(() => {}));
     const client = {
