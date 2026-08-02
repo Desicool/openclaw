@@ -38,7 +38,7 @@ scenario:
     suiteIsolation: isolated
     timeoutMs: 180000
     retryCount: 0
-    summary: Run with `OPENCLAW_LIVE_OPENAI_KEY="${OPENAI_API_KEY}" pnpm openclaw qa suite --provider-mode live-frontier --model openai/gpt-5.4 --alt-model openai/gpt-5.4 --fast --scenario inbound-voice-talkback-live --concurrency 1`.
+    summary: Run with `OPENCLAW_LIVE_OPENAI_KEY="${OPENAI_API_KEY}" pnpm openclaw qa suite --provider-mode live-frontier --model openai/gpt-5.4-mini --alt-model openai/gpt-5.4-mini --fast --scenario inbound-voice-talkback-live --concurrency 1`.
     config:
       requiredProviderMode: live-frontier
       requiredProvider: openai
