@@ -145,7 +145,9 @@ export class GoogleLiveToolOwner {
         args: args ?? {},
         signal: abortController.signal,
         emitTalkEvent: this.options.emitTalkEvent,
-        submit: (toolCallId, result) => this.submitResult(toolCallId, result),
+        submit: (toolCallId, result) => {
+          this.submitResult(toolCallId, result);
+        },
       });
     } finally {
       this.finishExecution(callId, abortController);
@@ -183,7 +185,9 @@ export class GoogleLiveToolOwner {
         signal: abortController.signal,
         submitAbortResult: false,
         emitTalkEvent: this.options.emitTalkEvent,
-        submit: (toolCallId, result) => this.submitResult(toolCallId, result),
+        submit: (toolCallId, result) => {
+          this.submitResult(toolCallId, result);
+        },
       });
     } finally {
       this.finishExecution(callId, abortController);
