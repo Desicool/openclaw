@@ -33,6 +33,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 2,
         maxAttemptFailures: 3,
         attemptAbortAfterMs: 60_000,
+        failureRetentionMs: 60_000,
       },
       warn,
       attempt: async ({ voiceSessionId }) => {
@@ -94,6 +95,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 1,
         maxAttemptFailures: 3,
         attemptAbortAfterMs: 60_000,
+        failureRetentionMs: 60_000,
       },
       warn: vi.fn(),
       attempt: async () => {
@@ -123,6 +125,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 1,
         maxAttemptFailures: 3,
         attemptAbortAfterMs: 10,
+        failureRetentionMs: 60_000,
       },
       warn: vi.fn(),
       attempt: async ({ signal }) => {
@@ -166,6 +169,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 1,
         maxAttemptFailures: 3,
         attemptAbortAfterMs: 60_000,
+        failureRetentionMs: 60_000,
       },
       warn,
       attempt,
@@ -196,6 +200,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 1,
         maxAttemptFailures: 3,
         attemptAbortAfterMs: 60_000,
+        failureRetentionMs: 60_000,
       },
       warn,
       attempt: async ({ voiceSessionId }) => {
@@ -224,7 +229,7 @@ describe("client voice mutation digest owner", () => {
     expect(attempts.map((attempt) => attempt.id)).toEqual(["v1", "v2"]);
   });
 
-  it("drops a permanently failing intent after a bounded budget and releases capacity", async () => {
+  it("drops a permanently failing intent after bounded lifecycle retries", async () => {
     const warn = vi.fn();
     const attempts: string[] = [];
     const owner = new ClientVoiceMutationDigestOwner<number>({
@@ -234,6 +239,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 1,
         maxAttemptFailures: 2,
         attemptAbortAfterMs: 60_000,
+        failureRetentionMs: 60_000,
       },
       warn,
       attempt: async ({ agentId }) => {
@@ -246,6 +252,10 @@ describe("client voice mutation digest owner", () => {
     });
 
     owner.record({ agentId: "first", voiceSessionId: "v1", context: 1 });
+    await vi.waitFor(() =>
+      expect(owner.snapshot()).toMatchObject({ active: 0, pending: 0, retained: 1 }),
+    );
+    owner.retry({ agentId: "first", voiceSessionId: "v1" });
     await vi.waitFor(() => expect(owner.snapshot().retained).toBe(0));
 
     owner.record({ agentId: "second", voiceSessionId: "v2", context: 2 });
@@ -254,6 +264,44 @@ describe("client voice mutation digest owner", () => {
     expect(warn).toHaveBeenLastCalledWith(
       "voice mutation digest dropped after 2 failed attempts: permanent",
     );
+  });
+
+  it("expires a failed intent without self-retrying", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const warn = vi.fn();
+      const attempt = vi.fn(async () => {
+        throw new Error("offline");
+      });
+      const owner = new ClientVoiceMutationDigestOwner<number>({
+        policy: {
+          maxRetainedIntents: 1,
+          maxRetainedIdentityBytes: 64,
+          maxConcurrentAttempts: 1,
+          maxAttemptFailures: 3,
+          attemptAbortAfterMs: 60_000,
+          failureRetentionMs: 100,
+        },
+        warn,
+        attempt,
+      });
+
+      owner.record({ agentId: "a", voiceSessionId: "v1", context: 1 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempt).toHaveBeenCalledOnce();
+      expect(owner.snapshot()).toMatchObject({ active: 0, pending: 0, retained: 1 });
+
+      await vi.advanceTimersByTimeAsync(99);
+      expect(owner.snapshot().retained).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(owner.snapshot().retained).toBe(0);
+      expect(attempt).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenLastCalledWith(
+        "voice mutation digest dropped after retry retention expired (1 failed attempts)",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores settlement from an attempt owned by a cleared generation", async () => {
@@ -268,6 +316,7 @@ describe("client voice mutation digest owner", () => {
         maxConcurrentAttempts: 1,
         maxAttemptFailures: 3,
         attemptAbortAfterMs: 60_000,
+        failureRetentionMs: 60_000,
       },
       warn: vi.fn(),
       attempt: async ({ context }) => {

@@ -16,6 +16,7 @@ export const CLIENT_VOICE_MUTATION_DIGEST_POLICY = {
   maxConcurrentAttempts: 2,
   maxAttemptFailures: 3,
   attemptAbortAfterMs: 30_000,
+  failureRetentionMs: 5 * 60_000,
 } as const;
 
 function formatMutationDigest(effects: ClientVoiceToolEffect[]): string | undefined {
@@ -96,6 +97,8 @@ type MutationDigestIntent<TContext> = {
   context: TContext;
   identityBytes: number;
   failedAttempts: number;
+  failureExpiry?: ReturnType<typeof setTimeout>;
+  expireAfterActive?: boolean;
 };
 
 type MutationDigestAttempt<TContext> = {
@@ -110,6 +113,7 @@ type MutationDigestPolicy = {
   maxConcurrentAttempts: number;
   maxAttemptFailures: number;
   attemptAbortAfterMs: number;
+  failureRetentionMs: number;
 };
 
 export class ClientVoiceMutationDigestOwner<TContext> {
@@ -218,6 +222,11 @@ export class ClientVoiceMutationDigestOwner<TContext> {
     for (const attempt of this.activeAttempts.values()) {
       attempt.controller.abort(new Error("voice mutation digest delivery owner reset"));
     }
+    for (const intent of this.intents.values()) {
+      if (intent.failureExpiry) {
+        clearTimeout(intent.failureExpiry);
+      }
+    }
     this.generation += 1;
     this.intents.clear();
     this.pendingKeys.clear();
@@ -238,7 +247,30 @@ export class ClientVoiceMutationDigestOwner<TContext> {
     this.intents.delete(key);
     this.pendingKeys.delete(key);
     this.retryAfterActiveKeys.delete(key);
+    if (current.failureExpiry) {
+      clearTimeout(current.failureExpiry);
+    }
     this.retainedIdentityBytes -= current.identityBytes;
+  }
+
+  private retainAfterFailure(key: string, intent: MutationDigestIntent<TContext>): void {
+    if (intent.failureExpiry) {
+      return;
+    }
+    intent.failureExpiry = setTimeout(() => {
+      if (this.intents.get(key) !== intent) {
+        return;
+      }
+      if (this.activeAttempts.has(key)) {
+        intent.expireAfterActive = true;
+        return;
+      }
+      this.deleteIntent(key, intent);
+      this.options.warn(
+        `voice mutation digest dropped after retry retention expired (${intent.failedAttempts} failed attempts)`,
+      );
+    }, this.policy.failureRetentionMs);
+    intent.failureExpiry.unref?.();
   }
 
   private pump(): void {
@@ -296,7 +328,7 @@ export class ClientVoiceMutationDigestOwner<TContext> {
           return;
         }
         this.options.warn(message);
-        this.pendingKeys.add(key);
+        this.retainAfterFailure(key, intent);
       })
       .finally(() => {
         clearTimeout(timeout);
@@ -305,6 +337,14 @@ export class ClientVoiceMutationDigestOwner<TContext> {
         }
         if (this.activeAttempts.get(key) === attempt) {
           this.activeAttempts.delete(key);
+        }
+        if (intent.expireAfterActive && this.intents.get(key) === intent) {
+          this.deleteIntent(key, intent);
+          this.options.warn(
+            `voice mutation digest dropped after retry retention expired (${intent.failedAttempts} failed attempts)`,
+          );
+          this.pump();
+          return;
         }
         if (this.retryAfterActiveKeys.delete(key) && this.intents.has(key)) {
           this.pendingKeys.add(key);

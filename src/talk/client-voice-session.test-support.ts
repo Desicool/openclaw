@@ -9,6 +9,7 @@ type ClientVoiceSessionTestApi = {
     maxConcurrentAttempts: number;
     maxAttemptFailures: number;
     attemptAbortAfterMs: number;
+    failureRetentionMs: number;
   };
   digestDeliverySnapshot(): {
     active: number;

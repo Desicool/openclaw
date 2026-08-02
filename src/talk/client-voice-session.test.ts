@@ -409,7 +409,46 @@ describe("client voice session", () => {
     );
   });
 
-  it("keeps the session open when an accepted transcript fails during close", async () => {
+  it("rejects a concurrent close when an accepted transcript fails", async () => {
+    await seedSession("agent:main:main");
+    const voiceSessionId = createOrResumeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      origin: "client",
+      voiceSessionId: "voice-concurrent-close-failure",
+    });
+    const transcriptWrite = createDeferred();
+    const failure = new Error("transcript write failed");
+    sessionAccessorMocks.appendTranscriptMessage.mockImplementationOnce(async () => {
+      await transcriptWrite.promise;
+      throw failure;
+    });
+    const append = appendClientVoiceTranscript({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      entryId: "failed",
+      role: "user",
+      text: "persist me",
+    });
+    await vi.waitFor(() =>
+      expect(sessionAccessorMocks.appendTranscriptMessage).toHaveBeenCalledOnce(),
+    );
+    const close = closeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      config: {},
+      now: 42,
+    });
+
+    transcriptWrite.resolve();
+    await expect(append).rejects.toBe(failure);
+    await expect(close).rejects.toBe(failure);
+    expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.status).toBe("open");
+  });
+
+  it("keeps the session open when a failed transcript is retried after close", async () => {
     await seedSession("agent:main:main");
     const voiceSessionId = createOrResumeClientVoiceSession({
       agentId: "main",
@@ -1051,7 +1090,7 @@ describe("client voice session", () => {
     expect(sendDurableMessageBatch).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a deferred digest after run completion without waiting for another session", async () => {
+  it("retries a deferred digest on the next lifecycle trigger after run completion", async () => {
     await seedSession("agent:main:main", {
       channel: "discord",
       to: "channel:voice-updates",
@@ -1091,6 +1130,14 @@ describe("client voice session", () => {
     sendDurableMessageBatch.mockRejectedValueOnce(new Error("channel offline"));
     await completeRun("run-live");
     await vi.waitFor(() =>
+      expect(clientVoiceSessionTesting.digestDeliverySnapshot().active).toBe(0),
+    );
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+    ).toBeUndefined();
+
+    await closeStaleClientVoiceSessions({ agentId: "main", config: {} });
+    await vi.waitFor(() =>
       expect(
         clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
       ).toEqual(expect.any(Number)),
@@ -1119,17 +1166,23 @@ describe("client voice session", () => {
       config: {},
     });
     await vi.waitFor(() =>
-      expect(
-        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
-      ).toEqual(expect.any(Number)),
+      expect(clientVoiceSessionTesting.digestDeliverySnapshot().active).toBe(0),
     );
-    expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+    ).toBeUndefined();
+
     await closeClientVoiceSession({
       agentId: "main",
       sessionKey: "agent:main:main",
       voiceSessionId,
       config: {},
     });
+    await vi.waitFor(() =>
+      expect(
+        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+      ).toEqual(expect.any(Number)),
+    );
     expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
   });
 
