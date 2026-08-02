@@ -899,6 +899,27 @@ describe("chat pane connection lifecycle", () => {
     expect(state.chatLoading).toBe(true);
   });
 
+  it("cancels scroll work owned by the prior Gateway connection", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
+    const cancelCommit = vi.fn();
+    const initialScrollGeneration = state.chatScrollGeneration;
+    state.chatScrollCommitCleanup = cancelCommit;
+    state.chatIsProgrammaticScroll = true;
+
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "reconnecting",
+      hello: null,
+    });
+
+    expect(cancelCommit).toHaveBeenCalledOnce();
+    expect(state.chatScrollCommitCleanup).toBeNull();
+    expect(state.chatScrollGeneration).toBe(initialScrollGeneration + 1);
+    expect(state.chatIsProgrammaticScroll).toBe(false);
+  });
+
   it("refreshes the transcript before secondary hydration after a same-client reconnect", () => {
     const request = vi.fn(() => new Promise<never>(() => {}));
     const client = {

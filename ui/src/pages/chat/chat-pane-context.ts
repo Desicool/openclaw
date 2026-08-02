@@ -37,6 +37,7 @@ import {
   reconcileStaleChatRunAfterSessionStatePublication,
   replayPendingChatAbort,
 } from "./run-lifecycle.ts";
+import { cancelChatScroll } from "./scroll.ts";
 import { clearChatMessagesFromCache } from "./session-message-cache.ts";
 import { normalizeSidebarLayout } from "./sidebar-layout.ts";
 import { reconcileWaitingApprovalsFromSnapshot } from "./tool-stream.ts";
@@ -184,6 +185,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     }
     if (sourceChanged) {
       this.cancelHeaderRename();
+      cancelChatScroll(state);
       releaseChatMediaResourceSubscriber(state.requestUpdate);
       // A reconnect can retain the browser client. Keep async ownership tied
       // to the logical connection, not only the transport object identity.
