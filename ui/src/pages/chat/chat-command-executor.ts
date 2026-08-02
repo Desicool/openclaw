@@ -102,6 +102,7 @@ async function patchSession(
   context: SlashCommandContext,
   sessionKey: string,
   patch: Parameters<typeof patchChatCommandSessionSettings>[2],
+  options?: Parameters<typeof patchChatCommandSessionSettings>[3],
 ) {
   const params = {
     key: sessionKey,
@@ -112,7 +113,7 @@ async function patchSession(
     method: "sessions.patch",
     params,
   });
-  return await patchChatCommandSessionSettings(context, sessionKey, patch);
+  return await patchChatCommandSessionSettings(context, sessionKey, patch, options);
 }
 
 function normalizeVerboseLevel(raw?: string | null): "off" | "on" | "full" | undefined {
@@ -303,9 +304,14 @@ async function executeModel(
   try {
     const requestedModel = args.trim();
     const [patched, resolvedModelCatalog] = await Promise.all([
-      patchSession(context, sessionKey, {
-        model: requestedModel,
-      }),
+      patchSession(
+        context,
+        sessionKey,
+        {
+          model: requestedModel,
+        },
+        { deferModelOverride: true },
+      ),
       modelCatalog
         ? Promise.resolve(modelCatalog)
         : loadModelCatalog(client, { allowFailure: true }),

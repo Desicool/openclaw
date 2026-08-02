@@ -161,13 +161,14 @@ export function createSessionMutations(host: SessionMutationsHost) {
       return null;
     }
     const hasModelPatch = Object.hasOwn(patchParams, "model");
+    const managesModelOverride = hasModelPatch && options.deferModelOverride !== true;
     const normalizedKey = key.trim();
     const pendingModelPatch = pendingModelPatches.get(normalizedKey);
     const previousModelOverride = pendingModelPatch
       ? pendingModelPatch.previous
       : host.readState().modelOverrides[normalizedKey];
     const modelPatchToken = Symbol();
-    if (hasModelPatch) {
+    if (managesModelOverride) {
       pendingModelPatches.set(normalizedKey, {
         token: modelPatchToken,
         previous: previousModelOverride,
@@ -200,7 +201,10 @@ export function createSessionMutations(host: SessionMutationsHost) {
           return null;
         }
       }
-      if (pendingModelPatches.get(normalizedKey)?.token === modelPatchToken) {
+      if (
+        managesModelOverride &&
+        pendingModelPatches.get(normalizedKey)?.token === modelPatchToken
+      ) {
         pendingModelPatches.delete(normalizedKey);
         setModelOverride(key, patchParams.model);
       }

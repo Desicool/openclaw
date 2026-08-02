@@ -658,6 +658,39 @@ describe("createSessionCapability", () => {
     sessions.dispose();
   });
 
+  it("defers model override publication when the caller owns lifecycle validation", async () => {
+    const pendingPatch = deferred<unknown>();
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        return await pendingPatch.promise;
+      }
+      if (method === "sessions.subscribe") {
+        return { subscribed: true };
+      }
+      if (method === "sessions.list") {
+        return sessionsResult([], 2);
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const client = { request } as unknown as GatewayBrowserClient;
+    const { gateway } = createGatewayHarness(client);
+    const sessions = createSessionCapability(gateway);
+    const key = "global";
+    sessions.setModelOverride(key, "openai/gpt-old");
+
+    const operation = sessions.patch(
+      key,
+      { model: "openai/gpt-new" },
+      { deferListRefresh: true, deferModelOverride: true },
+    );
+
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    pendingPatch.resolve({ ok: true, path: "", key, entry: {} });
+    await expect(operation).resolves.toMatchObject({ ok: true, key });
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    sessions.dispose();
+  });
+
   it("does not dispatch a queued patch on a replacement connection", async () => {
     const priorPatch = deferred<void>();
     const request = vi.fn(async (method: string) => {

@@ -25,6 +25,8 @@ export type SessionPatch = {
 
 export type SessionPatchOptions = {
   agentId?: string;
+  /** Let a caller with stricter lifecycle ownership publish the resolved model value. */
+  deferModelOverride?: boolean;
   /** Capture the current connection now, but dispatch only after this tail settles. */
   waitFor?: Promise<unknown>;
   /**

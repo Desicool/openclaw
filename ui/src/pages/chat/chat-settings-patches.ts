@@ -115,6 +115,7 @@ export function patchChatSessionSettings(
   patch: Pick<SessionPatch, "model" | "thinkingLevel" | "fastMode" | "toolOverrides">,
   options: {
     agentId?: string;
+    deferModelOverride?: boolean;
     reconcile?: (result: SessionsPatchResult) => Promise<void> | void;
   } = {},
 ): Promise<SessionsPatchResult | null> {
@@ -125,6 +126,7 @@ export function patchChatSessionSettings(
     // redirect queued intent to a replacement Gateway.
     const result = await host.sessions.patch(sessionKey, patch, {
       agentId: options.agentId,
+      deferModelOverride: options.deferModelOverride,
       waitFor: previous,
     });
     if (result) {
@@ -164,6 +166,7 @@ export async function patchChatCommandSessionSettings(
   context: ChatCommandSettingsContext,
   sessionKey: string,
   patch: SessionPatch,
+  options: { deferModelOverride?: boolean } = {},
 ): Promise<NonNullable<Awaited<ReturnType<SessionCapability["patch"]>>>> {
   const result = await patchChatSessionSettings(
     {
@@ -174,7 +177,7 @@ export async function patchChatCommandSessionSettings(
     },
     sessionKey,
     patch,
-    selectedGlobalScope(sessionKey, context),
+    { ...selectedGlobalScope(sessionKey, context), ...options },
   );
   if (!result) {
     throw new Error("Session capability is unavailable");

@@ -5,6 +5,7 @@ import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import { t } from "../../i18n/index.ts";
 import type { SessionCapability, SessionPatch } from "../../lib/sessions/index.ts";
+import type { SessionPatchOptions } from "../../lib/sessions/patch.ts";
 import {
   createResolvedModelPatch,
   createModelCatalog,
@@ -25,8 +26,8 @@ function createSessionCapability(client: GatewayBrowserClient): SessionCapabilit
     list: (options = {}) => request("sessions.list", options),
     refresh: async () => undefined,
     create: async () => null,
-    patch: (key: string, patch: SessionPatch, options: { agentId?: string | null } = {}) =>
-      request("sessions.patch", { key, ...options, ...patch }),
+    patch: (key: string, patch: SessionPatch, options: SessionPatchOptions = {}) =>
+      request("sessions.patch", { key, agentId: options.agentId, ...patch }),
     delete: async () => false,
     deleteMany: async () => ({ deleted: [], errors: [], preservedWorktrees: [] }),
     reset: async () => true,
@@ -141,6 +142,36 @@ describe("executeSlashCommand directives", () => {
 
     expect(result.failed).toBe(true);
     expectNoRequestCall(request, "sessions.patch");
+  });
+
+  it("defers slash-command model cache publication to the captured chat owner", async () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const patch = vi.fn().mockResolvedValue(createResolvedModelPatch(OPENAI_GPT5_MINI_MODEL));
+    const sessions = {
+      ...createSessionCapability(client),
+      patch,
+    } as SessionCapability;
+
+    const result = await executeSlashCommandImpl(client, "global", "model", "gpt-5-mini", {
+      sessions,
+      sessionAccessSnapshot: {
+        client,
+        hello: null,
+        phase: "connected",
+      },
+      agentId: "work",
+      chatModelCatalog: createModelCatalog([OPENAI_GPT5_MINI_MODEL]),
+    });
+
+    expect(result.failed).not.toBe(true);
+    expect(patch).toHaveBeenCalledWith(
+      "global",
+      { model: "gpt-5-mini" },
+      expect.objectContaining({
+        agentId: "work",
+        deferModelOverride: true,
+      }),
+    );
   });
 
   it("does not patch through a replacement connection after loading session state", async () => {
