@@ -26,6 +26,7 @@ import { resolveSessionCreateParams } from "../../lib/sessions/create.ts";
 import { resolveSessionKey, scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
+  isUiGlobalSessionKey,
   resolveAgentIdFromSessionKey,
 } from "../../lib/sessions/session-key.ts";
 import { ensureBoardViewElement, ensureWorkboardCardChipElement } from "./board-session-surface.ts";
@@ -43,6 +44,7 @@ import {
   NEW_SESSION_CREATE_FAILED_MESSAGE,
   NEW_SESSION_LIST_LOADING_MESSAGE,
 } from "./chat-pane-shared.ts";
+import { retireChatModelSelectionOwnership } from "./chat-session.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import { createPageState } from "./chat-state-page.ts";
 import { invalidateChatMetadataCache, refreshPageChat } from "./chat-state-refresh.ts";
@@ -548,6 +550,22 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
     chatState.addCleanup(
       this.context.gateway.subscribe((snapshot) => {
         this.applyGatewaySnapshot(snapshot);
+      }),
+    );
+    chatState.addCleanup(
+      this.context.agentSelection.subscribe((selection) => {
+        const state = this.state;
+        const selectedAgentId = selection.selectedId ?? null;
+        if (
+          !state ||
+          !isUiGlobalSessionKey(state.sessionKey) ||
+          (state.assistantAgentId ?? null) === selectedAgentId
+        ) {
+          return;
+        }
+        retireChatModelSelectionOwnership(state);
+        state.assistantAgentId = selectedAgentId;
+        state.requestUpdate?.();
       }),
     );
     const sessionPullRequests = sessionPullRequestsForGateway(this.context.gateway);

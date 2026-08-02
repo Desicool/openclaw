@@ -922,8 +922,8 @@ describe("chat pane connection lifecycle", () => {
 
   it("retires pending model selection state when the Gateway owner changes", () => {
     const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
-    const setModelOverride = vi.fn();
-    const sessions = { setModelOverride } as unknown as SessionCapability;
+    const retireModelOverride = vi.fn();
+    const sessions = { retireModelOverride } as unknown as SessionCapability;
     const { pane, state } = createTestChatPane({ client, sessions });
     state.sessionKey = "global";
     state.chatModelSwitchPromises = {
@@ -938,13 +938,13 @@ describe("chat pane connection lifecycle", () => {
     });
 
     expect(state.chatModelSwitchPromises).toEqual({});
-    expect(setModelOverride).toHaveBeenCalledWith("global", undefined);
+    expect(retireModelOverride).toHaveBeenCalledWith("global");
   });
 
   it("retires pending global model selection state when the selected agent changes", () => {
     const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
-    const setModelOverride = vi.fn();
-    const sessions = { setModelOverride } as unknown as SessionCapability;
+    const retireModelOverride = vi.fn();
+    const sessions = { retireModelOverride } as unknown as SessionCapability;
     const { pane, state } = createTestChatPane({ client, sessions });
     const snapshot = {
       ...pane.context.gateway.snapshot,
@@ -957,12 +957,12 @@ describe("chat pane connection lifecycle", () => {
     state.chatModelSwitchPromises = {
       global: new Promise<boolean>(() => {}),
     };
-    setModelOverride.mockClear();
+    retireModelOverride.mockClear();
 
     pane.applyGatewaySnapshot({ ...snapshot, assistantAgentId: "main" });
 
     expect(state.chatModelSwitchPromises).toEqual({});
-    expect(setModelOverride).toHaveBeenCalledWith("global", undefined);
+    expect(retireModelOverride).toHaveBeenCalledWith("global");
   });
 
   it("refreshes the transcript before secondary hydration after a same-client reconnect", () => {

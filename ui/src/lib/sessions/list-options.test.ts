@@ -410,4 +410,46 @@ describe("session list replacement options", () => {
       sessions.dispose();
     },
   );
+
+  it("does not reuse a retired owner's model baseline for the next owner", async () => {
+    const agentAPatch = deferred<unknown>();
+    const agentBPatch = deferred<unknown>();
+    let patchCount = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        patchCount += 1;
+        return await (patchCount === 1 ? agentAPatch.promise : agentBPatch.promise);
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const key = "global";
+    const sessions = createSessions({ request } as unknown as GatewayBrowserClient, key);
+    sessions.setModelOverride(key, "openai/gpt-agent-a-old");
+
+    const agentAOperation = sessions.patch(
+      key,
+      { model: "openai/gpt-agent-a-new" },
+      { deferListRefresh: true },
+    );
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-agent-a-new");
+
+    sessions.retireModelOverride(key);
+    expect(sessions.state.modelOverrides[key]).toBeUndefined();
+
+    const agentBOperation = sessions.patch(
+      key,
+      { model: "openai/gpt-agent-b" },
+      { deferListRefresh: true },
+    );
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-agent-b");
+
+    agentBPatch.reject(new Error("agent B patch failed"));
+    await expect(agentBOperation).rejects.toThrow("agent B patch failed");
+    expect(sessions.state.modelOverrides[key]).toBeUndefined();
+
+    agentAPatch.resolve({ ok: true, path: "", key, entry: {} });
+    await expect(agentAOperation).resolves.toMatchObject({ ok: true, key });
+    expect(sessions.state.modelOverrides[key]).toBeUndefined();
+    sessions.dispose();
+  });
 });

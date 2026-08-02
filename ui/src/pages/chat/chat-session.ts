@@ -69,7 +69,7 @@ export function retireChatModelSelectionOwnership(
     return;
   }
   host.chatModelSwitchPromises = {};
-  host.sessions.setModelOverride(host.sessionKey, undefined);
+  host.sessions.retireModelOverride(host.sessionKey);
   host.requestUpdate?.();
 }
 

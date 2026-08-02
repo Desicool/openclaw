@@ -98,6 +98,15 @@ export function createSessionMutations(host: SessionMutationsHost) {
     }
   };
 
+  const retireModelOverride = (key: string) => {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      return;
+    }
+    pendingModelPatches.delete(normalizedKey);
+    setModelOverride(normalizedKey, undefined);
+  };
+
   const createResult = async (
     params: SessionCreateParams = {},
     options: { reconciliation?: SessionCreateReconciliation } = {},
@@ -344,6 +353,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
     patch,
     patchRowLocal,
     reset,
+    retireModelOverride,
     setModelOverride,
     isPreparedWorkSession: (key: string) => preparedWorkSessionKeys.has(key.trim()),
     settlePrepared(result: SessionsListResult | null) {
