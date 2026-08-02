@@ -64,6 +64,8 @@ const qaFlowImportLoaders: Record<string, QaFlowImportLoader> = {
     import("./live-transports/matrix/scenarios/scenario-runtime-edit.js"),
   "./live-transports/matrix/scenarios/scenario-runtime-media.js": () =>
     import("./live-transports/matrix/scenarios/scenario-runtime-media.js"),
+  "./live-transports/matrix/scenarios/scenario-media-fixtures.js": () =>
+    import("./live-transports/matrix/scenarios/scenario-media-fixtures.js"),
   "./live-transports/matrix/scenarios/scenario-runtime-policy.js": () =>
     import("./live-transports/matrix/scenarios/scenario-runtime-policy.js"),
   "./live-transports/matrix/scenarios/scenario-runtime-reaction.js": () =>
