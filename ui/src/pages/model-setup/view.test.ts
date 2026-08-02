@@ -159,7 +159,11 @@ function text(container: Element): string {
   return container.textContent?.replace(/\s+/gu, " ").trim() ?? "";
 }
 
-function wizardStep(step: WizardStep, value: unknown = step.initialValue): HTMLDivElement {
+function wizardStep(
+  step: WizardStep,
+  value: unknown = step.initialValue,
+  wizardMode: ModelSetupViewProps["wizardMode"] = "auth",
+): HTMLDivElement {
   return mount(
     props({
       wizard: {
@@ -169,6 +173,7 @@ function wizardStep(step: WizardStep, value: unknown = step.initialValue): HTMLD
         busy: false,
         validationError: null,
       },
+      wizardMode,
       wizardValue: value,
     }),
   );
@@ -1028,17 +1033,10 @@ describe("renderModelSetup", () => {
     expect(text(confirm)).toContain("Yes");
     expect(text(confirm)).toContain("No");
 
-    const prepareConfirm = mount(
-      props({
-        wizard: {
-          phase: "step",
-          authChoice: "llama-cpp",
-          step: { id: "confirm", type: "confirm", message: "Set up this model?" },
-          busy: false,
-          validationError: null,
-        },
-        wizardMode: "prepare",
-      }),
+    const prepareConfirm = wizardStep(
+      { id: "confirm", type: "confirm", message: "Set up this model?" },
+      undefined,
+      "prepare",
     );
     expect(text(prepareConfirm)).toContain("Continue");
     expect(text(prepareConfirm)).toContain("No");
