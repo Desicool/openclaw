@@ -434,6 +434,9 @@ describe("client voice session", () => {
     await vi.waitFor(() =>
       expect(sessionAccessorMocks.appendTranscriptMessage).toHaveBeenCalledOnce(),
     );
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toEqual([expect.any(String)]);
     const close = closeClientVoiceSession({
       agentId: "main",
       sessionKey: "agent:main:main",
@@ -1184,6 +1187,60 @@ describe("client voice session", () => {
       ).toEqual(expect.any(Number)),
     );
     expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a failed digest while a late consult owns the retry", async () => {
+    await seedSession("agent:main:main", {
+      channel: "discord",
+      to: "channel:voice-updates",
+    });
+    const voiceSessionId = createOrResumeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      origin: "client",
+    });
+    recordMutation(voiceSessionId);
+    await completeRun(`run-${voiceSessionId}`);
+    sendDurableMessageBatch.mockRejectedValueOnce(new Error("channel offline"));
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await closeClientVoiceSession({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        config: {},
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(clientVoiceSessionTesting.digestDeliverySnapshot()).toMatchObject({
+        active: 0,
+        pending: 0,
+        retained: 1,
+      });
+
+      registerClientVoiceConsultRun({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        runId: "late-run",
+        config: {},
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(
+        clientVoiceSessionTesting.digestDeliveryPolicy.failureRetentionMs + 1,
+      );
+      expect(clientVoiceSessionTesting.digestDeliverySnapshot().retained).toBe(1);
+
+      recordMutation(voiceSessionId, "late-run");
+      await completeRun("late-run");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+      ).toEqual(expect.any(Number));
+      expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("delivers one mutation digest and skips webchat or missing targets", async () => {

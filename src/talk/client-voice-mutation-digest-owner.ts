@@ -273,6 +273,15 @@ export class ClientVoiceMutationDigestOwner<TContext> {
     intent.failureExpiry.unref?.();
   }
 
+  private clearFailureState(intent: MutationDigestIntent<TContext>): void {
+    if (intent.failureExpiry) {
+      clearTimeout(intent.failureExpiry);
+      delete intent.failureExpiry;
+    }
+    delete intent.expireAfterActive;
+    intent.failedAttempts = 0;
+  }
+
   private pump(): void {
     while (
       this.activeAttempts.size < this.policy.maxConcurrentAttempts &&
@@ -312,6 +321,10 @@ export class ClientVoiceMutationDigestOwner<TContext> {
       .then((complete) => {
         if (complete) {
           this.deleteIntent(key, intent);
+        } else {
+          // A live consult is a legitimate defer, not a delivery failure. Its
+          // run-completion event owns the next retry and must not inherit expiry.
+          this.clearFailureState(intent);
         }
       })
       .catch((error: unknown) => {

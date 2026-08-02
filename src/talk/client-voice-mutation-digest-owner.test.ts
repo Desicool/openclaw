@@ -304,6 +304,49 @@ describe("client voice mutation digest owner", () => {
     }
   });
 
+  it("suspends failure expiry while a legitimate defer owns the retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let outcome: "fail" | "defer" | "succeed" = "fail";
+      const attempt = vi.fn(async () => {
+        if (outcome === "fail") {
+          throw new Error("offline");
+        }
+        return outcome === "succeed";
+      });
+      const owner = new ClientVoiceMutationDigestOwner<number>({
+        policy: {
+          maxRetainedIntents: 1,
+          maxRetainedIdentityBytes: 64,
+          maxConcurrentAttempts: 1,
+          maxAttemptFailures: 3,
+          attemptAbortAfterMs: 60_000,
+          failureRetentionMs: 100,
+        },
+        warn: vi.fn(),
+        attempt,
+      });
+
+      owner.record({ agentId: "a", voiceSessionId: "v1", context: 1 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(owner.snapshot()).toMatchObject({ active: 0, pending: 0, retained: 1 });
+
+      outcome = "defer";
+      owner.retry({ agentId: "a", voiceSessionId: "v1" });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(101);
+      expect(owner.snapshot()).toMatchObject({ active: 0, pending: 0, retained: 1 });
+
+      outcome = "succeed";
+      owner.retry({ agentId: "a", voiceSessionId: "v1" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(owner.snapshot().retained).toBe(0);
+      expect(attempt).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ignores settlement from an attempt owned by a cleared generation", async () => {
     const attempts: Array<{
       context: number;

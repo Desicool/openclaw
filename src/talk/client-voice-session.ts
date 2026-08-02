@@ -460,45 +460,41 @@ function appendVoiceTranscript(params: {
       }
       const observedAt = Date.now();
       const timestamp = normalized.timestamp ?? observedAt;
-      try {
-        await appendTranscriptMessage(
-          {
-            agentId: normalized.agentId,
-            sessionId: sessionEntry.sessionId,
-            sessionKey: normalized.sessionKey,
-          },
-          {
-            ...(normalized.config ? { config: normalized.config } : {}),
-            eventId: `voice:${normalized.voiceSessionId}:${normalized.entryId}`,
-            message: buildPersistedVoiceMessage({
-              role: normalized.role,
-              text: normalized.text,
-              timestamp,
-              provider: record.provider ?? "realtime",
-            }),
-            now: timestamp,
-          },
-        );
-      } catch (error) {
-        runOpenClawAgentWriteTransaction(
-          (database) => {
-            const current = readRecordInTransaction(database, normalized.voiceSessionId);
-            if (!current) {
-              throw new Error("voice session disappeared during transcript failure", {
-                cause: error,
-              });
-            }
-            assertOwnership(current, normalized);
-            if (!current.transcriptFailureKeys.includes(failureKey)) {
-              current.transcriptFailureKeys.push(failureKey);
-            }
-            current.updatedAt = Date.now();
-            writeRecordInTransaction(database, current);
-          },
-          { agentId: normalized.agentId },
-        );
-        throw error;
-      }
+      // Reserve before the fallible append. A crash can leave a conservative
+      // retry requirement, but can never let close skip an accepted entry.
+      runOpenClawAgentWriteTransaction(
+        (database) => {
+          const current = readRecordInTransaction(database, normalized.voiceSessionId);
+          if (!current) {
+            throw new Error("voice session disappeared during transcript reservation");
+          }
+          assertOwnership(current, normalized);
+          if (!current.transcriptFailureKeys.includes(failureKey)) {
+            current.transcriptFailureKeys.push(failureKey);
+          }
+          current.updatedAt = Date.now();
+          writeRecordInTransaction(database, current);
+        },
+        { agentId: normalized.agentId },
+      );
+      await appendTranscriptMessage(
+        {
+          agentId: normalized.agentId,
+          sessionId: sessionEntry.sessionId,
+          sessionKey: normalized.sessionKey,
+        },
+        {
+          ...(normalized.config ? { config: normalized.config } : {}),
+          eventId: `voice:${normalized.voiceSessionId}:${normalized.entryId}`,
+          message: buildPersistedVoiceMessage({
+            role: normalized.role,
+            text: normalized.text,
+            timestamp,
+            provider: record.provider ?? "realtime",
+          }),
+          now: timestamp,
+        },
+      );
       runOpenClawAgentWriteTransaction(
         (database) => {
           const current = readRecordInTransaction(database, normalized.voiceSessionId);
