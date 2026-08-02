@@ -4490,6 +4490,42 @@ describe("handleSendChat", () => {
     expect(host.sessions.state.modelOverrides[item.sessionKey]).toBeUndefined();
   });
 
+  it("does not apply a late global model result after the selected agent changes", async () => {
+    const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
+    executeSlashCommandMock.mockImplementationOnce(() => command.promise);
+
+    const item = createQueuedLocalCommand("switched-global-model-command", "/model gpt-5-mini", {
+      sessionKey: "global",
+    });
+    const host = makeHost({
+      requestHandlers: {
+        "chat.history": () => idleChatHistory(item.sessionKey),
+      },
+      assistantAgentId: "work",
+      agentsList: { defaultId: "main" },
+      chatQueue: [item],
+      sessionKey: item.sessionKey,
+    });
+    const setModelOverride = vi.spyOn(host.sessions, "setModelOverride");
+    expect(admitQueuedMessageForSession(host, item.sessionKey, item)).toBe(true);
+
+    const draining = retryReconnectableQueuedChatSends(host);
+    await waitForFast(() => expect(executeSlashCommandMock).toHaveBeenCalledTimes(1));
+
+    host.assistantAgentId = "main";
+    command.resolve({
+      action: "refresh",
+      content: "Model set to `gpt-5-mini`.",
+      sessionPatch: {
+        modelOverride: { kind: "qualified", value: "openai/gpt-5-mini" },
+      },
+    });
+    await draining;
+
+    expect(setModelOverride).not.toHaveBeenCalled();
+    expect(host.sessions.state.modelOverrides[item.sessionKey]).toBeUndefined();
+  });
+
   it("does not borrow a replacement connection error for a stale queued command", async () => {
     const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
     executeSlashCommandMock.mockImplementationOnce(() => command.promise);

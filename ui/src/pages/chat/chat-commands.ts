@@ -20,6 +20,7 @@ import {
 } from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
+  isUiGlobalSessionKey,
   resolveUiDefaultAgentId,
   type UiSessionDefaultsHost,
 } from "../../lib/sessions/session-key.ts";
@@ -134,6 +135,21 @@ function isChatCommandTargetCurrent(host: ChatCommandHost, target: ChatCommandTa
   return (
     isChatCommandConnectionCurrent(host, target) &&
     visibleSessionMatches(host, target.sessionKey, target.agentId)
+  );
+}
+
+function isChatCommandModelCacheOwnerCurrent(
+  host: ChatCommandHost,
+  target: ChatCommandTarget,
+): boolean {
+  if (!isChatCommandConnectionCurrent(host, target)) {
+    return false;
+  }
+  // The selected-agent global session shares one UI cache key across agents.
+  // Keep delayed results out when that selection changes on the same Gateway.
+  return (
+    !isUiGlobalSessionKey(target.sessionKey) ||
+    scopedAgentIdForSession(host, target.sessionKey) === target.agentId
   );
 }
 
@@ -461,7 +477,7 @@ export async function dispatchChatSlashCommand(
   if (result.sessionPatch && "modelOverride" in result.sessionPatch) {
     // A route switch on the same Gateway still owns the originating session's
     // cache. A replacement connection must not consume this late command result.
-    if (isChatCommandConnectionCurrent(host, target)) {
+    if (isChatCommandModelCacheOwnerCurrent(host, target)) {
       host.sessions.setModelOverride(
         target.sessionKey,
         result.sessionPatch.modelOverride?.value ?? null,
