@@ -556,11 +556,14 @@ export function registerSkillsCli(program: Command) {
     .command("skills")
     .description("List and inspect available skills")
     .option("--agent <id>", "Target agent workspace (defaults to cwd-inferred, then default agent)")
+    .option("--json", "Output as JSON", false)
     .addHelpText(
       "after",
       () =>
         `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/skills", "docs.openclaw.ai/cli/skills")}\n`,
     );
+  const hasJsonOutput = (opts?: { json?: boolean }): boolean =>
+    Boolean(opts?.json || skills.opts<{ json?: boolean }>().json);
   setCommandJsonMode(skills, "output", ({ argv }) => isSkillsMachineOutput(argv));
 
   skills
@@ -575,7 +578,7 @@ export function registerSkillsCli(program: Command) {
           query: normalizeOptionalString(queryParts.join(" ")),
           limit: opts.limit,
         });
-        if (opts.json) {
+        if (hasJsonOutput(opts)) {
           defaultRuntime.writeJson({ results });
           return;
         }
@@ -826,6 +829,7 @@ export function registerSkillsCli(program: Command) {
     .option("--version <version>", "Verify a specific version")
     .option("--tag <tag>", "Verify a dist tag")
     .option("--card", "Print the generated Skill Card Markdown", false)
+    .option("--json", "Output as JSON", false)
     .option(
       "--global",
       "Resolve installed skill metadata from the shared managed skills directory",
@@ -836,7 +840,14 @@ export function registerSkillsCli(program: Command) {
     .action(
       async (
         slug: string,
-        opts: { version?: string; tag?: string; card?: boolean; global?: boolean; agent?: string },
+        opts: {
+          version?: string;
+          tag?: string;
+          card?: boolean;
+          json?: boolean;
+          global?: boolean;
+          agent?: string;
+        },
         command: Command,
       ) => {
         let exitCode: number | undefined;
@@ -865,7 +876,7 @@ export function registerSkillsCli(program: Command) {
               tag: target.tag,
               baseUrl: target.baseUrl,
             });
-            if (opts.card) {
+            if (opts.card && !hasJsonOutput(opts)) {
               const cardUrl = readVerifiedSkillCardUrl(verification);
               if (!cardUrl.ok) {
                 defaultRuntime.error(cardUrl.error);
@@ -902,7 +913,7 @@ export function registerSkillsCli(program: Command) {
   const showCuratorStatus = async () => {
     try {
       const status = await loadSkillCuratorStatus();
-      if (curator.opts<{ json?: boolean }>().json) {
+      if (hasJsonOutput(curator.opts<{ json?: boolean }>())) {
         defaultRuntime.writeJson(status);
         return;
       }
@@ -926,7 +937,7 @@ export function registerSkillsCli(program: Command) {
       .action(async (skill: string) => {
         try {
           const result = await runSkillCuratorMutation(action, skill);
-          if (curator.opts<{ json?: boolean }>().json) {
+          if (hasJsonOutput(curator.opts<{ json?: boolean }>())) {
             defaultRuntime.writeJson(result);
             return;
           }
@@ -958,7 +969,7 @@ export function registerSkillsCli(program: Command) {
       try {
         const { agentId, workspaceDir } = resolveSkillsWorkspaceForCommand(workshop, opts);
         const manifest = await listSkillProposals({ agentId, workspaceDir });
-        if (opts.json) {
+        if (hasJsonOutput(opts)) {
           defaultRuntime.writeJson(manifest);
           return;
         }
@@ -983,7 +994,7 @@ export function registerSkillsCli(program: Command) {
           defaultRuntime.exit(1);
           return;
         }
-        if (opts.json) {
+        if (hasJsonOutput(opts)) {
           defaultRuntime.writeJson(proposal);
           return;
         }
@@ -1040,7 +1051,7 @@ export function registerSkillsCli(program: Command) {
             goal: opts.goal,
             evidence: opts.evidence,
           });
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(proposal);
             return;
           }
@@ -1098,7 +1109,7 @@ export function registerSkillsCli(program: Command) {
             goal: opts.goal,
             evidence: opts.evidence,
           });
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(proposal);
             return;
           }
@@ -1155,7 +1166,7 @@ export function registerSkillsCli(program: Command) {
             goal: opts.goal,
             evidence: opts.evidence,
           });
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(proposal);
             return;
           }
@@ -1188,7 +1199,7 @@ export function registerSkillsCli(program: Command) {
             proposalId,
             normalizeOptionalString(opts.correlationId),
           );
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(evaluated);
             return;
           }
@@ -1210,7 +1221,7 @@ export function registerSkillsCli(program: Command) {
         try {
           const resolved = resolveSkillsWorkspaceForCommand(command.parent, opts);
           const applied = await runSkillProposalApply(resolved, proposalId);
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(applied);
             return;
           }
@@ -1245,7 +1256,7 @@ export function registerSkillsCli(program: Command) {
             proposalId,
             reason: opts.reason,
           });
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(record);
             return;
           }
@@ -1278,7 +1289,7 @@ export function registerSkillsCli(program: Command) {
             proposalId,
             reason: opts.reason,
           });
-          if (opts.json) {
+          if (hasJsonOutput(opts)) {
             defaultRuntime.writeJson(record);
             return;
           }
@@ -1304,9 +1315,16 @@ export function registerSkillsCli(program: Command) {
         opts: { json?: boolean; eligible?: boolean; verbose?: boolean; agent?: string },
         command: Command,
       ) => {
-        await runSkillsAction((report) => formatSkillsList(report, opts), {
-          agentId: resolveAgentOption(command, opts),
-        });
+        await runSkillsAction(
+          (report) =>
+            formatSkillsList(report, {
+              ...opts,
+              json: hasJsonOutput(opts),
+            }),
+          {
+            agentId: resolveAgentOption(command, opts),
+          },
+        );
       },
     );
 
@@ -1317,9 +1335,16 @@ export function registerSkillsCli(program: Command) {
     .option("--json", "Output as JSON", false)
     .option("--agent <id>", "Target agent workspace (defaults to cwd-inferred, then default agent)")
     .action(async (name: string, opts: { json?: boolean; agent?: string }, command: Command) => {
-      await runSkillsAction((report) => formatSkillInfo(report, name, opts), {
-        agentId: resolveAgentOption(command, opts),
-      });
+      await runSkillsAction(
+        (report) =>
+          formatSkillInfo(report, name, {
+            ...opts,
+            json: hasJsonOutput(opts),
+          }),
+        {
+          agentId: resolveAgentOption(command, opts),
+        },
+      );
     });
 
   skills
@@ -1328,14 +1353,21 @@ export function registerSkillsCli(program: Command) {
     .option("--agent <id>", "Target agent workspace (defaults to cwd-inferred, then default agent)")
     .option("--json", "Output as JSON", false)
     .action(async (opts: { json?: boolean; agent?: string }, command: Command) => {
-      await runSkillsAction((report) => formatSkillsCheck(report, opts), {
-        agentId: resolveAgentOption(command, opts),
-      });
+      await runSkillsAction(
+        (report) =>
+          formatSkillsCheck(report, {
+            ...opts,
+            json: hasJsonOutput(opts),
+          }),
+        {
+          agentId: resolveAgentOption(command, opts),
+        },
+      );
     });
 
   // Default action (no subcommand) - show list
-  skills.action(async (opts: { agent?: string }, command: Command) => {
-    await runSkillsAction((report) => formatSkillsList(report, {}), {
+  skills.action(async (opts: { agent?: string; json?: boolean }, command: Command) => {
+    await runSkillsAction((report) => formatSkillsList(report, { json: hasJsonOutput(opts) }), {
       agentId: resolveAgentOption(command, opts),
     });
   });
