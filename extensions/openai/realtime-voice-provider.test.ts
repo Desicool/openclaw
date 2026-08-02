@@ -3,6 +3,7 @@ import { REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ } from "openclaw/plugin-sdk/rea
 import type {
   RealtimeVoiceBridge,
   RealtimeVoiceBridgeCreateRequest,
+  RealtimeVoiceBridgeEvent,
   RealtimeVoiceTool,
 } from "openclaw/plugin-sdk/realtime-voice";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1853,6 +1854,57 @@ describe("buildOpenAIRealtimeVoiceProvider", () => {
     bridge.close();
   });
 
+  it("does not report reconnect readiness after cancellation during provider setup", async () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    const onError = vi.fn();
+    const onEvent = vi.fn();
+    const bridge = createNativeBridge({ onClose, onError, onEvent });
+    const socket = await connectReadyBridge(bridge);
+
+    socket.readyState = FakeWebSocket.CLOSED;
+    socket.emit("close", 1006, Buffer.from("transient drop"));
+    await vi.advanceTimersByTimeAsync(1000);
+    const retrySocket = requireSocket(1);
+    openSocket(retrySocket);
+
+    bridge.close();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "session.reconnect.ready" }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledWith("completed");
+  });
+
+  it("lets cancellation win a queued reconnect startup error", async () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    const onError = vi.fn();
+    const bridge = createNativeBridge({ onClose, onError });
+    const socket = await connectReadyBridge(bridge);
+
+    socket.readyState = FakeWebSocket.CLOSED;
+    socket.emit("close", 1006, Buffer.from("transient drop"));
+    await vi.advanceTimersByTimeAsync(1000);
+    const retrySocket = requireSocket(1);
+    openSocket(retrySocket);
+    emitServerEvent(retrySocket, {
+      type: "error",
+      error: { message: "queued retry startup failure" },
+    });
+
+    bridge.close();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledWith("completed");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("ignores late events from a socket replaced by reconnect", async () => {
     vi.useFakeTimers();
     const onAudio = vi.fn();
@@ -3327,21 +3379,30 @@ describe("buildOpenAIRealtimeVoiceProvider", () => {
     expect(parseSent(socket).filter((event) => event.type === "response.create")).toHaveLength(1);
   });
 
-  it("rejects stale tool results and old-socket events after reconnect", async () => {
+  it("resets consumer tool ownership before a fresh reconnect can reuse a call id", async () => {
     vi.useFakeTimers();
+    const staleWork = new AbortController();
+    const onEvent = vi.fn((event: RealtimeVoiceBridgeEvent) => {
+      if (event.direction === "client" && event.type === "session.continuity.reset") {
+        staleWork.abort();
+      }
+    });
     const onToolCall = vi.fn();
-    const bridge = createNativeBridge({ onToolCall });
+    const bridge = createNativeBridge({ onEvent, onToolCall });
     const socket = await connectReadyBridge(bridge);
     emitCompletedToolCalls(socket, ["call_reused"]);
     expect(onToolCall).toHaveBeenCalledTimes(1);
 
     socket.emit("close", 1006, Buffer.from("transient drop"));
+    const lifecycleEvents = onEvent.mock.calls.map(([event]) => event.type);
+    expect(lifecycleEvents.indexOf("session.continuity.reset")).toBeLessThan(
+      lifecycleEvents.indexOf("session.reconnect.scheduled"),
+    );
     await vi.advanceTimersByTimeAsync(1000);
     const reconnectedSocket = requireSocket(1);
     openSocket(reconnectedSocket);
     emitSessionUpdated(reconnectedSocket);
 
-    void bridge.submitToolResult("call_reused", { text: "stale" });
     emitCompletedToolCalls(socket, ["call_from_old_socket"]);
     expect(
       parseSent(reconnectedSocket).filter((event) => event.type === "conversation.item.create"),
@@ -3349,16 +3410,21 @@ describe("buildOpenAIRealtimeVoiceProvider", () => {
     expect(onToolCall).toHaveBeenCalledTimes(1);
 
     emitCompletedToolCalls(reconnectedSocket, ["call_reused"]);
+    if (!staleWork.signal.aborted) {
+      void bridge.submitToolResult("call_reused", { text: "stale" });
+    }
     void bridge.submitToolResult("call_reused", { text: "fresh" });
 
     expect(onToolCall).toHaveBeenCalledTimes(2);
     expect(
-      parseSent(reconnectedSocket).filter(
-        (event) =>
-          event.type === "conversation.item.create" &&
-          (event.item as { call_id?: string } | undefined)?.call_id === "call_reused",
-      ),
-    ).toHaveLength(1);
+      parseSent(reconnectedSocket)
+        .filter(
+          (event) =>
+            event.type === "conversation.item.create" &&
+            (event.item as { call_id?: string } | undefined)?.call_id === "call_reused",
+        )
+        .map((event) => (event.item as { output?: string } | undefined)?.output),
+    ).toEqual([JSON.stringify({ text: "fresh" })]);
   });
 
   it("does not flush deferred response.create while a tool result is still continuing", async () => {

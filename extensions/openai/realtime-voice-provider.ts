@@ -1090,6 +1090,15 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
     }
     const attempt = retry.attempt;
     const delay = OpenAIRealtimeVoiceBridge.BASE_RECONNECT_DELAY_MS * 2 ** (attempt - 1);
+    if (attempt === 1) {
+      // OpenAI reconnects start a fresh provider generation. Reset consumers
+      // before backoff so stale async work cannot satisfy reused call ids.
+      this.resetRealtimeSessionState();
+      this.config.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
+    }
     this.config.onEvent?.({
       direction: "client",
       type: "session.reconnect.scheduled",
@@ -1109,13 +1118,16 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
     }
     try {
       await this.doConnect(nextConnection);
+      if (!this.lifecycle.isCurrent(nextConnection) || !this.lifecycle.isReady()) {
+        return;
+      }
       this.config.onEvent?.({
         direction: "client",
         type: "session.reconnect.ready",
         detail: `reason=${reason} attempt=${attempt}`,
       });
     } catch (error) {
-      if (!this.lifecycle.isCurrent(nextConnection)) {
+      if (!this.lifecycle.acceptsEvents(nextConnection)) {
         return;
       }
       this.config.onError?.(error instanceof Error ? error : new Error(String(error)));
