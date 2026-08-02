@@ -69,7 +69,7 @@ export function renderModelSetupWizard(props: WizardViewProps): TemplateResult |
                       value: props.value,
                       busy: props.state.busy,
                       inputId: WIZARD_TEXT_INPUT_ID,
-                      answerLabel:
+                      confirmAffirmativeLabel:
                         props.mode === "prepare" && props.state.step.type === "confirm"
                           ? t("modelSetup.wizard.continue")
                           : undefined,

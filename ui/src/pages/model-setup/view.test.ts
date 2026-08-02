@@ -1027,6 +1027,22 @@ describe("renderModelSetup", () => {
     const confirm = wizardStep({ id: "confirm", type: "confirm", message: "Continue?" });
     expect(text(confirm)).toContain("Yes");
     expect(text(confirm)).toContain("No");
+
+    const prepareConfirm = mount(
+      props({
+        wizard: {
+          phase: "step",
+          authChoice: "llama-cpp",
+          step: { id: "confirm", type: "confirm", message: "Set up this model?" },
+          busy: false,
+          validationError: null,
+        },
+        wizardMode: "prepare",
+      }),
+    );
+    expect(text(prepareConfirm)).toContain("Continue");
+    expect(text(prepareConfirm)).toContain("No");
+    expect(text(prepareConfirm)).not.toContain("Yes");
   });
 
   it.each(["multiselect", "action"] as const)("renders the %s wizard step", (type) => {
