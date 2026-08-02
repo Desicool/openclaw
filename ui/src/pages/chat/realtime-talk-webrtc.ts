@@ -496,7 +496,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
   }
 
   private handleCompletedResponse(event: RealtimeServerEvent): void {
-    const response = event.response;
+    const response: unknown = event.response;
     if (
       !isRecord(response) ||
       response.status !== "completed" ||
