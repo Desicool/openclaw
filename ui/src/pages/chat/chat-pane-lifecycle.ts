@@ -26,7 +26,6 @@ import { resolveSessionCreateParams } from "../../lib/sessions/create.ts";
 import { resolveSessionKey, scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
-  isUiSelectedGlobalSessionKey,
   resolveAgentIdFromSessionKey,
 } from "../../lib/sessions/session-key.ts";
 import { ensureBoardViewElement, ensureWorkboardCardChipElement } from "./board-session-surface.ts";
@@ -44,7 +43,7 @@ import {
   NEW_SESSION_CREATE_FAILED_MESSAGE,
   NEW_SESSION_LIST_LOADING_MESSAGE,
 } from "./chat-pane-shared.ts";
-import { retireChatModelSelectionOwnership } from "./chat-session.ts";
+import { applySelectedChatAgent } from "./chat-session.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import { createPageState } from "./chat-state-page.ts";
 import { invalidateChatMetadataCache, refreshPageChat } from "./chat-state-refresh.ts";
@@ -547,26 +546,11 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
     };
     this.addEventListener(WIDGET_PROMPT_EVENT, handleWidgetPrompt);
     chatState.addCleanup(() => this.removeEventListener(WIDGET_PROMPT_EVENT, handleWidgetPrompt));
+    chatState.addCleanup(this.context.gateway.subscribe((next) => this.applyGatewaySnapshot(next)));
     chatState.addCleanup(
-      this.context.gateway.subscribe((snapshot) => {
-        this.applyGatewaySnapshot(snapshot);
-      }),
-    );
-    chatState.addCleanup(
-      this.context.agentSelection.subscribe((selection) => {
-        const state = this.state;
-        const selectedAgentId = selection.selectedId ?? null;
-        if (
-          !state ||
-          !isUiSelectedGlobalSessionKey(state.sessionKey) ||
-          (state.assistantAgentId ?? null) === selectedAgentId
-        ) {
-          return;
-        }
-        retireChatModelSelectionOwnership(state);
-        state.assistantAgentId = selectedAgentId;
-        state.requestUpdate?.();
-      }),
+      this.context.agentSelection.subscribe((next) =>
+        applySelectedChatAgent(this.state, next.selectedId),
+      ),
     );
     const sessionPullRequests = sessionPullRequestsForGateway(this.context.gateway);
     chatState.addCleanup(

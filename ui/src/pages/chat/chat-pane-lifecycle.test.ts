@@ -14,6 +14,7 @@ import type { ApplicationContext } from "../../app/context.ts";
 import { createInitialUserMessageHandoff } from "../../app/initial-user-message-handoff.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import { createTestChatPane, type TestChatPane } from "./chat-pane.test-support.ts";
+import { applySelectedChatAgent } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import {
   dismissConfirmedActionPopovers,
@@ -945,23 +946,17 @@ describe("chat pane connection lifecycle", () => {
     const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
     const retireModelOverride = vi.fn();
     const sessions = { retireModelOverride } as unknown as SessionCapability;
-    const { pane, state } = createTestChatPane({ client, sessions });
-    const snapshot = {
-      ...pane.context.gateway.snapshot,
-      client,
-      phase: "connected" as const,
-      assistantAgentId: "work",
-    };
-    pane.applyGatewaySnapshot(snapshot);
+    const { state } = createTestChatPane({ client, sessions });
     state.sessionKey = "agent:work:main";
+    state.assistantAgentId = "work";
     state.chatModelSwitchPromises = {
       global: new Promise<boolean>(() => {}),
     };
-    retireModelOverride.mockClear();
 
-    pane.applyGatewaySnapshot({ ...snapshot, assistantAgentId: "main" });
+    applySelectedChatAgent(state, "main");
 
     expect(state.chatModelSwitchPromises).toEqual({});
+    expect(state.assistantAgentId).toBe("main");
     expect(retireModelOverride).toHaveBeenCalledWith("agent:work:main");
     expect(retireModelOverride).toHaveBeenCalledWith("global");
   });

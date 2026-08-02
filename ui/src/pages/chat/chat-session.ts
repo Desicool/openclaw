@@ -79,6 +79,30 @@ export function retireChatModelSelectionOwnership(
   host.requestUpdate?.();
 }
 
+export function applySelectedChatAgent(
+  host:
+    | (Pick<
+        ChatModelSettingsHost,
+        "chatModelSwitchPromises" | "requestUpdate" | "sessionKey" | "sessions"
+      > & {
+        assistantAgentId?: string | null;
+      })
+    | null
+    | undefined,
+  selectedAgentId: string | null,
+): void {
+  if (
+    !host ||
+    !isUiSelectedGlobalSessionKey(host.sessionKey) ||
+    (host.assistantAgentId ?? null) === selectedAgentId
+  ) {
+    return;
+  }
+  retireChatModelSelectionOwnership(host);
+  host.assistantAgentId = selectedAgentId;
+  host.requestUpdate?.();
+}
+
 function buildChatSessionListOptions(
   state: ChatSessionListHost,
   options: { offset?: number; append?: boolean; search?: string | null } = {},
