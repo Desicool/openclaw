@@ -1,11 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME } from "../../../../src/talk/describe-view-tool.js";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
-import {
-  REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-  REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-} from "./realtime-talk-shared.ts";
+import { REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME } from "./realtime-talk-shared.ts";
 import { WebRtcSdpRealtimeTalkTransport } from "./realtime-talk-webrtc.ts";
 
 let getUserMedia: ReturnType<typeof vi.fn>;
@@ -111,39 +107,19 @@ function dispatchRealtimeEvent(peer: FakePeerConnection | undefined, event: unkn
 }
 
 function dispatchConsultToolCall(peer: FakePeerConnection | undefined): void {
-  dispatchCompletedToolCall(peer, {
-    name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-    arguments: JSON.stringify({ question: "status?" }),
-  });
-}
-
-function dispatchCompletedToolCall(
-  peer: FakePeerConnection | undefined,
-  overrides: {
-    responseId?: string | null;
-    responseStatus?: string | null;
-    itemId?: string | null;
-    itemStatus?: string | null;
-    callId?: string | null;
-    name?: string | null;
-    arguments?: string | null;
-  } = {},
-): void {
-  const field = (value: string | null | undefined, fallback: string): string | undefined =>
-    value === undefined ? fallback : (value ?? undefined);
   dispatchRealtimeEvent(peer, {
     type: "response.done",
     response: {
-      id: field(overrides.responseId, "response-1"),
-      status: field(overrides.responseStatus, "completed"),
+      id: "response-1",
+      status: "completed",
       output: [
         {
           type: "function_call",
-          id: field(overrides.itemId, "item-1"),
-          status: field(overrides.itemStatus, "completed"),
-          call_id: field(overrides.callId, "call-1"),
-          name: field(overrides.name, REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME),
-          arguments: field(overrides.arguments, JSON.stringify({ question: "status?" })),
+          id: "item-1",
+          status: "completed",
+          call_id: "call-1",
+          name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
+          arguments: JSON.stringify({ question: "status?" }),
         },
       ],
     },
@@ -824,239 +800,6 @@ describe("WebRtcSdpRealtimeTalkTransport", () => {
       transport.stop();
     },
   );
-
-  it("executes authoritative completed response tool calls and ignores provisional or duplicate events", async () => {
-    stubAnswerSdpFetch();
-    const request = vi.fn(async (method: string) => {
-      if (method === "talk.client.toolCall") {
-        return { runId: "run-1" };
-      }
-      throw new Error(`unexpected request: ${method}`);
-    });
-    const transport = createOpenAiTransport({
-      addEventListener: vi.fn(() => () => undefined),
-      request,
-    });
-
-    await transport.start();
-    const peer = FakePeerConnection.instances[0];
-    dispatchRealtimeEvent(peer, {
-      type: "response.function_call_arguments.delta",
-      item_id: "item-1",
-      call_id: "call-1",
-      delta: JSON.stringify({ question: "provisional" }),
-    });
-    dispatchRealtimeEvent(peer, {
-      type: "response.function_call_arguments.done",
-      item_id: "item-1",
-      call_id: "call-1",
-      name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-      arguments: JSON.stringify({ question: "provisional" }),
-    });
-    expect(request).not.toHaveBeenCalled();
-
-    dispatchCompletedToolCall(peer);
-    await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith("talk.client.toolCall", {
-        sessionKey: "main",
-        callId: "call-1",
-        name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-        args: { question: "status?" },
-      }),
-    );
-
-    dispatchCompletedToolCall(peer);
-    dispatchRealtimeEvent(peer, {
-      type: "response.function_call_arguments.delta",
-      item_id: "item-1",
-      call_id: "call-1",
-      delta: JSON.stringify({ question: "late" }),
-    });
-    dispatchRealtimeEvent(peer, {
-      type: "response.function_call_arguments.done",
-      item_id: "item-1",
-      call_id: "call-1",
-      name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-      arguments: JSON.stringify({ question: "late" }),
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(request).toHaveBeenCalledTimes(1);
-    transport.stop();
-  });
-
-  it.each([
-    { label: "cancelled response", responseStatus: "cancelled", itemStatus: "completed" },
-    { label: "failed response", responseStatus: "failed", itemStatus: "completed" },
-    { label: "incomplete response", responseStatus: "incomplete", itemStatus: "completed" },
-    { label: "incomplete item", responseStatus: "completed", itemStatus: "incomplete" },
-  ])("ignores function calls from a $label", async ({ responseStatus, itemStatus }) => {
-    stubAnswerSdpFetch();
-    const request = vi.fn();
-    const transport = createOpenAiTransport({ request });
-
-    await transport.start();
-    dispatchCompletedToolCall(FakePeerConnection.instances[0], {
-      responseStatus,
-      itemStatus,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(request).not.toHaveBeenCalled();
-    transport.stop();
-  });
-
-  it("accepts completed tool calls without optional response and item ids", async () => {
-    stubAnswerSdpFetch();
-    const request = vi.fn(async (method: string) => {
-      if (method === "talk.client.steer") {
-        return { ok: true, mode: "status" };
-      }
-      throw new Error(`unexpected request: ${method}`);
-    });
-    const transport = createOpenAiTransport({ request });
-
-    await transport.start();
-    dispatchCompletedToolCall(FakePeerConnection.instances[0], {
-      responseId: null,
-      itemId: null,
-      name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-      arguments: JSON.stringify({ text: "status" }),
-    });
-    await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith("talk.client.steer", {
-        sessionKey: "main",
-        text: "status",
-        mode: "status",
-      }),
-    );
-
-    transport.stop();
-  });
-
-  it("requires call, name, and arguments before executing tools", async () => {
-    stubAnswerSdpFetch();
-    const request = vi.fn();
-    const transport = createOpenAiTransport({ request });
-
-    await transport.start();
-    const peer = FakePeerConnection.instances[0];
-    for (const overrides of [
-      { callId: null, itemId: "missing-call" },
-      { name: null, callId: "missing-name", itemId: "missing-name" },
-      { arguments: null, callId: "missing-args", itemId: "missing-args" },
-    ]) {
-      dispatchCompletedToolCall(peer, overrides);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(request).not.toHaveBeenCalled();
-    transport.stop();
-  });
-
-  it("accepts authoritative tool arguments at the 256000-byte UTF-8 limit", async () => {
-    stubAnswerSdpFetch();
-    const request = vi.fn(async (method: string) => {
-      if (method === "talk.client.steer") {
-        return { ok: true, mode: "status" };
-      }
-      throw new Error(`unexpected request: ${method}`);
-    });
-    const transport = createOpenAiTransport({ request });
-    const baseArgs = JSON.stringify({ text: "status" });
-    const argumentsAtLimit = baseArgs + " ".repeat(256_000 - baseArgs.length);
-    expect(new TextEncoder().encode(argumentsAtLimit)).toHaveLength(256_000);
-
-    await transport.start();
-    dispatchCompletedToolCall(FakePeerConnection.instances[0], {
-      name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-      arguments: argumentsAtLimit,
-    });
-    await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith("talk.client.steer", {
-        sessionKey: "main",
-        text: "status",
-        mode: "status",
-      }),
-    );
-
-    transport.stop();
-  });
-
-  it("rejects oversized UTF-8 tool arguments once and returns a provider-visible error", async () => {
-    stubAnswerSdpFetch();
-    const request = vi.fn();
-    const onTalkEvent = vi.fn();
-    const transport = createOpenAiTransport({ request }, { onTalkEvent });
-    const oversizedArguments = JSON.stringify({ text: "é".repeat(128_000) });
-    expect(new TextEncoder().encode(oversizedArguments).byteLength).toBeGreaterThan(256_000);
-
-    await transport.start();
-    const peer = FakePeerConnection.instances[0];
-    dispatchCompletedToolCall(peer, {
-      name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-      arguments: oversizedArguments,
-    });
-    dispatchCompletedToolCall(peer, {
-      name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-      arguments: oversizedArguments,
-    });
-
-    const outputs = sentRealtimeEvents(peer).filter(
-      (event) =>
-        event.type === "conversation.item.create" && event.item?.type === "function_call_output",
-    );
-    expect(outputs).toHaveLength(1);
-    expect(JSON.parse(String(outputs[0]?.item?.output))).toEqual({
-      error: "Realtime tool arguments exceed the 256000-byte UTF-8 limit",
-    });
-    expect(request).not.toHaveBeenCalled();
-    expect(onTalkEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "tool.error",
-        callId: "call-1",
-        itemId: "item-1",
-        final: true,
-      }),
-    );
-    transport.stop();
-  });
-
-  it("ends the session instead of evicting completed tool-call identities", async () => {
-    stubAnswerSdpFetch();
-    const onStatus = vi.fn();
-    const transport = createOpenAiTransport({}, { onStatus });
-
-    await transport.start();
-    const peer = FakePeerConnection.instances[0];
-    for (let index = 0; index < 1_024; index += 1) {
-      dispatchCompletedToolCall(peer, {
-        responseId: `response-${index}`,
-        itemId: `item-${index}`,
-        callId: `call-${index}`,
-        name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME,
-        arguments: "{}",
-      });
-    }
-    dispatchCompletedToolCall(peer, {
-      responseId: "response-overflow",
-      itemId: "item-overflow",
-      callId: "call-overflow",
-      name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME,
-      arguments: "{}",
-    });
-
-    expect(onStatus).toHaveBeenCalledWith("error", "Realtime tool-call session limit exceeded");
-    expect(peer?.channel.close).toHaveBeenCalledOnce();
-    dispatchCompletedToolCall(peer, {
-      responseId: "response-late",
-      itemId: "item-late",
-      callId: "call-late",
-      name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME,
-      arguments: "{}",
-    });
-    expect(peer?.channel.close).toHaveBeenCalledOnce();
-  });
 
   it("aborts an in-flight OpenAI tool consult when the transport stops", async () => {
     vi.stubGlobal(

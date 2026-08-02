@@ -375,12 +375,12 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
       case "response.audio_transcript.done":
       case "response.output_audio_transcript.done":
         this.emitAssistantTranscript(event, true);
-        return;
+        break;
       case "response.function_call_arguments.delta":
       case "response.function_call_arguments.done":
         // Tool argument events are provisional and can also arrive for interrupted
         // responses. Only the completed response owns executable calls.
-        return;
+        break;
       case "input_audio_buffer.speech_started":
         this.ctx.callbacks.onStatus?.("listening", "Speech detected");
         this.emitTalkEvent({ type: "turn.started", payload: { source: event.type } });
