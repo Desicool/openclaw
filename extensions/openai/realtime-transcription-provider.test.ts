@@ -856,6 +856,78 @@ describe("buildOpenAIRealtimeTranscriptionProvider", () => {
     session.close();
   });
 
+  it("tombstones terminal outcomes received before their commit", async () => {
+    const errors: string[] = [];
+    const partials: string[] = [];
+    const transcripts: string[] = [];
+    const provider = buildOpenAIRealtimeTranscriptionProvider();
+    const session = provider.createSession({
+      providerConfig: { apiKey: "sk-test" }, // pragma: allowlist secret
+      onError: (error) => errors.push(error.message),
+      onPartial: (partial) => partials.push(partial),
+      onTranscript: (transcript) => transcripts.push(transcript),
+    });
+    const socket = await connectFakeSession(session);
+
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-completed",
+      transcript: "first",
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-completed",
+      transcript: "duplicate",
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item-completed",
+      delta: "late partial",
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.failed",
+      item_id: "item-completed",
+      error: { message: "late failure" },
+    });
+    emitJson(socket, {
+      type: "input_audio_buffer.committed",
+      item_id: "item-completed",
+      previous_item_id: null,
+    });
+
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.failed",
+      item_id: "item-failed",
+      error: { message: "first failure" },
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-failed",
+      transcript: "late completion",
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item-failed",
+      delta: "late partial",
+    });
+    emitJson(socket, {
+      type: "conversation.item.input_audio_transcription.failed",
+      item_id: "item-failed",
+      error: { message: "duplicate failure" },
+    });
+    emitJson(socket, {
+      type: "input_audio_buffer.committed",
+      item_id: "item-failed",
+      previous_item_id: null,
+    });
+
+    expect(transcripts).toEqual(["first"]);
+    expect(errors).toEqual(["first failure"]);
+    expect(partials).toEqual([]);
+    expect(session.isConnected()).toBe(true);
+    session.close();
+  });
+
   it("keeps the first failed terminal outcome when completion arrives late", async () => {
     const errors: string[] = [];
     const transcripts: string[] = [];
