@@ -942,24 +942,31 @@ describe("chat pane connection lifecycle", () => {
     expect(retireModelOverride).toHaveBeenCalledWith("global");
   });
 
-  it("retires pending global model selection state when the selected agent changes", () => {
-    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
-    const retireModelOverride = vi.fn();
-    const sessions = { retireModelOverride } as unknown as SessionCapability;
-    const { state } = createTestChatPane({ client, sessions });
-    state.sessionKey = "agent:work:main";
-    state.assistantAgentId = "work";
-    state.chatModelSwitchPromises = {
-      global: new Promise<boolean>(() => {}),
-    };
+  it.each([
+    { sessionKey: "agent:work:main", mainKey: "main" },
+    { sessionKey: "agent:work:home", mainKey: "home" },
+  ])(
+    "retires pending global model selection state when the selected agent changes for $sessionKey",
+    ({ sessionKey, mainKey }) => {
+      const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+      const retireModelOverride = vi.fn();
+      const sessions = { retireModelOverride } as unknown as SessionCapability;
+      const { state } = createTestChatPane({ client, sessions });
+      state.sessionKey = sessionKey;
+      state.agentsList = { defaultId: "main", mainKey, agents: [] };
+      state.assistantAgentId = "work";
+      state.chatModelSwitchPromises = {
+        global: new Promise<boolean>(() => {}),
+      };
 
-    applySelectedChatAgent(state, "main");
+      applySelectedChatAgent(state, "main");
 
-    expect(state.chatModelSwitchPromises).toEqual({});
-    expect(state.assistantAgentId).toBe("main");
-    expect(retireModelOverride).toHaveBeenCalledWith("agent:work:main");
-    expect(retireModelOverride).toHaveBeenCalledWith("global");
-  });
+      expect(state.chatModelSwitchPromises).toEqual({});
+      expect(state.assistantAgentId).toBe("main");
+      expect(retireModelOverride).toHaveBeenCalledWith(sessionKey);
+      expect(retireModelOverride).toHaveBeenCalledWith("global");
+    },
+  );
 
   it("refreshes the transcript before secondary hydration after a same-client reconnect", () => {
     const request = vi.fn(() => new Promise<never>(() => {}));

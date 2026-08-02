@@ -64,7 +64,7 @@ export function retireChatModelSelectionOwnership(
 ): void {
   const pendingKeys = Object.keys(host.chatModelSwitchPromises ?? {});
   const ownedKeys = new Set([host.sessionKey, ...pendingKeys]);
-  if (isUiSelectedGlobalSessionKey(host.sessionKey)) {
+  if (isUiSelectedGlobalSessionKey(host, host.sessionKey)) {
     ownedKeys.add("global");
   }
   const hasPendingSwitch = pendingKeys.length > 0;
@@ -94,7 +94,7 @@ export function applySelectedChatAgent(
 ): void {
   if (
     !host ||
-    !isUiSelectedGlobalSessionKey(host.sessionKey) ||
+    !isUiSelectedGlobalSessionKey(host, host.sessionKey) ||
     (host.assistantAgentId ?? null) === selectedAgentId
   ) {
     return;
@@ -416,7 +416,7 @@ export async function switchChatModel(
   }
   const modelOwnerAgentId = scopedAgentParamsForSession(host, targetSessionKey).agentId;
   const ownsModelOverride = () =>
-    !isUiSelectedGlobalSessionKey(targetSessionKey) ||
+    !isUiSelectedGlobalSessionKey(host, targetSessionKey) ||
     resolveUiSelectedGlobalAgentId(host) === modelOwnerAgentId;
   setChatError(host, null, true);
   const switchPromiseRef: { current?: Promise<boolean> } = {};

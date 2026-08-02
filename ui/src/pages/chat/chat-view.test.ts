@@ -6031,9 +6031,13 @@ describe("chat model controls", () => {
     expect(host.chatThinkingLevel).toBe("high");
   });
 
-  it.each(["global", "agent:work:main"])(
-    "does not report a failed selected-global model switch after the selected agent changes for %s",
-    async (sessionKey) => {
+  it.each([
+    { sessionKey: "global", mainKey: "main" },
+    { sessionKey: "agent:work:main", mainKey: "main" },
+    { sessionKey: "agent:work:home", mainKey: "home" },
+  ])(
+    "does not report a failed selected-global model switch after the selected agent changes for $sessionKey",
+    async ({ sessionKey, mainKey }) => {
       const modelPatch = createDeferred<unknown>();
       const modelOverrides: Record<string, string | null> = {
         [sessionKey]: "openai/gpt-agent-a-old",
@@ -6059,7 +6063,7 @@ describe("chat model controls", () => {
       };
       const host = {
         assistantAgentId: "work",
-        agentsList: { defaultId: "main", scope: "global" },
+        agentsList: { defaultId: "main", mainKey, scope: "global" },
         client: {},
         connected: true,
         sessionKey,

@@ -149,7 +149,7 @@ function isChatCommandModelCacheOwnerCurrent(
   // The selected-agent global session shares one UI cache key across agents.
   // Keep delayed results out when that selection changes on the same Gateway.
   return (
-    !isUiSelectedGlobalSessionKey(target.sessionKey) ||
+    !isUiSelectedGlobalSessionKey(host, target.sessionKey) ||
     resolveUiSelectedGlobalAgentId(host) === target.agentId
   );
 }

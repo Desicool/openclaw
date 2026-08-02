@@ -4560,9 +4560,13 @@ describe("handleSendChat", () => {
     expect(host.sessions.state.modelOverrides[item.sessionKey]).toBeUndefined();
   });
 
-  it.each(["global", "agent:work:main"])(
-    "does not apply a late selected-global model result after the selected agent changes for %s",
-    async (sessionKey) => {
+  it.each([
+    { sessionKey: "global", mainKey: "main" },
+    { sessionKey: "agent:work:main", mainKey: "main" },
+    { sessionKey: "agent:work:home", mainKey: "home" },
+  ])(
+    "does not apply a late selected-global model result after the selected agent changes for $sessionKey",
+    async ({ sessionKey, mainKey }) => {
       const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
       executeSlashCommandMock.mockImplementationOnce(() => command.promise);
 
@@ -4574,7 +4578,7 @@ describe("handleSendChat", () => {
           "chat.history": () => idleChatHistory(item.sessionKey),
         },
         assistantAgentId: "work",
-        agentsList: { defaultId: "main" },
+        agentsList: { defaultId: "main", mainKey },
         chatQueue: [item],
         sessionKey: item.sessionKey,
       });

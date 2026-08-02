@@ -159,7 +159,7 @@ function shouldApplyChatHistoryResult(
   return (
     ownsChatHistoryRequest(state, ownership) &&
     state.sessionKey === ownership.sessionKey &&
-    (!isUiSelectedGlobalSessionKey(ownership.sessionKey) ||
+    (!isUiSelectedGlobalSessionKey(state, ownership.sessionKey) ||
       resolveUiSelectedSessionAgentId(state) === ownership.agentId)
   );
 }
@@ -656,7 +656,7 @@ function chatScopedEventAgentScopeMatches(
   sessionKey: string,
   agentId?: string | null,
 ): boolean {
-  if (!isUiSelectedGlobalSessionKey(state.sessionKey) || !isUiGlobalSessionKey(sessionKey)) {
+  if (!isUiSelectedGlobalSessionKey(state, state.sessionKey) || !isUiGlobalSessionKey(sessionKey)) {
     return true;
   }
   const payloadAgentId =
@@ -677,7 +677,7 @@ export function chatScopedEventSessionMatches(
   }
   return (
     isUiGlobalSessionKey(sessionKey) &&
-    isUiSelectedGlobalSessionKey(state.sessionKey) &&
+    isUiSelectedGlobalSessionKey(state, state.sessionKey) &&
     chatScopedEventAgentScopeMatches(state, sessionKey, agentId)
   );
 }
@@ -1424,7 +1424,7 @@ export async function loadChatHistory(
     return undefined;
   }
   const sessionKey = state.sessionKey;
-  const requestAgentId = isUiSelectedGlobalSessionKey(sessionKey)
+  const requestAgentId = isUiSelectedGlobalSessionKey(state, sessionKey)
     ? resolveUiSelectedSessionAgentId(state)
     : undefined;
   const startupAdvertised = isGatewayMethodAdvertised(state, "chat.startup");
@@ -1481,7 +1481,7 @@ export async function loadOlderChatHistoryPage(
   }
   const client = state.client;
   const sessionKey = state.sessionKey;
-  const requestAgentId = isUiSelectedGlobalSessionKey(sessionKey)
+  const requestAgentId = isUiSelectedGlobalSessionKey(state, sessionKey)
     ? resolveUiSelectedSessionAgentId(state)
     : undefined;
   const ownership = beginChatHistoryRequest(

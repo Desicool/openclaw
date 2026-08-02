@@ -92,7 +92,7 @@ async function loadPageAssistantIdentity(
     }
     if (
       state.assistantAgentId !== (identity.agentId ?? null) &&
-      isUiSelectedGlobalSessionKey(state.sessionKey)
+      isUiSelectedGlobalSessionKey(state, state.sessionKey)
     ) {
       retireChatModelSelectionOwnership(state);
     }

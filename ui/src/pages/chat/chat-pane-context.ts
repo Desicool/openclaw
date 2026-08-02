@@ -222,7 +222,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     if (
       sourceChanged ||
       (previousAssistantAgentId !== snapshot.assistantAgentId &&
-        isUiSelectedGlobalSessionKey(state.sessionKey))
+        isUiSelectedGlobalSessionKey(state, state.sessionKey))
     ) {
       retireChatModelSelectionOwnership(state);
     }
