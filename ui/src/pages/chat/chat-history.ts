@@ -1142,6 +1142,32 @@ function clearCachedChatMessagesForSession(
   clearChatMessagesFromCache(state.chatMessagesBySession, state, { sessionKey, agentId });
 }
 
+function clearPostResetBranchPrecondition(
+  state: ClearChatHistoryState,
+  target: {
+    client: NonNullable<ClearChatHistoryState["client"]>;
+    connectionEpoch: number;
+    sessionKey: string;
+    agentId?: string;
+  },
+  history: ChatHistoryResult | undefined,
+) {
+  if (
+    !history ||
+    !Object.hasOwn(history.sessionInfo ?? {}, "activeLeafEntryId") ||
+    history.sessionInfo?.activeLeafEntryId !== null ||
+    state.client !== target.client ||
+    state.connectionEpoch !== target.connectionEpoch ||
+    !state.connected ||
+    !visibleSessionMatches(state, target.sessionKey, target.agentId)
+  ) {
+    return;
+  }
+  // Reset can leave old branch metadata visible after the transcript becomes
+  // empty. The first post-reset send must establish the new branch itself.
+  delete state.chatDisplayedLeafEntryId;
+}
+
 export async function clearChatHistory(
   state: ClearChatHistoryState,
 ): Promise<ClearChatHistoryResult> {
@@ -1181,7 +1207,13 @@ export async function clearChatHistory(
         // ambiguous reset may already have destroyed. Clearing first also
         // prevents history loading from preserving a pre-reset optimistic tail.
         resetChatHistoryProjection(state, agentParams.agentId);
-        historyRefreshed = Boolean(await loadChatHistory(state));
+        const history = await loadChatHistory(state);
+        historyRefreshed = Boolean(history);
+        clearPostResetBranchPrecondition(
+          state,
+          { client, connectionEpoch, sessionKey, agentId: agentParams.agentId },
+          history,
+        );
       }
       setChatError(
         state,
@@ -1215,7 +1247,12 @@ export async function clearChatHistory(
     clearToolStream: true,
     clearRunStatus: !hadActiveRun,
   });
-  await loadChatHistory(state);
+  const history = await loadChatHistory(state);
+  clearPostResetBranchPrecondition(
+    state,
+    { client, connectionEpoch, sessionKey, agentId: agentParams.agentId },
+    history,
+  );
   scheduleChatScroll(state);
   return "completed";
 }

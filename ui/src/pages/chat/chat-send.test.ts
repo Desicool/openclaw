@@ -7076,9 +7076,18 @@ describe("handleSendChat", () => {
     const host = makeHost({
       requestHandlers: {
         "sessions.reset": { ok: true },
-        "chat.history": { messages: [], thinkingLevel: null },
+        "chat.history": {
+          messages: [],
+          thinkingLevel: null,
+          sessionInfo: { activeLeafEntryId: null },
+        },
+        "chat.send": (params: unknown) => {
+          const payload = requireRecord(params, "post-clear send payload");
+          return { runId: payload.idempotencyKey, status: "started" };
+        },
       },
       sessionKey: "main",
+      chatDisplayedLeafEntryId: "leaf-before-clear",
       chatMessage: "/clear",
       chatMessages: [{ role: "user", content: "hello", timestamp: 1 }],
       chatRunError: { summary: "Error: previous run failed" },
@@ -7091,6 +7100,100 @@ describe("handleSendChat", () => {
     expect(host.chatRunError).toBeNull();
     expect(host.chatRunId).toBeNull();
     expect(host.chatStream).toBeNull();
+    expect(host.chatDisplayedLeafEntryId).toBeUndefined();
+
+    host.chatMessage = "after clear";
+    await handleSendChat(host);
+
+    expect(
+      findRequestPayload(host.request as unknown as MockCallSource, "chat.send", "post-clear send"),
+    ).not.toHaveProperty("expectedLeafEntryId");
+  });
+
+  it("preserves the replacement route leaf when post-clear history resolves late", async () => {
+    const history = createDeferred<unknown>();
+    const sourceSessionKey = "agent:main:source";
+    const replacementSessionKey = "agent:main:replacement";
+    const host = makeHost({
+      requestHandlers: {
+        "sessions.reset": { ok: true },
+        "chat.history": () => history.promise,
+      },
+      sessionKey: sourceSessionKey,
+      chatDisplayedLeafEntryId: "source-leaf",
+      chatMessage: "/clear",
+      chatMessages: [{ role: "user", content: "source history" }],
+    });
+
+    const clearing = handleSendChat(host);
+    await waitForFast(() =>
+      expect(host.request).toHaveBeenCalledWith("chat.history", {
+        sessionKey: sourceSessionKey,
+        limit: 100,
+      }),
+    );
+    host.sessionKey = replacementSessionKey;
+    host.chatDisplayedLeafEntryId = "replacement-leaf";
+    history.resolve({
+      messages: [],
+      sessionInfo: { activeLeafEntryId: null },
+      thinkingLevel: null,
+    });
+    await clearing;
+
+    expect(host.chatDisplayedLeafEntryId).toBe("replacement-leaf");
+  });
+
+  it("preserves the replacement connection leaf when post-clear history resolves late", async () => {
+    const history = createDeferred<unknown>();
+    const host = makeHost({
+      requestHandlers: {
+        "sessions.reset": { ok: true },
+        "chat.history": () => history.promise,
+      },
+      connectionEpoch: 1,
+      chatDisplayedLeafEntryId: "source-leaf",
+      chatMessage: "/clear",
+      chatMessages: [{ role: "user", content: "source history" }],
+    });
+
+    const clearing = handleSendChat(host);
+    await waitForFast(() =>
+      expect(host.request).toHaveBeenCalledWith("chat.history", {
+        sessionKey: "agent:main",
+        limit: 100,
+      }),
+    );
+    host.client = clientWithRequest(makeRequestMock());
+    host.connectionEpoch = 2;
+    host.chatDisplayedLeafEntryId = "replacement-leaf";
+    history.resolve({
+      messages: [],
+      sessionInfo: { activeLeafEntryId: null },
+      thinkingLevel: null,
+    });
+    await clearing;
+
+    expect(host.chatDisplayedLeafEntryId).toBe("replacement-leaf");
+  });
+
+  it("keeps the prior branch precondition when post-clear history cannot verify reset state", async () => {
+    const host = makeHost({
+      requestHandlers: {
+        "sessions.reset": { ok: true },
+        "chat.history": () => {
+          throw new Error("history unavailable");
+        },
+      },
+      chatDisplayedLeafEntryId: "leaf-before-clear",
+      chatMessage: "/clear",
+      chatMessages: [{ role: "user", content: "source history" }],
+    });
+
+    await handleSendChat(host);
+
+    expect(host.chatDisplayedLeafEntryId).toBe("leaf-before-clear");
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(1);
   });
 
   it("scopes /clear resets for selected-agent global sessions", async () => {
