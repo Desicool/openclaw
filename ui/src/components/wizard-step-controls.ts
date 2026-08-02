@@ -263,7 +263,7 @@ function renderConfirmStep(props: WizardStepControlsProps) {
           ?disabled=${props.busy}
           @click=${() => props.onAnswer(answer)}
         >
-          ${t(answer ? "common.yes" : "common.no")}
+          ${answer ? (props.answerLabel ?? t("common.yes")) : t("common.no")}
         </button>`,
       )}
     </div>

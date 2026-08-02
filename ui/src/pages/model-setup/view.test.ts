@@ -85,9 +85,9 @@ const detected: SystemAgentSetupDetectResult = {
     {
       id: "llama-cpp",
       brandId: "llama-cpp",
-      label: "Local model (llama.cpp)",
-      hint: "Download and run a private GGUF model",
-      actionLabel: "Review download",
+      label: "llama.cpp",
+      hint: "Run one private GGUF model directly inside this Gateway",
+      actionLabel: "Set up model",
     },
   ],
   recommendedInstalls: [
@@ -502,7 +502,7 @@ describe("renderModelSetup", () => {
       '[data-prepare-choice="llama-cpp"] button',
     );
     expect(ollama?.textContent).toContain("Choose connection");
-    expect(llamaCpp?.textContent).toContain("Review download");
+    expect(llamaCpp?.textContent).toContain("Set up model");
     expect(
       container.querySelector<HTMLButtonElement>('[data-prepare-choice="lmstudio"] button')
         ?.textContent,
