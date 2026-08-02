@@ -6,7 +6,7 @@ import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { scopedAgentIdForSession, visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { generateUUID } from "../../lib/uuid.ts";
 import { discardChatAttachmentDataUrls } from "./attachment-payload-store.ts";
-import { readChatResetTargetAccess, type ChatCommandResetOptions } from "./chat-commands.ts";
+import { readChatResetTargetAccess } from "./chat-commands.ts";
 import { loadChatBranches, loadChatHistory, type ChatState } from "./chat-history.ts";
 import {
   flushStoredChatOutbox,
@@ -20,17 +20,17 @@ import {
   type QueuedChatStorageMode,
 } from "./chat-outbox-drain.ts";
 import {
-  admitQueuedMessageForSession,
   excludeComposerAttachments,
   readQueuedMessageById,
   removeQueuedMessageWithoutReleasing,
   updateQueuedMessageForSession,
 } from "./chat-queue.ts";
+import { createResetSlashCommandSender } from "./chat-reset-delivery.ts";
 import { isTerminalFailureChatSendAck } from "./chat-send-ack.ts";
 import { cancelChatDelivery, canRestoreComposer, restoreComposer } from "./chat-send-composer.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
 import {
-  enqueuePendingSendMessage,
+  deliveryStateWriter,
   finishScopedChatSending,
   reconnectSafeQueuedSendState,
   setChatError,
@@ -62,20 +62,6 @@ import { resetChatScroll, scheduleChatScroll } from "./scroll.ts";
 import { formatTerminalChatSendAckError, OFFLINE_QUEUE_STORAGE_ERROR } from "./steer-lifecycle.ts";
 import { resetToolStream } from "./tool-stream.ts";
 import { buildUserChatMessageContentBlocks } from "./user-message-content.ts";
-
-function deliveryStateWriter(
-  host: ChatHost,
-  storageMode: QueuedChatStorageMode,
-  sessionKey: string,
-  id: string,
-) {
-  return (sendState: ChatQueueItem["sendState"], sendError?: string) =>
-    updateQueuedSendItem(host, storageMode, sessionKey, id, (item) => ({
-      ...item,
-      sendError,
-      sendState,
-    }));
-}
 
 async function settleDeliverySettings(
   host: ChatHost,
@@ -701,33 +687,7 @@ export async function deliverChatQueueItem(
   return result;
 }
 
-async function sendResetSlashCommand(
-  host: ChatHost,
-  message: string,
-  options: ChatCommandResetOptions,
-): Promise<void> {
-  const item = enqueuePendingSendMessage(
-    host,
-    message,
-    undefined,
-    true,
-    undefined,
-    reconnectSafeQueuedSendState(host),
-  );
-  if (!item || !admitQueuedMessageForSession(host, host.sessionKey, item)) {
-    if (item) {
-      cancelChatDelivery(host, item, { previousDraft: options.previousDraft });
-    }
-    setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
-    return;
-  }
-  await deliverChatQueueItem(host, item, {
-    previousDraft: options.previousDraft,
-    restoreDraft: options.restoreDraft,
-    routingSessionKey: host.sessionKey,
-    target: options.target,
-  });
-}
+const sendResetSlashCommand = createResetSlashCommandSender(deliverChatQueueItem);
 
 export const chatOutboxDrainDependencies: ChatOutboxDrainDependencies = {
   sendQueuedChatMessage,

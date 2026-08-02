@@ -86,6 +86,20 @@ export function updateQueuedSendItem(
     : updateQueuedMessageForSession(host, sessionKey, id, update);
 }
 
+export function deliveryStateWriter(
+  host: ChatHost,
+  storageMode: QueuedChatStorageMode,
+  sessionKey: string,
+  id: string,
+) {
+  return (sendState: ChatQueueItem["sendState"], sendError?: string) =>
+    updateQueuedSendItem(host, storageMode, sessionKey, id, (item) => ({
+      ...item,
+      sendError,
+      sendState,
+    }));
+}
+
 export function canSendVolatileQueueItem(
   host: ChatHost,
   item: ChatQueueItem,
