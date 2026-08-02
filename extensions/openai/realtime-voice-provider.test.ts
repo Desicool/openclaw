@@ -157,6 +157,7 @@ type SentRealtimeEvent = {
   event_id?: string;
   audio?: string;
   item_id?: string;
+  item?: unknown;
   content_index?: number;
   audio_end_ms?: number;
   session?: {
@@ -188,7 +189,6 @@ type SentRealtimeEvent = {
         voice?: string;
       };
     };
-    item?: unknown;
   };
 };
 
