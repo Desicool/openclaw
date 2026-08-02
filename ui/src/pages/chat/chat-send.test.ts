@@ -4378,6 +4378,8 @@ describe("handleSendChat", () => {
       connectionEpoch: 1,
       confirmConversationReset: vi.fn(async () => await confirmation.promise),
       hello: {
+        type: "hello-ok",
+        protocol: 4,
         auth: { role: "operator", scopes: ["operator.admin"] },
         features: { methods: ["chat.send"] },
       },

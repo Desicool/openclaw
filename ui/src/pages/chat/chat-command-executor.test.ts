@@ -92,6 +92,16 @@ function row(key: string, overrides?: Partial<GatewaySessionRow>): GatewaySessio
   };
 }
 
+function createSessionsResult(sessions: GatewaySessionRow[]): SessionsListResult {
+  return {
+    ts: 0,
+    path: "",
+    count: sessions.length,
+    defaults: { modelProvider: null, model: null, contextTokens: null },
+    sessions,
+  };
+}
+
 function requireRequestCall(
   request: ReturnType<typeof vi.fn>,
   method: string,
@@ -154,13 +164,13 @@ describe("executeSlashCommand directives", () => {
       isCurrent: () => current,
     });
     current = false;
-    resolveList?.({
-      sessions: [
+    resolveList?.(
+      createSessionsResult([
         row("agent:main:main", {
           thinkingOptions: ["off", "low", "high"],
         }),
-      ],
-    });
+      ]),
+    );
 
     const result = await pending;
     expect(result.failed).toBe(true);
@@ -182,7 +192,7 @@ describe("executeSlashCommand directives", () => {
       throw new Error(`unexpected method: ${method}`);
     });
     const client = { request } as unknown as GatewayBrowserClient;
-    let snapshot = {
+    let snapshot: Pick<ApplicationGatewaySnapshot, "client" | "hello" | "phase"> = {
       client,
       phase: "connected" as const,
       hello: {
@@ -197,13 +207,13 @@ describe("executeSlashCommand directives", () => {
       isCurrent: () => true,
     });
     snapshot = restrictedSnapshot(client, ["sessions.patch"]);
-    resolveList?.({
-      sessions: [
+    resolveList?.(
+      createSessionsResult([
         row("agent:main:main", {
           thinkingOptions: ["off", "low", "high"],
         }),
-      ],
-    });
+      ]),
+    );
 
     const result = await pending;
     expect(result.failed).toBe(true);
