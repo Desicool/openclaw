@@ -1109,6 +1109,13 @@ type ClearChatHistoryState = ChatState &
 
 type ClearChatHistoryResult = "completed" | "failed" | "uncertain";
 
+type ClearChatViewOwner = {
+  client: ClearChatHistoryState["client"];
+  connectionEpoch: number;
+  sessionKey: string;
+  agentId?: string;
+};
+
 type RewindChatHistoryState = ChatState &
   Parameters<typeof scheduleChatScroll>[0] & {
     handleChatDraftChange: (next: string) => void;
@@ -1140,6 +1147,14 @@ function clearCachedChatMessagesForSession(
     return;
   }
   clearChatMessagesFromCache(state.chatMessagesBySession, state, { sessionKey, agentId });
+}
+
+function ownsClearChatView(state: ClearChatHistoryState, owner: ClearChatViewOwner): boolean {
+  return (
+    state.client === owner.client &&
+    state.connectionEpoch === owner.connectionEpoch &&
+    visibleSessionMatches(state, owner.sessionKey, owner.agentId)
+  );
 }
 
 function clearPostResetBranchPrecondition(
@@ -1178,6 +1193,12 @@ export async function clearChatHistory(
   const connectionEpoch = state.connectionEpoch;
   const sessionKey = state.sessionKey;
   const agentParams = scopedAgentParamsForSession(state, sessionKey);
+  const originalViewOwner: ClearChatViewOwner = {
+    client,
+    connectionEpoch,
+    sessionKey,
+    agentId: agentParams.agentId,
+  };
   const runId = state.chatRunId;
   const hadActiveRun = hasAbortableChatSessionRun(state);
   try {
@@ -1197,6 +1218,12 @@ export async function clearChatHistory(
       state.connectionEpoch !== connectionEpoch ||
       !state.connected
     ) {
+      const feedbackOwner: ClearChatViewOwner = {
+        client: state.client,
+        connectionEpoch: state.connectionEpoch,
+        sessionKey,
+        agentId: agentParams.agentId,
+      };
       let historyRefreshed = false;
       if (
         state.client &&
@@ -1215,20 +1242,24 @@ export async function clearChatHistory(
           history,
         );
       }
-      setChatError(
-        state,
-        historyRefreshed
-          ? "The clear request may have completed. Current history was refreshed; review it before resuming queued messages."
-          : "The clear request may have completed. Cached history was cleared, but current history could not be refreshed; reconnect and review it before resuming queued messages.",
-      );
-      scheduleChatScroll(state);
+      if (ownsClearChatView(state, feedbackOwner)) {
+        setChatError(
+          state,
+          historyRefreshed
+            ? "The clear request may have completed. Current history was refreshed; review it before resuming queued messages."
+            : "The clear request may have completed. Cached history was cleared, but current history could not be refreshed; reconnect and review it before resuming queued messages.",
+        );
+        scheduleChatScroll(state);
+      }
       // sessions.reset is not idempotent. Treat an uncertain completion as
       // consumed so a durable /clear row cannot erase newer history on retry.
       return "uncertain";
     }
   } catch (err) {
-    setChatError(state, String(err));
-    scheduleChatScroll(state);
+    if (ownsClearChatView(state, originalViewOwner)) {
+      setChatError(state, String(err));
+      scheduleChatScroll(state);
+    }
     return "failed";
   }
   if (!visibleSessionMatches(state, sessionKey, agentParams.agentId)) {
@@ -1253,7 +1284,9 @@ export async function clearChatHistory(
     { client, connectionEpoch, sessionKey, agentId: agentParams.agentId },
     history,
   );
-  scheduleChatScroll(state);
+  if (ownsClearChatView(state, originalViewOwner)) {
+    scheduleChatScroll(state);
+  }
   return "completed";
 }
 

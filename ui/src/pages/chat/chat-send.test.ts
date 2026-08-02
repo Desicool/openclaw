@@ -7318,7 +7318,7 @@ describe("handleSendChat", () => {
     expect(listStoredChatOutboxes(host)).toStrictEqual([]);
   });
 
-  it("invalidates the captured session cache when a rejected clear switches routes", async () => {
+  it("invalidates the captured session cache without replacing the visible route error", async () => {
     const reset = createDeferred<unknown>();
 
     const sourceSessionKey = "agent:main:source";
@@ -7348,6 +7348,8 @@ describe("handleSendChat", () => {
     host.sessionKey = visibleSessionKey;
     syncVisibleChatQueueProjection(host);
     host.chatMessages = [{ role: "user", content: "visible history" }];
+    host.lastError = "Visible session error";
+    host.chatError = "Visible session error";
     reset.reject(new Error("post-commit lifecycle failed"));
     await clearing;
 
@@ -7358,8 +7360,8 @@ describe("handleSendChat", () => {
       }),
     ).toEqual([{ role: "user", content: "cached visible history" }]);
     expect(host.chatMessages).toEqual([{ role: "user", content: "visible history" }]);
-    expect(host.lastError).toContain("clear request may have completed");
-    expect(host.lastError).toContain("could not be refreshed");
+    expect(host.lastError).toBe("Visible session error");
+    expect(host.chatError).toBe("Visible session error");
     expect(listStoredChatOutboxes(host)).toStrictEqual([]);
   });
 
@@ -7411,6 +7413,55 @@ describe("handleSendChat", () => {
       replacementRequest.mock.calls.filter(([method]) => method === "sessions.reset"),
     ).toHaveLength(0);
   });
+
+  it.each(["route", "connection"] as const)(
+    "does not apply uncertain clear feedback after a %s change during history refresh",
+    async (change) => {
+      const reset = createDeferred<unknown>();
+      const history = createDeferred<unknown>();
+      const sourceSessionKey = "agent:main:source";
+      const replacementRequest = makeRequestMock({
+        "chat.history": () => history.promise,
+      });
+      const host = makeHost({
+        requestHandlers: {
+          "sessions.reset": () => reset.promise,
+        },
+        connectionEpoch: 1,
+        chatMessage: "/clear",
+        chatMessages: [{ role: "user", content: "source history" }],
+        sessionKey: sourceSessionKey,
+      });
+
+      const clearing = handleSendChat(host);
+      await waitForFast(() =>
+        expect(host.request).toHaveBeenCalledWith("sessions.reset", { key: sourceSessionKey }),
+      );
+      host.client = clientWithRequest(replacementRequest);
+      host.connectionEpoch = 2;
+      reset.resolve({ ok: true });
+      await waitForFast(() =>
+        expect(replacementRequest).toHaveBeenCalledWith("chat.history", {
+          sessionKey: sourceSessionKey,
+          limit: 100,
+        }),
+      );
+
+      if (change === "route") {
+        host.sessionKey = "agent:main:replacement";
+      } else {
+        host.client = clientWithRequest(makeRequestMock());
+        host.connectionEpoch = 3;
+      }
+      host.lastError = "Replacement session error";
+      host.chatError = "Replacement session error";
+      history.resolve({ messages: [], thinkingLevel: null });
+      await clearing;
+
+      expect(host.lastError).toBe("Replacement session error");
+      expect(host.chatError).toBe("Replacement session error");
+    },
+  );
 
   it("clears a canonically equivalent alias that becomes visible while reset is pending", async () => {
     const reset = createDeferred<unknown>();
