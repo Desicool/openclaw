@@ -4378,7 +4378,7 @@ describe("handleSendChat", () => {
       connectionEpoch: 1,
       confirmConversationReset: vi.fn(async () => await confirmation.promise),
       hello: {
-        auth: { role: "operator", scopes: ["operator.write"] },
+        auth: { role: "operator", scopes: ["operator.admin"] },
         features: { methods: ["chat.send"] },
       },
     });

@@ -257,6 +257,7 @@ describe("refreshSlashCommands", () => {
 describe("conversation reset confirmation", () => {
   it.each([
     ["stop", "chat.abort"],
+    ["reset", "chat.send"],
     ["clear", "sessions.reset"],
     ["compact", "sessions.compact"],
   ] as const)("rejects /%s without its exact operator scope", async (command, method) => {
@@ -351,7 +352,7 @@ describe("conversation reset confirmation", () => {
       connected: true,
       connectionEpoch: 1,
       hello: {
-        auth: { role: "operator", scopes: ["operator.write"] },
+        auth: { role: "operator", scopes: ["operator.admin"] },
         features: { methods: ["chat.send"] },
       } as ApplicationGatewaySnapshot["hello"],
       sessionKey: "agent:main:current",
@@ -372,7 +373,7 @@ describe("conversation reset confirmation", () => {
     expect(sendResetMessage).not.toHaveBeenCalled();
   });
 
-  it("rechecks /reset write scope after confirmation", async () => {
+  it("rechecks /reset admin scope after confirmation", async () => {
     let settleConfirmation: ((confirmed: boolean) => void) | undefined;
     const confirmation = new Promise<boolean>((resolve) => {
       settleConfirmation = resolve;
@@ -382,7 +383,7 @@ describe("conversation reset confirmation", () => {
       ...legacyConnectedSessionAccess(),
       connectionEpoch: 1,
       hello: {
-        auth: { role: "operator", scopes: ["operator.write"] },
+        auth: { role: "operator", scopes: ["operator.admin"] },
         features: { methods: ["chat.send"] },
       } as ApplicationGatewaySnapshot["hello"],
       sessionKey: "agent:main:current",
@@ -396,14 +397,14 @@ describe("conversation reset confirmation", () => {
       sendResetMessage,
     });
     host.hello = {
-      auth: { role: "operator", scopes: ["operator.read"] },
+      auth: { role: "operator", scopes: ["operator.write"] },
       features: { methods: ["chat.send"] },
     } as ApplicationGatewaySnapshot["hello"];
     settleConfirmation?.(true);
 
     await expect(pending).resolves.toBe("failed");
     expect(sendResetMessage).not.toHaveBeenCalled();
-    expect(host.lastError).toContain("operator.write");
+    expect(host.lastError).toContain("operator.admin");
   });
 
   it("continues /reset when the session key changes to an equivalent alias", async () => {

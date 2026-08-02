@@ -140,7 +140,7 @@ export function readChatResetTargetAccess(
   }
   const access = readSessionMethodAccess(currentSessionAccessSnapshot(host), {
     method: "chat.send",
-    requiredScope: "operator.write",
+    requiredScope: "operator.admin",
   });
   return access.allowed ? { allowed: true } : access;
 }
