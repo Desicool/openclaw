@@ -4541,6 +4541,47 @@ describe("handleSendChat", () => {
     expect(replacementRequest).not.toHaveBeenCalled();
   });
 
+  it("retries an explicitly approved unconfirmed reset with the same run id", async () => {
+    const runId = "unconfirmed-reset-run";
+    const item = {
+      ...createQueuedLocalCommand("unconfirmed-reset-retry", "/reset"),
+      sendAttempts: 1,
+      sendError: "Delivery could not be confirmed after reconnect.",
+      sendRequestStartedAtMs: 10,
+      sendRunId: runId,
+      sendState: "unconfirmed" as const,
+    };
+    const host = makeHost({
+      requestHandlers: {
+        "chat.send": (params: unknown) => {
+          const payload = requireRecord(params, "retried reset payload");
+          return { runId: payload.idempotencyKey, status: "ok" };
+        },
+      },
+      chatQueue: [item],
+      confirmConversationReset: vi.fn(async () => true),
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.admin"] },
+        features: { methods: ["chat.send"] },
+      },
+    });
+    admitHostQueueItems(host);
+
+    await retryQueuedChatMessage(host, item.id);
+
+    expect(host.confirmConversationReset).toHaveBeenCalledOnce();
+    expect(host.request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        idempotencyKey: runId,
+        message: "/reset",
+      }),
+    );
+    expect(listStoredChatOutboxes(host)).toStrictEqual([]);
+  });
+
   it("retires a queued local command without applying its late result after a route switch", async () => {
     const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
     executeSlashCommandMock.mockImplementationOnce(() => command.promise);
