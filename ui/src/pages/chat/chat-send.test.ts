@@ -1835,6 +1835,45 @@ describe("handleSendChat", () => {
     expect(patchCount).toBe(2);
   });
 
+  it("rolls a failed queued picker back to the preceding slash model value", async () => {
+    const firstPatch = createDeferred<unknown>();
+    let patchCount = 0;
+    const host = makeHost({
+      requestHandlers: {
+        "sessions.patch": () => {
+          patchCount += 1;
+          if (patchCount === 1) {
+            return firstPatch.promise;
+          }
+          throw new Error("picker rejected");
+        },
+      },
+    });
+    host.sessions.setModelOverride(host.sessionKey, "openai/gpt-old");
+
+    const slash = patchChatSessionSettings(
+      host,
+      host.sessionKey,
+      { model: "openai/gpt-5-mini" },
+      {
+        deferModelOverride: true,
+        reconcile: () => {
+          host.sessions.setModelOverride(host.sessionKey, "openai/gpt-5-mini");
+        },
+      },
+    );
+    await waitForFast(() => expect(patchCount).toBe(1));
+    const picker = patchChatSessionSettings(host, host.sessionKey, {
+      model: "openai/gpt-5",
+    });
+
+    expect(host.sessions.state.modelOverrides[host.sessionKey]).toBe("openai/gpt-old");
+    firstPatch.resolve(createResolvedModelPatch("gpt-5-mini", "openai"));
+    await expect(slash).resolves.toBeTruthy();
+    await expect(picker).rejects.toThrow("picker rejected");
+    expect(host.sessions.state.modelOverrides[host.sessionKey]).toBe("openai/gpt-5-mini");
+  });
+
   it("keeps waiting when a late picker barrier cannot be persisted", async () => {
     const queuedText = "do not bypass the late picker";
     const history = createDeferred<unknown>();
@@ -7513,6 +7552,7 @@ describe("handleSendChat", () => {
           limit: 100,
         }),
       );
+      const scrollGeneration = host.chatScrollGeneration;
 
       if (change === "route") {
         host.sessionKey = "agent:main:replacement";
@@ -7527,6 +7567,7 @@ describe("handleSendChat", () => {
 
       expect(host.lastError).toBe("Replacement session error");
       expect(host.chatError).toBe("Replacement session error");
+      expect(host.chatScrollGeneration).toBe(scrollGeneration);
     },
   );
 

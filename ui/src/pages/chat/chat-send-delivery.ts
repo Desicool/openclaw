@@ -579,6 +579,10 @@ export async function deliverChatQueueItem(
   const sessionKey = item.sessionKey ?? host.sessionKey;
   const storageMode = options.storageMode ?? "durable";
   const routingSessionKey = options.routingSessionKey ?? sessionKey;
+  const deliveryClient = host.client;
+  const deliveryConnectionEpoch = host.connectionEpoch;
+  const deliveryAgentId =
+    item.agentId ?? scopedAgentIdForSession(host, routingSessionKey) ?? undefined;
   const sendOptions = { ...options, routingSessionKey, storageMode };
   let result: QueuedChatSendResult;
   if (storageMode === "memory") {
@@ -678,7 +682,12 @@ export async function deliverChatQueueItem(
       host.chatAttachments = options.previousAttachments;
     }
   }
-  if (host.sessionKey === sessionKey) {
+  if (
+    host.client === deliveryClient &&
+    host.connectionEpoch === deliveryConnectionEpoch &&
+    host.sessionKey === routingSessionKey &&
+    visibleSessionMatches(host, routingSessionKey, deliveryAgentId)
+  ) {
     scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0], true);
   }
   if (result === "sent" && host.sessionKey === sessionKey && !host.chatRunId) {

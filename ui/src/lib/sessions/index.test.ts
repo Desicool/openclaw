@@ -683,7 +683,7 @@ describe("createSessionCapability", () => {
       { model: "openai/gpt-new" },
       { waitFor: priorPatch.promise },
     );
-    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-new");
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
     expect(request).not.toHaveBeenCalledWith("sessions.patch", expect.anything());
 
     publish(false);
