@@ -90,9 +90,8 @@ describe("qa scenario catalog", () => {
     expect(config?.requiredProviderMode).toBe("live-frontier");
     expect(config?.requiredProvider).toBe("openai");
     expect(config?.expectedMarker).toBe("MATRIX QA VOICE PREFLIGHT OK");
-    expect(JSON.stringify(scenario.execution.flow)).toContain(
-      "./live-transports/matrix/scenarios/scenario-media-fixtures.js",
-    );
+    expect(JSON.stringify(scenario.execution.flow)).toContain("./voice-preflight.fixture.js");
+    expect(JSON.stringify(scenario.execution.flow)).not.toContain("./live-transports/matrix/");
   });
 
   it("includes the Kitchen Sink live OpenAI plugin gauntlet", () => {

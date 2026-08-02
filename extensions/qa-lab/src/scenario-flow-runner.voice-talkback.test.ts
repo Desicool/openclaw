@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createQaBusState } from "./bus-state.js";
 import { runLoadedScenarioFlow } from "./scenario-flow-runner.test-support.js";
@@ -42,7 +43,10 @@ describe("live inbound voice talkback scenario", () => {
     expect(audioBase64).toBeTruthy();
     const audio = Buffer.from(audioBase64 ?? "", "base64");
     expect(audio.subarray(0, 4).toString("ascii")).toBe("RIFF");
-    expect(audio.length).toBeGreaterThan(44);
+    expect(audio).toHaveLength(54_238);
+    expect(createHash("sha256").update(audio).digest("hex")).toBe(
+      "14f4c287682e7762cb17debd99b5126fcb43c875f8a225953ffc71295e6a71cb",
+    );
     expect(
       state
         .getSnapshot()

@@ -30,7 +30,7 @@ scenario:
     - docs/providers/openai.md
   codeRefs:
     - extensions/qa-channel/src/inbound.ts
-    - extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-media-fixtures.ts
+    - extensions/qa-lab/src/voice-preflight.fixture.ts
     - src/media-understanding/openai-compatible-audio.ts
   execution:
     kind: flow
@@ -75,12 +75,12 @@ flow:
         - set: logCursor
           value:
             expr: markGatewayLogCursor()
-        - set: mediaFixtures
+        - set: voiceFixture
           value:
-            expr: await qaImport("./live-transports/matrix/scenarios/scenario-media-fixtures.js")
+            expr: await qaImport("./voice-preflight.fixture.js")
         - set: audioBuffer
           value:
-            expr: mediaFixtures.createMatrixQaVoicePreflightWav()
+            expr: voiceFixture.createQaVoicePreflightWav()
         - assert:
             expr: "Buffer.isBuffer(audioBuffer) && audioBuffer.length > 44 && audioBuffer.subarray(0, 4).toString('ascii') === 'RIFF'"
             message: expected the shared QA voice preflight fixture to be a non-empty WAV
