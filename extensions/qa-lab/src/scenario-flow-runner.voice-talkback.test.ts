@@ -13,7 +13,7 @@ describe("live inbound voice talkback scenario", () => {
       api: {
         env: {
           providerMode: "live-frontier",
-          primaryModel: "openai/gpt-5.4-mini",
+          primaryModel: "openai/gpt-5.4",
           gateway: {
             runtimeEnv: {
               OPENAI_API_KEY: "test-openai-key",
