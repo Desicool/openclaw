@@ -18,6 +18,7 @@ import {
   isUiGlobalSessionKey,
   isUiSelectedGlobalSessionKey,
   resolveUiGlobalAliasAgentId,
+  resolveUiSelectedGlobalAgentId,
 } from "../../lib/sessions/session-key.ts";
 import { normalizeOptionalString } from "../../lib/string-coerce.ts";
 import type { ChatHistoryResult } from "./chat-history.ts";
@@ -415,8 +416,8 @@ export async function switchChatModel(
   }
   const modelOwnerAgentId = scopedAgentParamsForSession(host, targetSessionKey).agentId;
   const ownsModelOverride = () =>
-    !isUiGlobalSessionKey(targetSessionKey) ||
-    scopedAgentParamsForSession(host, targetSessionKey).agentId === modelOwnerAgentId;
+    !isUiSelectedGlobalSessionKey(targetSessionKey) ||
+    resolveUiSelectedGlobalAgentId(host) === modelOwnerAgentId;
   setChatError(host, null, true);
   const switchPromiseRef: { current?: Promise<boolean> } = {};
   const clearPendingSwitch = () => {

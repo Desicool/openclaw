@@ -20,8 +20,9 @@ import {
 } from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
-  isUiGlobalSessionKey,
+  isUiSelectedGlobalSessionKey,
   resolveUiDefaultAgentId,
+  resolveUiSelectedGlobalAgentId,
   type UiSessionDefaultsHost,
 } from "../../lib/sessions/session-key.ts";
 import { executeSlashCommand } from "./chat-command-executor.ts";
@@ -148,8 +149,8 @@ function isChatCommandModelCacheOwnerCurrent(
   // The selected-agent global session shares one UI cache key across agents.
   // Keep delayed results out when that selection changes on the same Gateway.
   return (
-    !isUiGlobalSessionKey(target.sessionKey) ||
-    scopedAgentIdForSession(host, target.sessionKey) === target.agentId
+    !isUiSelectedGlobalSessionKey(target.sessionKey) ||
+    resolveUiSelectedGlobalAgentId(host) === target.agentId
   );
 }
 
