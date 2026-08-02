@@ -686,18 +686,19 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
 
   it("aborts only the browser consult cancelled by Google", async () => {
     const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
+    const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "chat.abort") {
+        return { ok: true, aborted: true };
+      }
+      expect(method).toBe("talk.client.toolCall");
+      return { runId: `run-${String(params.callId)}` };
+    });
     const client = {
       addEventListener: vi.fn((listener: (event: { event: string; payload?: unknown }) => void) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       }),
-      request: vi.fn(async (method: string, params: Record<string, unknown>) => {
-        if (method === "chat.abort") {
-          return { ok: true, aborted: true };
-        }
-        expect(method).toBe("talk.client.toolCall");
-        return { runId: `run-${params.callId}` };
-      }),
+      request,
     } as unknown as RealtimeTalkTransportContext["client"];
     const onStatus = vi.fn();
     const transport = createTransport({ onStatus }, client);
@@ -881,7 +882,11 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
 
   it("fails closed when browser Google exceeds the pending tool-call limit", async () => {
     const onStatus = vi.fn();
-    const client = createClient();
+    const request = vi.fn();
+    const client = {
+      addEventListener: vi.fn(() => () => undefined),
+      request,
+    } as unknown as RealtimeTalkTransportContext["client"];
     const transport = createTransport({ onStatus }, client);
     const ws = await startTransport(transport);
     const { pendingCalls } = getGoogleLiveToolOwnerState(transport);
@@ -916,7 +921,7 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
     );
     expect(ws.readyState).toBe(3);
     expect(pendingCalls.size).toBe(0);
-    expect(client.request).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("fails closed before evicting seen browser tool-call ids", async () => {
