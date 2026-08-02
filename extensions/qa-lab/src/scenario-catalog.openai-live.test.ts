@@ -71,6 +71,7 @@ describe("qa scenario catalog", () => {
       | undefined;
 
     expect(scenario.sourcePath).toBe("qa/scenarios/media/inbound-voice-talkback-live.yaml");
+    expect(scenario.coverage?.primary).toEqual(["media.inbound-media-store"]);
     expect(scenario.execution.channel).toBe("qa-channel");
     expect(scenario.gatewayConfigPatch?.tools).toEqual({
       media: {

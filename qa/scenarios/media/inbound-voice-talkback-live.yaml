@@ -6,7 +6,6 @@ scenario:
   coverage:
     primary:
       - media.inbound-media-store
-      - voice.talkback-runtime-behavior
     secondary:
       - channels.inbound-media-normalization
   objective: Verify a real spoken audio attachment reaches OpenAI transcription and produces one visible talkback reply.
@@ -111,19 +110,19 @@ flow:
         - call: sleep
           args:
             - 1500
-        - set: conversationOutbound
+        - set: visibleConversationOutbound
           value:
-            expr: "state.getSnapshot().messages.filter((message) => message.direction === 'outbound' && message.conversation.id === config.conversationId)"
+            expr: "state.getSnapshot().messages.filter((message) => message.direction === 'outbound' && !message.deleted && message.conversation.id === config.conversationId)"
         - set: matchingOutbound
           value:
-            expr: "conversationOutbound.filter((message) => String(message.text ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '') === config.expectedMarkerNormalized)"
+            expr: "visibleConversationOutbound.filter((message) => String(message.text ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '') === config.expectedMarkerNormalized)"
         - set: gatewayLog
           value:
             expr: "String(readGatewayLogs() ?? '').slice(logCursor)"
         - assert:
-            expr: conversationOutbound.length === 1 && matchingOutbound.length === 1
+            expr: visibleConversationOutbound.length === 1 && matchingOutbound.length === 1
             message:
-              expr: "`expected one live voice talkback reply, saw ${conversationOutbound.length} messages and ${matchingOutbound.length} marker replies`"
+              expr: "`expected one live voice talkback reply, saw ${visibleConversationOutbound.length} visible messages and ${matchingOutbound.length} marker replies`"
         - assert:
             expr: "!gatewayLog.includes('MediaFetchError') && !gatewayLog.includes('audio: failed')"
             message:

@@ -4,7 +4,7 @@ import { createQaBusState } from "./bus-state.js";
 import { runLoadedScenarioFlow } from "./scenario-flow-runner.test-support.js";
 
 describe("live inbound voice talkback scenario", () => {
-  it("reuses the spoken WAV fixture for one visible reply", async () => {
+  it("reuses the spoken WAV fixture and ignores a deleted streaming preview", async () => {
     const state = createQaBusState();
     const expectedReply = "Matrix QA voice pre-flight OK.";
 
@@ -29,6 +29,15 @@ describe("live inbound voice talkback scenario", () => {
         resolveQaLiveTurnTimeoutMs: (_env: unknown, timeoutMs: number) => timeoutMs,
       },
       onWaitForOutboundMessage: ({ state: currentState }) => {
+        const preview = currentState.addOutboundMessage({
+          accountId: "qa-channel",
+          to: "dm:qa-live-voice-talkback",
+          text: expectedReply,
+        });
+        currentState.deleteMessage({
+          accountId: "qa-channel",
+          messageId: preview.id,
+        });
         currentState.addOutboundMessage({
           accountId: "qa-channel",
           to: "dm:qa-live-voice-talkback",
@@ -47,11 +56,13 @@ describe("live inbound voice talkback scenario", () => {
     expect(createHash("sha256").update(audio).digest("hex")).toBe(
       "14f4c287682e7762cb17debd99b5126fcb43c875f8a225953ffc71295e6a71cb",
     );
-    expect(
-      state
-        .getSnapshot()
-        .messages.filter((message) => message.direction === "outbound")
-        .map((message) => message.text),
-    ).toEqual([expectedReply]);
+    const outbound = state
+      .getSnapshot()
+      .messages.filter((message) => message.direction === "outbound");
+    expect(outbound).toHaveLength(2);
+    expect(outbound.map((message) => message.deleted === true)).toEqual([true, false]);
+    expect(outbound.filter((message) => !message.deleted).map((message) => message.text)).toEqual([
+      expectedReply,
+    ]);
   });
 });
