@@ -122,10 +122,7 @@ export function captureChatCommandTarget(host: ChatCommandHost): ChatCommandTarg
   };
 }
 
-export function isChatCommandTargetCurrent(
-  host: ChatCommandHost,
-  target: ChatCommandTarget,
-): boolean {
+function isChatCommandTargetCurrent(host: ChatCommandHost, target: ChatCommandTarget): boolean {
   return (
     host.connected &&
     host.client === target.client &&
