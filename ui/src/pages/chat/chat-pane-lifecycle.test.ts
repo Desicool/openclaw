@@ -942,6 +942,23 @@ describe("chat pane connection lifecycle", () => {
     expect(retireModelOverride).toHaveBeenCalledWith("global");
   });
 
+  it("releases sending state when the Gateway owner changes", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
+    state.chatSending = true;
+    state.chatSendingScopeKey = "agent:main";
+
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "reconnecting",
+      hello: null,
+    });
+
+    expect(state.chatSending).toBe(false);
+    expect(state.chatSendingScopeKey).toBeNull();
+  });
+
   it.each([
     { sessionKey: "agent:work:main", mainKey: "main" },
     { sessionKey: "agent:work:home", mainKey: "home" },

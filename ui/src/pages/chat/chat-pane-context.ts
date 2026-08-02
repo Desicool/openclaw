@@ -190,6 +190,11 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       this.cancelHeaderRename();
       cancelChatScroll(state);
       releaseChatMediaResourceSubscriber(state.requestUpdate);
+      if (state.client) {
+        markQueuedChatSendsWaitingForReconnect(state);
+        state.chatSending = false;
+        state.chatSendingScopeKey = null;
+      }
       // A reconnect can retain the browser client. Keep async ownership tied
       // to the logical connection, not only the transport object identity.
       this.connectionGeneration += 1;

@@ -279,6 +279,12 @@ async function sendQueuedChatMessage(
     return "pending";
   }
 
+  const requestClient = host.client;
+  const requestConnectionEpoch = host.connectionEpoch;
+  const requestConnectionIsCurrent = () =>
+    host.connected &&
+    host.client === requestClient &&
+    host.connectionEpoch === requestConnectionEpoch;
   const runId = prepared.sendRunId ?? generateUUID();
   const startedAt = Date.now();
   const requestStartedAtMs = controlUiNowMs();
@@ -339,6 +345,9 @@ async function sendQueuedChatMessage(
             : {}),
           ...(prepared.replyToId ? { replyToId: prepared.replyToId } : {}),
         });
+    if (!requestConnectionIsCurrent()) {
+      return "pending";
+    }
     updateChatSendAckTiming(host, runId, ack, sendingItem, requestStartedAtMs);
     recordChatSendTiming(host, sendingItem, "ack", sendingItem.sendSubmittedAtMs, {
       ackStatus: ack.status,
@@ -465,6 +474,9 @@ async function sendQueuedChatMessage(
     }
     return retireOnAck ? "sent" : "pending";
   } catch (err) {
+    if (!requestConnectionIsCurrent()) {
+      return "pending";
+    }
     const activeLeafChanged = isActiveLeafChangedError(err);
     const error = activeLeafChanged
       ? t("chat.sendErrors.activeLeafChanged")
@@ -567,7 +579,9 @@ async function sendQueuedChatMessage(
     recordChatSendTiming(host, prepared, "failed", prepared.sendSubmittedAtMs, { error });
     return "failed";
   } finally {
-    finishScopedChatSending(host, scope);
+    if (requestConnectionIsCurrent()) {
+      finishScopedChatSending(host, scope);
+    }
   }
 }
 

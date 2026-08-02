@@ -4474,6 +4474,73 @@ describe("handleSendChat", () => {
     );
   });
 
+  it("does not apply a queued reset acknowledgement from a replaced Gateway", async () => {
+    const ack = createDeferred<{ runId: string; status: "ok" }>();
+    const replacementRequest = makeRequestMock();
+    const item = createQueuedLocalCommand("queued-reset-ack-reconnect", "/reset");
+    const host = makeHost({
+      requestHandlers: {
+        "chat.history": () => idleChatHistory(),
+        "chat.send": () => ack.promise,
+      },
+      chatQueue: [item],
+      connectionEpoch: 1,
+      confirmConversationReset: vi.fn(async () => true),
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.admin"] },
+        features: { methods: ["chat.send"] },
+      },
+    });
+    const refreshSessions = vi.spyOn(host.sessions, "refresh");
+    admitHostQueueItems(host);
+
+    const draining = retryReconnectableQueuedChatSends(host);
+    await waitForFast(() =>
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1),
+    );
+
+    host.client = clientWithRequest(replacementRequest);
+    host.connectionEpoch = 2;
+    markQueuedChatSendsWaitingForReconnect(host);
+    host.chatMessages = [{ role: "assistant", content: "Replacement Gateway transcript" }];
+    host.chatRunId = "replacement-run";
+    host.chatStream = "Replacement Gateway stream";
+    host.chatSending = true;
+    host.chatSendingScopeKey = storedChatOutboxScopeKey({
+      sessionKey: item.sessionKey,
+    });
+    host.lastError = "Replacement Gateway error";
+    host.chatError = "Replacement Gateway error";
+    const replacementMessages = host.chatMessages;
+
+    ack.resolve({ runId: "old-gateway-reset-run", status: "ok" });
+    await draining;
+
+    expect(listStoredChatOutboxes(host)[0]?.queue[0]).toEqual(
+      expect.objectContaining({
+        id: item.id,
+        localCommandName: "reset",
+        sendState: "waiting-reconnect",
+      }),
+    );
+    expect(host.chatMessages).toBe(replacementMessages);
+    expect(host.chatRunId).toBe("replacement-run");
+    expect(host.chatStream).toBe("Replacement Gateway stream");
+    expect(host.chatSending).toBe(true);
+    expect(host.chatSendingScopeKey).toBe(
+      storedChatOutboxScopeKey({
+        sessionKey: item.sessionKey,
+      }),
+    );
+    expect(host.lastError).toBe("Replacement Gateway error");
+    expect(host.chatError).toBe("Replacement Gateway error");
+    expect(host.refreshSessionsAfterChat).toEqual(new Map());
+    expect(refreshSessions).not.toHaveBeenCalled();
+    expect(replacementRequest).not.toHaveBeenCalled();
+  });
+
   it("retires a queued local command without applying its late result after a route switch", async () => {
     const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
     executeSlashCommandMock.mockImplementationOnce(() => command.promise);
