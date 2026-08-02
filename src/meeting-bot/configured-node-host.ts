@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { MeetingNodeHostOptions } from "./node-host.js";
+import type { MeetingNodeHostOptions } from "./node-host-options.js";
 
 export type MeetingConfiguredNodeHostOptions = Omit<
   MeetingNodeHostOptions,
