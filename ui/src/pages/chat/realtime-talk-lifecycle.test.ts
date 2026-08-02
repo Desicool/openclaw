@@ -804,12 +804,18 @@ describe("RealtimeTalkSession lifecycle", () => {
       expect(createCount).toBe(16);
 
       await vi.advanceTimersByTimeAsync(30_000);
+      expect(closeSignals.every((signal) => !signal.aborted)).toBe(true);
+      await expect(recovered.start()).rejects.toThrow(
+        "Too many active or closing realtime Talk voice sessions",
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
       expect(closeSignals.every((signal) => signal.aborted)).toBe(true);
 
       await recovered.start();
       expect(createCount).toBe(17);
       recovered.stop();
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(60_000);
     } finally {
       vi.useRealTimers();
     }

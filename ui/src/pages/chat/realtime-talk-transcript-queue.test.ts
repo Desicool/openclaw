@@ -182,6 +182,7 @@ describe("RealtimeTalkSession transcript queue", () => {
   it("aborts a detached transcript drain before releasing its client owner", async () => {
     vi.useFakeTimers();
     const transcriptSignals: AbortSignal[] = [];
+    const closeSignals: AbortSignal[] = [];
     try {
       const request = vi.fn(
         async (
@@ -206,6 +207,13 @@ describe("RealtimeTalkSession transcript queue", () => {
             await new Promise<void>((_resolve, reject) => {
               signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
             });
+          }
+          if (method === "talk.client.close") {
+            const signal = options?.signal;
+            if (!signal) {
+              throw new Error("expected close abort signal");
+            }
+            closeSignals.push(signal);
           }
           return { ok: true };
         },
@@ -235,7 +243,19 @@ describe("RealtimeTalkSession transcript queue", () => {
       expect(
         request.mock.calls.filter(([method]) => method === "talk.client.transcript"),
       ).toHaveLength(1);
-      expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(false);
+      expect(request).toHaveBeenCalledWith(
+        "talk.client.close",
+        {
+          sessionKey: "agent:main:main",
+          voiceSessionId: "voice-drain-timeout",
+        },
+        {
+          signal: closeSignals[0],
+          timeoutMs: 30_000,
+        },
+      );
+      expect(closeSignals[0]).not.toBe(transcriptSignals[0]);
+      expect(closeSignals[0]?.aborted).toBe(false);
       expect(onStatus.mock.calls.filter(([status]) => status === "error")).toHaveLength(0);
     } finally {
       vi.useRealTimers();
