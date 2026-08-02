@@ -8823,6 +8823,7 @@ describe("handleAbortChat", () => {
         features: { methods: ["chat.abort"] },
       },
       sessionKey: "agent:main",
+      chatRunError: { summary: "Previous run failed" },
     });
 
     await handleSendChat(host);
@@ -8831,6 +8832,7 @@ describe("handleAbortChat", () => {
     expect(host.lastError).toBeTruthy();
     expect(host.chatError).toBe(host.lastError);
     expect(host.chatMessage).toBe("/stop");
+    expect(host.chatRunError).toEqual({ summary: "Previous run failed" });
   });
 
   it("queues a typed exact-run stop while disconnected", async () => {

@@ -209,8 +209,6 @@ export async function handleSendChat(
     return;
   }
 
-  host.chatRunError = null;
-
   if (!skillWorkshopRevision) {
     // Natural stop aliases require a run; explicit /stop is always available.
     if (
@@ -220,6 +218,7 @@ export async function handleSendChat(
       if (host.connected && !requireChatSessionAction(host, "abort")) {
         return;
       }
+      host.chatRunError = null;
       if (messageOverride == null) {
         recordNonTranscriptInputHistory(host, message);
       }
@@ -227,6 +226,7 @@ export async function handleSendChat(
       return;
     }
 
+    host.chatRunError = null;
     const parsed = parseSlashCommand(message);
     if (/^\/(?:btw|side)(?::|\s|$)/i.test(message)) {
       const question = extractCompanionCommandQuestion(message);
