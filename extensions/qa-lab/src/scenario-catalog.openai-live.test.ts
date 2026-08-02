@@ -66,6 +66,7 @@ describe("qa scenario catalog", () => {
       | {
           requiredProviderMode?: string;
           requiredProvider?: string;
+          requiredModel?: string;
           expectedMarker?: string;
         }
       | undefined;
@@ -90,6 +91,7 @@ describe("qa scenario catalog", () => {
     });
     expect(config?.requiredProviderMode).toBe("live-frontier");
     expect(config?.requiredProvider).toBe("openai");
+    expect(config?.requiredModel).toBe("gpt-5.4");
     expect(config?.expectedMarker).toBe("MATRIX QA VOICE PREFLIGHT OK");
     expect(JSON.stringify(scenario.execution.flow)).toContain("./voice-preflight.fixture.js");
     expect(JSON.stringify(scenario.execution.flow)).not.toContain("./live-transports/matrix/");

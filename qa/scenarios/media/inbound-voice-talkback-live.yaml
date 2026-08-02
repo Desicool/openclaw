@@ -41,6 +41,7 @@ scenario:
     config:
       requiredProviderMode: live-frontier
       requiredProvider: openai
+      requiredModel: gpt-5.4
       conversationId: qa-live-voice-talkback
       expectedMarker: MATRIX QA VOICE PREFLIGHT OK
       expectedMarkerNormalized: MATRIXQAVOICEPREFLIGHTOK
@@ -59,6 +60,10 @@ flow:
             expr: "selected?.provider === config.requiredProvider"
             message:
               expr: "`expected live primary provider ${config.requiredProvider}, got ${env.primaryModel}`"
+        - assert:
+            expr: "selected?.model === config.requiredModel"
+            message:
+              expr: "`expected live primary model ${config.requiredModel}, got ${env.primaryModel}`"
         - assert:
             expr: "Boolean(env.gateway.runtimeEnv.OPENAI_API_KEY?.trim() || env.gateway.runtimeEnv.OPENCLAW_LIVE_OPENAI_KEY?.trim())"
             message: live OpenAI API key did not reach the Gateway child

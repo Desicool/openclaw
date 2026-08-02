@@ -3,7 +3,26 @@ import { describe, expect, it } from "vitest";
 import { createQaBusState } from "./bus-state.js";
 import { runLoadedScenarioFlow } from "./scenario-flow-runner.test-support.js";
 
+function splitModelRef(ref: string) {
+  const slash = ref.indexOf("/");
+  return slash > 0 ? { provider: ref.slice(0, slash), model: ref.slice(slash + 1) } : null;
+}
+
 describe("live inbound voice talkback scenario", () => {
+  it("rejects a live OpenAI model outside the scenario contract", async () => {
+    await expect(
+      runLoadedScenarioFlow("inbound-voice-talkback-live", {
+        api: {
+          env: {
+            providerMode: "live-frontier",
+            primaryModel: "openai/gpt-5.4-mini",
+          },
+          splitModelRef,
+        },
+      }),
+    ).rejects.toThrow("expected live primary model gpt-5.4, got openai/gpt-5.4-mini");
+  });
+
   it("reuses the spoken WAV fixture and ignores a deleted streaming preview", async () => {
     const state = createQaBusState();
     const expectedReply = "Matrix QA voice pre-flight OK.";
@@ -20,10 +39,7 @@ describe("live inbound voice talkback scenario", () => {
             },
           },
         },
-        splitModelRef: (ref: string) => {
-          const slash = ref.indexOf("/");
-          return slash > 0 ? { provider: ref.slice(0, slash), model: ref.slice(slash + 1) } : null;
-        },
+        splitModelRef,
         markGatewayLogCursor: () => 0,
         readGatewayLogs: () => "",
         resolveQaLiveTurnTimeoutMs: (_env: unknown, timeoutMs: number) => timeoutMs,
