@@ -953,7 +953,7 @@ describe("chat pane connection lifecycle", () => {
       assistantAgentId: "work",
     };
     pane.applyGatewaySnapshot(snapshot);
-    state.sessionKey = "global";
+    state.sessionKey = "agent:work:main";
     state.chatModelSwitchPromises = {
       global: new Promise<boolean>(() => {}),
     };
@@ -962,6 +962,7 @@ describe("chat pane connection lifecycle", () => {
     pane.applyGatewaySnapshot({ ...snapshot, assistantAgentId: "main" });
 
     expect(state.chatModelSwitchPromises).toEqual({});
+    expect(retireModelOverride).toHaveBeenCalledWith("agent:work:main");
     expect(retireModelOverride).toHaveBeenCalledWith("global");
   });
 

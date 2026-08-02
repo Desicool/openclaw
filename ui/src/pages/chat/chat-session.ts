@@ -16,6 +16,7 @@ import {
 import {
   areUiSessionKeysEquivalent,
   isUiGlobalSessionKey,
+  isUiSelectedGlobalSessionKey,
   resolveUiGlobalAliasAgentId,
 } from "../../lib/sessions/session-key.ts";
 import { normalizeOptionalString } from "../../lib/string-coerce.ts";
@@ -60,16 +61,21 @@ export function retireChatModelSelectionOwnership(
     "chatModelSwitchPromises" | "requestUpdate" | "sessionKey" | "sessions"
   >,
 ): void {
-  const hasPendingSwitch = Object.keys(host.chatModelSwitchPromises ?? {}).length > 0;
-  const hasModelOverride = Object.hasOwn(
-    host.sessions.state?.modelOverrides ?? {},
-    host.sessionKey,
-  );
+  const pendingKeys = Object.keys(host.chatModelSwitchPromises ?? {});
+  const ownedKeys = new Set([host.sessionKey, ...pendingKeys]);
+  if (isUiSelectedGlobalSessionKey(host.sessionKey)) {
+    ownedKeys.add("global");
+  }
+  const hasPendingSwitch = pendingKeys.length > 0;
+  const modelOverrides = host.sessions.state?.modelOverrides ?? {};
+  const hasModelOverride = [...ownedKeys].some((key) => Object.hasOwn(modelOverrides, key));
   if (!hasPendingSwitch && !hasModelOverride) {
     return;
   }
   host.chatModelSwitchPromises = {};
-  host.sessions.retireModelOverride(host.sessionKey);
+  for (const key of ownedKeys) {
+    host.sessions.retireModelOverride(key);
+  }
   host.requestUpdate?.();
 }
 

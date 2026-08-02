@@ -26,7 +26,7 @@ import { resolveSessionCreateParams } from "../../lib/sessions/create.ts";
 import { resolveSessionKey, scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
-  isUiGlobalSessionKey,
+  isUiSelectedGlobalSessionKey,
   resolveAgentIdFromSessionKey,
 } from "../../lib/sessions/session-key.ts";
 import { ensureBoardViewElement, ensureWorkboardCardChipElement } from "./board-session-surface.ts";
@@ -558,7 +558,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
         const selectedAgentId = selection.selectedId ?? null;
         if (
           !state ||
-          !isUiGlobalSessionKey(state.sessionKey) ||
+          !isUiSelectedGlobalSessionKey(state.sessionKey) ||
           (state.assistantAgentId ?? null) === selectedAgentId
         ) {
           return;

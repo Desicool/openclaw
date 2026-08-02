@@ -6,7 +6,7 @@ import { loadLocalUserIdentity, loadSettings, patchSettings } from "../../app/se
 import { resolveSafeExternalUrl } from "../../lib/open-external-url.ts";
 import {
   canonicalUiSessionKeyForPersistence,
-  isUiGlobalSessionKey,
+  isUiSelectedGlobalSessionKey,
 } from "../../lib/sessions/session-key.ts";
 import { resolveAgentIdForSession } from "./chat-avatar.ts";
 import { removeQueuedMessage } from "./chat-queue.ts";
@@ -92,7 +92,7 @@ async function loadPageAssistantIdentity(
     }
     if (
       state.assistantAgentId !== (identity.agentId ?? null) &&
-      isUiGlobalSessionKey(state.sessionKey)
+      isUiSelectedGlobalSessionKey(state.sessionKey)
     ) {
       retireChatModelSelectionOwnership(state);
     }

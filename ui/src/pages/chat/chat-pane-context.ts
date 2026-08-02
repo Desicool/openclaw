@@ -14,7 +14,7 @@ import { resolveSessionKey } from "../../lib/sessions/index.ts";
 import {
   buildAgentMainSessionKey,
   canonicalUiSessionKeyForPersistence,
-  isUiGlobalSessionKey,
+  isUiSelectedGlobalSessionKey,
   parseAgentSessionKey,
   resolveUiConfiguredMainKey,
   uiSessionEventMatches,
@@ -222,7 +222,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     if (
       sourceChanged ||
       (previousAssistantAgentId !== snapshot.assistantAgentId &&
-        isUiGlobalSessionKey(state.sessionKey))
+        isUiSelectedGlobalSessionKey(state.sessionKey))
     ) {
       retireChatModelSelectionOwnership(state);
     }
