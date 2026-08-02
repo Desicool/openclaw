@@ -250,6 +250,13 @@ function createOpenAIRealtimeTranscriptionSession(
 
   const settleItem = (itemId: string) => {
     trackedItemIds.delete(itemId);
+    // Predecessor satisfaction belongs to each active item. Recording it here
+    // prevents bounded tombstone eviction from invalidating admitted state.
+    for (const [candidateId, previousItemId] of committedItems) {
+      if (previousItemId === itemId) {
+        committedItems.set(candidateId, null);
+      }
+    }
     // Keep only a bounded terminal frontier so late provider events cannot
     // recreate released state, including when completion precedes commit.
     settledItemIds.add(itemId);
@@ -276,7 +283,10 @@ function createOpenAIRealtimeTranscriptionSession(
       failTerminal(new Error(OPENAI_REALTIME_TRANSCRIPTION_IDENTITY_OVERFLOW_MESSAGE), transport);
       return;
     }
-    committedItems.set(itemId, previousItemId);
+    committedItems.set(
+      itemId,
+      previousItemId && settledItemIds.has(previousItemId) ? null : previousItemId,
+    );
     committedItemIds.push(itemId);
 
     const arrivalOrder = committedItemIds.splice(0);
