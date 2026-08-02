@@ -78,12 +78,16 @@ const OPENAI_REALTIME_TRANSCRIPTION_DEFAULT_MODEL = "gpt-4o-transcribe";
 const OPENAI_REALTIME_TRANSCRIPTION_MAX_UNRESOLVED_ITEMS = 64;
 const OPENAI_REALTIME_TRANSCRIPTION_MAX_ITEM_ID_BYTES = 1024;
 const OPENAI_REALTIME_TRANSCRIPTION_MAX_RETAINED_TRANSCRIPT_BYTES = 256 * 1024;
+const OPENAI_REALTIME_TRANSCRIPTION_MAX_SETTLED_ITEMS = 4096;
+const OPENAI_REALTIME_TRANSCRIPTION_MAX_SETTLED_ID_BYTES = 256 * 1024;
 const OPENAI_REALTIME_TRANSCRIPTION_ITEM_OVERFLOW_MESSAGE =
   "OpenAI realtime transcription exceeded the 64 unresolved item limit";
 const OPENAI_REALTIME_TRANSCRIPTION_IDENTITY_OVERFLOW_MESSAGE =
   "OpenAI realtime transcription exceeded the 1024-byte item identity limit";
 const OPENAI_REALTIME_TRANSCRIPTION_TEXT_OVERFLOW_MESSAGE =
   "OpenAI realtime transcription exceeded the 256 KiB retained transcript limit";
+const OPENAI_REALTIME_TRANSCRIPTION_SETTLED_OVERFLOW_MESSAGE =
+  "OpenAI realtime transcription exceeded the terminal item history limit";
 const OPENAI_REALTIME_TRANSCRIPTION_API_KEY_REQUIRED =
   "OpenAI Realtime transcription requires an OpenAI Platform API key";
 const OPENAI_REALTIME_TRANSCRIPTION_API_KEY_REJECTED =
@@ -204,6 +208,7 @@ function createOpenAIRealtimeTranscriptionSession(
   const settledItemIds = new Set<string>();
   const unkeyedTranscript = "__openclaw_unkeyed_transcript__";
   let retainedTranscriptBytes = 0;
+  let settledItemIdBytes = 0;
 
   const resetTranscriptionState = () => {
     pendingTranscripts.clear();
@@ -213,6 +218,7 @@ function createOpenAIRealtimeTranscriptionSession(
     trackedItemIds.clear();
     settledItemIds.clear();
     retainedTranscriptBytes = 0;
+    settledItemIdBytes = 0;
   };
 
   const failTerminal = (error: Error, transport: RealtimeTranscriptionWebSocketTransport) => {
@@ -248,24 +254,31 @@ function createOpenAIRealtimeTranscriptionSession(
     return true;
   };
 
-  const settleItem = (itemId: string) => {
+  const settleItem = (
+    itemId: string,
+    transport: RealtimeTranscriptionWebSocketTransport,
+  ): boolean => {
+    const itemIdBytes = Buffer.byteLength(itemId, "utf8");
+    if (
+      settledItemIds.size >= OPENAI_REALTIME_TRANSCRIPTION_MAX_SETTLED_ITEMS ||
+      itemIdBytes > OPENAI_REALTIME_TRANSCRIPTION_MAX_SETTLED_ID_BYTES - settledItemIdBytes
+    ) {
+      failTerminal(new Error(OPENAI_REALTIME_TRANSCRIPTION_SETTLED_OVERFLOW_MESSAGE), transport);
+      return false;
+    }
     trackedItemIds.delete(itemId);
     // Predecessor satisfaction belongs to each active item. Recording it here
-    // prevents bounded tombstone eviction from invalidating admitted state.
+    // prevents terminal-history saturation from invalidating admitted state.
     for (const [candidateId, previousItemId] of committedItems) {
       if (previousItemId === itemId) {
         committedItems.set(candidateId, null);
       }
     }
-    // Keep only a bounded terminal frontier so late provider events cannot
-    // recreate released state, including when completion precedes commit.
+    // Never evict terminal identities within a connection generation. Closing
+    // at the bound preserves first-terminal precedence without unbounded state.
     settledItemIds.add(itemId);
-    if (settledItemIds.size > OPENAI_REALTIME_TRANSCRIPTION_MAX_UNRESOLVED_ITEMS) {
-      const oldestSettledItemId = settledItemIds.values().next().value;
-      if (oldestSettledItemId) {
-        settledItemIds.delete(oldestSettledItemId);
-      }
-    }
+    settledItemIdBytes += itemIdBytes;
+    return true;
   };
 
   const commitItem = (
@@ -317,11 +330,13 @@ function createOpenAIRealtimeTranscriptionSession(
     }
   };
 
-  const flushCompletedTranscripts = () => {
+  const flushCompletedTranscripts = (
+    transport: RealtimeTranscriptionWebSocketTransport,
+  ): boolean => {
     while (committedItemIds.length > 0) {
       const itemId = committedItemIds[0];
       if (!itemId || !completedTranscripts.has(itemId)) {
-        return;
+        return true;
       }
       const previousItemId = committedItems.get(itemId);
       if (
@@ -329,11 +344,13 @@ function createOpenAIRealtimeTranscriptionSession(
         !settledItemIds.has(previousItemId) &&
         !committedItems.has(previousItemId)
       ) {
-        return;
+        return true;
       }
       committedItemIds.shift();
       committedItems.delete(itemId);
-      settleItem(itemId);
+      if (!settleItem(itemId, transport)) {
+        return false;
+      }
       const transcript = completedTranscripts.get(itemId);
       completedTranscripts.delete(itemId);
       if (transcript) {
@@ -343,6 +360,7 @@ function createOpenAIRealtimeTranscriptionSession(
         config.onTranscript?.(transcript);
       }
     }
+    return true;
   };
 
   const completeItem = (
@@ -359,7 +377,9 @@ function createOpenAIRealtimeTranscriptionSession(
     retainedTranscriptBytes -= partialBytes;
     if (!itemId || !committedItems.has(itemId)) {
       if (itemId) {
-        settleItem(itemId);
+        if (!settleItem(itemId, transport)) {
+          return false;
+        }
       } else {
         trackedItemIds.delete(key);
       }
@@ -378,8 +398,7 @@ function createOpenAIRealtimeTranscriptionSession(
     }
     completedTranscripts.set(itemId, transcript);
     retainedTranscriptBytes += transcriptBytes;
-    flushCompletedTranscripts();
-    return true;
+    return flushCompletedTranscripts(transport);
   };
 
   const handleEvent = (
