@@ -122,11 +122,17 @@ export function captureChatCommandTarget(host: ChatCommandHost): ChatCommandTarg
   };
 }
 
-function isChatCommandTargetCurrent(host: ChatCommandHost, target: ChatCommandTarget): boolean {
+function isChatCommandConnectionCurrent(host: ChatCommandHost, target: ChatCommandTarget): boolean {
   return (
     host.connected &&
     host.client === target.client &&
-    host.connectionEpoch === target.connectionEpoch &&
+    host.connectionEpoch === target.connectionEpoch
+  );
+}
+
+function isChatCommandTargetCurrent(host: ChatCommandHost, target: ChatCommandTarget): boolean {
+  return (
+    isChatCommandConnectionCurrent(host, target) &&
     visibleSessionMatches(host, target.sessionKey, target.agentId)
   );
 }
@@ -453,10 +459,14 @@ export async function dispatchChatSlashCommand(
   }
 
   if (result.sessionPatch && "modelOverride" in result.sessionPatch) {
-    host.sessions.setModelOverride(
-      target.sessionKey,
-      result.sessionPatch.modelOverride?.value ?? null,
-    );
+    // A route switch on the same Gateway still owns the originating session's
+    // cache. A replacement connection must not consume this late command result.
+    if (isChatCommandConnectionCurrent(host, target)) {
+      host.sessions.setModelOverride(
+        target.sessionKey,
+        result.sessionPatch.modelOverride?.value ?? null,
+      );
+    }
     if (targetIsCurrent()) {
       await host.refreshCurrentSessionTools?.();
     }

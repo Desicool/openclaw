@@ -4454,6 +4454,42 @@ describe("handleSendChat", () => {
     expect(refreshCurrentChat).not.toHaveBeenCalled();
   });
 
+  it("does not apply a late model result after the Gateway connection changes", async () => {
+    const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
+    executeSlashCommandMock.mockImplementationOnce(() => command.promise);
+
+    const item = createQueuedLocalCommand("reconnected-model-command", "/model gpt-5-mini", {
+      sessionKey: "agent:main:first",
+    });
+    const host = makeHost({
+      requestHandlers: {
+        "chat.history": () => idleChatHistory(item.sessionKey),
+      },
+      connectionEpoch: 1,
+      chatQueue: [item],
+      sessionKey: item.sessionKey,
+    });
+    const setModelOverride = vi.spyOn(host.sessions, "setModelOverride");
+    expect(admitQueuedMessageForSession(host, item.sessionKey, item)).toBe(true);
+
+    const draining = retryReconnectableQueuedChatSends(host);
+    await waitForFast(() => expect(executeSlashCommandMock).toHaveBeenCalledTimes(1));
+
+    host.client = clientWithRequest(makeRequestMock());
+    host.connectionEpoch = 2;
+    command.resolve({
+      action: "refresh",
+      content: "Model set to `gpt-5-mini`.",
+      sessionPatch: {
+        modelOverride: { kind: "qualified", value: "openai/gpt-5-mini" },
+      },
+    });
+    await draining;
+
+    expect(setModelOverride).not.toHaveBeenCalled();
+    expect(host.sessions.state.modelOverrides[item.sessionKey]).toBeUndefined();
+  });
+
   it("does not borrow a replacement connection error for a stale queued command", async () => {
     const command = createDeferred<Awaited<ReturnType<ExecuteSlashCommand>>>();
     executeSlashCommandMock.mockImplementationOnce(() => command.promise);
