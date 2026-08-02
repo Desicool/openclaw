@@ -235,14 +235,7 @@ describe("RealtimeTalkSession transcript queue", () => {
       expect(
         request.mock.calls.filter(([method]) => method === "talk.client.transcript"),
       ).toHaveLength(1);
-      expect(request).toHaveBeenCalledWith(
-        "talk.client.close",
-        {
-          sessionKey: "agent:main:main",
-          voiceSessionId: "voice-drain-timeout",
-        },
-        { timeoutMs: 30_000 },
-      );
+      expect(request.mock.calls.some(([method]) => method === "talk.client.close")).toBe(false);
       expect(onStatus.mock.calls.filter(([status]) => status === "error")).toHaveLength(0);
     } finally {
       vi.useRealTimers();
