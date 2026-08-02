@@ -54,6 +54,10 @@ import {
   type TalkRealtimeRelaySessionResult,
 } from "./talk-realtime-relay-state.js";
 import {
+  MAX_RELAY_TOOL_CALL_IDENTITIES,
+  RelayToolCallLedger,
+} from "./talk-realtime-relay-tool-call-ledger.js";
+import {
   closeRelayVoiceSession,
   enqueueRelayVoiceTranscript,
 } from "./talk-realtime-relay-voice.js";
@@ -110,7 +114,7 @@ export function createTalkRealtimeRelaySession(
   let ready = false;
   let continuityResetActive = false;
   let failureEmitted = false;
-  let transcriptPersistenceFailed = false;
+  let sessionFailureRequested = false;
   const constructionTerminal: {
     current?: { kind: "error"; error: Error } | { kind: "close"; reason: RealtimeVoiceCloseReason };
   } = {};
@@ -410,6 +414,9 @@ export function createTalkRealtimeRelaySession(
       }
       const providerCallId = toolCall.callId;
       const relayCallId = adoptRelayProviderToolCallId(relay, providerCallId);
+      if (!relayCallId) {
+        return;
+      }
       let shouldSubmitWorkingResult = false;
       if (toolCall.name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME) {
         const forcedConsult = relay.harness.forcedConsults.recordNativeConsult(
@@ -537,12 +544,12 @@ export function createTalkRealtimeRelaySession(
     throw new Error(`Realtime provider closed during session creation: ${earlyTerminal.reason}`);
   }
   const initialSessionKey = params.sessionKey?.trim() || undefined;
-  const failVoiceTranscriptPersistence = (message: string) => {
+  const failSession = (message: string) => {
     const active = relaySessions.get(relaySessionId);
-    if (!active || transcriptPersistenceFailed) {
+    if (!active || sessionFailureRequested) {
       return;
     }
-    transcriptPersistenceFailed = true;
+    sessionFailureRequested = true;
     if (!failureEmitted) {
       failureEmitted = true;
       emit(
@@ -581,12 +588,15 @@ export function createTalkRealtimeRelaySession(
     activeAgentRuns: new Map(),
     provider: params.provider.id,
     activeAgentToolCalls: new Map(),
-    completedAgentToolCalls: new Set(),
+    toolCalls: new RelayToolCallLedger({
+      onOverflow: () =>
+        failSession(
+          `Realtime relay tool-call session limit exceeded (${MAX_RELAY_TOOL_CALL_IDENTITIES})`,
+        ),
+    }),
     providerToolCallIds: new Map(),
     relayToolCallIdsByProviderId: new Map(),
-    cancelledAgentToolCalls: new Map(),
     pendingFinalToolResults: new Map(),
-    completedProviderToolResults: new Set(),
     pendingProviderToolResults: new Map(),
     pendingWorkingToolResults: new Map(),
     forcedTerminalProviderResults: new Map(),
@@ -595,7 +605,7 @@ export function createTalkRealtimeRelaySession(
     voiceSessionCreated: false,
     voiceTranscriptSeq: 0,
     voiceTranscriptQueue: VOICE_TRANSCRIPT_QUEUE_POLICY.createQueue(),
-    failVoiceTranscriptPersistence,
+    failSession,
     pendingVoiceTranscripts: [],
   };
   relayRef.current = relay;
