@@ -248,6 +248,19 @@ function createOpenAIRealtimeTranscriptionSession(
     return true;
   };
 
+  const settleItem = (itemId: string) => {
+    trackedItemIds.delete(itemId);
+    // Keep only a bounded terminal frontier so late provider events cannot
+    // recreate released state, including when completion precedes commit.
+    settledItemIds.add(itemId);
+    if (settledItemIds.size > OPENAI_REALTIME_TRANSCRIPTION_MAX_UNRESOLVED_ITEMS) {
+      const oldestSettledItemId = settledItemIds.values().next().value;
+      if (oldestSettledItemId) {
+        settledItemIds.delete(oldestSettledItemId);
+      }
+    }
+  };
+
   const commitItem = (
     itemId: string,
     previousItemId: string | null | undefined,
@@ -310,16 +323,7 @@ function createOpenAIRealtimeTranscriptionSession(
       }
       committedItemIds.shift();
       committedItems.delete(itemId);
-      trackedItemIds.delete(itemId);
-      // The predecessor ledger is needed for ordering and duplicate rejection,
-      // but provider item IDs must not accumulate for the lifetime of a call.
-      settledItemIds.add(itemId);
-      if (settledItemIds.size > OPENAI_REALTIME_TRANSCRIPTION_MAX_UNRESOLVED_ITEMS) {
-        const oldestSettledItemId = settledItemIds.values().next().value;
-        if (oldestSettledItemId) {
-          settledItemIds.delete(oldestSettledItemId);
-        }
-      }
+      settleItem(itemId);
       const transcript = completedTranscripts.get(itemId);
       completedTranscripts.delete(itemId);
       if (transcript) {
@@ -337,14 +341,18 @@ function createOpenAIRealtimeTranscriptionSession(
     transport: RealtimeTranscriptionWebSocketTransport,
   ) => {
     const key = itemId ?? unkeyedTranscript;
-    if (itemId && (settledItemIds.has(itemId) || completedTranscripts.has(itemId))) {
+    if (itemId && !trackItem(itemId, transport)) {
       return;
     }
     const partialBytes = pendingTranscripts.get(key)?.bytes ?? 0;
     pendingTranscripts.delete(key);
     retainedTranscriptBytes -= partialBytes;
     if (!itemId || !committedItems.has(itemId)) {
-      trackedItemIds.delete(key);
+      if (itemId) {
+        settleItem(itemId);
+      } else {
+        trackedItemIds.delete(key);
+      }
       if (transcript) {
         config.onTranscript?.(transcript);
       }
