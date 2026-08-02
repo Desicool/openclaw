@@ -5,6 +5,7 @@ import type { RealtimeTalkTransport } from "./realtime-talk-shared.ts";
 
 export type ClientVoiceSessionOwner = {
   signal: AbortSignal;
+  closeSignal: AbortSignal;
   beginDrain: () => void;
   release: () => void;
 };
@@ -19,10 +20,12 @@ export type DetachedVoiceSession = {
 
 const MAX_CLIENT_VOICE_SESSION_OWNERS_PER_SESSION = 2;
 const MAX_CLIENT_VOICE_SESSION_OWNERS_PER_CLIENT = 16;
-const CLIENT_VOICE_SESSION_DRAIN_TIMEOUT_MS = DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS;
+const CLIENT_VOICE_TRANSCRIPT_DRAIN_TIMEOUT_MS = DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS;
+const CLIENT_VOICE_SESSION_CLOSE_TIMEOUT_MS =
+  CLIENT_VOICE_TRANSCRIPT_DRAIN_TIMEOUT_MS + DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS;
 
 // One client may own multiple split-pane calls, but route churn must not create
-// unbounded detached drains. Every detached owner also has a hard release deadline.
+// unbounded detached drains. Transcript and close each get one request deadline.
 const clientVoiceSessionOwnerCounts = new WeakMap<GatewayBrowserClient, Map<string, number>>();
 
 export function reserveClientVoiceSessionOwner(
@@ -44,9 +47,11 @@ export function reserveClientVoiceSessionOwner(
   }
   counts.set(sessionKey, sessionCount + 1);
   const ownerCounts = counts;
-  const controller = new AbortController();
+  const transcriptController = new AbortController();
+  const closeController = new AbortController();
   let released = false;
   let drainTimer: ReturnType<typeof setTimeout> | undefined;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
   const release = () => {
     if (released) {
       return;
@@ -56,6 +61,10 @@ export function reserveClientVoiceSessionOwner(
       clearTimeout(drainTimer);
       drainTimer = undefined;
     }
+    if (closeTimer !== undefined) {
+      clearTimeout(closeTimer);
+      closeTimer = undefined;
+    }
     const nextSessionCount = (ownerCounts.get(sessionKey) ?? 1) - 1;
     if (nextSessionCount > 0) {
       ownerCounts.set(sessionKey, nextSessionCount);
@@ -64,15 +73,20 @@ export function reserveClientVoiceSessionOwner(
     }
   };
   return {
-    signal: controller.signal,
+    signal: transcriptController.signal,
+    closeSignal: closeController.signal,
     beginDrain: () => {
-      if (released || drainTimer !== undefined) {
+      if (released || drainTimer !== undefined || closeTimer !== undefined) {
         return;
       }
       drainTimer = setTimeout(() => {
-        controller.abort();
+        transcriptController.abort();
+      }, CLIENT_VOICE_TRANSCRIPT_DRAIN_TIMEOUT_MS);
+      closeTimer = setTimeout(() => {
+        transcriptController.abort();
+        closeController.abort();
         release();
-      }, CLIENT_VOICE_SESSION_DRAIN_TIMEOUT_MS);
+      }, CLIENT_VOICE_SESSION_CLOSE_TIMEOUT_MS);
     },
     release,
   };

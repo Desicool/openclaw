@@ -653,8 +653,8 @@ export class RealtimeTalkSession {
         let lastError: unknown;
         for (const delayMs of [0, 500, 2_000]) {
           if (delayMs > 0) {
-            await waitForTranscriptRetry(delayMs, owner.signal);
-          } else if (owner.signal.aborted) {
+            await waitForTranscriptRetry(delayMs, owner.closeSignal);
+          } else if (owner.closeSignal.aborted) {
             throw transcriptPersistenceAbortError();
           }
           try {
@@ -665,13 +665,13 @@ export class RealtimeTalkSession {
                 voiceSessionId: detached.voiceSessionId,
               },
               {
-                signal: owner.signal,
+                signal: owner.closeSignal,
                 timeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS,
               },
             );
             return;
           } catch (error) {
-            if (owner.signal.aborted) {
+            if (owner.closeSignal.aborted) {
               throw transcriptPersistenceAbortError();
             }
             lastError = error;
@@ -680,7 +680,7 @@ export class RealtimeTalkSession {
         throw transcriptWriteError(lastError, "Realtime Talk voice session close failed");
       })
       .catch((error: unknown) => {
-        if (owner.signal.aborted) {
+        if (owner.closeSignal.aborted) {
           return;
         }
         console.warn("Realtime Talk voice session close failed", error);
