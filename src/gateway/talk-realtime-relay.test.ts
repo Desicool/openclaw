@@ -24,6 +24,7 @@ import type {
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
 import { createChatRunState } from "./server-chat-state.js";
 import { drainingRelaySessions, relaySessions } from "./talk-realtime-relay-state.js";
+import { MAX_RELAY_TOOL_CALL_IDENTITIES } from "./talk-realtime-relay-tool-call-ledger.js";
 import {
   acknowledgeTalkRealtimeRelayMark,
   cancelTalkRealtimeRelayTurn,
@@ -3982,6 +3983,87 @@ describe("talk realtime gateway relay", () => {
     expect(chatRunState.runs.get("run-1")?.agentText).toBeUndefined();
     expectChatAbortPayload(broadcast, "relay-closed");
     expectNodeAbortPayload(nodeSendToSession);
+  });
+
+  it("fails closed when retained relay tool-call identities reach their hard cap", () => {
+    let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
+    const close = vi.fn();
+    const provider: RealtimeVoiceProviderPlugin = {
+      id: "relay-test",
+      label: "Relay Test",
+      isConfigured: () => true,
+      createBridge: (request) => {
+        bridgeRequest = request;
+        return {
+          connect: vi.fn(async () => undefined),
+          sendAudio: vi.fn(),
+          setMediaTimestamp: vi.fn(),
+          handleBargeIn: vi.fn(),
+          submitToolResult: vi.fn(),
+          acknowledgeMark: vi.fn(),
+          close,
+          isConnected: vi.fn(() => true),
+        };
+      },
+    };
+    const broadcastToConnIds = vi.fn();
+    const session = createTalkRealtimeRelaySession({
+      context: { broadcastToConnIds } as never,
+      connId: "conn-1",
+      provider,
+      providerConfig: {},
+      instructions: "brief",
+      tools: [],
+    });
+    const retainedSession = relaySessions.get(session.relaySessionId);
+    expect(retainedSession).toBeDefined();
+
+    for (let index = 0; index < MAX_RELAY_TOOL_CALL_IDENTITIES; index += 1) {
+      bridgeRequest?.onToolCall?.({
+        itemId: `item-${index}`,
+        callId: `call-${index}`,
+        name: "lookup",
+        args: {},
+      });
+    }
+
+    expect(retainedSession?.toolCalls.size).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
+    expect(relaySessions.has(session.relaySessionId)).toBe(true);
+
+    bridgeRequest?.onToolCall?.({
+      itemId: "item-overflow",
+      callId: "call-overflow",
+      name: "lookup",
+      args: {},
+    });
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(relaySessions.has(session.relaySessionId)).toBe(false);
+    expect(
+      broadcastToConnIds.mock.calls.filter(
+        ([, payload]) =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as { type?: string }).type === "error",
+      ),
+    ).toHaveLength(1);
+    expect(
+      broadcastToConnIds.mock.calls.filter(
+        ([, payload]) =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as { type?: string }).type === "close",
+      ),
+    ).toHaveLength(1);
+
+    bridgeRequest?.onToolCall?.({
+      itemId: "item-late",
+      callId: "call-late",
+      name: "lookup",
+      args: {},
+    });
+    expect(close).toHaveBeenCalledOnce();
+    expect(retainedSession?.toolCalls.size).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
   });
 
   it("caps active relay sessions per browser connection", () => {
