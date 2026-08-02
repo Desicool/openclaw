@@ -563,6 +563,7 @@ async function closeClientVoiceSessionInternal(params: {
   sessionKey: string;
   voiceSessionId: string;
   config: OpenClawConfig;
+  transcriptFailurePolicy: "require-success" | "retain-and-close";
   now?: number;
 }): Promise<void> {
   const existing = readRecord(params.agentId, params.voiceSessionId);
@@ -578,8 +579,14 @@ async function closeClientVoiceSessionInternal(params: {
         throw new Error("voice session disappeared during close");
       }
       assertOwnership(current, params);
-      if (current.transcriptFailureKeys.length > 0) {
+      if (
+        current.transcriptFailureKeys.length > 0 &&
+        params.transcriptFailurePolicy === "require-success"
+      ) {
         throw new Error("voice transcript persistence must be retried before close");
+      }
+      if (params.transcriptFailurePolicy === "retain-and-close" && current.origin !== "relay") {
+        throw new Error("only relay voice sessions may close with unresolved transcripts");
       }
       if (current.status === "open") {
         current.status = "closed";
@@ -618,7 +625,27 @@ export async function closeClientVoiceSession(params: {
   config: OpenClawConfig;
   now?: number;
 }): Promise<void> {
-  await closeVoiceSessionOperationOwner(params);
+  await closeVoiceSessionOperationOwner({
+    ...params,
+    transcriptFailurePolicy: "require-success",
+  });
+}
+
+/**
+ * Terminally close a relay call after its bounded append retries settle.
+ * Relays have no payload replay owner after teardown, so unresolved hashes remain as audit state.
+ */
+export async function closeRelayVoiceSessionRecord(params: {
+  agentId: string;
+  sessionKey: string;
+  voiceSessionId: string;
+  config: OpenClawConfig;
+  now?: number;
+}): Promise<void> {
+  await closeVoiceSessionOperationOwner({
+    ...params,
+    transcriptFailurePolicy: "retain-and-close",
+  });
 }
 
 /** Close abandoned open calls idle for the fixed six-hour recovery window. */

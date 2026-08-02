@@ -2,7 +2,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { resolveTalkSessionAgentId } from "../talk/agent-target.js";
 import {
   appendRelayVoiceTranscript,
-  closeClientVoiceSession,
+  closeRelayVoiceSessionRecord,
   createOrResumeClientVoiceSession,
 } from "../talk/client-voice-session.js";
 import {
@@ -144,10 +144,10 @@ export function closeRelayVoiceSession(session: RelaySession): Promise<void> {
   }
   const sessionKey = session.sessionKey;
   session.voiceSessionClose = session.voiceTranscriptQueue
-    .flush({ requireSuccess: true })
+    .flush()
     .then(async () => {
       const config = session.voiceConfig ?? session.context.getRuntimeConfig();
-      await closeClientVoiceSession({
+      await closeRelayVoiceSessionRecord({
         agentId: resolveRelayAgentId(session, sessionKey),
         sessionKey,
         voiceSessionId: session.id,

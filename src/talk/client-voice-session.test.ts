@@ -22,7 +22,9 @@ import {
 import { resetClientVoiceConfirmationStateForTest } from "./client-voice-confirmation.test-support.js";
 import {
   appendClientVoiceTranscript,
+  appendRelayVoiceTranscript,
   closeClientVoiceSession,
+  closeRelayVoiceSessionRecord,
   closeStaleClientVoiceSessions,
   createOrResumeClientVoiceSession,
   ensureClientVoiceAgentSessionEntry,
@@ -520,6 +522,45 @@ describe("client voice session", () => {
     expect(
       clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
     ).toEqual([]);
+  });
+
+  it("terminally closes relay sessions while retaining unresolved transcript identity", async () => {
+    await seedSession("agent:main:main");
+    const voiceSessionId = createOrResumeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      origin: "relay",
+    });
+    sessionAccessorMocks.appendTranscriptMessage.mockRejectedValueOnce(
+      new Error("transcript write failed"),
+    );
+
+    await expect(
+      appendRelayVoiceTranscript({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        entryId: "relay-entry-1",
+        role: "user",
+        text: "persist me",
+      }),
+    ).rejects.toThrow("transcript write failed");
+    const unresolved = clientVoiceSessionTesting.readRecord(
+      "main",
+      voiceSessionId,
+    )?.transcriptFailureKeys;
+    expect(unresolved).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/)]);
+
+    await closeRelayVoiceSessionRecord({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      config: {},
+    });
+    expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)).toMatchObject({
+      status: "closed",
+      transcriptFailureKeys: unresolved,
+    });
   });
 
   it("bounds stalled transcript operations and closes after the accepted prefix", async () => {
