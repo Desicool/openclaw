@@ -217,7 +217,7 @@ export async function handleSendChat(
       isChatStopCommand(message) &&
       (message.trim().startsWith("/") || hasAbortableSessionRun(host))
     ) {
-      if (!requireChatSessionAction(host, "abort")) {
+      if (host.connected && !requireChatSessionAction(host, "abort")) {
         return;
       }
       if (messageOverride == null) {
