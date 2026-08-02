@@ -76,6 +76,7 @@ type SlashCommandContext = {
   sessionsResultAgentId?: string | null;
   defaultAgentId?: string;
   agentId?: string;
+  ownsModelOverride?: () => boolean;
 };
 
 function assertCurrentSlashCommand(context: SlashCommandContext): void {
@@ -303,40 +304,47 @@ async function executeModel(
 
   try {
     const requestedModel = args.trim();
-    const [patched, resolvedModelCatalog] = await Promise.all([
-      patchSession(
-        context,
-        sessionKey,
-        {
-          model: requestedModel,
+    const resolvedModelCatalog = modelCatalog
+      ? Promise.resolve(modelCatalog)
+      : loadModelCatalog(client, { allowFailure: true });
+    let resolvedOverride: ChatModelOverride | null = null;
+    await patchSession(
+      context,
+      sessionKey,
+      {
+        model: requestedModel,
+      },
+      {
+        deferModelOverride: true,
+        reconcile: async (result) => {
+          const resolvedModel = result.resolved?.model ?? requestedModel;
+          let resolvedValue = resolvePreferredServerChatModelValue(
+            resolvedModel,
+            result.resolved?.modelProvider,
+            await resolvedModelCatalog,
+          );
+          const requestedOverride = createChatModelOverride(requestedModel);
+          const resolvedProvider = result.resolved?.modelProvider?.trim();
+          if (
+            requestedOverride?.kind === "qualified" &&
+            resolvedProvider &&
+            resolvedValue &&
+            !resolvedValue.toLowerCase().startsWith(`${resolvedProvider.toLowerCase()}/`) &&
+            requestedOverride.value.toLowerCase().endsWith(`/${resolvedModel.trim().toLowerCase()}`)
+          ) {
+            resolvedValue = requestedOverride.value;
+          }
+          resolvedOverride = createChatModelOverride(resolvedValue);
+          if (context.ownsModelOverride?.() !== false) {
+            context.sessions.setModelOverride(sessionKey, resolvedOverride?.value ?? null);
+          }
         },
-        { deferModelOverride: true },
-      ),
-      modelCatalog
-        ? Promise.resolve(modelCatalog)
-        : loadModelCatalog(client, { allowFailure: true }),
-    ]);
-    const resolvedModel = patched.resolved?.model ?? requestedModel;
-    let resolvedValue = resolvePreferredServerChatModelValue(
-      resolvedModel,
-      patched.resolved?.modelProvider,
-      resolvedModelCatalog,
+      },
     );
-    const requestedOverride = createChatModelOverride(requestedModel);
-    const resolvedProvider = patched.resolved?.modelProvider?.trim();
-    if (
-      requestedOverride?.kind === "qualified" &&
-      resolvedProvider &&
-      resolvedValue &&
-      !resolvedValue.toLowerCase().startsWith(`${resolvedProvider.toLowerCase()}/`) &&
-      requestedOverride.value.toLowerCase().endsWith(`/${resolvedModel.trim().toLowerCase()}`)
-    ) {
-      resolvedValue = requestedOverride.value;
-    }
     return {
       content: t("chat.commandResults.model.set", { model: `\`${requestedModel}\`` }),
       action: "refresh",
-      sessionPatch: { modelOverride: createChatModelOverride(resolvedValue) },
+      sessionPatch: { modelOverride: resolvedOverride },
     };
   } catch (err) {
     return {

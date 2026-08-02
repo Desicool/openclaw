@@ -8,6 +8,7 @@ import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { UiSettings } from "../../app/settings.ts";
 import { SLASH_COMMANDS } from "../../lib/chat/commands.ts";
 import { createSessionCapability } from "../../lib/sessions/index.ts";
+import { createResolvedModelPatch } from "../../test-helpers/chat-model.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import {
@@ -1802,6 +1803,36 @@ describe("handleSendChat", () => {
     expect(host.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
     expect(host.chatMessage).toBe(queuedText);
     expect(host.chatQueue).toStrictEqual([]);
+  });
+
+  it("keeps a resolved model reconciliation inside the canonical settings queue", async () => {
+    const reconcile = createDeferred<void>();
+    let patchCount = 0;
+    const host = makeHost({
+      requestHandlers: {
+        "sessions.patch": () => {
+          patchCount += 1;
+          return createResolvedModelPatch(patchCount === 1 ? "gpt-5-mini" : "gpt-5", "openai");
+        },
+      },
+    });
+
+    const first = patchChatSessionSettings(
+      host,
+      host.sessionKey,
+      { model: "openai/gpt-5-mini" },
+      { reconcile: async () => await reconcile.promise },
+    );
+    await waitForFast(() => expect(patchCount).toBe(1));
+    const second = patchChatSessionSettings(host, host.sessionKey, {
+      model: "openai/gpt-5",
+    });
+    await Promise.resolve();
+
+    expect(patchCount).toBe(1);
+    reconcile.resolve();
+    await Promise.all([first, second]);
+    expect(patchCount).toBe(2);
   });
 
   it("keeps waiting when a late picker barrier cannot be persisted", async () => {
@@ -4449,7 +4480,7 @@ describe("handleSendChat", () => {
     expect(host.chatRunId).toBeNull();
     expect(host.lastError).toBe("Second session error");
     expect(host.chatError).toBe("Second session error");
-    expect(host.sessions.state.modelOverrides[item.sessionKey]).toBe("openai/gpt-5-mini");
+    expect(host.sessions.state.modelOverrides[item.sessionKey]).toBeUndefined();
     expect(refreshCurrentSessionTools).not.toHaveBeenCalled();
     expect(refreshCurrentChat).not.toHaveBeenCalled();
   });

@@ -151,9 +151,11 @@ describe("executeSlashCommand directives", () => {
       .mockResolvedValue(
         createResolvedModelPatch(OPENAI_GPT5_MINI_MODEL.id, OPENAI_GPT5_MINI_MODEL.provider),
       );
+    const setModelOverride = vi.fn();
     const sessions = {
       ...createSessionCapability(client),
       patch,
+      setModelOverride,
     } as SessionCapability;
 
     const result = await executeSlashCommandImpl(client, "global", "model", "gpt-5-mini", {
@@ -176,6 +178,36 @@ describe("executeSlashCommand directives", () => {
         deferModelOverride: true,
       }),
     );
+    expect(setModelOverride).toHaveBeenCalledWith("global", "openai/gpt-5-mini");
+  });
+
+  it("does not publish a slash-command model cache value after its owner retires", async () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const setModelOverride = vi.fn();
+    const sessions = {
+      ...createSessionCapability(client),
+      patch: vi
+        .fn()
+        .mockResolvedValue(
+          createResolvedModelPatch(OPENAI_GPT5_MINI_MODEL.id, OPENAI_GPT5_MINI_MODEL.provider),
+        ),
+      setModelOverride,
+    } as SessionCapability;
+
+    const result = await executeSlashCommandImpl(client, "global", "model", "gpt-5-mini", {
+      sessions,
+      sessionAccessSnapshot: {
+        client,
+        hello: null,
+        phase: "connected",
+      },
+      agentId: "work",
+      ownsModelOverride: () => false,
+      chatModelCatalog: createModelCatalog(OPENAI_GPT5_MINI_MODEL),
+    });
+
+    expect(result.failed).not.toBe(true);
+    expect(setModelOverride).not.toHaveBeenCalled();
   });
 
   it("does not patch through a replacement connection after loading session state", async () => {

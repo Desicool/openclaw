@@ -166,7 +166,10 @@ export async function patchChatCommandSessionSettings(
   context: ChatCommandSettingsContext,
   sessionKey: string,
   patch: SessionPatch,
-  options: { deferModelOverride?: boolean } = {},
+  options: {
+    deferModelOverride?: boolean;
+    reconcile?: (result: SessionsPatchResult) => Promise<void> | void;
+  } = {},
 ): Promise<NonNullable<Awaited<ReturnType<SessionCapability["patch"]>>>> {
   const result = await patchChatSessionSettings(
     {

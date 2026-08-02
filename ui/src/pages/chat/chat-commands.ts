@@ -423,6 +423,7 @@ export async function dispatchChatSlashCommand(
       sessionsResultAgentId: host.sessionsResultAgentId,
       defaultAgentId: resolveUiDefaultAgentId(host),
       agentId: target.agentId,
+      ownsModelOverride: () => isChatCommandModelCacheOwnerCurrent(host, target),
     });
   } catch (err) {
     if (targetIsCurrent()) {
@@ -475,14 +476,6 @@ export async function dispatchChatSlashCommand(
   }
 
   if (result.sessionPatch && "modelOverride" in result.sessionPatch) {
-    // A route switch on the same Gateway still owns the originating session's
-    // cache. A replacement connection must not consume this late command result.
-    if (isChatCommandModelCacheOwnerCurrent(host, target)) {
-      host.sessions.setModelOverride(
-        target.sessionKey,
-        result.sessionPatch.modelOverride?.value ?? null,
-      );
-    }
     if (targetIsCurrent()) {
       await host.refreshCurrentSessionTools?.();
     }
