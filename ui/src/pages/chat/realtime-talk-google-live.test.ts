@@ -881,7 +881,8 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
 
   it("fails closed when browser Google exceeds the pending tool-call limit", async () => {
     const onStatus = vi.fn();
-    const transport = createTransport({ onStatus });
+    const client = createClient();
+    const transport = createTransport({ onStatus }, client);
     const ws = await startTransport(transport);
     const { pendingCalls } = getGoogleLiveToolOwnerState(transport);
     for (let index = 0; index < 1_024; index += 1) {
@@ -897,6 +898,11 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
               name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
               args: {},
             },
+            {
+              id: "after-overflow",
+              name: REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
+              args: { text: "must not run", mode: "status" },
+            },
           ],
         },
       }),
@@ -910,6 +916,7 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
     );
     expect(ws.readyState).toBe(3);
     expect(pendingCalls.size).toBe(0);
+    expect(client.request).not.toHaveBeenCalled();
   });
 
   it("fails closed before evicting seen browser tool-call ids", async () => {

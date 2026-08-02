@@ -60,6 +60,9 @@ export class GoogleLiveToolOwner {
   }
 
   async handleCall(call: GoogleLiveFunctionCall): Promise<void> {
+    if (this.options.isClosed()) {
+      return;
+    }
     const name = call.name?.trim();
     const callId = call.id?.trim();
     if (!name || !callId || this.seenCallIds.has(callId)) {
