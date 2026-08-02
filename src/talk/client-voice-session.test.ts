@@ -444,6 +444,7 @@ describe("client voice session", () => {
     expect(
       clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
     ).toEqual([expect.any(String)]);
+    clientVoiceSessionTesting.reset();
     await expect(
       closeClientVoiceSession({
         agentId: "main",
