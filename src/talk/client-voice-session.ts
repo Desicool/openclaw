@@ -13,8 +13,6 @@ import {
   onTrustedToolExecutionEvent,
   type TrustedToolExecutionEvent,
 } from "../infra/diagnostic-events.js";
-import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
-import { resolveSessionDeliveryTarget } from "../infra/outbound/targets-session.js";
 import {
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
@@ -24,6 +22,11 @@ import {
   noteClientVoiceConfirmationUtterance,
   releaseClientVoiceConfirmationRun,
 } from "./client-voice-confirmation.js";
+import {
+  CLIENT_VOICE_MUTATION_DIGEST_POLICY,
+  ClientVoiceMutationDigestOwner,
+  deliverClientVoiceMutationDigest,
+} from "./client-voice-mutation-digest-owner.js";
 import {
   assertVoiceSessionOwnership as assertOwnership,
   type ClientVoiceRunBinding,
@@ -48,7 +51,6 @@ const voiceSessionByRunId = new Map<string, ClientVoiceRunBinding>();
 const voiceSessionOperations = createVoiceTranscriptOperationRegistry(
   VOICE_TRANSCRIPT_QUEUE_POLICY,
 );
-const deferredDigestConfigs = new Map<string, OpenClawConfig>();
 let unsubscribeToolEffects: (() => void) | undefined;
 let unsubscribeRunCompletion: (() => void) | undefined;
 
@@ -157,11 +159,7 @@ function ensureToolEffectSubscription(): void {
     }
     voiceSessionByRunId.delete(event.runId);
     releaseClientVoiceConfirmationRun(binding.agentId, binding.voiceSessionId, event.runId);
-    void finishDeferredMutationDigest(binding).catch((error: unknown) => {
-      console.warn(
-        `[talk] deferred voice mutation digest failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
+    mutationDigestDeliveryOwner.retry(binding);
   });
 }
 
@@ -293,10 +291,14 @@ export function registerClientVoiceConsultRun(params: {
     voiceSessionId: params.voiceSessionId,
     sessionKey: params.sessionKey,
   });
-  // Bound to a call that already closed: its digest may have been delivered and its
-  // retry config cleared, so re-arm it to cover this late run's mutations.
+  // Bound to a call that already closed: re-arm the point-in-time summary owner so
+  // the run completion becomes a retry point without coupling it to transcript work.
   if (recordClosed && params.config) {
-    deferredDigestConfigs.set(operationKey(params.agentId, params.voiceSessionId), params.config);
+    mutationDigestDeliveryOwner.record({
+      agentId: params.agentId,
+      voiceSessionId: params.voiceSessionId,
+      context: params.config,
+    });
   }
   ensureToolEffectSubscription();
 }
@@ -508,143 +510,20 @@ export function appendRelayVoiceTranscript(
   return appendVoiceTranscript({ ...params, origin: "relay" });
 }
 
-// The mutation digest is a best-effort informational summary, not a durable record:
-// the authoritative effects live on the voice record and the canonical transcript is
-// persisted independently. Accepted tradeoffs (retry state is process-local like the
-// rest of this subsystem): a digest already delivered at close does not reissue for a
-// run that binds afterward, and an undelivered digest whose retry map is cleared by a
-// gateway restart is not rediscovered. Both lose a summary message, never real data.
-function formatMutationDigest(effects: ClientVoiceToolEffect[]): string | undefined {
-  if (effects.length === 0) {
-    return undefined;
-  }
-  return [
-    "Voice call changes",
-    ...effects
-      .slice(0, 12)
-      .map(
-        (effect) =>
-          `- ${effect.toolName}: ${effect.status === "started" ? "outcome not confirmed" : effect.status}`,
-      ),
-  ].join("\n");
-}
-
-async function deliverMutationDigest(
-  record: ClientVoiceSessionRecord,
-  config: OpenClawConfig,
-  target: { channel: string; to: string; accountId?: string; threadId?: string | number | null },
-  text: string,
-): Promise<void> {
-  const { sendDurableMessageBatch } = await import("../channels/message/runtime.js");
-  const send = await sendDurableMessageBatch({
-    cfg: config,
-    channel: target.channel,
-    to: target.to,
-    ...(target.accountId ? { accountId: target.accountId } : {}),
-    ...(target.threadId != null ? { threadId: target.threadId } : {}),
-    payloads: [{ text }],
-    durability: "required",
-    requireUnknownSendReconciliation: true,
-    session: buildOutboundSessionContext({
-      cfg: config,
-      agentId: record.agentId,
-      sessionKey: record.sessionKey,
-      policySessionKey: record.sessionKey,
-    }),
-  });
-  if (send.status === "failed" || send.status === "partial_failed") {
-    throw send.error;
-  }
-}
-
-async function deliverMutationDigestOnce(
-  record: ClientVoiceSessionRecord,
-  config: OpenClawConfig,
-): Promise<void> {
-  if (record.digestDeliveredAt) {
-    return;
-  }
-  const text = formatMutationDigest(record.effects);
-  if (!text) {
-    return;
-  }
-  const entry = loadSessionEntryReadOnly({
-    agentId: record.agentId,
-    sessionKey: record.sessionKey,
-  });
-  const target = resolveSessionDeliveryTarget({ entry, requestedChannel: "last" });
-  if (!target.channel || target.channel === "webchat" || !target.to) {
-    return;
-  }
-  // Send first, mark after: a transient send failure (the common case) then leaves
-  // the marker unset so close/stale-sweep retries. The rare crash between a durable
-  // send and this marker can re-send one informational digest, which is acceptable.
-  await deliverMutationDigest(
-    record,
-    config,
-    {
-      channel: target.channel,
-      to: target.to,
-      accountId: target.accountId,
-      threadId: target.threadId,
-    },
-    text,
-  );
-  const deliveredAt = Date.now();
-  runOpenClawAgentWriteTransaction(
-    (database) => {
-      const current = readRecordInTransaction(database, record.voiceSessionId);
-      if (!current || current.digestDeliveredAt) {
-        return;
-      }
-      current.digestDeliveredAt = deliveredAt;
-      current.updatedAt = deliveredAt;
-      writeRecordInTransaction(database, current);
-    },
-    { agentId: record.agentId },
-  );
-}
-
-async function finishDeferredMutationDigest(binding: {
-  agentId: string;
-  voiceSessionId: string;
-}): Promise<void> {
-  const key = operationKey(binding.agentId, binding.voiceSessionId);
-  const config = deferredDigestConfigs.get(key);
-  if (!config) {
-    return;
-  }
-  await runVoiceSessionOperation(
-    binding.agentId,
-    binding.voiceSessionId,
-    async () => {
-      const record = readRecord(binding.agentId, binding.voiceSessionId);
-      if (!record || record.status !== "closed" || hasLiveConsultRun(record)) {
-        return;
-      }
-      // Deliver first; only drop the retry config once the send succeeds, so a
-      // transient failure here is retried by the next closeStaleClientVoiceSessions.
-      await deliverMutationDigestOnce(record, config);
-      deferredDigestConfigs.delete(key);
-    },
-    { weight: 0, waitForCapacity: true },
-  );
-}
-
-/** Retry deferred digests whose delivery previously failed after the call closed. */
-async function retryDeferredMutationDigests(agentId: string): Promise<void> {
-  for (const key of Array.from(deferredDigestConfigs.keys())) {
-    const [entryAgentId, voiceSessionId] = key.split("\0");
-    if (entryAgentId !== agentId || !voiceSessionId) {
-      continue;
+const mutationDigestDeliveryOwner = new ClientVoiceMutationDigestOwner<OpenClawConfig>({
+  attempt: async ({ agentId, voiceSessionId, context: config, signal }) => {
+    const record = readRecord(agentId, voiceSessionId);
+    if (!record) {
+      return true;
     }
-    try {
-      await finishDeferredMutationDigest({ agentId, voiceSessionId });
-    } catch {
-      // Still undeliverable; a later voice session retries again.
+    if (record.status !== "closed" || hasLiveConsultRun(record)) {
+      return false;
     }
-  }
-}
+    await deliverClientVoiceMutationDigest(record, config, signal);
+    return true;
+  },
+  warn: (message) => console.warn(`[talk] deferred voice mutation digest failed: ${message}`),
+});
 
 async function closeClientVoiceSessionInternal(params: {
   agentId: string;
@@ -686,22 +565,16 @@ async function closeClientVoiceSessionInternal(params: {
     return binding?.voiceSessionId === params.voiceSessionId && binding.agentId === params.agentId;
   });
   deactivateClientVoiceConfirmationSession(params.agentId, params.voiceSessionId, liveRunIds);
-  const key = operationKey(params.agentId, params.voiceSessionId);
-  // Both the deferred and immediate paths retain the retry config until a send
-  // actually succeeds, so a channel outage does not permanently lose the digest.
-  deferredDigestConfigs.set(key, params.config);
-  if (hasLiveConsultRun(closed)) {
-    return;
-  }
-  await deliverMutationDigestOnce(closed, params.config);
-  // Intentionally unconditional: a consult that late-binds during the await above has
-  // its mutations omitted from this already-sent point-in-time summary. Re-sending to
-  // include them would double-notify the user for one call, which is a worse outcome
-  // for an informational digest than omitting a straggler action (still on the record).
-  deferredDigestConfigs.delete(key);
+  // Record retry ownership only after canonical close and confirmation cleanup.
+  // Channel delivery is best-effort and must never delay this durable boundary.
+  mutationDigestDeliveryOwner.record({
+    agentId: params.agentId,
+    voiceSessionId: params.voiceSessionId,
+    context: params.config,
+  });
 }
 
-/** Close a logical voice call and deliver its mutation digest at most once. */
+/** Close a logical voice call after its accepted transcript prefix is durable. */
 export async function closeClientVoiceSession(params: {
   agentId: string;
   sessionKey: string;
@@ -721,9 +594,9 @@ export async function closeStaleClientVoiceSessions(params: {
   warn?: (message: string) => void;
 }): Promise<number> {
   const now = params.now ?? Date.now();
-  // A new voice session is the natural retry point for a digest whose delivery
-  // failed after its own call had already closed and its runs completed.
-  await retryDeferredMutationDigests(params.agentId);
+  // A new voice session remains a retry point, but channel I/O is detached so a
+  // stalled adapter cannot block stale-session recovery.
+  mutationDigestDeliveryOwner.retryAgent(params.agentId, params.config);
   const database = openOpenClawAgentDatabase({ agentId: params.agentId });
   const rows = database.db
     .prepare("SELECT value_json FROM cache_entries WHERE scope = ? AND updated_at <= ?")
@@ -758,10 +631,12 @@ export async function closeStaleClientVoiceSessions(params: {
 
 const clientVoiceSessionTesting = {
   readRecord,
+  digestDeliveryPolicy: CLIENT_VOICE_MUTATION_DIGEST_POLICY,
+  digestDeliverySnapshot: () => mutationDigestDeliveryOwner.snapshot(),
   reset(): void {
     voiceSessionByRunId.clear();
     voiceSessionOperations.clear();
-    deferredDigestConfigs.clear();
+    mutationDigestDeliveryOwner.clear();
     unsubscribeToolEffects?.();
     unsubscribeToolEffects = undefined;
     unsubscribeRunCompletion?.();
