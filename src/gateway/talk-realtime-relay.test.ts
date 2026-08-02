@@ -3988,6 +3988,7 @@ describe("talk realtime gateway relay", () => {
   it("fails closed when retained relay tool-call identities reach their hard cap", () => {
     let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
     const close = vi.fn();
+    const submitToolResult = vi.fn();
     const provider: RealtimeVoiceProviderPlugin = {
       id: "relay-test",
       label: "Relay Test",
@@ -3999,7 +4000,7 @@ describe("talk realtime gateway relay", () => {
           sendAudio: vi.fn(),
           setMediaTimestamp: vi.fn(),
           handleBargeIn: vi.fn(),
-          submitToolResult: vi.fn(),
+          submitToolResult,
           acknowledgeMark: vi.fn(),
           close,
           isConnected: vi.fn(() => true),
@@ -4017,6 +4018,13 @@ describe("talk realtime gateway relay", () => {
     });
     const retainedSession = relaySessions.get(session.relaySessionId);
     expect(retainedSession).toBeDefined();
+    const toolCallEventCount = () =>
+      broadcastToConnIds.mock.calls.filter(
+        ([, payload]) =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as { type?: string }).type === "toolCall",
+      ).length;
 
     for (let index = 0; index < MAX_RELAY_TOOL_CALL_IDENTITIES; index += 1) {
       bridgeRequest?.onToolCall?.({
@@ -4029,6 +4037,7 @@ describe("talk realtime gateway relay", () => {
 
     expect(retainedSession?.toolCalls.size).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
     expect(relaySessions.has(session.relaySessionId)).toBe(true);
+    expect(toolCallEventCount()).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
 
     bridgeRequest?.onToolCall?.({
       itemId: "item-overflow",
@@ -4039,6 +4048,9 @@ describe("talk realtime gateway relay", () => {
 
     expect(close).toHaveBeenCalledOnce();
     expect(relaySessions.has(session.relaySessionId)).toBe(false);
+    expect(retainedSession?.toolCalls.has("call-overflow")).toBe(false);
+    expect(toolCallEventCount()).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
+    expect(submitToolResult).not.toHaveBeenCalled();
     expect(
       broadcastToConnIds.mock.calls.filter(
         ([, payload]) =>
@@ -4064,6 +4076,9 @@ describe("talk realtime gateway relay", () => {
     });
     expect(close).toHaveBeenCalledOnce();
     expect(retainedSession?.toolCalls.size).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
+    expect(retainedSession?.toolCalls.has("call-late")).toBe(false);
+    expect(toolCallEventCount()).toBe(MAX_RELAY_TOOL_CALL_IDENTITIES);
+    expect(submitToolResult).not.toHaveBeenCalled();
   });
 
   it("caps active relay sessions per browser connection", () => {

@@ -2,16 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import { RelayToolCallLedger } from "./talk-realtime-relay-tool-call-ledger.js";
 
 describe("RelayToolCallLedger", () => {
-  it("shares one retained identity across cancellation and terminal outcomes", () => {
+  it("preserves the first cancellation turn until agent completion wins", () => {
     const ledger = new RelayToolCallLedger({ onOverflow: vi.fn(), maxEntries: 2 });
 
     expect(ledger.tryAdmit(["call-1"])).toBe(true);
     expect(ledger.markCancelled(["call-1"], "turn-1")).toBe(true);
+    expect(ledger.markCancelled(["call-1"], "turn-2")).toBe(true);
+    expect(ledger.cancelledTurnId("call-1")).toBe("turn-1");
+
     expect(ledger.markAgentCompleted(["call-1"])).toBe(true);
+    expect(ledger.hasCancelled("call-1")).toBe(false);
+    expect(ledger.markCancelled(["call-1"], "turn-3")).toBe(true);
     expect(ledger.markProviderCompleted(["call-1"])).toBe(true);
 
     expect(ledger.size).toBe(1);
-    expect(ledger.cancelledTurnId("call-1")).toBe("turn-1");
+    expect(ledger.cancelledTurnId("call-1")).toBeUndefined();
     expect(ledger.isAgentCompleted("call-1")).toBe(true);
     expect(ledger.isProviderCompleted("call-1")).toBe(true);
   });
@@ -35,9 +40,9 @@ describe("RelayToolCallLedger", () => {
     const ledger = new RelayToolCallLedger({ onOverflow: vi.fn(), maxEntries: 1 });
 
     ledger.markCancelled(["call-1"], "turn-1");
+    ledger.deleteCancelled("call-1");
     ledger.markAgentCompleted(["call-1"]);
     ledger.markProviderCompleted(["call-1"]);
-    ledger.deleteCancelled("call-1");
     ledger.deleteAgentCompleted("call-1");
     ledger.clearProviderCompleted();
 

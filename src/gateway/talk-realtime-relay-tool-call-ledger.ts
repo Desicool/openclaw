@@ -73,7 +73,10 @@ export class RelayToolCallLedger {
 
   markAgentCompleted(callIds: Iterable<string>): boolean {
     return this.mark(callIds, (entry) => {
+      // Completion is terminal for the owner-facing call. Do not let stale
+      // cancellation metadata route a later result through cancellation again.
       entry.agentCompleted = true;
+      delete entry.cancelledTurnId;
     });
   }
 
@@ -111,7 +114,11 @@ export class RelayToolCallLedger {
 
   markCancelled(callIds: Iterable<string>, turnId: string): boolean {
     return this.mark(callIds, (entry) => {
-      entry.cancelledTurnId = turnId;
+      // The first cancel owns the original turn until completion. Retries and
+      // late cancellation events must not replace or revive that lifecycle fact.
+      if (!entry.agentCompleted && entry.cancelledTurnId === undefined) {
+        entry.cancelledTurnId = turnId;
+      }
     });
   }
 
