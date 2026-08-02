@@ -2,10 +2,7 @@ import { spawnSync } from "node:child_process";
 import { asRecord } from "@openclaw/normalization-core/record-coerce";
 import { createMeetingNodeHost, type MeetingNodeHostOptions } from "./node-host.js";
 
-export type MeetingConfiguredNodeHostOptions = Omit<
-  MeetingNodeHostOptions,
-  "assertAudioAvailable"
-> & {
+type MeetingConfiguredNodeHostOptions = Omit<MeetingNodeHostOptions, "assertAudioAvailable"> & {
   meetingLabel: string;
   outputMentionsAudioDevice(output: string): boolean;
   sharePrerequisiteDeadline: boolean;
