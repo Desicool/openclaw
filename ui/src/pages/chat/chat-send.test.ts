@@ -8834,7 +8834,8 @@ describe("handleAbortChat", () => {
   });
 
   it("queues a typed exact-run stop while disconnected", async () => {
-    const client = { request: vi.fn() } as unknown as NonNullable<ChatHost["client"]>;
+    const request = vi.fn();
+    const client = { request } as unknown as NonNullable<ChatHost["client"]>;
     const host = makeHost({
       client,
       connected: false,
@@ -8851,7 +8852,7 @@ describe("handleAbortChat", () => {
       sessionKey: "agent:main",
     });
     expect(host.chatMessage).toBe("");
-    expect(client.request).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("queues the active run abort while disconnected", async () => {
