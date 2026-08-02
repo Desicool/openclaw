@@ -9,7 +9,11 @@ import {
   getChatAttachmentDataUrl,
   releaseChatAttachmentPayloads,
 } from "./attachment-payload-store.ts";
-import { dispatchChatSlashCommand, shouldQueueLocalSlashCommand } from "./chat-commands.ts";
+import {
+  dispatchChatSlashCommand,
+  requireChatSessionAction,
+  shouldQueueLocalSlashCommand,
+} from "./chat-commands.ts";
 import type { ChatState } from "./chat-history.ts";
 import {
   admitQueuedMessageForSession,
@@ -213,6 +217,9 @@ export async function handleSendChat(
       isChatStopCommand(message) &&
       (message.trim().startsWith("/") || hasAbortableSessionRun(host))
     ) {
+      if (!requireChatSessionAction(host, "abort")) {
+        return;
+      }
       if (messageOverride == null) {
         recordNonTranscriptInputHistory(host, message);
       }

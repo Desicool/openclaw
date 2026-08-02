@@ -95,7 +95,7 @@ function currentSessionAccessSnapshot(
   };
 }
 
-function requireChatSessionAction(
+export function requireChatSessionAction(
   host: ChatCommandHost,
   action: "abort" | "compact" | "reset",
 ): boolean {

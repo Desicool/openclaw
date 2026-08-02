@@ -8688,6 +8688,28 @@ describe("handleAbortChat", () => {
     },
   );
 
+  it("blocks a typed stop before aborting when the operator lacks write scope", async () => {
+    const host = makeHost({
+      requestHandlers: {},
+      chatRunId: "run-main",
+      chatMessage: "/stop",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read"] },
+        features: { methods: ["chat.abort"] },
+      },
+      sessionKey: "agent:main",
+    });
+
+    await handleSendChat(host);
+
+    expect(host.request).not.toHaveBeenCalled();
+    expect(host.lastError).toBeTruthy();
+    expect(host.chatError).toBe(host.lastError);
+    expect(host.chatMessage).toBe("/stop");
+  });
+
   it("queues the active run abort while disconnected", async () => {
     const client = { request: vi.fn() } as unknown as NonNullable<ChatHost["client"]>;
     const host = makeHost({
