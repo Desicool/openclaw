@@ -2,14 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { decodeMeetingAudioBase64 } from "./audio-base64.js";
 import { terminateMeetingBridgeProcess } from "./bridge-process.js";
-import {
-  createMeetingConfiguredNodeHostImpl,
-  type MeetingConfiguredNodeHostOptions,
-} from "./configured-node-host.js";
 import { MeetingNodeAudioPullWaiters } from "./node-audio-pull-waiters.js";
-import type { MeetingNodeHostOptions } from "./node-host-options.js";
-
-export type { MeetingNodeHostOptions } from "./node-host-options.js";
 
 const NODE_BRIDGE_TERMINATION_GRACE_MS = 2_000;
 const NODE_BRIDGE_INPUT_DRAIN_MS = NODE_BRIDGE_TERMINATION_GRACE_MS + 1_000;
@@ -48,6 +41,26 @@ type NodeBridgeSession = {
   stopping: boolean;
   discardQueuedAudioOnStop: boolean;
   terminalEvictionTimer?: ReturnType<typeof setTimeout>;
+};
+
+export type MeetingNodeHostOptions = {
+  commandName: string;
+  displayName: string;
+  browserLabel: string;
+  bridgeIdPrefix: string;
+  defaultAudioInputCommand: readonly string[];
+  defaultAudioOutputCommand: readonly string[];
+  talkBackModes: ReadonlySet<string>;
+  agentMode: string;
+  normalizeUrl(input: unknown): string;
+  normalizeMeetingKey(url?: string): string | undefined;
+  assertAudioAvailable(timeoutMs: number): void;
+  browser: {
+    application: string;
+    buildProfileArgs(profile: string): string[];
+    openedStatus: string;
+    openedNotes: string[];
+  };
 };
 
 function readStringArray(value: unknown): string[] | undefined {
@@ -717,11 +730,4 @@ export function createMeetingNodeHost(options: MeetingNodeHostOptions): {
       return JSON.stringify(result);
     },
   };
-}
-
-export function createMeetingConfiguredNodeHost(options: MeetingConfiguredNodeHostOptions) {
-  return createMeetingConfiguredNodeHostImpl(options, {
-    asRecord,
-    createMeetingNodeHost,
-  });
 }

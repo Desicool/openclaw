@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import type { MeetingNodeHostOptions } from "./node-host-options.js";
+import { asRecord } from "@openclaw/normalization-core/record-coerce";
+import { createMeetingNodeHost, type MeetingNodeHostOptions } from "./node-host.js";
 
 export type MeetingConfiguredNodeHostOptions = Omit<
   MeetingNodeHostOptions,
@@ -9,13 +10,6 @@ export type MeetingConfiguredNodeHostOptions = Omit<
   outputMentionsAudioDevice(output: string): boolean;
   sharePrerequisiteDeadline: boolean;
   systemProfilerCommand: string;
-};
-
-type MeetingConfiguredNodeHostDeps = {
-  asRecord(value: unknown): Record<string, unknown>;
-  createMeetingNodeHost(options: MeetingNodeHostOptions): {
-    handleCommand(paramsJSON?: string | null): Promise<string>;
-  };
 };
 
 function readSetupCommand(params: Record<string, unknown>, name: string): string[] {
@@ -34,10 +28,7 @@ function isSpawnSyncTimeout(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ETIMEDOUT";
 }
 
-export function createMeetingConfiguredNodeHostImpl(
-  options: MeetingConfiguredNodeHostOptions,
-  deps: MeetingConfiguredNodeHostDeps,
-) {
+export function createMeetingConfiguredNodeHost(options: MeetingConfiguredNodeHostOptions) {
   const probeCommand = (command: string, timeoutMs: number): "found" | "missing" | "timed-out" => {
     const result = spawnSync("/bin/sh", ["-lc", 'command -v "$1" >/dev/null 2>&1', "sh", command], {
       encoding: "utf8",
@@ -103,7 +94,7 @@ export function createMeetingConfiguredNodeHostImpl(
       }
     }
   };
-  const host = deps.createMeetingNodeHost({ ...options, assertAudioAvailable });
+  const host = createMeetingNodeHost({ ...options, assertAudioAvailable });
 
   return async (paramsJSON?: string | null): Promise<string> => {
     if (paramsJSON) {
@@ -113,7 +104,7 @@ export function createMeetingConfiguredNodeHostImpl(
       } catch {
         throw new Error(`${options.displayName} node host received malformed params JSON.`);
       }
-      const params = deps.asRecord(raw);
+      const params = asRecord(raw);
       if (params.action === "setup") {
         const commands = [
           readSetupCommand(params, "audioInputCommand"),
