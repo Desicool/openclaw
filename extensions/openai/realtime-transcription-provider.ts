@@ -339,10 +339,10 @@ function createOpenAIRealtimeTranscriptionSession(
     itemId: string | undefined,
     transcript: string | undefined,
     transport: RealtimeTranscriptionWebSocketTransport,
-  ) => {
+  ): boolean => {
     const key = itemId ?? unkeyedTranscript;
     if (itemId && !trackItem(itemId, transport)) {
-      return;
+      return false;
     }
     const partialBytes = pendingTranscripts.get(key)?.bytes ?? 0;
     pendingTranscripts.delete(key);
@@ -356,7 +356,7 @@ function createOpenAIRealtimeTranscriptionSession(
       if (transcript) {
         config.onTranscript?.(transcript);
       }
-      return;
+      return true;
     }
     const transcriptBytes = transcript ? Buffer.byteLength(transcript, "utf8") : 0;
     if (
@@ -364,11 +364,12 @@ function createOpenAIRealtimeTranscriptionSession(
       OPENAI_REALTIME_TRANSCRIPTION_MAX_RETAINED_TRANSCRIPT_BYTES - retainedTranscriptBytes
     ) {
       failTerminal(new Error(OPENAI_REALTIME_TRANSCRIPTION_TEXT_OVERFLOW_MESSAGE), transport);
-      return;
+      return false;
     }
     completedTranscripts.set(itemId, transcript);
     retainedTranscriptBytes += transcriptBytes;
     flushCompletedTranscripts();
+    return true;
   };
 
   const handleEvent = (
@@ -424,8 +425,9 @@ function createOpenAIRealtimeTranscriptionSession(
         ) {
           return;
         }
-        completeItem(event.item_id, undefined, transport);
-        config.onError?.(new Error(readRealtimeErrorDetail(event.error)));
+        if (completeItem(event.item_id, undefined, transport)) {
+          config.onError?.(new Error(readRealtimeErrorDetail(event.error)));
+        }
         return;
 
       case "input_audio_buffer.speech_started": {
