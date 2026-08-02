@@ -651,7 +651,7 @@ describe("buildOpenAIRealtimeTranscriptionProvider", () => {
     });
     const socket = await connectFakeSession(session);
 
-    for (let index = 0; index < 65; index += 1) {
+    for (let index = 0; index < 64; index += 1) {
       emitJson(socket, {
         type: "input_audio_buffer.committed",
         item_id: `item-${index}`,
@@ -664,9 +664,9 @@ describe("buildOpenAIRealtimeTranscriptionProvider", () => {
       });
     }
     emitJson(socket, {
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "late-item",
-      transcript: "late transcript",
+      type: "conversation.item.input_audio_transcription.failed",
+      item_id: "overflow-item",
+      error: { message: "provider failure" },
     });
 
     expect(onError).toHaveBeenCalledExactlyOnceWith(
@@ -983,14 +983,9 @@ describe("buildOpenAIRealtimeTranscriptionProvider", () => {
     const socket = await connectFakeSession(session);
 
     emitJson(socket, {
-      type: "input_audio_buffer.committed",
+      type: "conversation.item.input_audio_transcription.failed",
       item_id: "i".repeat(1025),
-      previous_item_id: null,
-    });
-    emitJson(socket, {
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "late-item",
-      transcript: "late transcript",
+      error: { message: "provider failure" },
     });
 
     expect(onError).toHaveBeenCalledExactlyOnceWith(
