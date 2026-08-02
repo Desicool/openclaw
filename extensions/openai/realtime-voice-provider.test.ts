@@ -1905,6 +1905,38 @@ describe("buildOpenAIRealtimeVoiceProvider", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("reports one terminal error for malformed audio during reconnect setup", async () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    const onError = vi.fn();
+    const onEvent = vi.fn();
+    const bridge = createNativeBridge({ onClose, onError, onEvent });
+    const socket = await connectReadyBridge(bridge);
+
+    socket.readyState = FakeWebSocket.CLOSED;
+    socket.emit("close", 1006, Buffer.from("transient drop"));
+    await vi.advanceTimersByTimeAsync(1000);
+    const retrySocket = requireSocket(1);
+    openSocket(retrySocket);
+    emitServerEvent(retrySocket, {
+      type: "response.output_audio.delta",
+      item_id: "item_1",
+      delta: "not-base64!",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(
+      new Error("OpenAI realtime stream returned malformed base64 audio data"),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledWith("error");
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "session.reconnect.ready" }),
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("ignores late events from a socket replaced by reconnect", async () => {
     vi.useFakeTimers();
     const onAudio = vi.fn();
