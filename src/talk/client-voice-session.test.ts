@@ -15,6 +15,12 @@ import {
   type DeliveryContext,
 } from "../utils/delivery-context.shared.js";
 import {
+  authorizeClientVoiceConfirmation,
+  checkClientVoiceToolConfirmationPolicy,
+  noteClientVoiceConfirmationUtterance,
+} from "./client-voice-confirmation.js";
+import { resetClientVoiceConfirmationStateForTest } from "./client-voice-confirmation.test-support.js";
+import {
   appendClientVoiceTranscript,
   closeClientVoiceSession,
   closeStaleClientVoiceSessions,
@@ -50,9 +56,9 @@ vi.mock("../channels/message/runtime.js", () => ({ sendDurableMessageBatch }));
 const envSnapshot = captureEnv(["OPENCLAW_STATE_DIR"]);
 let tempDir: string;
 
-function createDeferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((accept) => {
+function createDeferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((accept) => {
     resolve = accept;
   });
   return { promise, resolve };
@@ -108,12 +114,13 @@ describe("client voice session", () => {
       await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-voice-session-")),
     );
     setTestEnvValue("OPENCLAW_STATE_DIR", tempDir);
-    sendDurableMessageBatch.mockClear();
+    sendDurableMessageBatch.mockReset().mockResolvedValue({ status: "sent" });
     sessionAccessorMocks.appendTranscriptMessage.mockClear();
   });
 
   afterEach(async () => {
     clientVoiceSessionTesting.reset();
+    resetClientVoiceConfirmationStateForTest();
     closeOpenClawAgentDatabasesForTest();
     closeOpenClawStateDatabaseForTest();
     envSnapshot.restore();
@@ -296,6 +303,104 @@ describe("client voice session", () => {
       status: "closed",
       closedAt: 20,
     });
+  });
+
+  it("waits for transcript serialization but not mutation digest delivery", async () => {
+    await seedSession("agent:main:main", {
+      channel: "discord",
+      to: "channel:voice-updates",
+    });
+    const voiceSessionId = createOrResumeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      origin: "client",
+      voiceSessionId: "voice-durable-close",
+    });
+    recordMutation(voiceSessionId);
+    await completeRun(`run-${voiceSessionId}`);
+
+    const confirmation = checkClientVoiceToolConfirmationPolicy({
+      agentId: "main",
+      voiceSessionId,
+      toolName: "message",
+      toolParams: { channel: "discord", message: "send it" },
+      isConfirmable: () => true,
+      now: 10,
+    });
+    if (confirmation.allowed) {
+      throw new Error("expected a pending voice confirmation");
+    }
+    const confirmationId = confirmation.reason.match(/VOICE_CONFIRMATION_REQUIRED:([^\s]+)/)?.[1];
+    if (!confirmationId) {
+      throw new Error("expected a voice confirmation id");
+    }
+
+    const transcriptWrite = createDeferred();
+    const actualAppend = sessionAccessorMocks.actualAppendTranscriptMessage!;
+    sessionAccessorMocks.appendTranscriptMessage.mockImplementationOnce(async (...args) => {
+      await transcriptWrite.promise;
+      return await actualAppend(...args);
+    });
+    const append = appendClientVoiceTranscript({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      entryId: "final",
+      role: "assistant",
+      text: "final answer",
+    });
+    await vi.waitFor(() =>
+      expect(sessionAccessorMocks.appendTranscriptMessage).toHaveBeenCalledOnce(),
+    );
+
+    const digestSend = createDeferred<{ status: "sent" }>();
+    sendDurableMessageBatch.mockImplementationOnce(() => digestSend.promise);
+    let closeSettled = false;
+    const close = closeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      config: {},
+      now: 42,
+    }).then(() => {
+      closeSettled = true;
+    });
+    await Promise.resolve();
+    expect(closeSettled).toBe(false);
+    expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.status).toBe("open");
+
+    transcriptWrite.resolve();
+    await Promise.all([append, close]);
+    expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)).toMatchObject({
+      status: "closed",
+      closedAt: 42,
+    });
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+    ).toBeUndefined();
+    await vi.waitFor(() => expect(sendDurableMessageBatch).toHaveBeenCalledOnce());
+
+    noteClientVoiceConfirmationUtterance({
+      agentId: "main",
+      voiceSessionId,
+      text: "yes",
+      timestamp: 11,
+    });
+    expect(() =>
+      authorizeClientVoiceConfirmation({
+        agentId: "main",
+        voiceSessionId,
+        confirmationId,
+        now: 12,
+      }),
+    ).toThrow("voice confirmation is missing");
+
+    digestSend.resolve({ status: "sent" });
+    await vi.waitFor(() =>
+      expect(
+        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+      ).toEqual(expect.any(Number)),
+    );
   });
 
   it("bounds stalled transcript operations and closes after the accepted prefix", async () => {
@@ -763,6 +868,9 @@ describe("client voice session", () => {
     });
     sendDurableMessageBatch.mockRejectedValueOnce(new Error("channel offline"));
     await completeRun("run-live");
+    await vi.waitFor(() =>
+      expect(clientVoiceSessionTesting.digestDeliverySnapshot().active).toBe(0),
+    );
     expect(
       clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
     ).toBeUndefined();
@@ -795,7 +903,10 @@ describe("client voice session", () => {
       sessionKey: "agent:main:main",
       voiceSessionId,
       config: {},
-    }).catch(() => undefined);
+    });
+    await vi.waitFor(() =>
+      expect(clientVoiceSessionTesting.digestDeliverySnapshot().active).toBe(0),
+    );
     expect(
       clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
     ).toBeUndefined();
@@ -806,10 +917,12 @@ describe("client voice session", () => {
       voiceSessionId,
       config: {},
     });
-    expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
-    expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt).toEqual(
-      expect.any(Number),
+    await vi.waitFor(() =>
+      expect(
+        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+      ).toEqual(expect.any(Number)),
     );
+    expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
   });
 
   it("delivers one mutation digest and skips webchat or missing targets", async () => {
@@ -836,7 +949,7 @@ describe("client voice session", () => {
       voiceSessionId: delivered,
       config: {},
     });
-    expect(sendDurableMessageBatch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(sendDurableMessageBatch).toHaveBeenCalledTimes(1));
     expect(sendDurableMessageBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         durability: "required",
