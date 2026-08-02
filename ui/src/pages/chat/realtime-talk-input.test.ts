@@ -142,6 +142,22 @@ describe("realtime Talk microphone inputs", () => {
     await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
   });
 
+  it("does not request microphone or camera media after cancellation", async () => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      openRealtimeTalkInput(undefined, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    await expect(
+      openRealtimeTalkCamera(undefined, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
   it("acquires camera separately so camera errors cannot stop microphone input", async () => {
     const audio = { getTracks: () => [] } as unknown as MediaStream;
     const camera = { getTracks: () => [] } as unknown as MediaStream;
