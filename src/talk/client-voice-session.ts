@@ -1,5 +1,5 @@
 /** Durable per-agent voice-call records for Talk continuity and mutation evidence. */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   appendTranscriptMessage,
   loadSessionEntryReadOnly,
@@ -44,6 +44,7 @@ import {
 import {
   createVoiceTranscriptOperationRegistry,
   normalizeVoiceTranscriptText,
+  VOICE_TRANSCRIPT_MAX_UNRESOLVED,
   VOICE_TRANSCRIPT_QUEUE_POLICY,
 } from "./voice-transcript.js";
 
@@ -213,6 +214,7 @@ export function createOrResumeClientVoiceSession(params: {
         updatedAt: now,
         consultRunIds: [],
         effects: [],
+        transcriptFailureKeys: [],
       });
     },
     { agentId: params.agentId },
@@ -407,6 +409,10 @@ function buildPersistedVoiceMessage(params: {
   };
 }
 
+function transcriptFailureKey(entryId: string): string {
+  return createHash("sha256").update(entryId, "utf8").digest("hex");
+}
+
 function appendVoiceTranscript(params: {
   agentId: string;
   sessionKey: string;
@@ -438,6 +444,13 @@ function appendVoiceTranscript(params: {
       if (record.origin !== normalized.origin) {
         throw new Error("voice session origin does not allow this transcript source");
       }
+      const failureKey = transcriptFailureKey(normalized.entryId);
+      if (
+        record.transcriptFailureKeys.length >= VOICE_TRANSCRIPT_MAX_UNRESOLVED &&
+        !record.transcriptFailureKeys.includes(failureKey)
+      ) {
+        throw new Error("voice transcript persistence has too many unresolved entries");
+      }
       const sessionEntry = loadSessionEntryReadOnly({
         agentId: normalized.agentId,
         sessionKey: normalized.sessionKey,
@@ -447,24 +460,45 @@ function appendVoiceTranscript(params: {
       }
       const observedAt = Date.now();
       const timestamp = normalized.timestamp ?? observedAt;
-      await appendTranscriptMessage(
-        {
-          agentId: normalized.agentId,
-          sessionId: sessionEntry.sessionId,
-          sessionKey: normalized.sessionKey,
-        },
-        {
-          ...(normalized.config ? { config: normalized.config } : {}),
-          eventId: `voice:${normalized.voiceSessionId}:${normalized.entryId}`,
-          message: buildPersistedVoiceMessage({
-            role: normalized.role,
-            text: normalized.text,
-            timestamp,
-            provider: record.provider ?? "realtime",
-          }),
-          now: timestamp,
-        },
-      );
+      try {
+        await appendTranscriptMessage(
+          {
+            agentId: normalized.agentId,
+            sessionId: sessionEntry.sessionId,
+            sessionKey: normalized.sessionKey,
+          },
+          {
+            ...(normalized.config ? { config: normalized.config } : {}),
+            eventId: `voice:${normalized.voiceSessionId}:${normalized.entryId}`,
+            message: buildPersistedVoiceMessage({
+              role: normalized.role,
+              text: normalized.text,
+              timestamp,
+              provider: record.provider ?? "realtime",
+            }),
+            now: timestamp,
+          },
+        );
+      } catch (error) {
+        runOpenClawAgentWriteTransaction(
+          (database) => {
+            const current = readRecordInTransaction(database, normalized.voiceSessionId);
+            if (!current) {
+              throw new Error("voice session disappeared during transcript failure", {
+                cause: error,
+              });
+            }
+            assertOwnership(current, normalized);
+            if (!current.transcriptFailureKeys.includes(failureKey)) {
+              current.transcriptFailureKeys.push(failureKey);
+            }
+            current.updatedAt = Date.now();
+            writeRecordInTransaction(database, current);
+          },
+          { agentId: normalized.agentId },
+        );
+        throw error;
+      }
       runOpenClawAgentWriteTransaction(
         (database) => {
           const current = readRecordInTransaction(database, normalized.voiceSessionId);
@@ -478,6 +512,9 @@ function appendVoiceTranscript(params: {
           if (normalized.role === "user") {
             current.hasUserTranscript = true;
           }
+          current.transcriptFailureKeys = current.transcriptFailureKeys.filter(
+            (key) => key !== failureKey,
+          );
           current.updatedAt = Date.now();
           writeRecordInTransaction(database, current);
         },
@@ -545,6 +582,9 @@ async function closeClientVoiceSessionInternal(params: {
         throw new Error("voice session disappeared during close");
       }
       assertOwnership(current, params);
+      if (current.transcriptFailureKeys.length > 0) {
+        throw new Error("voice transcript persistence must be retried before close");
+      }
       if (current.status === "open") {
         current.status = "closed";
         current.closedAt = now;

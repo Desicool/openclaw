@@ -33,6 +33,7 @@ import {
   resolveOpenClientVoiceSessionId,
 } from "./client-voice-session.js";
 import { clientVoiceSessionTesting } from "./client-voice-session.test-support.js";
+import { VOICE_TRANSCRIPT_MAX_UNRESOLVED } from "./voice-transcript.js";
 
 type AppendTranscriptMessage =
   (typeof import("../config/sessions/session-accessor.js"))["appendTranscriptMessage"];
@@ -115,7 +116,12 @@ describe("client voice session", () => {
     );
     setTestEnvValue("OPENCLAW_STATE_DIR", tempDir);
     sendDurableMessageBatch.mockReset().mockResolvedValue({ status: "sent" });
-    sessionAccessorMocks.appendTranscriptMessage.mockClear();
+    sessionAccessorMocks.appendTranscriptMessage.mockReset();
+    if (sessionAccessorMocks.actualAppendTranscriptMessage) {
+      sessionAccessorMocks.appendTranscriptMessage.mockImplementation(
+        sessionAccessorMocks.actualAppendTranscriptMessage,
+      );
+    }
   });
 
   afterEach(async () => {
@@ -433,23 +439,21 @@ describe("client voice session", () => {
     await vi.waitFor(() =>
       expect(sessionAccessorMocks.appendTranscriptMessage).toHaveBeenCalledOnce(),
     );
-    const close = closeClientVoiceSession({
-      agentId: "main",
-      sessionKey: "agent:main:main",
-      voiceSessionId,
-      config: {},
-      now: 42,
-    });
-    const closeResult = close.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-
     transcriptWrite.resolve();
     expect(await appendResult).toBe(failure);
-    expect(await closeResult).toBe(failure);
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toEqual([expect.any(String)]);
+    await expect(
+      closeClientVoiceSession({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        config: {},
+        now: 42,
+      }),
+    ).rejects.toThrow("voice transcript persistence must be retried before close");
     expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.status).toBe("open");
-
     sessionAccessorMocks.appendTranscriptMessage.mockImplementation(actualAppend);
     await appendClientVoiceTranscript({
       agentId: "main",
@@ -470,6 +474,9 @@ describe("client voice session", () => {
       status: "closed",
       closedAt: 99,
     });
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toEqual([]);
   });
 
   it("bounds stalled transcript operations and closes after the accepted prefix", async () => {
@@ -633,6 +640,151 @@ describe("client voice session", () => {
     expect(
       sessionAccessorMocks.appendTranscriptMessage.mock.calls.map(([, options]) => options.eventId),
     ).toEqual([`voice:${voiceSessionId}:1`, `voice:${voiceSessionId}:2`]);
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toEqual([expect.any(String)]);
+  });
+
+  it("requires every failed transcript entry to recover before close", async () => {
+    await seedSession("agent:main:main");
+    const voiceSessionId = createOrResumeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      origin: "client",
+      voiceSessionId: "voice-multiple-write-failures",
+    });
+    sessionAccessorMocks.appendTranscriptMessage
+      .mockRejectedValueOnce(new Error("first transcript write failed"))
+      .mockRejectedValueOnce(new Error("second transcript write failed"));
+
+    for (const entryId of ["1", "2"]) {
+      await expect(
+        appendClientVoiceTranscript({
+          agentId: "main",
+          sessionKey: "agent:main:main",
+          voiceSessionId,
+          entryId,
+          role: "user",
+          text: entryId,
+        }),
+      ).rejects.toThrow("transcript write failed");
+    }
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toHaveLength(2);
+
+    await appendClientVoiceTranscript({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      entryId: "later",
+      role: "assistant",
+      text: "later entry",
+    });
+    await appendClientVoiceTranscript({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      entryId: "1",
+      role: "user",
+      text: "first",
+    });
+    await expect(
+      closeClientVoiceSession({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        config: {},
+      }),
+    ).rejects.toThrow("voice transcript persistence must be retried before close");
+
+    await appendClientVoiceTranscript({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      entryId: "2",
+      role: "user",
+      text: "second",
+    });
+    await closeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      config: {},
+    });
+    expect(clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.status).toBe("closed");
+  });
+
+  it("bounds unresolved transcript failure identity", async () => {
+    await seedSession("agent:main:main");
+    const voiceSessionId = createOrResumeClientVoiceSession({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      origin: "client",
+      voiceSessionId: "voice-write-failure-bound",
+    });
+    sessionAccessorMocks.appendTranscriptMessage.mockRejectedValue(
+      new Error("transcript write failed"),
+    );
+
+    for (let index = 0; index < VOICE_TRANSCRIPT_MAX_UNRESOLVED; index += 1) {
+      await expect(
+        appendClientVoiceTranscript({
+          agentId: "main",
+          sessionKey: "agent:main:main",
+          voiceSessionId,
+          entryId: String(index),
+          role: "user",
+          text: "failed entry",
+        }),
+      ).rejects.toThrow("transcript write failed");
+    }
+    await expect(
+      appendClientVoiceTranscript({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        entryId: "beyond-bound",
+        role: "user",
+        text: "must wait for recovery",
+      }),
+    ).rejects.toThrow("voice transcript persistence has too many unresolved entries");
+    expect(sessionAccessorMocks.appendTranscriptMessage).toHaveBeenCalledTimes(
+      VOICE_TRANSCRIPT_MAX_UNRESOLVED,
+    );
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toHaveLength(VOICE_TRANSCRIPT_MAX_UNRESOLVED);
+
+    const actualAppend = sessionAccessorMocks.actualAppendTranscriptMessage;
+    if (!actualAppend) {
+      throw new Error("expected the real transcript append implementation");
+    }
+    sessionAccessorMocks.appendTranscriptMessage.mockImplementation(actualAppend);
+    await appendClientVoiceTranscript({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      voiceSessionId,
+      entryId: "0",
+      role: "user",
+      text: "recovered entry",
+    });
+    sessionAccessorMocks.appendTranscriptMessage.mockRejectedValueOnce(
+      new Error("replacement transcript write failed"),
+    );
+    await expect(
+      appendClientVoiceTranscript({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        voiceSessionId,
+        entryId: "replacement",
+        role: "user",
+        text: "replacement entry",
+      }),
+    ).rejects.toThrow("replacement transcript write failed");
+    expect(
+      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.transcriptFailureKeys,
+    ).toHaveLength(VOICE_TRANSCRIPT_MAX_UNRESOLVED);
   });
 
   it("keeps durable operation ownership independent between voice sessions", async () => {
@@ -898,7 +1050,7 @@ describe("client voice session", () => {
     expect(sendDurableMessageBatch).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a deferred digest on the next voice session after a failed delivery", async () => {
+  it("retries a deferred digest after run completion without waiting for another session", async () => {
     await seedSession("agent:main:main", {
       channel: "discord",
       to: "channel:voice-updates",
@@ -938,22 +1090,14 @@ describe("client voice session", () => {
     sendDurableMessageBatch.mockRejectedValueOnce(new Error("channel offline"));
     await completeRun("run-live");
     await vi.waitFor(() =>
-      expect(clientVoiceSessionTesting.digestDeliverySnapshot().active).toBe(0),
-    );
-    expect(
-      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
-    ).toBeUndefined();
-
-    // Starting the next voice session retries the deferred digest.
-    await closeStaleClientVoiceSessions({ agentId: "main", config: {} });
-    await vi.waitFor(() =>
       expect(
         clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
       ).toEqual(expect.any(Number)),
     );
+    expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
   });
 
-  it("retries the mutation digest after a transient send failure", async () => {
+  it("retries the mutation digest after a transient close-time send failure", async () => {
     await seedSession("agent:main:main", {
       channel: "discord",
       to: "channel:voice-updates",
@@ -974,23 +1118,17 @@ describe("client voice session", () => {
       config: {},
     });
     await vi.waitFor(() =>
-      expect(clientVoiceSessionTesting.digestDeliverySnapshot().active).toBe(0),
+      expect(
+        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
+      ).toEqual(expect.any(Number)),
     );
-    expect(
-      clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
-    ).toBeUndefined();
-
+    expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
     await closeClientVoiceSession({
       agentId: "main",
       sessionKey: "agent:main:main",
       voiceSessionId,
       config: {},
     });
-    await vi.waitFor(() =>
-      expect(
-        clientVoiceSessionTesting.readRecord("main", voiceSessionId)?.digestDeliveredAt,
-      ).toEqual(expect.any(Number)),
-    );
     expect(sendDurableMessageBatch).toHaveBeenCalledTimes(2);
   });
 

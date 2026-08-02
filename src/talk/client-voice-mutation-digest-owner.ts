@@ -274,7 +274,7 @@ export class ClientVoiceMutationDigestOwner<TContext> {
     try {
       completion = this.options.attempt({ ...intent, signal: controller.signal });
     } catch (error) {
-      completion = Promise.reject(error);
+      completion = Promise.reject(error instanceof Error ? error : new Error(String(error)));
     }
     void completion
       .then((complete) => {
