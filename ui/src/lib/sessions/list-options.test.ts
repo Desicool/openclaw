@@ -303,4 +303,29 @@ describe("session list replacement options", () => {
     expect(request.mock.calls.filter(([method]) => method === "sessions.patch")).toHaveLength(3);
     sessions.dispose();
   });
+
+  it("defers model override publication when the caller owns lifecycle validation", async () => {
+    const pendingPatch = deferred<unknown>();
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        return await pendingPatch.promise;
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const key = "global";
+    const sessions = createSessions({ request } as unknown as GatewayBrowserClient, key);
+    sessions.setModelOverride(key, "openai/gpt-old");
+
+    const operation = sessions.patch(
+      key,
+      { model: "openai/gpt-new" },
+      { deferListRefresh: true, deferModelOverride: true },
+    );
+
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    pendingPatch.resolve({ ok: true, path: "", key, entry: {} });
+    await expect(operation).resolves.toMatchObject({ ok: true, key });
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    sessions.dispose();
+  });
 });
