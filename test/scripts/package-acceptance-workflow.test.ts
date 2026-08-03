@@ -1126,19 +1126,45 @@ describe("package acceptance workflow", () => {
     expect(hydratePnpm.run).toContain('mkdir -p "$preferred_pnpm_store" 2>/dev/null');
     expect(hydratePnpm.run).toContain('[ -w "$preferred_pnpm_store" ]');
     expect(hydratePnpm.run).toContain(
-      'export PNPM_CONFIG_STORE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm/store"',
+      'pnpm_cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm"',
+    );
+    expect(hydratePnpm.run).toContain('pnpm_install_root="$pnpm_cache_root/install"');
+    expect(hydratePnpm.run).toContain(
+      'export PNPM_CONFIG_STORE_DIR="$pnpm_cache_root/store"',
+    );
+    expect(hydratePnpm.run).toContain(
+      'export PNPM_CONFIG_MODULES_DIR="$pnpm_install_root/node_modules"',
+    );
+    expect(hydratePnpm.run).toContain(
+      'export PNPM_CONFIG_VIRTUAL_STORE_DIR="$pnpm_install_root/virtual-store"',
     );
     expect(hydratePnpm.run).toContain('echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"');
+    expect(hydratePnpm.run).toContain(
+      'echo "PNPM_CONFIG_MODULES_DIR=$PNPM_CONFIG_MODULES_DIR"',
+    );
+    expect(hydratePnpm.run).toContain(
+      'echo "PNPM_CONFIG_VIRTUAL_STORE_DIR=$PNPM_CONFIG_VIRTUAL_STORE_DIR"',
+    );
     expect(hydratePnpm.run).toContain('} >> "$GITHUB_ENV"');
     expect(hydratePnpm.run).toContain("prepare_crabbox_pnpm_dirs");
-    expect(hydratePnpm.run).toContain('case "${PNPM_CONFIG_MODULES_DIR:?}" in "$volatile_root"/*)');
     expect(hydratePnpm.run).toContain(
-      'case "${PNPM_CONFIG_VIRTUAL_STORE_DIR:?}" in "$volatile_root"/*)',
+      'case "${PNPM_CONFIG_MODULES_DIR:?}" in "$pnpm_install_root"/*)',
     );
-    expect(hydratePnpm.run).toContain('rm -rf -- "$volatile_root"');
-    expect(hydratePnpm.run).toContain('mkdir -p "$volatile_root" "$PNPM_CONFIG_STORE_DIR"');
+    expect(hydratePnpm.run).toContain(
+      'case "${PNPM_CONFIG_VIRTUAL_STORE_DIR:?}" in "$pnpm_install_root"/*)',
+    );
+    expect(hydratePnpm.run).toContain('rm -rf -- "$pnpm_install_root"');
+    expect(hydratePnpm.run).toContain(
+      'mkdir -p "$pnpm_install_root" "$PNPM_CONFIG_STORE_DIR"',
+    );
     expect(hydratePnpm.run).toContain(
       'mkdir -p "$PNPM_CONFIG_MODULES_DIR" "$PNPM_CONFIG_VIRTUAL_STORE_DIR"',
+    );
+    expect(hydratePnpm.run).toContain(
+      '"$(stat -c %d "$PNPM_CONFIG_STORE_DIR")" != "$(stat -c %d "$PNPM_CONFIG_MODULES_DIR")"',
+    );
+    expect(hydratePnpm.run).toContain(
+      "Fallback pnpm store and modules directories must share a filesystem",
     );
     expect(hydratePnpm.run).toContain("Refusing unsafe pnpm directory");
     expect(hydratePnpm.run).not.toContain('rm -rf -- "${PNPM_CONFIG_MODULES_DIR:?}"');

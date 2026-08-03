@@ -65,13 +65,18 @@ jobs:
           export PNPM_HOME="${PNPM_HOME:-$RUNNER_TEMP/pnpm-home}"
           mkdir -p "$XDG_CACHE_HOME" "$COREPACK_HOME" "$PNPM_HOME"
           preferred_pnpm_store="/var/cache/crabbox/pnpm/store"
+          pnpm_install_root="/var/tmp/openclaw-pnpm"
           if mkdir -p "$preferred_pnpm_store" 2>/dev/null &&
             [ ! -L "$preferred_pnpm_store" ] &&
             [ -d "$preferred_pnpm_store" ] &&
             [ -w "$preferred_pnpm_store" ]; then
             export PNPM_CONFIG_STORE_DIR="$preferred_pnpm_store"
           else
-            export PNPM_CONFIG_STORE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm/store"
+            pnpm_cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm"
+            pnpm_install_root="$pnpm_cache_root/install"
+            export PNPM_CONFIG_STORE_DIR="$pnpm_cache_root/store"
+            export PNPM_CONFIG_MODULES_DIR="$pnpm_install_root/node_modules"
+            export PNPM_CONFIG_VIRTUAL_STORE_DIR="$pnpm_install_root/virtual-store"
           fi
           export PATH="$PNPM_HOME:$PATH"
           {
@@ -79,6 +84,8 @@ jobs:
             echo "COREPACK_HOME=$COREPACK_HOME"
             echo "PNPM_HOME=$PNPM_HOME"
             echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"
+            echo "PNPM_CONFIG_MODULES_DIR=$PNPM_CONFIG_MODULES_DIR"
+            echo "PNPM_CONFIG_VIRTUAL_STORE_DIR=$PNPM_CONFIG_VIRTUAL_STORE_DIR"
           } >> "$GITHUB_ENV"
 
           package_manager="$(node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); process.stdout.write(pkg.packageManager || '')")"
@@ -137,14 +144,18 @@ jobs:
             fi
           }
           prepare_crabbox_pnpm_dirs() {
-            local volatile_root="/var/tmp/openclaw-pnpm"
-            case "${PNPM_CONFIG_MODULES_DIR:?}" in "$volatile_root"/*) ;; *) echo "::error::PNPM_CONFIG_MODULES_DIR must stay under $volatile_root"; exit 1 ;; esac
-            case "${PNPM_CONFIG_VIRTUAL_STORE_DIR:?}" in "$volatile_root"/*) ;; *) echo "::error::PNPM_CONFIG_VIRTUAL_STORE_DIR must stay under $volatile_root"; exit 1 ;; esac
-            rm -rf -- "$volatile_root"
-            mkdir -p "$volatile_root" "$PNPM_CONFIG_STORE_DIR"
-            require_safe_writable_dir "$volatile_root"
+            case "${PNPM_CONFIG_MODULES_DIR:?}" in "$pnpm_install_root"/*) ;; *) echo "::error::PNPM_CONFIG_MODULES_DIR must stay under $pnpm_install_root"; exit 1 ;; esac
+            case "${PNPM_CONFIG_VIRTUAL_STORE_DIR:?}" in "$pnpm_install_root"/*) ;; *) echo "::error::PNPM_CONFIG_VIRTUAL_STORE_DIR must stay under $pnpm_install_root"; exit 1 ;; esac
+            rm -rf -- "$pnpm_install_root"
+            mkdir -p "$pnpm_install_root" "$PNPM_CONFIG_STORE_DIR"
+            require_safe_writable_dir "$pnpm_install_root"
             require_safe_writable_dir "$PNPM_CONFIG_STORE_DIR"
             mkdir -p "$PNPM_CONFIG_MODULES_DIR" "$PNPM_CONFIG_VIRTUAL_STORE_DIR"
+            if [ "$PNPM_CONFIG_STORE_DIR" != "$preferred_pnpm_store" ] &&
+              [ "$(stat -c %d "$PNPM_CONFIG_STORE_DIR")" != "$(stat -c %d "$PNPM_CONFIG_MODULES_DIR")" ]; then
+              echo "::error::Fallback pnpm store and modules directories must share a filesystem"
+              exit 1
+            fi
           }
           prepare_crabbox_pnpm_dirs
           if [ -L node_modules ] && [ "$(readlink node_modules)" = "${PNPM_CONFIG_MODULES_DIR:-}" ]; then
