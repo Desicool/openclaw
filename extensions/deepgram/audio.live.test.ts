@@ -87,7 +87,7 @@ describeLive("deepgram live", () => {
         endpointingMs: 500,
       },
       audio: Buffer.concat([Buffer.alloc(4000, 0xff), speech, Buffer.alloc(8000, 0xff)]),
-      expectedNormalizedText: "life moves pretty fast",
+      expectedNormalizedText: "lifemovesprettyfast",
     });
   }, 90_000);
 });
