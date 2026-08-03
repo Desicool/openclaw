@@ -33,7 +33,11 @@ const SYSTEM_AGENT_CHAT_TIMEOUT_MS = 190_000;
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
 
 function hasCustodianUserInput(params: SystemAgentChatParams): boolean {
-  return params.message !== undefined || params.wizardAnswer !== undefined;
+  return (
+    params.message !== undefined ||
+    params.wizardAnswer !== undefined ||
+    params.wizardCancel !== undefined
+  );
 }
 
 type StoreListener = () => void;
@@ -317,6 +321,28 @@ export class CustodianSessionStore {
     );
   }
 
+  cancelWizardStep(message: CustodianMessage): void {
+    const step = message.step;
+    const client = this.activeClient;
+    if (
+      !step ||
+      !this.wizardInputPending ||
+      !client ||
+      !this.chatAvailable ||
+      this.sending ||
+      this.setupRequired
+    ) {
+      this.emit();
+      return;
+    }
+    void this.sendUserTurn(
+      client,
+      { sessionId: this.sessionId, wizardCancel: { stepId: step.id } },
+      t("custodian.cancel"),
+      true,
+    );
+  }
+
   exitSetup(): void {
     // Leaving setup revokes navigation authority from every in-flight reply.
     // The destination surface separately decides whether to retain or rotate context.
@@ -376,7 +402,7 @@ export class CustodianSessionStore {
   }
 
   private abandonPendingUserTurn(pendingParams: SystemAgentChatParams | null): void {
-    if (pendingParams?.message === undefined) {
+    if (!pendingParams || !hasCustodianUserInput(pendingParams)) {
       return;
     }
     this.retryParams = null;
