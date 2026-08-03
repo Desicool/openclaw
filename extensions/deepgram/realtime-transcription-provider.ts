@@ -179,6 +179,7 @@ function createDeepgramRealtimeTranscriptionSession(
   let finalizeRequested = false;
   let finalizeFallbackFired = false;
   let finalizeFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let openedOnce = false;
 
   const collapseWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
@@ -252,7 +253,10 @@ function createDeepgramRealtimeTranscriptionSession(
           config.onSpeechStart?.();
         }
         if (event.speech_final || event.from_finalize) {
-          if (text && !updateTurn(joinTranscript(finalizedTranscript, text), "", transport)) {
+          const nextFinalized = text
+            ? joinTranscript(finalizedTranscript, text)
+            : finalizedTranscript;
+          if (!updateTurn(nextFinalized, "", transport)) {
             return;
           }
           flushTurn();
@@ -303,11 +307,16 @@ function createDeepgramRealtimeTranscriptionSession(
       "Deepgram realtime transcription connection closed before ready",
     reconnectLimitMessage: "Deepgram realtime transcription reconnect limit reached",
     onOpen: () => {
-      // A reconnect starts a new provider stream. Never merge an old partial
-      // utterance into audio recognized by the replacement connection.
+      if (openedOnce) {
+        // The replacement stream cannot replay confirmed text from the old
+        // connection. Emit it as an interrupted turn, but discard its partial tail.
+        flushFinalizedTurn();
+      } else {
+        openedOnce = true;
+        clearTurn();
+      }
       finalizeRequested = false;
       finalizeFallbackFired = false;
-      clearTurn();
     },
     sendAudio: (audio, transport) => {
       transport.sendBinary(audio);
