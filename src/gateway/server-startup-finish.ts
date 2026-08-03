@@ -408,6 +408,7 @@ export async function finishGatewayStartup(params: {
         startGatewayPostAttachRuntime({
           minimalTestGateway,
           cfgAtStart,
+          getConfig: getRuntimeConfig,
           bindHost,
           bindHosts: httpBindHosts,
           port,

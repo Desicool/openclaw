@@ -65,6 +65,7 @@ import {
 } from "./internal-runtime-context.js";
 import * as recoveryOwnerRelease from "./main-session-recovery-owner-release.js";
 import { claimMainSessionRecoveryOwner } from "./main-session-recovery-store.js";
+import { resolveRestartRecoveryStorePaths } from "./main-session-restart-recovery-shared.js";
 import {
   markRestartAbortedMainSessions,
   markStartupOrphanedMainSessionsForRecovery,
@@ -415,6 +416,39 @@ describe("main-session-restart-recovery", () => {
       { runId: "key-only-run", lifecycleGeneration },
       { runId: "restart-run", lifecycleGeneration },
     ]);
+  });
+
+  it("does not scan stale stores for agents absent from the configured roster", async () => {
+    const configuredSessionsDir = await makeSessionsDir("main");
+    await writeMainSession({ sessionsDir: configuredSessionsDir });
+    const staleSessionsDir = await makeSessionsDir("amnesia-probe");
+    await writeMainSession({
+      sessionsDir: staleSessionsDir,
+      sessionKey: "agent:amnesia-probe:main",
+    });
+
+    const cfg = {
+      agents: { list: [{ id: "main", default: true }] },
+    } as OpenClawConfig;
+    const storePaths = await resolveRestartRecoveryStorePaths({ cfg, stateDir: tmpDir });
+
+    expect(storePaths).toContain(path.join(configuredSessionsDir, "sessions.json"));
+    expect(storePaths).not.toContain(path.join(staleSessionsDir, "sessions.json"));
+  });
+
+  it("keeps a configured fixed store when its path carries a retired owner id", async () => {
+    const sessionsDir = await makeSessionsDir("old");
+    const storePath = path.join(sessionsDir, "sessions.json");
+    await writeMainSession({ sessionsDir, sessionKey: "agent:old:main" });
+
+    const cfg = {
+      agents: { list: [{ id: "main", default: true }] },
+      session: { store: storePath },
+    } as OpenClawConfig;
+
+    await expect(resolveRestartRecoveryStorePaths({ cfg, stateDir: tmpDir })).resolves.toContain(
+      storePath,
+    );
   });
 
   it("marks active sessions in a configured custom session store", async () => {
@@ -2111,7 +2145,7 @@ describe("main-session-restart-recovery", () => {
     }
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2168,7 +2202,7 @@ describe("main-session-restart-recovery", () => {
         return await originalApply(params);
       });
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2244,7 +2278,7 @@ describe("main-session-restart-recovery", () => {
     ]);
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: { session: { store: customStorePath } },
+      getConfig: () => ({ session: { store: customStorePath } }),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2280,7 +2314,7 @@ describe("main-session-restart-recovery", () => {
     vi.useFakeTimers();
     try {
       const recovery = scheduleRestartAbortedMainSessionRecovery({
-        cfg: {},
+        getConfig: () => ({}),
         delayMs: 5_000,
         stateDir: tmpDir,
       });
@@ -2313,7 +2347,7 @@ describe("main-session-restart-recovery", () => {
     });
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2343,7 +2377,7 @@ describe("main-session-restart-recovery", () => {
     ]);
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
       waitForStart: () => releaseStartup.promise,
@@ -2377,6 +2411,38 @@ describe("main-session-restart-recovery", () => {
     expect(store["agent:main:fresh"]?.abortedLastRun).toBeUndefined();
   });
 
+  it("uses the live configured roster after the startup recovery barrier", async () => {
+    const sessionsDir = await makeSessionsDir("work");
+    const storePath = path.join(sessionsDir, "sessions.json");
+    const releaseStartup = createDeferred();
+    await writeMainSession({ sessionsDir, sessionKey: "agent:work:main" });
+    await writeTranscript(sessionsDir, "main-session", [
+      { role: "user", content: "resume after config reload" },
+      { role: "toolResult", content: "done" },
+    ]);
+    let currentConfig = {
+      agents: { list: [{ id: "main", default: true }] },
+    } as OpenClawConfig;
+
+    const recovery = scheduleRestartAbortedMainSessionRecovery({
+      delayMs: 0,
+      getConfig: () => currentConfig,
+      stateDir: tmpDir,
+      waitForStart: () => releaseStartup.promise,
+    });
+    await Promise.resolve();
+    currentConfig = {
+      agents: { list: [{ id: "main", default: true }, { id: "work" }] },
+    } as OpenClawConfig;
+    releaseStartup.resolve();
+
+    await waitForFast(() => expect(callGateway).toHaveBeenCalledOnce());
+    await recovery.stop();
+    expect(loadSessionEntry({ sessionKey: "agent:work:main", storePath })).toMatchObject({
+      abortedLastRun: false,
+    });
+  });
+
   it("stops without waiting for an unresolved startup release", async () => {
     const sessionsDir = await makeSessionsDir();
     const storePath = path.join(sessionsDir, "sessions.json");
@@ -2391,7 +2457,7 @@ describe("main-session-restart-recovery", () => {
     });
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
       waitForStart: () => releaseStartup.promise,
@@ -2436,7 +2502,7 @@ describe("main-session-restart-recovery", () => {
       });
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2492,7 +2558,7 @@ describe("main-session-restart-recovery", () => {
     });
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2548,7 +2614,7 @@ describe("main-session-restart-recovery", () => {
     });
 
     const recovery = scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 0,
       stateDir: tmpDir,
     });
@@ -2635,7 +2701,7 @@ describe("main-session-restart-recovery", () => {
     let recovery: ReturnType<typeof scheduleRestartAbortedMainSessionRecovery> | undefined;
     try {
       recovery = scheduleRestartAbortedMainSessionRecovery({
-        cfg: {},
+        getConfig: () => ({}),
         delayMs: 0,
         maxRetries: 2,
         stateDir: tmpDir,
@@ -2708,7 +2774,7 @@ describe("main-session-restart-recovery", () => {
       });
 
     scheduleRestartAbortedMainSessionRecovery({
-      cfg: {},
+      getConfig: () => ({}),
       delayMs: 1,
       maxRetries: 2,
       stateDir: tmpDir,
@@ -3063,7 +3129,7 @@ describe("main-session-restart-recovery", () => {
       .mockResolvedValueOnce({ runId: "run-resumed" });
 
     scheduleRestartAbortedMainSessionRecovery({
-      cfg: { agents: { entries: { main: { default: true } } } },
+      getConfig: () => ({ agents: { entries: { main: { default: true } } } }),
       delayMs: 0,
       maxRetries: 1,
       stateDir: tmpDir,
