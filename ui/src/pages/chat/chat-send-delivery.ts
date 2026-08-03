@@ -30,6 +30,7 @@ import { isTerminalFailureChatSendAck } from "./chat-send-ack.ts";
 import { cancelChatDelivery, canRestoreComposer, restoreComposer } from "./chat-send-composer.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
 import {
+  captureChatConnectionOwner,
   deliveryStateWriter,
   finishScopedChatSending,
   reconnectSafeQueuedSendState,
@@ -279,12 +280,7 @@ async function sendQueuedChatMessage(
     return "pending";
   }
 
-  const requestClient = host.client;
-  const requestConnectionEpoch = host.connectionEpoch;
-  const requestConnectionIsCurrent = () =>
-    host.connected &&
-    host.client === requestClient &&
-    host.connectionEpoch === requestConnectionEpoch;
+  const requestConnectionIsCurrent = captureChatConnectionOwner(host);
   const runId = prepared.sendRunId ?? generateUUID();
   const startedAt = Date.now();
   const requestStartedAtMs = controlUiNowMs();
@@ -593,8 +589,7 @@ export async function deliverChatQueueItem(
   const sessionKey = item.sessionKey ?? host.sessionKey;
   const storageMode = options.storageMode ?? "durable";
   const routingSessionKey = options.routingSessionKey ?? sessionKey;
-  const deliveryClient = host.client;
-  const deliveryConnectionEpoch = host.connectionEpoch;
+  const deliveryConnectionIsCurrent = captureChatConnectionOwner(host, false);
   const deliveryAgentId =
     item.agentId ?? scopedAgentIdForSession(host, routingSessionKey) ?? undefined;
   const sendOptions = { ...options, routingSessionKey, storageMode };
@@ -697,8 +692,7 @@ export async function deliverChatQueueItem(
     }
   }
   if (
-    host.client === deliveryClient &&
-    host.connectionEpoch === deliveryConnectionEpoch &&
+    deliveryConnectionIsCurrent() &&
     host.sessionKey === routingSessionKey &&
     visibleSessionMatches(host, routingSessionKey, deliveryAgentId)
   ) {

@@ -74,6 +74,18 @@ export function reconnectSafeQueuedSendState(
   return host.connected && host.client ? "waiting-idle" : "waiting-reconnect";
 }
 
+export function captureChatConnectionOwner(
+  host: Pick<ChatHost, "client" | "connected" | "connectionEpoch">,
+  requireConnected = true,
+): () => boolean {
+  const client = host.client;
+  const connectionEpoch = host.connectionEpoch;
+  return () =>
+    (!requireConnected || host.connected) &&
+    host.client === client &&
+    host.connectionEpoch === connectionEpoch;
+}
+
 export function updateQueuedSendItem(
   host: ChatHost,
   storageMode: QueuedChatStorageMode,
