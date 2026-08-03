@@ -76,6 +76,7 @@ jobs:
             pnpm_install_root="$pnpm_cache_root/install"
             export PNPM_CONFIG_STORE_DIR="$pnpm_cache_root/store"
             export PNPM_CONFIG_MODULES_DIR="$pnpm_install_root/node_modules"
+            export PNPM_CONFIG_PACKAGE_IMPORT_METHOD="hardlink"
             export PNPM_CONFIG_VIRTUAL_STORE_DIR="$pnpm_install_root/virtual-store"
           fi
           export PATH="$PNPM_HOME:$PATH"
@@ -85,6 +86,7 @@ jobs:
             echo "PNPM_HOME=$PNPM_HOME"
             echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"
             echo "PNPM_CONFIG_MODULES_DIR=$PNPM_CONFIG_MODULES_DIR"
+            echo "PNPM_CONFIG_PACKAGE_IMPORT_METHOD=${PNPM_CONFIG_PACKAGE_IMPORT_METHOD:-}"
             echo "PNPM_CONFIG_VIRTUAL_STORE_DIR=$PNPM_CONFIG_VIRTUAL_STORE_DIR"
           } >> "$GITHUB_ENV"
 
@@ -135,6 +137,7 @@ jobs:
           append_pnpm_option_arg PNPM_CONFIG_CHILD_CONCURRENCY child-concurrency
           append_pnpm_option_arg PNPM_CONFIG_MODULES_DIR modules-dir
           append_pnpm_option_arg PNPM_CONFIG_NETWORK_CONCURRENCY network-concurrency
+          append_pnpm_option_arg PNPM_CONFIG_PACKAGE_IMPORT_METHOD package-import-method
           append_pnpm_option_arg PNPM_CONFIG_VIRTUAL_STORE_DIR virtual-store-dir
           require_safe_writable_dir() {
             local dir="$1"

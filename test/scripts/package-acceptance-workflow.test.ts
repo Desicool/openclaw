@@ -1136,11 +1136,17 @@ describe("package acceptance workflow", () => {
       'export PNPM_CONFIG_MODULES_DIR="$pnpm_install_root/node_modules"',
     );
     expect(hydratePnpm.run).toContain(
+      'export PNPM_CONFIG_PACKAGE_IMPORT_METHOD="hardlink"',
+    );
+    expect(hydratePnpm.run).toContain(
       'export PNPM_CONFIG_VIRTUAL_STORE_DIR="$pnpm_install_root/virtual-store"',
     );
     expect(hydratePnpm.run).toContain('echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"');
     expect(hydratePnpm.run).toContain(
       'echo "PNPM_CONFIG_MODULES_DIR=$PNPM_CONFIG_MODULES_DIR"',
+    );
+    expect(hydratePnpm.run).toContain(
+      'echo "PNPM_CONFIG_PACKAGE_IMPORT_METHOD=${PNPM_CONFIG_PACKAGE_IMPORT_METHOD:-}"',
     );
     expect(hydratePnpm.run).toContain(
       'echo "PNPM_CONFIG_VIRTUAL_STORE_DIR=$PNPM_CONFIG_VIRTUAL_STORE_DIR"',
@@ -1165,6 +1171,9 @@ describe("package acceptance workflow", () => {
     );
     expect(hydratePnpm.run).toContain(
       "Fallback pnpm store and modules directories must share a filesystem",
+    );
+    expect(hydratePnpm.run).toContain(
+      "append_pnpm_option_arg PNPM_CONFIG_PACKAGE_IMPORT_METHOD package-import-method",
     );
     expect(hydratePnpm.run).toContain("Refusing unsafe pnpm directory");
     expect(hydratePnpm.run).not.toContain('rm -rf -- "${PNPM_CONFIG_MODULES_DIR:?}"');
