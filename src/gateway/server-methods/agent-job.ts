@@ -214,22 +214,29 @@ function beginAgentJob(runId: string, startedAt?: number) {
   }
 }
 
+function mergePendingAgentRunTerminal(snapshot: AgentRunObservation): AgentRunObservation {
+  // Phase-owned pending maps can both contain sticky cancellations or hard timeouts.
+  return [pendingAgentRunErrors, pendingAgentRunTimeouts].reduce((current, pendingRuns) => {
+    const pending = pendingRuns.get(snapshot.runId)?.snapshot;
+    return pending && shouldPreserveTerminalSnapshot(pending, current) ? pending : current;
+  }, snapshot);
+}
+
 function schedulePendingAgentRunTerminal(
   pendingRuns: Map<string, PendingAgentRunTerminal>,
   snapshot: AgentRunObservation,
 ) {
-  const existing = pendingRuns.get(snapshot.runId);
-  if (existing && shouldPreserveTerminalSnapshot(existing.snapshot, snapshot)) {
+  const terminalSnapshot = mergePendingAgentRunTerminal(snapshot);
+  if (terminalSnapshot !== snapshot) {
+    // Keep its original retry deadline while exposing the newer event to fresh waiters.
+    terminalSnapshot.version = snapshot.version;
     return;
   }
-  if (pendingRuns === pendingAgentRunErrors) {
-    clearPendingAgentRunError(snapshot.runId);
-  } else {
-    clearPendingAgentRunTimeout(snapshot.runId);
-  }
+  clearPendingAgentRunError(snapshot.runId);
+  clearPendingAgentRunTimeout(snapshot.runId);
   const timer = setSafeTimeout(() => {
     const pending = pendingRuns.get(snapshot.runId);
-    if (!pending) {
+    if (!pending || pending.timer !== timer) {
       return;
     }
     pendingRuns.delete(snapshot.runId);
@@ -237,24 +244,6 @@ function schedulePendingAgentRunTerminal(
   }, AGENT_RUN_TERMINAL_RETRY_GRACE_MS);
   timer.unref?.();
   pendingRuns.set(snapshot.runId, { snapshot, timer });
-}
-
-function schedulePendingAgentRunError(snapshot: AgentRunObservation) {
-  const pendingTimeout = pendingAgentRunTimeouts.get(snapshot.runId);
-  if (pendingTimeout && shouldPreserveTerminalSnapshot(pendingTimeout.snapshot, snapshot)) {
-    return;
-  }
-  clearPendingAgentRunTimeout(snapshot.runId);
-  schedulePendingAgentRunTerminal(pendingAgentRunErrors, snapshot);
-}
-
-function schedulePendingAgentRunTimeout(snapshot: AgentRunObservation) {
-  const pendingTimeout = pendingAgentRunTimeouts.get(snapshot.runId);
-  if (pendingTimeout && shouldPreserveTerminalSnapshot(pendingTimeout.snapshot, snapshot)) {
-    return;
-  }
-  clearPendingAgentRunError(snapshot.runId);
-  schedulePendingAgentRunTerminal(pendingAgentRunTimeouts, snapshot);
 }
 
 function createPendingErrorTimeoutSnapshot(
@@ -336,21 +325,18 @@ function ensureAgentRunListener() {
       data: evt.data,
     });
     agentRunStarts.delete(evt.runId);
-    if (phase === "error") {
-      schedulePendingAgentRunError(snapshot);
+    if (phase === "error" && evt.data?.fallbackExhaustedFailure !== true) {
+      schedulePendingAgentRunTerminal(pendingAgentRunErrors, snapshot);
       return;
     }
-    if (snapshot.status === "timeout") {
-      schedulePendingAgentRunTimeout(snapshot);
+    if (phase === "end" && snapshot.status === "timeout") {
+      schedulePendingAgentRunTerminal(pendingAgentRunTimeouts, snapshot);
       return;
     }
-    const pendingTimeout = pendingAgentRunTimeouts.get(evt.runId);
-    if (pendingTimeout && shouldPreserveTerminalSnapshot(pendingTimeout.snapshot, snapshot)) {
-      return;
-    }
+    const terminalSnapshot = mergePendingAgentRunTerminal(snapshot);
     clearPendingAgentRunError(evt.runId);
     clearPendingAgentRunTimeout(evt.runId);
-    recordAgentRunSnapshot(snapshot, snapshot.version);
+    recordAgentRunSnapshot(terminalSnapshot, snapshot.version);
   });
 }
 
@@ -604,7 +590,11 @@ export async function waitForAgentJob(params: {
       if (!params.source) {
         const pendingError = pendingAgentRunErrors.get(params.runId)?.snapshot;
         if (pendingError && pendingError.version > afterVersion) {
-          finish(createPendingErrorTimeoutSnapshot(pendingError));
+          finish(
+            isStickyAgentRunTerminalOutcome(terminalOutcomeFromSnapshot(pendingError))
+              ? publicSnapshot(pendingError)
+              : createPendingErrorTimeoutSnapshot(pendingError),
+          );
           return;
         }
         const pendingTimeout = pendingAgentRunTimeouts.get(params.runId)?.snapshot;
