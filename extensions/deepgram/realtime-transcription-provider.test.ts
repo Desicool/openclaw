@@ -11,6 +11,7 @@ let cleanup: (() => Promise<void>) | undefined;
 
 async function createDeepgramRealtimeServer(params: {
   onRequest: (url: URL, headers: Record<string, string | string[] | undefined>) => void;
+  onConnection?: (ws: WebSocket) => void;
 }) {
   const server = createServer();
   const wss = new WebSocketServer({ noServer: true });
@@ -21,6 +22,7 @@ async function createDeepgramRealtimeServer(params: {
     wss.handleUpgrade(request, socket, head, (ws) => {
       clients.add(ws);
       ws.on("close", () => clients.delete(ws));
+      params.onConnection?.(ws);
     });
   });
 
@@ -40,6 +42,26 @@ async function createDeepgramRealtimeServer(params: {
     });
   };
   return { baseUrl: `http://127.0.0.1:${port}/deepgram/v1` };
+}
+
+function sendResult(
+  ws: WebSocket,
+  params: {
+    text: string;
+    isFinal?: boolean;
+    speechFinal?: boolean;
+    fromFinalize?: boolean;
+  },
+) {
+  ws.send(
+    JSON.stringify({
+      type: "Results",
+      channel: { alternatives: [{ transcript: params.text }] },
+      is_final: params.isFinal ?? false,
+      speech_final: params.speechFinal ?? false,
+      from_finalize: params.fromFinalize ?? false,
+    }),
+  );
 }
 
 describe("buildDeepgramRealtimeTranscriptionProvider", () => {
@@ -140,5 +162,172 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     expect(requests[0]?.url.pathname).toBe("/deepgram/v1/listen");
     expect(requests[0]?.url.searchParams.get("model")).toBe("nova-3");
     expect(requests[0]?.headers.authorization).toBe("Token dummy");
+  });
+
+  it("buffers finalized segments until the utterance is complete", async () => {
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "hello", isFinal: true });
+        sendResult(ws, { text: "world", isFinal: true, speechFinal: true });
+      },
+    });
+    const onPartial = vi.fn();
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 1000 },
+      onPartial,
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("hello world"));
+    session.close();
+
+    expect(onPartial).toHaveBeenCalledWith("hello");
+    expect(onTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the provisional tail with the text-bearing speech-final result", async () => {
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "hello" });
+        sendResult(ws, { text: "hello", isFinal: true, speechFinal: true });
+      },
+    });
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 1000 },
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("hello"));
+    session.close();
+
+    expect(onTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves identical transcripts from consecutive utterances", async () => {
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "yes", isFinal: true, speechFinal: true });
+        sendResult(ws, { text: "yes", isFinal: true, speechFinal: true });
+      },
+    });
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 1000 },
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledTimes(2));
+    session.close();
+
+    expect(onTranscript.mock.calls).toEqual([["yes"], ["yes"]]);
+  });
+
+  it("flushes finalized text returned after a client finalize request", async () => {
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "goodbye" });
+        ws.on("message", (data) => {
+          if (JSON.parse(data.toString()).type === "Finalize") {
+            sendResult(ws, {
+              text: "goodbye",
+              isFinal: true,
+              fromFinalize: true,
+            });
+          }
+        });
+      },
+    });
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 10_000 },
+      onTranscript,
+    });
+
+    await session.connect();
+    session.close();
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("goodbye"));
+
+    expect(onTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes a finalized segment after the endpointing fallback delay", async () => {
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "fallback", isFinal: true });
+      },
+    });
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 25 },
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("fallback"));
+    session.close();
+  });
+
+  it("does not merge an interrupted turn into a reconnected provider stream", async () => {
+    let connectionCount = 0;
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        connectionCount += 1;
+        if (connectionCount === 1) {
+          sendResult(ws, { text: "old", isFinal: true });
+          ws.close();
+          return;
+        }
+        sendResult(ws, { text: "new", isFinal: true, speechFinal: true });
+      },
+    });
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 10_000 },
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("new"), {
+      timeout: 3000,
+    });
+    session.close();
+
+    expect(onTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it("terminates instead of retaining an oversized utterance", async () => {
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "x".repeat(256 * 1024), isFinal: true });
+        sendResult(ws, { text: "y" });
+      },
+    });
+    const onError = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 1000 },
+      onError,
+    });
+
+    await session.connect();
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("retained transcript exceeded"),
+        }),
+      ),
+    );
+    session.close();
   });
 });

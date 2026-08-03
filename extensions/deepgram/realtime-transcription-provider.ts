@@ -5,6 +5,7 @@ import {
   type RealtimeTranscriptionProviderPlugin,
   type RealtimeTranscriptionSession,
   type RealtimeTranscriptionSessionCreateRequest,
+  type RealtimeTranscriptionWebSocketTransport,
 } from "openclaw/plugin-sdk/realtime-transcription";
 import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/secret-input";
 import {
@@ -48,6 +49,7 @@ type DeepgramRealtimeTranscriptionEvent = {
   };
   is_final?: boolean;
   speech_final?: boolean;
+  from_finalize?: boolean;
   error?: unknown;
   message?: string;
 };
@@ -60,6 +62,8 @@ const DEEPGRAM_REALTIME_CLOSE_TIMEOUT_MS = 5_000;
 const DEEPGRAM_REALTIME_MAX_RECONNECT_ATTEMPTS = 5;
 const DEEPGRAM_REALTIME_RECONNECT_DELAY_MS = 1000;
 const DEEPGRAM_REALTIME_MAX_QUEUED_BYTES = 2 * 1024 * 1024;
+const DEEPGRAM_REALTIME_MAX_RETAINED_TRANSCRIPT_BYTES = 256 * 1024;
+const DEEPGRAM_REALTIME_ENDPOINTING_FALLBACK_MARGIN_MS = 250;
 
 function readNestedDeepgramConfig(rawConfig: RealtimeTranscriptionProviderConfig) {
   const raw = readRecord(rawConfig);
@@ -169,24 +173,15 @@ function readTranscriptText(event: DeepgramRealtimeTranscriptionEvent): string |
 function createDeepgramRealtimeTranscriptionSession(
   config: DeepgramRealtimeTranscriptionSessionConfig,
 ): RealtimeTranscriptionSession {
-  let lastTranscript: string | undefined;
   let speechStarted = false;
-
-  let finalizedSegments: string[] = [];
+  let finalizedTranscript = "";
   let pendingPartial = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const silenceFlushMs =
-    typeof config.endpointingMs === "number" && config.endpointingMs > 0
+    (typeof config.endpointingMs === "number" && config.endpointingMs > 0
       ? config.endpointingMs
-      : DEEPGRAM_REALTIME_DEFAULT_ENDPOINTING_MS;
-
-  const emitTranscript = (text: string) => {
-    if (text === lastTranscript) {
-      return;
-    }
-    lastTranscript = text;
-    config.onTranscript?.(text);
-  };
+      : DEEPGRAM_REALTIME_DEFAULT_ENDPOINTING_MS) +
+    DEEPGRAM_REALTIME_ENDPOINTING_FALLBACK_MARGIN_MS;
 
   const clearFlushTimer = () => {
     if (flushTimer) {
@@ -197,14 +192,44 @@ function createDeepgramRealtimeTranscriptionSession(
 
   const collapseWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
-  const flushTurn = () => {
+  const joinTranscript = (left: string, right: string) =>
+    collapseWhitespace(left && right ? `${left} ${right}` : left || right);
+
+  const clearTurn = () => {
     clearFlushTimer();
-    const full = collapseWhitespace([...finalizedSegments, pendingPartial].join(" "));
-    finalizedSegments = [];
+    finalizedTranscript = "";
     pendingPartial = "";
     speechStarted = false;
+  };
+
+  const updateTurn = (
+    nextFinalized: string,
+    nextPartial: string,
+    transport: RealtimeTranscriptionWebSocketTransport,
+  ) => {
+    const retainedBytes =
+      Buffer.byteLength(nextFinalized, "utf8") + Buffer.byteLength(nextPartial, "utf8");
+    if (retainedBytes > DEEPGRAM_REALTIME_MAX_RETAINED_TRANSCRIPT_BYTES) {
+      clearTurn();
+      config.onError?.(
+        new Error(
+          `Deepgram realtime retained transcript exceeded ${DEEPGRAM_REALTIME_MAX_RETAINED_TRANSCRIPT_BYTES} bytes`,
+        ),
+      );
+      transport.closeNow();
+      return false;
+    }
+    finalizedTranscript = nextFinalized;
+    pendingPartial = nextPartial;
+    return true;
+  };
+
+  const flushTurn = () => {
+    clearFlushTimer();
+    const full = joinTranscript(finalizedTranscript, pendingPartial);
+    clearTurn();
     if (full) {
-      emitTranscript(full);
+      config.onTranscript?.(full);
     }
   };
 
@@ -214,13 +239,20 @@ function createDeepgramRealtimeTranscriptionSession(
     flushTimer.unref?.();
   };
 
-  const handleEvent = (event: DeepgramRealtimeTranscriptionEvent) => {
+  const handleEvent = (
+    event: DeepgramRealtimeTranscriptionEvent,
+    transport: RealtimeTranscriptionWebSocketTransport,
+  ) => {
     switch (event.type) {
       case "Results": {
         const text = readTranscriptText(event);
-        if (event.speech_final) {
-          if (text) {
-            finalizedSegments.push(text);
+        if (text && !speechStarted) {
+          speechStarted = true;
+          config.onSpeechStart?.();
+        }
+        if (event.speech_final || event.from_finalize) {
+          if (text && !updateTurn(joinTranscript(finalizedTranscript, text), "", transport)) {
+            return;
           }
           flushTurn();
           return;
@@ -228,17 +260,17 @@ function createDeepgramRealtimeTranscriptionSession(
         if (!text) {
           return;
         }
-        if (!speechStarted) {
-          speechStarted = true;
-          config.onSpeechStart?.();
-        }
         if (event.is_final) {
-          finalizedSegments.push(text);
-          pendingPartial = "";
-          config.onPartial?.(collapseWhitespace(finalizedSegments.join(" ")));
+          const nextFinalized = joinTranscript(finalizedTranscript, text);
+          if (!updateTurn(nextFinalized, "", transport)) {
+            return;
+          }
+          config.onPartial?.(nextFinalized);
         } else {
-          pendingPartial = text;
-          config.onPartial?.(collapseWhitespace([...finalizedSegments, text].join(" ")));
+          if (!updateTurn(finalizedTranscript, text, transport)) {
+            return;
+          }
+          config.onPartial?.(joinTranscript(finalizedTranscript, text));
         }
         scheduleFlush();
         return;
@@ -270,6 +302,11 @@ function createDeepgramRealtimeTranscriptionSession(
     connectClosedBeforeReadyMessage:
       "Deepgram realtime transcription connection closed before ready",
     reconnectLimitMessage: "Deepgram realtime transcription reconnect limit reached",
+    onOpen: () => {
+      // A reconnect starts a new provider stream. Never merge an old partial
+      // utterance into audio recognized by the replacement connection.
+      clearTurn();
+    },
     sendAudio: (audio, transport) => {
       transport.sendBinary(audio);
     },
@@ -277,7 +314,7 @@ function createDeepgramRealtimeTranscriptionSession(
       clearFlushTimer();
       transport.sendJson({ type: "Finalize" });
     },
-    onMessage: handleEvent,
+    onMessage: (event, transport) => handleEvent(event, transport),
   });
 }
 
