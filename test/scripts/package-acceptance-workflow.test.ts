@@ -1129,22 +1129,16 @@ describe("package acceptance workflow", () => {
       'pnpm_cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm"',
     );
     expect(hydratePnpm.run).toContain('pnpm_install_root="$pnpm_cache_root/install"');
-    expect(hydratePnpm.run).toContain(
-      'export PNPM_CONFIG_STORE_DIR="$pnpm_cache_root/store"',
-    );
+    expect(hydratePnpm.run).toContain('export PNPM_CONFIG_STORE_DIR="$pnpm_cache_root/store"');
     expect(hydratePnpm.run).toContain(
       'export PNPM_CONFIG_MODULES_DIR="$pnpm_install_root/node_modules"',
     );
-    expect(hydratePnpm.run).toContain(
-      'export PNPM_CONFIG_PACKAGE_IMPORT_METHOD="hardlink"',
-    );
+    expect(hydratePnpm.run).toContain('export PNPM_CONFIG_PACKAGE_IMPORT_METHOD="hardlink"');
     expect(hydratePnpm.run).toContain(
       'export PNPM_CONFIG_VIRTUAL_STORE_DIR="$pnpm_install_root/virtual-store"',
     );
     expect(hydratePnpm.run).toContain('echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"');
-    expect(hydratePnpm.run).toContain(
-      'echo "PNPM_CONFIG_MODULES_DIR=$PNPM_CONFIG_MODULES_DIR"',
-    );
+    expect(hydratePnpm.run).toContain('echo "PNPM_CONFIG_MODULES_DIR=$PNPM_CONFIG_MODULES_DIR"');
     expect(hydratePnpm.run).toContain(
       'echo "PNPM_CONFIG_PACKAGE_IMPORT_METHOD=${PNPM_CONFIG_PACKAGE_IMPORT_METHOD:-}"',
     );
@@ -1160,9 +1154,7 @@ describe("package acceptance workflow", () => {
       'case "${PNPM_CONFIG_VIRTUAL_STORE_DIR:?}" in "$pnpm_install_root"/*)',
     );
     expect(hydratePnpm.run).toContain('rm -rf -- "$pnpm_install_root"');
-    expect(hydratePnpm.run).toContain(
-      'mkdir -p "$pnpm_install_root" "$PNPM_CONFIG_STORE_DIR"',
-    );
+    expect(hydratePnpm.run).toContain('mkdir -p "$pnpm_install_root" "$PNPM_CONFIG_STORE_DIR"');
     expect(hydratePnpm.run).toContain(
       'mkdir -p "$PNPM_CONFIG_MODULES_DIR" "$PNPM_CONFIG_VIRTUAL_STORE_DIR"',
     );
@@ -1210,10 +1202,8 @@ describe("package acceptance workflow", () => {
     expect(ensureDocker.env).toEqual({
       CRABBOX_JOB: "${{ inputs.crabbox_job }}",
     });
-    expect(ensureDocker.run).toContain('docker_required=false');
-    expect(ensureDocker.run).toContain(
-      'if [ "${CRABBOX_JOB:-hydrate}" != "hydrate" ]; then',
-    );
+    expect(ensureDocker.run).toContain("docker_required=false");
+    expect(ensureDocker.run).toContain('if [ "${CRABBOX_JOB:-hydrate}" != "hydrate" ]; then');
     expect(ensureDocker.run).toContain('if [ "$docker_required" = true ]; then');
     expect(ensureDocker.run).toContain(
       "Docker is unavailable for ${CRABBOX_JOB:-hydrate}; route this workload to a Docker-capable provider",
