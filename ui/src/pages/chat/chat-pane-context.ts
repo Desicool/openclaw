@@ -190,8 +190,10 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       this.cancelHeaderRename();
       cancelChatScroll(state);
       releaseChatMediaResourceSubscriber(state.requestUpdate);
-      if (state.client) {
-        markQueuedChatSendsWaitingForReconnect(state);
+      if (wasConnected) {
+        if (snapshot.phase === "connected") {
+          markQueuedChatSendsWaitingForReconnect(state);
+        }
         state.chatSending = false;
         state.chatSendingScopeKey = null;
       }
