@@ -12,9 +12,10 @@ import { normalizeProviderId } from "openclaw/plugin-sdk/provider-model-shared";
 import { formatErrorMessage, type SsrFPolicy } from "openclaw/plugin-sdk/ssrf-runtime";
 import { asPositiveSafeInteger } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { LMSTUDIO_DEFAULT_EMBEDDING_MODEL, LMSTUDIO_PROVIDER_ID } from "./defaults.js";
-import { ensureLmstudioModelLoaded } from "./models.fetch.js";
+import { ensureLmstudioModelLoaded, fetchLmstudioModels } from "./models.fetch.js";
 import {
   normalizeLmstudioConfiguredCatalogEntries,
+  resolveLmstudioCanonicalModelKey,
   resolveLmstudioInferenceBase,
   resolveLmstudioServerBase,
 } from "./models.js";
@@ -156,9 +157,31 @@ function resolveLmstudioLocalServiceBaseUrl(
   return /\/api\/v1$/iu.test(configuredPath) ? `${serverBaseUrl}/api/v1` : `${serverBaseUrl}/v1`;
 }
 
+async function resolveLmstudioEmbeddingModelKey(params: {
+  baseUrl: string;
+  apiKey?: string;
+  headers: Record<string, string>;
+  ssrfPolicy?: SsrFPolicy;
+  model: string;
+}): Promise<string> {
+  const discovered = await fetchLmstudioModels({
+    baseUrl: params.baseUrl,
+    apiKey: params.apiKey,
+    headers: params.headers,
+    ssrfPolicy: params.ssrfPolicy,
+  });
+  if (!discovered.reachable || (discovered.status !== undefined && discovered.status >= 400)) {
+    return params.model;
+  }
+  return resolveLmstudioCanonicalModelKey({
+    modelKey: params.model,
+    models: discovered.models,
+  });
+}
+
 /** Creates the LM Studio embedding provider client and preloads the target model before return. */
 export async function createLmstudioEmbeddingProvider(
-  options: MemoryEmbeddingProviderCreateOptions,
+  options: LocalServiceAwareEmbeddingOptions,
 ): Promise<{ provider: MemoryEmbeddingProvider; client: LmstudioEmbeddingClient }> {
   const resolvedProvider = resolveConfiguredLmstudioProvider(options);
   const providerConfig = resolvedProvider?.config;
@@ -225,7 +248,7 @@ export async function createLmstudioEmbeddingProvider(
           headers,
         }
       : undefined;
-  const acquireLocalService = (options as LocalServiceAwareEmbeddingOptions).acquireLocalService;
+  const acquireLocalService = options.acquireLocalService;
   const withLocalServiceLease = async <T>(
     signal: AbortSignal | undefined,
     action: () => Promise<T>,
@@ -269,6 +292,26 @@ export async function createLmstudioEmbeddingProvider(
         });
       }
     });
+  } else if (model.includes("@")) {
+    // Variant aliases are not accepted by LM Studio's inference routes. Resolve
+    // only the stable wire/cache identity here; JIT still owns the actual load.
+    try {
+      await withLocalServiceLease(undefined, async () => {
+        client.model = await resolveLmstudioEmbeddingModelKey({
+          baseUrl,
+          apiKey,
+          headers: headerOverrides,
+          ssrfPolicy,
+          model,
+        });
+      });
+    } catch (error) {
+      log.debug("lmstudio embedding variant discovery failed; using requested model", {
+        baseUrl,
+        model,
+        error: formatErrorMessage(error),
+      });
+    }
   }
 
   const remoteProvider = createRemoteEmbeddingProvider({

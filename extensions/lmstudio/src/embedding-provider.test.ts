@@ -9,19 +9,42 @@ const ensureLmstudioModelLoadedMock = vi.hoisted(() =>
     async (_params?: { requestedContextLength?: number }) => "text-embedding-nomic-embed-text-v1.5",
   ),
 );
+const fetchLmstudioModelsMock = vi.hoisted(() =>
+  vi.fn(async (_params?: unknown) => ({
+    reachable: true,
+    status: 200,
+    models: [] as Array<{
+      type?: "llm" | "embedding";
+      key?: string;
+      variants?: unknown;
+      selected_variant?: unknown;
+      loaded_instances?: unknown[];
+    }>,
+  })),
+);
 const resolveLmstudioProviderHeadersMock = vi.hoisted(() =>
   vi.fn(async (_params?: unknown) => undefined),
 );
 const resolveLmstudioRuntimeApiKeyMock = vi.hoisted(() =>
   vi.fn(async (_params?: unknown) => undefined),
 );
+const embeddedModels = vi.hoisted(() => [] as string[]);
 const createRemoteEmbeddingProviderMock = vi.hoisted(() =>
-  vi.fn(() => ({
-    id: "lmstudio",
-    model: "text-embedding-nomic-embed-text-v1.5",
-    embedQuery: vi.fn(async () => [1, 0]),
-    embedBatch: vi.fn(async (texts: string[]) => texts.map(() => [1, 0])),
-  })),
+  vi.fn((params: { client: { model: string } }) => {
+    const providerModel = params.client.model;
+    return {
+      id: "lmstudio",
+      model: providerModel,
+      embedQuery: vi.fn(async () => {
+        embeddedModels.push(params.client.model);
+        return [1, 0];
+      }),
+      embedBatch: vi.fn(async (texts: string[]) => {
+        embeddedModels.push(params.client.model);
+        return texts.map(() => [1, 0]);
+      }),
+    };
+  }),
 );
 
 vi.mock("openclaw/plugin-sdk/memory-core-host-engine-embeddings", async (importOriginal) => {
@@ -39,6 +62,7 @@ vi.mock("./models.fetch.js", async (importOriginal) => {
     ...actual,
     ensureLmstudioModelLoaded: (params: { requestedContextLength?: number }) =>
       ensureLmstudioModelLoadedMock(params),
+    fetchLmstudioModels: (params: unknown) => fetchLmstudioModelsMock(params),
   };
 });
 
@@ -84,7 +108,10 @@ async function readRequestedContextLength(config: OpenClawConfig): Promise<unkno
 describe("createLmstudioEmbeddingProvider preload context length", () => {
   beforeEach(() => {
     ensureLmstudioModelLoadedMock.mockClear();
+    fetchLmstudioModelsMock.mockClear();
+    fetchLmstudioModelsMock.mockResolvedValue({ reachable: true, status: 200, models: [] });
     createRemoteEmbeddingProviderMock.mockClear();
+    embeddedModels.length = 0;
     resolveLmstudioProviderHeadersMock.mockClear();
     resolveLmstudioRuntimeApiKeyMock.mockClear();
   });
@@ -159,6 +186,7 @@ describe("createLmstudioEmbeddingProvider preload context length", () => {
       });
 
       expect(ensureLmstudioModelLoadedMock).not.toHaveBeenCalled();
+      expect(fetchLmstudioModelsMock).not.toHaveBeenCalled();
       expect(acquireLocalService).not.toHaveBeenCalled();
 
       await expect(provider.embedQuery("hello")).resolves.toEqual([1, 0]);
@@ -171,6 +199,56 @@ describe("createLmstudioEmbeddingProvider preload context length", () => {
       expect(release).toHaveBeenCalledOnce();
     },
   );
+
+  it("resolves a JIT variant before freezing provider and cache identity", async () => {
+    const requestedVariant = `${EMBEDDING_MODEL}@q4_k_m`;
+    const release = vi.fn();
+    const acquireLocalService = vi.fn(async () => ({ release }));
+    fetchLmstudioModelsMock.mockResolvedValueOnce({
+      reachable: true,
+      status: 200,
+      models: [
+        {
+          type: "embedding",
+          key: EMBEDDING_MODEL,
+          variants: [requestedVariant],
+          selected_variant: requestedVariant,
+          loaded_instances: [],
+        },
+      ],
+    });
+
+    const options = {
+      config: buildConfig({
+        model: { id: requestedVariant },
+        provider: {
+          params: { preload: false },
+          localService: { command: "/usr/bin/lms" },
+        },
+      }),
+      provider: "lmstudio",
+      model: `lmstudio/${requestedVariant}`,
+      fallback: "none",
+      acquireLocalService,
+    };
+    const result = await lmstudioMemoryEmbeddingProviderAdapter.create(options);
+    if (!result.provider) {
+      throw new Error("expected LM Studio embedding provider");
+    }
+
+    expect(ensureLmstudioModelLoadedMock).not.toHaveBeenCalled();
+    expect(fetchLmstudioModelsMock).toHaveBeenCalledOnce();
+    expect(acquireLocalService).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(result.provider.model).toBe(EMBEDDING_MODEL);
+    expect(result.runtime?.cacheKeyData).toMatchObject({ model: EMBEDDING_MODEL });
+
+    await expect(result.provider.embedQuery("hello")).resolves.toEqual([1, 0]);
+
+    expect(embeddedModels).toEqual([EMBEDDING_MODEL]);
+    expect(acquireLocalService).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledTimes(2);
+  });
 
   it("uses the canonical preloaded model for embedding requests and memory identity", async () => {
     const requestedVariant = `${EMBEDDING_MODEL}@q4_k_m`;
