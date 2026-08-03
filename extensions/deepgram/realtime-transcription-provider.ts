@@ -63,7 +63,7 @@ const DEEPGRAM_REALTIME_MAX_RECONNECT_ATTEMPTS = 5;
 const DEEPGRAM_REALTIME_RECONNECT_DELAY_MS = 1000;
 const DEEPGRAM_REALTIME_MAX_QUEUED_BYTES = 2 * 1024 * 1024;
 const DEEPGRAM_REALTIME_MAX_RETAINED_TRANSCRIPT_BYTES = 256 * 1024;
-const DEEPGRAM_REALTIME_ENDPOINTING_FALLBACK_MARGIN_MS = 250;
+const DEEPGRAM_REALTIME_MIN_UTTERANCE_END_MS = 1000;
 
 function readNestedDeepgramConfig(rawConfig: RealtimeTranscriptionProviderConfig) {
   const raw = readRecord(rawConfig);
@@ -131,6 +131,14 @@ function toDeepgramRealtimeWsUrl(config: DeepgramRealtimeTranscriptionSessionCon
   url.searchParams.set("channels", "1");
   url.searchParams.set("interim_results", String(config.interimResults));
   url.searchParams.set("endpointing", String(config.endpointingMs));
+  if (config.interimResults) {
+    // Deepgram derives UtteranceEnd from word timings and rejects values below
+    // one second. Unlike a client timer, background noise does not rearm it.
+    url.searchParams.set(
+      "utterance_end_ms",
+      String(Math.max(config.endpointingMs, DEEPGRAM_REALTIME_MIN_UTTERANCE_END_MS)),
+    );
+  }
   if (config.language) {
     url.searchParams.set("language", config.language);
   }
@@ -176,19 +184,6 @@ function createDeepgramRealtimeTranscriptionSession(
   let speechStarted = false;
   let finalizedTranscript = "";
   let pendingPartial = "";
-  let flushTimer: ReturnType<typeof setTimeout> | null = null;
-  const silenceFlushMs =
-    (typeof config.endpointingMs === "number" && config.endpointingMs > 0
-      ? config.endpointingMs
-      : DEEPGRAM_REALTIME_DEFAULT_ENDPOINTING_MS) +
-    DEEPGRAM_REALTIME_ENDPOINTING_FALLBACK_MARGIN_MS;
-
-  const clearFlushTimer = () => {
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
-    }
-  };
 
   const collapseWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
@@ -196,7 +191,6 @@ function createDeepgramRealtimeTranscriptionSession(
     collapseWhitespace(left && right ? `${left} ${right}` : left || right);
 
   const clearTurn = () => {
-    clearFlushTimer();
     finalizedTranscript = "";
     pendingPartial = "";
     speechStarted = false;
@@ -225,18 +219,11 @@ function createDeepgramRealtimeTranscriptionSession(
   };
 
   const flushTurn = () => {
-    clearFlushTimer();
     const full = joinTranscript(finalizedTranscript, pendingPartial);
     clearTurn();
     if (full) {
       config.onTranscript?.(full);
     }
-  };
-
-  const scheduleFlush = () => {
-    clearFlushTimer();
-    flushTimer = setTimeout(flushTurn, silenceFlushMs);
-    flushTimer.unref?.();
   };
 
   const handleEvent = (
@@ -272,7 +259,10 @@ function createDeepgramRealtimeTranscriptionSession(
           }
           config.onPartial?.(joinTranscript(finalizedTranscript, text));
         }
-        scheduleFlush();
+        return;
+      }
+      case "UtteranceEnd": {
+        flushTurn();
         return;
       }
       case "SpeechStarted":
@@ -311,7 +301,6 @@ function createDeepgramRealtimeTranscriptionSession(
       transport.sendBinary(audio);
     },
     onClose: (transport) => {
-      clearFlushTimer();
       transport.sendJson({ type: "Finalize" });
     },
     onMessage: (event, transport) => handleEvent(event, transport),

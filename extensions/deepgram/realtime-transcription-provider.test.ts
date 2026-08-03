@@ -161,6 +161,8 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url.pathname).toBe("/deepgram/v1/listen");
     expect(requests[0]?.url.searchParams.get("model")).toBe("nova-3");
+    expect(requests[0]?.url.searchParams.get("endpointing")).toBe("800");
+    expect(requests[0]?.url.searchParams.get("utterance_end_ms")).toBe("1000");
     expect(requests[0]?.headers.authorization).toBe("Token dummy");
   });
 
@@ -259,11 +261,12 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     expect(onTranscript).toHaveBeenCalledTimes(1);
   });
 
-  it("flushes a finalized segment after the endpointing fallback delay", async () => {
+  it("flushes a finalized segment on the provider utterance-end event", async () => {
     const server = await createDeepgramRealtimeServer({
       onRequest: () => undefined,
       onConnection: (ws) => {
         sendResult(ws, { text: "fallback", isFinal: true });
+        ws.send(JSON.stringify({ type: "UtteranceEnd" }));
       },
     });
     const onTranscript = vi.fn();
@@ -274,6 +277,33 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
 
     await session.connect();
     await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("fallback"));
+    session.close();
+  });
+
+  it("does not infer silence from a gap between provisional results", async () => {
+    let socket: WebSocket | undefined;
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        socket = ws;
+        sendResult(ws, { text: "still speaking" });
+      },
+    });
+    const onPartial = vi.fn();
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 25 },
+      onPartial,
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onPartial).toHaveBeenCalledWith("still speaking"));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(onTranscript).not.toHaveBeenCalled();
+
+    sendResult(socket!, { text: "continuous speech", isFinal: true, speechFinal: true });
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("continuous speech"));
     session.close();
   });
 
