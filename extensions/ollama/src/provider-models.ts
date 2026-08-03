@@ -34,10 +34,12 @@ export type OllamaTagsResponse = {
   models?: OllamaTagModel[];
 };
 
-export type OllamaRunningModel = {
+type OllamaRunningModel = {
   name?: unknown;
   model?: unknown;
 };
+
+type OllamaModelRow = OllamaTagModel | OllamaRunningModel;
 
 export type OllamaModelWithContext = OllamaTagModel & {
   contextWindow?: number;
@@ -425,12 +427,12 @@ type OllamaModelsFetchDeps = {
   lookupFn?: LookupFn;
 };
 
-async function fetchOllamaModelRows<T>(params: {
+async function fetchOllamaModelRows(params: {
   baseUrl: string;
   endpoint: "ps" | "tags";
   opts?: OllamaModelRequestOptions;
   deps?: OllamaModelsFetchDeps;
-}): Promise<{ reachable: boolean; models: T[] }> {
+}): Promise<{ reachable: boolean; models: OllamaModelRow[] }> {
   try {
     const apiBase = resolveOllamaApiBase(params.baseUrl);
     const auditContext = `ollama-provider-models.${params.endpoint}`;
@@ -456,7 +458,10 @@ async function fetchOllamaModelRows<T>(params: {
         void response.body?.cancel().catch(() => undefined);
         return { reachable: true, models: [] };
       }
-      const data = await readProviderJsonResponse<{ models?: T[] }>(response, auditContext);
+      const data = await readProviderJsonResponse<{ models?: OllamaModelRow[] }>(
+        response,
+        auditContext,
+      );
       const models = Array.isArray(data.models) ? data.models : [];
       return { reachable: true, models };
     } finally {
@@ -473,7 +478,7 @@ export async function fetchOllamaModels(
   opts?: OllamaModelRequestOptions,
   deps?: OllamaModelsFetchDeps,
 ): Promise<{ reachable: boolean; models: OllamaTagModel[] }> {
-  const result = await fetchOllamaModelRows<OllamaTagModel>({
+  const result = await fetchOllamaModelRows({
     baseUrl,
     endpoint: "tags",
     opts,
@@ -481,7 +486,9 @@ export async function fetchOllamaModels(
   });
   return {
     reachable: result.reachable,
-    models: result.models.filter((model) => model.name),
+    models: result.models.filter(
+      (model): model is OllamaTagModel => typeof model.name === "string" && Boolean(model.name),
+    ),
   };
 }
 
@@ -490,7 +497,7 @@ export async function fetchLoadedOllamaModelNames(
   opts?: OllamaModelRequestOptions,
   deps?: OllamaModelsFetchDeps,
 ): Promise<{ reachable: boolean; models: string[] }> {
-  const result = await fetchOllamaModelRows<OllamaRunningModel>({
+  const result = await fetchOllamaModelRows({
     baseUrl,
     endpoint: "ps",
     opts,
@@ -502,7 +509,7 @@ export async function fetchLoadedOllamaModelNames(
       .map((model) =>
         typeof model.name === "string"
           ? model.name.trim()
-          : typeof model.model === "string"
+          : "model" in model && typeof model.model === "string"
             ? model.model.trim()
             : "",
       )
