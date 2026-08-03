@@ -265,24 +265,35 @@ jobs:
       - &crabbox_ensure_docker_step
         name: Ensure Docker is running
         shell: bash
+        env:
+          CRABBOX_JOB: ${{ inputs.crabbox_job }}
         run: |
           set -euo pipefail
 
-          if ! command -v docker >/dev/null 2>&1; then
-            echo "docker not found; installing fallback engine"
-            curl --fail --show-error --location \
-              --connect-timeout "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-15}" \
-              --max-time "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_TIMEOUT_SECONDS:-300}" \
-              --retry "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_RETRIES:-3}" \
-              --retry-delay "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_RETRY_DELAY_SECONDS:-5}" \
-              --retry-all-errors \
-              https://get.docker.com | sudo sh
+          docker_required=false
+          if [ "${CRABBOX_JOB:-hydrate}" != "hydrate" ]; then
+            docker_required=true
           fi
 
-          if command -v systemctl >/dev/null 2>&1; then
-            sudo systemctl start docker || true
-          elif command -v service >/dev/null 2>&1; then
-            sudo service docker start || true
+          if ! command -v docker >/dev/null 2>&1; then
+            if [ "$docker_required" = true ]; then
+              echo "docker not found; installing fallback engine"
+              curl --fail --show-error --location \
+                --connect-timeout "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-15}" \
+                --max-time "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_TIMEOUT_SECONDS:-300}" \
+                --retry "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_RETRIES:-3}" \
+                --retry-delay "${OPENCLAW_CRABBOX_HYDRATE_DOWNLOAD_RETRY_DELAY_SECONDS:-5}" \
+                --retry-all-errors \
+                https://get.docker.com | sudo sh
+            fi
+          fi
+
+          if command -v docker >/dev/null 2>&1; then
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl start docker || true
+            elif command -v service >/dev/null 2>&1; then
+              sudo service docker start || true
+            fi
           fi
 
           if [ -S /var/run/docker.sock ]; then
@@ -292,6 +303,17 @@ jobs:
             sudo chmod 666 /var/run/docker.sock
           fi
 
+          if ! docker version >/dev/null 2>&1; then
+            if [ "$docker_required" = true ]; then
+              echo "::error::Docker is unavailable for ${CRABBOX_JOB:-hydrate}; route this workload to a Docker-capable provider"
+              exit 1
+            fi
+            echo "::notice::Docker is unavailable; standard hydration will continue without Docker"
+            echo "OPENCLAW_CRABBOX_DOCKER_AVAILABLE=0" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "OPENCLAW_CRABBOX_DOCKER_AVAILABLE=1" >> "$GITHUB_ENV"
           if ! docker buildx version >/dev/null 2>&1; then
             arch="$(uname -m)"
             case "$arch" in
@@ -364,7 +386,7 @@ jobs:
             fi
           }
           {
-            for key in CI GITHUB_ACTIONS GITHUB_WORKSPACE GITHUB_REPOSITORY GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_RUN_ATTEMPT GITHUB_REF GITHUB_REF_NAME GITHUB_SHA GITHUB_EVENT_NAME GITHUB_ACTOR RUNNER_OS RUNNER_ARCH RUNNER_TEMP RUNNER_TOOL_CACHE XDG_CACHE_HOME COREPACK_HOME NODE_BIN PNPM_HOME PNPM_CONFIG_CHILD_CONCURRENCY PNPM_CONFIG_MODULES_DIR PNPM_CONFIG_NETWORK_CONCURRENCY PNPM_CONFIG_STORE_DIR PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN PNPM_CONFIG_VIRTUAL_STORE_DIR PATH; do
+            for key in CI GITHUB_ACTIONS GITHUB_WORKSPACE GITHUB_REPOSITORY GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_RUN_ATTEMPT GITHUB_REF GITHUB_REF_NAME GITHUB_SHA GITHUB_EVENT_NAME GITHUB_ACTOR RUNNER_OS RUNNER_ARCH RUNNER_TEMP RUNNER_TOOL_CACHE XDG_CACHE_HOME COREPACK_HOME NODE_BIN OPENCLAW_CRABBOX_DOCKER_AVAILABLE PNPM_HOME PNPM_CONFIG_CHILD_CONCURRENCY PNPM_CONFIG_MODULES_DIR PNPM_CONFIG_NETWORK_CONCURRENCY PNPM_CONFIG_PACKAGE_IMPORT_METHOD PNPM_CONFIG_STORE_DIR PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN PNPM_CONFIG_VIRTUAL_STORE_DIR PATH; do
               write_export "$key"
             done
           } > "${env_file}.tmp"

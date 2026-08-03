@@ -1205,10 +1205,34 @@ describe("package acceptance workflow", () => {
     expect(prepareCrabboxShell).toContain('readlink -f "$source"');
     expect(prepareCrabboxShell).toContain('readlink -f "$target"');
     expect(prepareCrabboxShell).toContain("link_node_tool corepack");
-    expect(workflowStep(hydrate, "Ensure Docker is running").if).toBeUndefined();
+    const ensureDocker = workflowStep(hydrate, "Ensure Docker is running");
+    expect(ensureDocker.if).toBeUndefined();
+    expect(ensureDocker.env).toEqual({
+      CRABBOX_JOB: "${{ inputs.crabbox_job }}",
+    });
+    expect(ensureDocker.run).toContain('docker_required=false');
+    expect(ensureDocker.run).toContain(
+      'if [ "${CRABBOX_JOB:-hydrate}" != "hydrate" ]; then',
+    );
+    expect(ensureDocker.run).toContain('if [ "$docker_required" = true ]; then');
+    expect(ensureDocker.run).toContain(
+      "Docker is unavailable for ${CRABBOX_JOB:-hydrate}; route this workload to a Docker-capable provider",
+    );
+    expect(ensureDocker.run).toContain(
+      "Docker is unavailable; standard hydration will continue without Docker",
+    );
+    expect(ensureDocker.run).toContain(
+      'echo "OPENCLAW_CRABBOX_DOCKER_AVAILABLE=0" >> "$GITHUB_ENV"',
+    );
+    expect(ensureDocker.run).toContain(
+      'echo "OPENCLAW_CRABBOX_DOCKER_AVAILABLE=1" >> "$GITHUB_ENV"',
+    );
     expect(workflowStep(hydrate, "Ensure SSH is available").if).toBeUndefined();
     expect(workflowStep(hydrate, "Hydrate provider env helper").if).toBeUndefined();
-    expect(workflowStep(hydrate, "Mark Crabbox ready").run).toContain("COREPACK_HOME");
+    const markCrabboxReady = workflowStep(hydrate, "Mark Crabbox ready").run;
+    expect(markCrabboxReady).toContain("COREPACK_HOME");
+    expect(markCrabboxReady).toContain("OPENCLAW_CRABBOX_DOCKER_AVAILABLE");
+    expect(markCrabboxReady).toContain("PNPM_CONFIG_PACKAGE_IMPORT_METHOD");
     expect(workflowStep(hydrate, "Hydrate provider env helper").env).toBeUndefined();
 
     expect(hydrateWindowsDaemon.if).toBe("${{ inputs.crabbox_job == 'hydrate-windows-daemon' }}");
