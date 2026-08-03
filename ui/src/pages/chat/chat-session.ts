@@ -59,12 +59,7 @@ type ChatIdleSessionReconciliationHost = SessionScopeHost & {
 export function retireChatModelSelectionOwnership(
   host: Pick<
     ChatModelSettingsHost,
-    | "agentsList"
-    | "chatModelSwitchPromises"
-    | "hello"
-    | "requestUpdate"
-    | "sessionKey"
-    | "sessions"
+    "agentsList" | "chatModelSwitchPromises" | "hello" | "requestUpdate" | "sessionKey" | "sessions"
   >,
 ): void {
   const pendingKeys = Object.keys(host.chatModelSwitchPromises ?? {});
