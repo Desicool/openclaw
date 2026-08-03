@@ -63,7 +63,6 @@ const DEEPGRAM_REALTIME_MAX_RECONNECT_ATTEMPTS = 5;
 const DEEPGRAM_REALTIME_RECONNECT_DELAY_MS = 1000;
 const DEEPGRAM_REALTIME_MAX_QUEUED_BYTES = 2 * 1024 * 1024;
 const DEEPGRAM_REALTIME_MAX_RETAINED_TRANSCRIPT_BYTES = 256 * 1024;
-const DEEPGRAM_REALTIME_MIN_UTTERANCE_END_MS = 1000;
 
 function readNestedDeepgramConfig(rawConfig: RealtimeTranscriptionProviderConfig) {
   const raw = readRecord(rawConfig);
@@ -131,14 +130,6 @@ function toDeepgramRealtimeWsUrl(config: DeepgramRealtimeTranscriptionSessionCon
   url.searchParams.set("channels", "1");
   url.searchParams.set("interim_results", String(config.interimResults));
   url.searchParams.set("endpointing", String(config.endpointingMs));
-  if (config.interimResults) {
-    // Deepgram derives UtteranceEnd from word timings and rejects values below
-    // one second. Unlike a client timer, background noise does not rearm it.
-    url.searchParams.set(
-      "utterance_end_ms",
-      String(Math.max(config.endpointingMs, DEEPGRAM_REALTIME_MIN_UTTERANCE_END_MS)),
-    );
-  }
   if (config.language) {
     url.searchParams.set("language", config.language);
   }
@@ -259,10 +250,6 @@ function createDeepgramRealtimeTranscriptionSession(
           }
           config.onPartial?.(joinTranscript(finalizedTranscript, text));
         }
-        return;
-      }
-      case "UtteranceEnd": {
-        flushTurn();
         return;
       }
       case "SpeechStarted":

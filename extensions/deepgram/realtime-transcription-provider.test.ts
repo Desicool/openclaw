@@ -162,7 +162,7 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     expect(requests[0]?.url.pathname).toBe("/deepgram/v1/listen");
     expect(requests[0]?.url.searchParams.get("model")).toBe("nova-3");
     expect(requests[0]?.url.searchParams.get("endpointing")).toBe("800");
-    expect(requests[0]?.url.searchParams.get("utterance_end_ms")).toBe("1000");
+    expect(requests[0]?.url.searchParams.has("utterance_end_ms")).toBe(false);
     expect(requests[0]?.headers.authorization).toBe("Token dummy");
   });
 
@@ -261,12 +261,13 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     expect(onTranscript).toHaveBeenCalledTimes(1);
   });
 
-  it("flushes a finalized segment on the provider utterance-end event", async () => {
+  it("does not commit a turn on an utterance-end gap before speech-final", async () => {
     const server = await createDeepgramRealtimeServer({
       onRequest: () => undefined,
       onConnection: (ws) => {
-        sendResult(ws, { text: "fallback", isFinal: true });
+        sendResult(ws, { text: "still", isFinal: true });
         ws.send(JSON.stringify({ type: "UtteranceEnd" }));
+        sendResult(ws, { text: "speaking", isFinal: true, speechFinal: true });
       },
     });
     const onTranscript = vi.fn();
@@ -276,8 +277,10 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     });
 
     await session.connect();
-    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("fallback"));
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("still speaking"));
     session.close();
+
+    expect(onTranscript).toHaveBeenCalledTimes(1);
   });
 
   it("does not infer silence from a gap between provisional results", async () => {
