@@ -34,7 +34,6 @@ env:
   PNPM_CONFIG_CHILD_CONCURRENCY: "1"
   PNPM_CONFIG_MODULES_DIR: "/var/tmp/openclaw-pnpm/node_modules"
   PNPM_CONFIG_NETWORK_CONCURRENCY: "1"
-  PNPM_CONFIG_STORE_DIR: "/var/cache/crabbox/pnpm/store"
   PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
   PNPM_CONFIG_VIRTUAL_STORE_DIR: "/var/tmp/openclaw-pnpm/virtual-store"
 
@@ -65,11 +64,21 @@ jobs:
           export COREPACK_HOME="${COREPACK_HOME:-$XDG_CACHE_HOME/corepack}"
           export PNPM_HOME="${PNPM_HOME:-$RUNNER_TEMP/pnpm-home}"
           mkdir -p "$XDG_CACHE_HOME" "$COREPACK_HOME" "$PNPM_HOME"
+          preferred_pnpm_store="/var/cache/crabbox/pnpm/store"
+          if mkdir -p "$preferred_pnpm_store" 2>/dev/null &&
+            [ ! -L "$preferred_pnpm_store" ] &&
+            [ -d "$preferred_pnpm_store" ] &&
+            [ -w "$preferred_pnpm_store" ]; then
+            export PNPM_CONFIG_STORE_DIR="$preferred_pnpm_store"
+          else
+            export PNPM_CONFIG_STORE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm/store"
+          fi
           export PATH="$PNPM_HOME:$PATH"
           {
             echo "XDG_CACHE_HOME=$XDG_CACHE_HOME"
             echo "COREPACK_HOME=$COREPACK_HOME"
             echo "PNPM_HOME=$PNPM_HOME"
+            echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"
           } >> "$GITHUB_ENV"
 
           package_manager="$(node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); process.stdout.write(pkg.packageManager || '')")"

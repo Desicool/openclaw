@@ -1121,7 +1121,15 @@ describe("package acceptance workflow", () => {
     expect(hydratePnpm.if).toBeUndefined();
     expect(hydratePnpm.run).toContain('corepack enable --install-directory "$PNPM_HOME"');
     expect(hydratePnpm.run).toContain("COREPACK_HOME");
-    expect(workflowText).toContain('PNPM_CONFIG_STORE_DIR: "/var/cache/crabbox/pnpm/store"');
+    expect(workflowText).not.toContain('PNPM_CONFIG_STORE_DIR: "/var/cache/crabbox/pnpm/store"');
+    expect(hydratePnpm.run).toContain('preferred_pnpm_store="/var/cache/crabbox/pnpm/store"');
+    expect(hydratePnpm.run).toContain('mkdir -p "$preferred_pnpm_store" 2>/dev/null');
+    expect(hydratePnpm.run).toContain('[ -w "$preferred_pnpm_store" ]');
+    expect(hydratePnpm.run).toContain(
+      'export PNPM_CONFIG_STORE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/openclaw/pnpm/store"',
+    );
+    expect(hydratePnpm.run).toContain('echo "PNPM_CONFIG_STORE_DIR=$PNPM_CONFIG_STORE_DIR"');
+    expect(hydratePnpm.run).toContain('} >> "$GITHUB_ENV"');
     expect(hydratePnpm.run).toContain("prepare_crabbox_pnpm_dirs");
     expect(hydratePnpm.run).toContain('case "${PNPM_CONFIG_MODULES_DIR:?}" in "$volatile_root"/*)');
     expect(hydratePnpm.run).toContain(
