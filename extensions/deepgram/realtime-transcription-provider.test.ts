@@ -66,6 +66,7 @@ function sendResult(
 
 describe("buildDeepgramRealtimeTranscriptionProvider", () => {
   afterEach(async () => {
+    vi.useRealTimers();
     await cleanup?.();
     cleanup = undefined;
     vi.unstubAllEnvs();
@@ -236,11 +237,12 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
     const server = await createDeepgramRealtimeServer({
       onRequest: () => undefined,
       onConnection: (ws) => {
-        sendResult(ws, { text: "goodbye" });
+        sendResult(ws, { text: "good", isFinal: true });
+        sendResult(ws, { text: "bye" });
         ws.on("message", (data) => {
           if (JSON.parse(data.toString()).type === "Finalize") {
             sendResult(ws, {
-              text: "goodbye",
+              text: "bye",
               isFinal: true,
               fromFinalize: true,
             });
@@ -256,9 +258,43 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
 
     await session.connect();
     session.close();
-    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("goodbye"));
+    await vi.waitFor(() => expect(onTranscript).toHaveBeenCalledWith("good bye"));
 
     expect(onTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes finalized text once when finalize produces no result", async () => {
+    let finalizeRequests = 0;
+    const server = await createDeepgramRealtimeServer({
+      onRequest: () => undefined,
+      onConnection: (ws) => {
+        sendResult(ws, { text: "good", isFinal: true });
+        sendResult(ws, { text: "bye" });
+        ws.on("message", (data) => {
+          if (JSON.parse(data.toString()).type === "Finalize") {
+            finalizeRequests += 1;
+          }
+        });
+      },
+    });
+    const onPartial = vi.fn();
+    const onTranscript = vi.fn();
+    const session = buildDeepgramRealtimeTranscriptionProvider().createSession({
+      providerConfig: { apiKey: "dummy", baseUrl: server.baseUrl, endpointingMs: 10_000 },
+      onPartial,
+      onTranscript,
+    });
+
+    await session.connect();
+    await vi.waitFor(() => expect(onPartial).toHaveBeenCalledWith("good bye"));
+    vi.useFakeTimers();
+    session.close();
+    session.close();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(finalizeRequests).toBe(1);
+    expect(onTranscript).toHaveBeenCalledTimes(1);
+    expect(onTranscript).toHaveBeenCalledWith("good");
   });
 
   it("does not commit a turn on an utterance-end gap before speech-final", async () => {

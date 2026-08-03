@@ -63,6 +63,7 @@ const DEEPGRAM_REALTIME_MAX_RECONNECT_ATTEMPTS = 5;
 const DEEPGRAM_REALTIME_RECONNECT_DELAY_MS = 1000;
 const DEEPGRAM_REALTIME_MAX_QUEUED_BYTES = 2 * 1024 * 1024;
 const DEEPGRAM_REALTIME_MAX_RETAINED_TRANSCRIPT_BYTES = 256 * 1024;
+const DEEPGRAM_REALTIME_FINALIZE_FALLBACK_MS = DEEPGRAM_REALTIME_CLOSE_TIMEOUT_MS - 100;
 
 function readNestedDeepgramConfig(rawConfig: RealtimeTranscriptionProviderConfig) {
   const raw = readRecord(rawConfig);
@@ -175,13 +176,24 @@ function createDeepgramRealtimeTranscriptionSession(
   let speechStarted = false;
   let finalizedTranscript = "";
   let pendingPartial = "";
+  let finalizeRequested = false;
+  let finalizeFallbackFired = false;
+  let finalizeFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
   const collapseWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
   const joinTranscript = (left: string, right: string) =>
     collapseWhitespace(left && right ? `${left} ${right}` : left || right);
 
+  const clearFinalizeFallback = () => {
+    if (finalizeFallbackTimer) {
+      clearTimeout(finalizeFallbackTimer);
+      finalizeFallbackTimer = undefined;
+    }
+  };
+
   const clearTurn = () => {
+    clearFinalizeFallback();
     finalizedTranscript = "";
     pendingPartial = "";
     speechStarted = false;
@@ -217,12 +229,23 @@ function createDeepgramRealtimeTranscriptionSession(
     }
   };
 
+  const flushFinalizedTurn = () => {
+    const full = collapseWhitespace(finalizedTranscript);
+    clearTurn();
+    if (full) {
+      config.onTranscript?.(full);
+    }
+  };
+
   const handleEvent = (
     event: DeepgramRealtimeTranscriptionEvent,
     transport: RealtimeTranscriptionWebSocketTransport,
   ) => {
     switch (event.type) {
       case "Results": {
+        if (finalizeFallbackFired) {
+          return;
+        }
         const text = readTranscriptText(event);
         if (text && !speechStarted) {
           speechStarted = true;
@@ -282,12 +305,35 @@ function createDeepgramRealtimeTranscriptionSession(
     onOpen: () => {
       // A reconnect starts a new provider stream. Never merge an old partial
       // utterance into audio recognized by the replacement connection.
+      finalizeRequested = false;
+      finalizeFallbackFired = false;
       clearTurn();
     },
     sendAudio: (audio, transport) => {
       transport.sendBinary(audio);
     },
     onClose: (transport) => {
+      if (finalizeRequested) {
+        return;
+      }
+      finalizeRequested = true;
+      if (finalizedTranscript) {
+        // Finalize may produce no Results event when Deepgram has no buffered
+        // audio left. Preserve already-finalized text before core force-closes.
+        finalizeFallbackTimer = setTimeout(() => {
+          finalizeFallbackTimer = undefined;
+          finalizeFallbackFired = true;
+          try {
+            flushFinalizedTurn();
+          } catch (error) {
+            try {
+              config.onError?.(error instanceof Error ? error : new Error(String(error)));
+            } catch {
+              // Error observers must not turn close fallback into an uncaught timer exception.
+            }
+          }
+        }, DEEPGRAM_REALTIME_FINALIZE_FALLBACK_MS);
+      }
       transport.sendJson({ type: "Finalize" });
     },
     onMessage: (event, transport) => handleEvent(event, transport),
