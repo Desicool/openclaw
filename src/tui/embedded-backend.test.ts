@@ -26,7 +26,8 @@ const clearSessionGoalMock = vi.fn();
 const getSessionGoalMock = vi.fn();
 const updateSessionGoalObjectiveMock = vi.fn();
 const updateSessionGoalStatusMock = vi.fn();
-const ensureRuntimePluginsLoadedMock = vi.fn();
+const loadAgentRuntimePluginRegistryHandleMock = vi.fn();
+const withPluginRuntimeRegistryScopeMock = vi.fn((_registry: unknown, run: () => unknown) => run());
 const ensureContextWindowCacheLoadedMock = vi.fn(async () => undefined);
 const runSessionStartupMigrationMock = vi.fn<() => Promise<void>>(async () => undefined);
 const createGatewaySessionMock = vi.fn();
@@ -141,7 +142,13 @@ vi.mock("../agents/agent-scope.js", () => ({
 }));
 
 vi.mock("../agents/runtime-plugins.js", () => ({
-  ensureRuntimePluginsLoaded: (...args: unknown[]) => ensureRuntimePluginsLoadedMock(...args),
+  loadAgentRuntimePluginRegistryHandle: (...args: unknown[]) =>
+    loadAgentRuntimePluginRegistryHandleMock(...args),
+}));
+
+vi.mock("../plugins/runtime/gateway-request-scope.js", () => ({
+  withPluginRuntimeRegistryScope: (...args: [unknown, () => unknown]) =>
+    withPluginRuntimeRegistryScopeMock(...args),
 }));
 
 vi.mock("../agents/context.js", () => ({
@@ -313,7 +320,8 @@ describe("EmbeddedTuiBackend", () => {
       status,
       tokensUsed: 0,
     }));
-    ensureRuntimePluginsLoadedMock.mockReset();
+    loadAgentRuntimePluginRegistryHandleMock.mockReset();
+    withPluginRuntimeRegistryScopeMock.mockClear();
     ensureContextWindowCacheLoadedMock.mockReset();
     ensureContextWindowCacheLoadedMock.mockResolvedValue(undefined);
     runSessionStartupMigrationMock.mockReset();
@@ -950,6 +958,35 @@ describe("EmbeddedTuiBackend", () => {
     });
   });
 
+  it("keeps gateway subagent binding off for embedded /btw side questions", async () => {
+    // The embedded TUI runs the side question locally, so it must not borrow the
+    // active registry's subagent and node capabilities. Only gateway-hosted
+    // callers opt into allowGatewaySubagentBinding.
+    loadSessionEntryMock.mockReturnValue({
+      cfg: {},
+      canonicalKey: "global",
+      storePath: "/tmp/openclaw-btw-sessions.json",
+      store: {},
+      entry: { sessionId: "session-btw-local" },
+    });
+    runBtwSideQuestionMock.mockResolvedValueOnce({ text: "side done" });
+
+    const { EmbeddedTuiBackend } = await import("./embedded-backend.js");
+    const backend = new EmbeddedTuiBackend();
+    backend.start();
+    await backend.sendChat({
+      sessionKey: "global",
+      message: "/btw local only",
+      runId: "run-btw-local",
+    });
+    await vi.waitFor(() => expect(runBtwSideQuestionMock).toHaveBeenCalledTimes(1));
+    await backend.stop();
+
+    expect(runBtwSideQuestionMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "allowGatewaySubagentBinding",
+    );
+  });
+
   it("reports the newest matching non-BTW local run in embedded history", async () => {
     loadSessionEntryMock.mockImplementation((sessionKey: string) => ({
       cfg: {},
@@ -1045,14 +1082,14 @@ describe("EmbeddedTuiBackend", () => {
     await expect(backend.loadHistory({ sessionKey: "agent:main:main" })).resolves.toMatchObject({
       runtimePluginsPrewarm: { status: "warmed" },
     });
-    expect(ensureRuntimePluginsLoadedMock).toHaveBeenCalledWith({
+    expect(loadAgentRuntimePluginRegistryHandleMock).toHaveBeenCalledWith({
       config: cfg,
       workspaceDir: "/tmp/openclaw-agent-main",
     });
   });
 
   it("returns embedded history when runtime plugin loading fails", async () => {
-    ensureRuntimePluginsLoadedMock.mockImplementationOnce(() => {
+    loadAgentRuntimePluginRegistryHandleMock.mockImplementationOnce(() => {
       throw new Error("runtime unavailable");
     });
     loadSessionEntryMock.mockReturnValue({
@@ -1070,6 +1107,56 @@ describe("EmbeddedTuiBackend", () => {
       messages: [],
       runtimePluginsPrewarm: { status: "failed", error: "runtime unavailable" },
     });
+  });
+
+  it("clears a prior runtime registry after plugins are disabled", async () => {
+    const registry = {};
+    loadAgentRuntimePluginRegistryHandleMock
+      .mockReturnValueOnce(registry)
+      .mockReturnValueOnce(undefined);
+    loadSessionEntryMock.mockReturnValue({
+      cfg: {},
+      canonicalKey: "agent:main:main",
+      entry: {},
+    });
+    const { EmbeddedTuiBackend } = await import("./embedded-backend.js");
+    const backend = new EmbeddedTuiBackend();
+
+    await backend.loadHistory({ sessionKey: "agent:main:main" });
+    await backend.loadHistory({ sessionKey: "agent:main:main" });
+    withPluginRuntimeRegistryScopeMock.mockClear();
+    await backend.listModels();
+
+    expect(withPluginRuntimeRegistryScopeMock).toHaveBeenCalledWith(
+      undefined,
+      expect.any(Function),
+    );
+  });
+
+  it("clears a prior runtime registry after a later preload fails", async () => {
+    const registry = {};
+    loadAgentRuntimePluginRegistryHandleMock
+      .mockReturnValueOnce(registry)
+      .mockImplementationOnce(() => {
+        throw new Error("runtime unavailable");
+      });
+    loadSessionEntryMock.mockReturnValue({
+      cfg: {},
+      canonicalKey: "agent:main:main",
+      entry: {},
+    });
+    const { EmbeddedTuiBackend } = await import("./embedded-backend.js");
+    const backend = new EmbeddedTuiBackend();
+
+    await backend.loadHistory({ sessionKey: "agent:main:main" });
+    await backend.loadHistory({ sessionKey: "agent:main:main" });
+    withPluginRuntimeRegistryScopeMock.mockClear();
+    await backend.listModels();
+
+    expect(withPluginRuntimeRegistryScopeMock).toHaveBeenCalledWith(
+      undefined,
+      expect.any(Function),
+    );
   });
 
   it("passes selected-agent global scope into local chat turns", async () => {
@@ -2231,8 +2318,7 @@ describe("EmbeddedTuiBackend", () => {
   });
 
   it("surfaces canonical error-only thrown outcomes without exposing the wrapped cause", async () => {
-    const { AgentRunTerminalOutcomeError } =
-      await import("../agents/agent-run-terminal-outcome.js");
+    const { AgentRunTerminalOutcomeError } = await import("../agents/agent-run-terminal-error.js");
     const secret = ["sk", "abcdefghijklmnopqrstuv"].join("-");
     agentCommandFromIngressMock.mockRejectedValueOnce(
       new AgentRunTerminalOutcomeError(new Error(`hidden provider credential ${secret}`), {
@@ -2267,8 +2353,7 @@ describe("EmbeddedTuiBackend", () => {
   });
 
   it("preserves a wrapped canonical cancellation without redundant abort metadata", async () => {
-    const { AgentRunTerminalOutcomeError } =
-      await import("../agents/agent-run-terminal-outcome.js");
+    const { AgentRunTerminalOutcomeError } = await import("../agents/agent-run-terminal-error.js");
     agentCommandFromIngressMock.mockRejectedValueOnce(
       new AgentRunTerminalOutcomeError(new Error("underlying cancellation"), {
         reason: "cancelled",

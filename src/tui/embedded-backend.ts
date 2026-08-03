@@ -1,12 +1,15 @@
 // Implements the embedded backend used by local TUI sessions.
 import { randomUUID } from "node:crypto";
 import type { SessionsPatchResult } from "../../packages/gateway-protocol/src/index.js";
+import { CHAT_HISTORY_MAX_ENTRIES } from "../../packages/gateway-protocol/src/schema/chat-history-constants.js";
 import { agentCommandFromIngress } from "../agents/agent-command.js";
 import { isAgentLifecycleYieldedWaiting } from "../agents/agent-lifecycle-parent-state.js";
+import { findAgentRunTerminalOutcome } from "../agents/agent-run-terminal-error.js";
 import {
   AGENT_RUN_TERMINAL_RETRY_GRACE_MS,
-  buildAgentRunTerminalOutcome,
-  findAgentRunTerminalOutcome,
+  buildAgentRunTerminalOutcomeFromLifecycleEvent,
+  classifyAgentRunTerminalOutcome,
+  type AgentRunTerminalOutcome,
 } from "../agents/agent-run-terminal-outcome.js";
 import { listAgentEntries } from "../agents/agent-scope-config.js";
 import {
@@ -26,7 +29,7 @@ import {
   buildConfiguredModelCatalog,
   resolveThinkingDefault,
 } from "../agents/model-selection.js";
-import { ensureRuntimePluginsLoaded } from "../agents/runtime-plugins.js";
+import { loadAgentRuntimePluginRegistryHandle } from "../agents/runtime-plugins.js";
 import { readToolValidationErrorSummary } from "../agents/tool-error-summary.js";
 import { resolveTextCommand } from "../auto-reply/commands-registry.js";
 import { executeSessionGoalCommand, parseGoalCommand } from "../auto-reply/reply/commands-goal.js";
@@ -86,6 +89,8 @@ import {
   setEmbeddedPluginApprovalBroker,
 } from "../infra/embedded-plugin-approval-broker.js";
 import { logInfo, logWarn } from "../logger.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
+import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { agentSessionKeysMatchByRequestKey, normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel.js";
@@ -108,6 +113,13 @@ import type {
   TuiSessionCreateOptions,
 } from "./tui-backend.js";
 import { formatTuiErrorMessage } from "./tui-formatters.js";
+
+const TUI_STATE_BY_TERMINAL_CLASSIFICATION = {
+  success: undefined,
+  timeout: "error",
+  cancellation: "aborted",
+  failure: "error",
+} as const;
 
 type LocalRunState = {
   sessionKey: string;
@@ -190,14 +202,14 @@ function shouldLoadFullGatewayCatalogForReplaceMode(cfg: OpenClawConfig) {
 function ensureEmbeddedHistoryRuntimePluginsLoaded(params: {
   cfg: OpenClawConfig;
   sessionAgentId: string;
-}): { status: "warmed" } | { status: "failed"; error: string } {
+}): { status: "warmed"; registry?: PluginRegistry } | { status: "failed"; error: string } {
   try {
     const workspaceDir = resolveAgentWorkspaceDir(params.cfg, params.sessionAgentId);
-    ensureRuntimePluginsLoaded({
+    const registry = loadAgentRuntimePluginRegistryHandle({
       config: params.cfg,
       workspaceDir,
     });
-    return { status: "warmed" };
+    return { status: "warmed", ...(registry ? { registry } : {}) };
   } catch (err) {
     return { status: "failed", error: formatTuiErrorMessage(err) };
   }
@@ -345,6 +357,11 @@ async function waitForQueuedLocalRun(previousRun: QueuedSessionRun, runId: strin
 }
 
 export class EmbeddedTuiBackend implements TuiBackend {
+  private runtimePluginRegistry?: PluginRegistry;
+
+  private withRuntimePluginRegistry<T>(run: () => T): T {
+    return withPluginRuntimeRegistryScope(this.runtimePluginRegistry, run);
+  }
   readonly connection = { url: "local embedded" };
 
   onEvent?: (evt: TuiEvent) => void;
@@ -611,8 +628,13 @@ export class EmbeddedTuiBackend implements TuiBackend {
       cfg,
       sessionAgentId,
     });
+    this.runtimePluginRegistry =
+      runtimePluginsPrewarm.status === "warmed" ? runtimePluginsPrewarm.registry : undefined;
     const resolvedSessionModel = resolveSessionModelRef(cfg, entry, sessionAgentId);
-    const max = Math.min(1000, typeof opts.limit === "number" ? opts.limit : 200);
+    const max = Math.min(
+      CHAT_HISTORY_MAX_ENTRIES,
+      typeof opts.limit === "number" ? opts.limit : 200,
+    );
     const maxHistoryBytes = getMaxChatHistoryMessagesBytes();
     const effectiveMaxChars = resolveEffectiveChatHistoryMaxChars(cfg);
     const historyPage = await readChatHistoryPage({
@@ -656,7 +678,7 @@ export class EmbeddedTuiBackend implements TuiBackend {
 
     let thinkingLevel = entry?.thinkingLevel;
     if (!thinkingLevel) {
-      const catalog = await loadEmbeddedTuiModelCatalog(cfg);
+      const catalog = await this.withRuntimePluginRegistry(() => loadEmbeddedTuiModelCatalog(cfg));
       thinkingLevel = resolveThinkingDefault({
         cfg,
         provider: resolvedSessionModel.provider,
@@ -686,7 +708,10 @@ export class EmbeddedTuiBackend implements TuiBackend {
       thinkingLevel,
       fastMode: entry?.fastMode,
       verboseLevel: sessionInfo.verboseLevel,
-      runtimePluginsPrewarm,
+      runtimePluginsPrewarm:
+        runtimePluginsPrewarm.status === "warmed"
+          ? { status: "warmed" as const }
+          : runtimePluginsPrewarm,
       ...(inFlightRun ? { inFlightRun } : {}),
     };
   }
@@ -742,7 +767,8 @@ export class EmbeddedTuiBackend implements TuiBackend {
           storeKey: primaryKey,
           agentId: opts.agentId,
           patch: opts,
-          loadGatewayModelCatalog: () => loadEmbeddedTuiModelCatalog(cfg),
+          loadGatewayModelCatalog: () =>
+            this.withRuntimePluginRegistry(() => loadEmbeddedTuiModelCatalog(cfg)),
         }),
     });
     if (!applied.ok) {
@@ -796,7 +822,8 @@ export class EmbeddedTuiBackend implements TuiBackend {
       creation: { via: "operator", actor: { type: "human" } },
       emitCommandHooks: Boolean(opts.parentSessionKey),
       commandSource: "tui:embedded",
-      loadGatewayModelCatalog: () => loadEmbeddedTuiModelCatalog(cfg),
+      loadGatewayModelCatalog: () =>
+        this.withRuntimePluginRegistry(() => loadEmbeddedTuiModelCatalog(cfg)),
     });
     if (!result.ok) {
       throw new Error(result.error.message);
@@ -880,7 +907,7 @@ export class EmbeddedTuiBackend implements TuiBackend {
 
   async listModels(): Promise<TuiModelChoice[]> {
     const cfg = getRuntimeConfig();
-    const catalog = await loadEmbeddedTuiModelCatalog(cfg);
+    const catalog = await this.withRuntimePluginRegistry(() => loadEmbeddedTuiModelCatalog(cfg));
     const { allowedCatalog } = buildAllowedModelSet({
       cfg,
       catalog,
@@ -1158,46 +1185,36 @@ export class EmbeddedTuiBackend implements TuiBackend {
   private projectTerminalOutcome(
     runId: string,
     run: LocalRunState,
-    metadata: Partial<Parameters<typeof buildAgentRunTerminalOutcome>[0]> & {
+    metadata: NonNullable<
+      Parameters<typeof buildAgentRunTerminalOutcomeFromLifecycleEvent>[0]["data"]
+    > & {
       aborted?: unknown;
       phase?: unknown;
       toolErrorSummary?: unknown;
     },
     options: {
       visibleText?: string;
-      terminalOutcome?: ReturnType<typeof buildAgentRunTerminalOutcome>;
+      terminalOutcome?: AgentRunTerminalOutcome;
     } = {},
   ): boolean {
-    const aborted =
-      typeof metadata.aborted === "boolean" ? metadata.aborted : run.controller.signal.aborted;
-    const stopReason = metadata.stopReason ?? (aborted ? "aborted" : undefined);
     const terminalError =
       metadata.error && typeof metadata.error === "object" && "message" in metadata.error
         ? metadata.error.message
         : metadata.error;
     const outcome =
       options.terminalOutcome ??
-      buildAgentRunTerminalOutcome({
-        status:
-          stopReason === "timeout" || metadata.status === "timeout" || metadata.timeoutPhase
-            ? "timeout"
-            : aborted ||
-                metadata.error ||
-                metadata.phase === "error" ||
-                [metadata.status, stopReason].includes("error")
-              ? "error"
-              : "ok",
-        error: terminalError ? formatTuiErrorMessage(terminalError) : undefined,
-        stopReason,
-        livenessState: metadata.livenessState,
-        timeoutPhase: metadata.timeoutPhase,
-        providerStarted: metadata.providerStarted,
+      buildAgentRunTerminalOutcomeFromLifecycleEvent({
+        phase: metadata.phase === "error" || terminalError ? "error" : "end",
+        data: {
+          ...metadata,
+          error: terminalError ? formatTuiErrorMessage(terminalError) : undefined,
+        },
+        abortSignal: run.controller.signal,
       });
-    if (outcome.reason === "completed") {
+    const state = TUI_STATE_BY_TERMINAL_CLASSIFICATION[classifyAgentRunTerminalOutcome(outcome)];
+    if (!state) {
       return false;
     }
-    const state =
-      outcome.reason === "aborted" || outcome.reason === "cancelled" ? "aborted" : "error";
     const diagnostic =
       state === "aborted"
         ? readToolValidationErrorSummary(metadata.toolErrorSummary)

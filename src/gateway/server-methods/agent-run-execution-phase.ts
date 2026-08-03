@@ -431,6 +431,7 @@ export function startAgentRunExecution(params: {
           cleanupBundleMcpOnRunEnd: params.request.cleanupBundleMcpOnRunEnd,
           abortSignal: prepared.activeRunAbort.controller.signal,
           lifecycleGeneration: params.lifecycleGeneration,
+          onExecutionStarted: () => prepared.activeRunAbort.markExecutionStarted(),
           onActiveModelSelected: createAgentRunModelSelectionHandler({
             context: params.context,
             runId: params.runId,
@@ -441,6 +442,7 @@ export function startAgentRunExecution(params: {
             resolvedSessionKey: params.resolvedSessionKey,
             lifecycleStorePath: prepared.lifecycleStorePath,
             activeSessionAgentId: params.activeSessionAgentId,
+            trustedInternalHandoff: prepared.trustedInternalHandoff,
           }),
           onSessionIdChanged: (sessionId) => {
             if (prepared.activeRunAbort.entry) {
