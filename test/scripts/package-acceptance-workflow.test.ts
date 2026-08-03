@@ -1203,7 +1203,8 @@ describe("package acceptance workflow", () => {
       CRABBOX_JOB: "${{ inputs.crabbox_job }}",
     });
     expect(ensureDocker.run).toContain("docker_required=false");
-    expect(ensureDocker.run).toContain('if [ "${CRABBOX_JOB:-hydrate}" != "hydrate" ]; then');
+    expect(ensureDocker.run).toContain('if [ "${CRABBOX_JOB:-hydrate}" = "hydrate-docker" ]; then');
+    expect(ensureDocker.run).toContain("other marker names do not");
     expect(ensureDocker.run).toContain('if [ "$docker_required" = true ]; then');
     expect(ensureDocker.run).toContain(
       "Docker is unavailable for ${CRABBOX_JOB:-hydrate}; route this workload to a Docker-capable provider",

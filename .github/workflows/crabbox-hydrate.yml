@@ -271,7 +271,9 @@ jobs:
           set -euo pipefail
 
           docker_required=false
-          if [ "${CRABBOX_JOB:-hydrate}" != "hydrate" ]; then
+          # crabbox_job is also the readiness marker. Only the routed Docker
+          # workload contract requires an engine; other marker names do not.
+          if [ "${CRABBOX_JOB:-hydrate}" = "hydrate-docker" ]; then
             docker_required=true
           fi
 
