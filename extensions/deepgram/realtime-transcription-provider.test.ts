@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
+import type { RawData } from "ws";
 import { WebSocketServer } from "ws";
 import { buildDeepgramRealtimeTranscriptionProvider } from "./realtime-transcription-provider.js";
 
@@ -62,6 +63,15 @@ function sendResult(
       from_finalize: params.fromFinalize ?? false,
     }),
   );
+}
+
+function parseClientMessage(data: RawData): Record<string, unknown> {
+  const bytes = Buffer.isBuffer(data)
+    ? data
+    : Array.isArray(data)
+      ? Buffer.concat(data)
+      : Buffer.from(data);
+  return JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
 }
 
 describe("buildDeepgramRealtimeTranscriptionProvider", () => {
@@ -240,7 +250,7 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
         sendResult(ws, { text: "good", isFinal: true });
         sendResult(ws, { text: "bye" });
         ws.on("message", (data) => {
-          if (JSON.parse(data.toString()).type === "Finalize") {
+          if (parseClientMessage(data).type === "Finalize") {
             sendResult(ws, {
               text: "bye",
               isFinal: true,
@@ -271,7 +281,7 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
         sendResult(ws, { text: "good", isFinal: true });
         sendResult(ws, { text: "bye" });
         ws.on("message", (data) => {
-          if (JSON.parse(data.toString()).type === "Finalize") {
+          if (parseClientMessage(data).type === "Finalize") {
             finalizeRequests += 1;
           }
         });
@@ -338,7 +348,9 @@ describe("buildDeepgramRealtimeTranscriptionProvider", () => {
 
     await session.connect();
     await vi.waitFor(() => expect(onPartial).toHaveBeenCalledWith("still speaking"));
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 350);
+    });
     expect(onTranscript).not.toHaveBeenCalled();
 
     sendResult(socket!, { text: "continuous speech", isFinal: true, speechFinal: true });
