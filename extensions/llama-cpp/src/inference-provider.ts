@@ -307,8 +307,9 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
     return state.disposePromise;
   }
   state.lifecycle = "closing";
-  // Plugin services stop once, and node-llama-cpp disposers mark themselves
-  // disposed before awaiting cleanup. The first disposal attempt is authoritative.
+  // node-llama-cpp disposers are one-shot and child cleanup releases the
+  // parent's disposal guard. Do not force parent cleanup after a child rejects:
+  // the retained guard can make that parent disposer wait forever.
   state.disposePromise = serialize(state, async () => {
     await disposeLoadedModel(state);
     if (state.llamaInstance) {

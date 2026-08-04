@@ -937,7 +937,7 @@ describe("llama.cpp inference provider", () => {
     expect(mocks.llamaDispose).toHaveBeenCalledOnce();
   });
 
-  it("keeps a failed best-effort cleanup as one disposal attempt", async () => {
+  it("keeps a failed cleanup terminal", async () => {
     await collectTestEvents();
     mocks.contextDispose.mockRejectedValueOnce(new Error("context cleanup failed"));
 
