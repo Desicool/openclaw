@@ -848,21 +848,16 @@ describe("llama.cpp inference provider", () => {
     expect(mocks.generateResponse.mock.calls[0]?.[1]).not.toHaveProperty("grammar");
   });
 
-  it("disposes the previous model and context when the model changes", async () => {
-    const streamFn = inferenceRuntime.createStreamFn({});
-    await collectEvents(
-      await streamFn(model, { messages: [{ role: "user", content: "one", timestamp: 1 }] }),
-    );
-    await collectEvents(
-      await streamFn(
-        { ...model, id: "other.gguf", params: { modelPath: "other.gguf" } },
-        { messages: [{ role: "user", content: "two", timestamp: 2 }] },
-      ),
-    );
-
-    expect(mocks.contextDispose).toHaveBeenCalledTimes(1);
+  it("disposes changed models without reusing retired state", async () => {
+    const otherModel = { ...model, id: "other.gguf", params: { modelPath: "other.gguf" } };
+    await collectTestEvents({ prompt: "one" });
+    await collectTestEvents({ selectedModel: otherModel, prompt: "two" });
+    mocks.contextDispose.mockRejectedValueOnce(new Error("context cleanup failed"));
+    await collectTestEvents({ prompt: "three" });
+    await collectTestEvents({ selectedModel: otherModel, prompt: "four" });
+    expect(mocks.contextDispose).toHaveBeenCalledTimes(2);
     expect(mocks.modelDispose).toHaveBeenCalledTimes(1);
-    expect(mocks.llama.loadModel).toHaveBeenCalledTimes(2);
+    expect(mocks.llama.loadModel).toHaveBeenCalledTimes(3);
   });
 
   it("reuses one context sequence across serialized requests for the same model", async () => {

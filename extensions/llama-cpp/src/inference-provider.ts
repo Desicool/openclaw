@@ -247,11 +247,9 @@ async function disposeLoadedModel(state: LlamaCppInferenceRuntimeState): Promise
     return;
   }
   const previous = state.loadedModel;
+  state.loadedModel = undefined;
   await previous.context.dispose();
   await previous.model.dispose();
-  if (state.loadedModel === previous) {
-    state.loadedModel = undefined;
-  }
 }
 
 async function getLoadedModel(params: {
