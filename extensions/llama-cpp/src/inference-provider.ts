@@ -357,7 +357,7 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
       }
     }
   })
-    .catch((error) => {
+    .catch((error: unknown) => {
       recordCleanupFailure(state, error);
       throw error;
     })
