@@ -114,7 +114,8 @@ export class ModelSetupPage extends OpenClawLightDomElement {
         this.wizardValue = initialWizardValue(next.step);
       }
     },
-    onDone: (startMethod) => void this.handleWizardDone(startMethod),
+    onDone: (startMethod, preparedModelRef) =>
+      void this.handleWizardDone(startMethod, preparedModelRef),
     requestFailedMessage: () => t("modelSetup.errors.requestFailed"),
     cancelledMessage: () => t("modelSetup.wizard.cancelled"),
     sessionExpiredMessage: () => t("modelSetup.wizard.sessionExpired"),
@@ -544,10 +545,23 @@ export class ModelSetupPage extends OpenClawLightDomElement {
     input?.focus();
   }
 
-  private async handleWizardDone(startMethod: ModelSetupWizardStartMethod): Promise<void> {
+  private async handleWizardDone(
+    startMethod: ModelSetupWizardStartMethod,
+    preparedModelRef?: string,
+  ): Promise<void> {
     const prepareOption =
       startMethod === "openclaw.setup.prepare.start" ? this.pendingPrepareOption : null;
     this.pendingPrepareOption = null;
+    if (prepareOption && preparedModelRef) {
+      const kind = `provider-auto:${prepareOption.id}` as const;
+      this.wizard.close();
+      void this.activate(
+        { kind, modelRef: preparedModelRef },
+        activationTargetId(kind, preparedModelRef),
+        preparedModelRef,
+      );
+      return;
+    }
     const result = await this.detect();
     if (!result) {
       this.wizard.fail(t("modelSetup.errors.requestFailed"));

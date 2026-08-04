@@ -313,7 +313,11 @@ describe("ModelSetupPage catalog icons", () => {
         return { sessionId: "prepare-session", done: false, status: "running" };
       }
       if (method === "wizard.next") {
-        return { done: true, status: "done" };
+        return {
+          done: true,
+          status: "done",
+          preparedModelRef: "llama-cpp/gemma-4-e4b-it-q4_k_m",
+        };
       }
       if (method === "openclaw.setup.detect") {
         return {
@@ -370,6 +374,11 @@ describe("ModelSetupPage catalog icons", () => {
       expect(page.textContent).toContain("llama-cpp/gemma-4-e4b-it-q4_k_m");
       expect(page.textContent).toContain("Verified in 731 ms");
     });
+    expect(request).not.toHaveBeenCalledWith(
+      "openclaw.setup.detect",
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("keeps an incomplete provider setup visible instead of claiming success", async () => {
