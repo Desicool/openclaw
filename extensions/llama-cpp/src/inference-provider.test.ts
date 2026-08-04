@@ -858,14 +858,16 @@ describe("llama.cpp inference provider", () => {
     const otherModel = { ...model, id: "other.gguf", params: { modelPath: "other.gguf" } };
     await collectTestEvents({ prompt: "one" });
     await collectTestEvents({ selectedModel: otherModel, prompt: "two" });
-    const cleanup = Promise.withResolvers<void>();
-    mocks.contextDispose.mockImplementationOnce(async () => await cleanup.promise);
-    const failedSwitch = await createTestStream({ prompt: "three" });
+    let rejectCleanup!: (error: Error) => void;
+    const cleanup = new Promise<void>((_resolve, reject) => {
+      rejectCleanup = reject;
+    });
+    mocks.contextDispose.mockImplementationOnce(async () => await cleanup);
+    await createTestStream({ prompt: "three" });
     await vi.waitFor(() => expect(mocks.contextDispose).toHaveBeenCalledTimes(2));
-    const disposing = inferenceRuntime.dispose();
-    cleanup.reject(new Error("context cleanup failed"));
-    await failedSwitch.result();
     const unavailable = await createTestStream({ selectedModel: otherModel, prompt: "four" });
+    const disposing = inferenceRuntime.dispose();
+    rejectCleanup(new Error("context cleanup failed"));
     await expect(unavailable.result()).resolves.toMatchObject({
       errorMessage: "llama.cpp runtime stopped after cleanup failed",
     });

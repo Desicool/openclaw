@@ -46,7 +46,7 @@ type LlamaCppInferenceRuntimeState = {
   llamaInstance?: Llama;
   operationQueue: Promise<void>;
   lifecycle: "open" | "closing" | "closed";
-  cleanupFailure?: { error: unknown };
+  cleanupFailure?: { error: Error };
   disposePromise?: Promise<void>;
 };
 
@@ -84,6 +84,20 @@ function buildMessage(params: {
     timestamp: Date.now(),
     ...(params.errorMessage ? { errorMessage: params.errorMessage } : {}),
   };
+}
+
+function runtimeUnavailableMessage(
+  state: LlamaCppInferenceRuntimeState,
+  model: Parameters<StreamFn>[0],
+): AssistantMessage {
+  return buildMessage({
+    model,
+    content: [],
+    stopReason: "error",
+    errorMessage: state.cleanupFailure
+      ? "llama.cpp runtime stopped after cleanup failed"
+      : "llama.cpp runtime is stopping",
+  });
 }
 
 function extractText(content: unknown): string {
@@ -259,7 +273,7 @@ async function disposeLoadedModel(state: LlamaCppInferenceRuntimeState): Promise
 }
 
 function recordCleanupFailure(state: LlamaCppInferenceRuntimeState, error: unknown): void {
-  state.cleanupFailure ??= { error };
+  state.cleanupFailure ??= { error: error instanceof Error ? error : new Error(String(error)) };
   state.lifecycle = "closed";
 }
 
@@ -358,14 +372,7 @@ function createLlamaCppStreamFnForRuntime(
       stream.push({
         type: "error",
         reason: "error",
-        error: buildMessage({
-          model,
-          content: [],
-          stopReason: "error",
-          errorMessage: state.cleanupFailure
-            ? "llama.cpp runtime stopped after cleanup failed"
-            : "llama.cpp runtime is stopping",
-        }),
+        error: runtimeUnavailableMessage(state, model),
       });
       stream.end();
       return stream;
@@ -404,6 +411,14 @@ function createLlamaCppStreamFnForRuntime(
       started = true;
       signal?.removeEventListener("abort", abortWhileQueued);
       try {
+        if (state.lifecycle !== "open") {
+          stream.push({
+            type: "error",
+            reason: "error",
+            error: runtimeUnavailableMessage(state, model),
+          });
+          return;
+        }
         const runtime = await importNodeLlamaCpp();
         const loaded = await getLoadedModel({
           state,
