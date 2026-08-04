@@ -4117,7 +4117,7 @@ describe("DiscordVoiceManager", () => {
     expectUserMessageIncludes("third answer");
   });
 
-  it("terminates realtime voice when retained exact speech exceeds the character budget", async () => {
+  it("terminates realtime voice when retained Unicode speech exceeds the byte budget", async () => {
     const client = createClient();
     client.fetchChannel.mockImplementation(async (channelId: string) => {
       const guildId = channelId === "2001" ? "g2" : "g1";
@@ -4138,7 +4138,9 @@ describe("DiscordVoiceManager", () => {
     const connection = (entry as unknown as { connection: { destroy: ReturnType<typeof vi.fn> } })
       .connection;
     const bridgeParams = lastRealtimeBridgeParams();
-    const accepted = "a".repeat(32 * 1024);
+    const accepted = "😀".repeat(8 * 1024);
+    expect(accepted.length).toBe(16 * 1024);
+    expect(Buffer.byteLength(accepted, "utf8")).toBe(32 * 1024);
 
     await manager.join({ guildId: "g2", channelId: "2001" });
     const siblingRealtime = getSessionEntry(manager, "g2").realtime as unknown as {
