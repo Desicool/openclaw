@@ -305,33 +305,42 @@ async function serialize(
 }
 
 function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): Promise<void> {
-  if (state.lifecycle === "closed") {
-    return Promise.resolve();
-  }
   if (state.disposePromise) {
     return state.disposePromise;
   }
   state.lifecycle = "closing";
-  const attempt = serialize(state, async () => {
-    await disposeLoadedModel(state);
+  // Plugin services stop once, and node-llama-cpp disposers mark themselves
+  // disposed before awaiting cleanup. The first disposal attempt is authoritative.
+  state.disposePromise = serialize(state, async () => {
+    const errors: unknown[] = [];
+    const attemptDispose = async (dispose: () => Promise<void>) => {
+      try {
+        await dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    };
+    if (state.loadedModel) {
+      const previous = state.loadedModel;
+      await attemptDispose(() => previous.context.dispose());
+      await attemptDispose(() => previous.model.dispose());
+      if (state.loadedModel === previous) {
+        state.loadedModel = undefined;
+      }
+    }
     if (state.llamaInstance) {
       const previous = state.llamaInstance;
-      await previous.dispose();
+      await attemptDispose(() => previous.dispose());
       if (state.llamaInstance === previous) {
         state.llamaInstance = undefined;
       }
     }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, `llama.cpp runtime cleanup failed: ${String(errors[0])}`);
+    }
+  }).finally(() => {
+    state.lifecycle = "closed";
   });
-  state.disposePromise = attempt.then(
-    () => {
-      state.lifecycle = "closed";
-      state.disposePromise = undefined;
-    },
-    (error: unknown) => {
-      state.disposePromise = undefined;
-      throw error;
-    },
-  );
   return state.disposePromise;
 }
 
