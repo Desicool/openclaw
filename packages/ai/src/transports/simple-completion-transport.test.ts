@@ -354,10 +354,10 @@ describe("prepareModelForSimpleCompletion", () => {
     });
   });
 
-  it("uses the Google simple-completion sanitizer alias after transport checks pass through", () => {
+  it("keeps registered Google models on the sanitizer path when the provider owns a stream", () => {
     const model: Model<"google-generative-ai"> = {
-      id: "gemini-flash-latest",
-      name: "Gemini Flash Latest",
+      id: "gemma-4-26b-a4b-it",
+      name: "Gemma 4 26B",
       api: "google-generative-ai",
       provider: "google",
       baseUrl: "https://generativelanguage.googleapis.com",
@@ -368,14 +368,23 @@ describe("prepareModelForSimpleCompletion", () => {
       maxTokens: 8192,
       headers: {},
     };
+    const googleStream = vi.fn(() => createAssistantMessageEventStream());
+    apiRegistry.registerApiProvider(
+      {
+        api: "google-generative-ai",
+        stream: googleStream,
+        streamSimple: googleStream,
+      },
+      SIMPLE_COMPLETION_SOURCE_ID,
+    );
     prepareGoogleSimpleCompletionModel.mockImplementationOnce((_registry: unknown, m: unknown) => ({
       ...(m as Model<"google-generative-ai">),
       api: "openclaw-google-generative-ai-simple",
     }));
-    resolveProviderStreamFn.mockReturnValueOnce(undefined);
 
     const result = prepareModelForSimpleCompletion({ model });
 
+    expect(resolveProviderStreamFn).not.toHaveBeenCalled();
     expect(prepareTransportAwareSimpleModel).toHaveBeenCalledWith(model, { cfg: undefined });
     expect(prepareGoogleSimpleCompletionModel).toHaveBeenCalledWith(apiRegistry, model);
     expect(buildTransportAwareSimpleStreamFn).not.toHaveBeenCalled();
@@ -404,12 +413,12 @@ describe("prepareModelForSimpleCompletion", () => {
       ...model,
       api: "openclaw-google-generative-ai-transport",
     };
-    resolveProviderStreamFn.mockReturnValueOnce(undefined);
     buildTransportAwareSimpleStreamFn.mockReturnValueOnce("google-transport-stream");
     prepareTransportAwareSimpleModel.mockReturnValueOnce(transportModel);
 
     const result = prepareModelForSimpleCompletion({ model });
 
+    expect(resolveProviderStreamFn).not.toHaveBeenCalled();
     expect(buildTransportAwareSimpleStreamFn).toHaveBeenCalledWith(model, { cfg: undefined });
     expect(ensureCustomApiRegistered).toHaveBeenCalledWith(
       apiRegistry,

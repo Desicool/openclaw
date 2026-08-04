@@ -177,6 +177,11 @@ function prepareProviderStreamModel<TApi extends Api>(params: {
   cfg?: unknown;
   apiRegistry: ApiRegistry;
 }): Model | undefined {
+  // Google simple completions have managed transport and sanitizer paths below.
+  // A plugin-native stream here would bypass both and emit unsupported payloads.
+  if (params.model.api === "google-generative-ai") {
+    return undefined;
+  }
   const pluginModel = resolveModelHeaderSentinels(params.model);
   const providerStreamFn = getAiTransportHost().plugin.resolveProviderStream({
     provider: params.model.provider,
