@@ -27,7 +27,7 @@ describe("model setup prepare options", () => {
     const choiceId = "vendor/local:v1%beta?x#y";
     const kind = "provider-auto:vendor%2Flocal%3Av1%25beta%3Fx%23y";
     expect(providerAutoSetupKind(choiceId)).toBe(kind);
-    const candidate = {
+    const candidate: SystemAgentSetupDetectResult["candidates"][number] = {
       kind,
       brandId: "vendor",
       label: "Vendor Local",
