@@ -54,16 +54,15 @@ vi.mock("node-llama-cpp", () => ({
   },
 }));
 
-import {
-  createLlamaCppInferenceRuntime,
-  llamaCppInferenceTestApi,
-  type LlamaCppInferenceRuntime,
-} from "./inference-provider.js";
+import { createLlamaCppInferenceRuntime } from "./inference-provider.js";
 
-if (!llamaCppInferenceTestApi) {
-  throw new Error("expected llama.cpp inference test API");
-}
-const { mapContextToLlamaChatHistory, mapToolsToLlamaFunctions } = llamaCppInferenceTestApi;
+const { mapContextToLlamaChatHistory, mapToolsToLlamaFunctions } = (
+  globalThis as Record<PropertyKey, unknown>
+)[Symbol.for("openclaw.llamaCppInferenceTestApi")] as {
+  mapContextToLlamaChatHistory: (context: Context) => unknown[];
+  mapToolsToLlamaFunctions: (context: Context) => Record<string, unknown> | undefined;
+};
+type LlamaCppInferenceRuntime = ReturnType<typeof createLlamaCppInferenceRuntime>;
 let inferenceRuntime: LlamaCppInferenceRuntime;
 
 const model: Model = {

@@ -49,7 +49,7 @@ type LlamaCppInferenceRuntimeState = {
   disposePromise?: Promise<void>;
 };
 
-export type LlamaCppInferenceRuntime = {
+type LlamaCppInferenceRuntime = {
   createStreamFn: (params: { providerConfig?: ModelProviderConfig }) => StreamFn;
   dispose: () => Promise<void>;
 };
@@ -681,10 +681,9 @@ export function createLlamaCppInferenceRuntime(): LlamaCppInferenceRuntime {
   };
 }
 
-export const llamaCppInferenceTestApi =
-  process.env.VITEST || process.env.NODE_ENV === "test"
-    ? {
-        mapContextToLlamaChatHistory,
-        mapToolsToLlamaFunctions,
-      }
-    : undefined;
+if (process.env.VITEST || process.env.NODE_ENV === "test") {
+  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.llamaCppInferenceTestApi")] = {
+    mapContextToLlamaChatHistory,
+    mapToolsToLlamaFunctions,
+  };
+}
