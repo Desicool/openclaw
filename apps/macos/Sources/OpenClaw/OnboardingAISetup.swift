@@ -81,38 +81,6 @@ final class OnboardingAISetupModel {
     private(set) var manualError: Failure?
     var showManualEntry = false
 
-    var selectedManualProvider: ManualProvider? {
-        self.manualProviders.first { $0.id == self.manualProviderID }
-    }
-
-    var prepareOptions: [PrepareOption] {
-        guard self.prepareAvailable else { return [] }
-        return Self.prepareOptions(
-            candidates: self.candidates,
-            advertisedOptions: self.detectedPrepareOptions)
-    }
-
-    var isPreparingModel: Bool {
-        self.providerWizardKind == .prepare
-    }
-
-    var connected: Bool {
-        self.phase == .connected
-    }
-
-    var isBusy: Bool {
-        self.phase == .detecting || self.phase == .testing || self.manualTesting || self.authBusy ||
-            self.pendingActivationVerification
-    }
-
-    /// Once setup starts changing inference, its successful result belongs to
-    /// OpenClaw rather than the existing-Gateway onboarding bypass.
-    var ownsInferenceTransition: Bool {
-        (self.phase == .detecting && self.configuredGatewayBlocker == nil) ||
-            self.phase == .testing || self.manualTesting || self.authBusy || self.connected ||
-            self.pendingActivationVerification
-    }
-
     /// Called when a candidate connects so the page can advance.
     var onConnected: (() -> Void)?
     /// Called whenever setup enters the read-only wait for an ambiguous
@@ -140,28 +108,6 @@ final class OnboardingAISetupModel {
     /// Only a just-completed provider flow may trust setupComplete without re-probing.
     @ObservationIgnored private var providerAuthReconciliationPending = false
 
-    /// Internal (not private): the persisted-transition helper lives in
-    /// OnboardingAISetupSupport.swift with the other pure statics.
-    struct PersistedActivationState: Equatable {
-        let setupComplete: Bool
-        let configuredModel: String?
-    }
-
-    private struct AttemptContext: Equatable {
-        let token: UUID
-        let routeIdentity: String
-    }
-
-    private struct PendingVerification {
-        let context: AttemptContext
-        let task: Task<PendingVerificationOutcome, Never>
-    }
-
-    private struct CompletedHandoff {
-        let routeIdentity: String
-        let activationOwner: OnboardingSystemAgentResumeStore.ActivationOwner?
-    }
-
     init(
         gateway: GatewayConnection = .shared,
         defaults: UserDefaults = .standard,
@@ -176,44 +122,6 @@ final class OnboardingAISetupModel {
         self.defaults = defaults
         self.routeIdentityProvider = routeIdentityProvider
         self.connectionModeProvider = connectionModeProvider
-    }
-
-    private struct DetectResult: Decodable {
-        struct DetectedCandidate: Decodable {
-            let icon: String?
-            let website: String?
-            let kind: String
-            let label: String
-            let detail: String
-            let modelRef: String
-            let credentials: Bool?
-        }
-
-        let candidates: [DetectedCandidate]
-        let unavailableCandidates: [UnavailableCandidate]?
-        let manualProviders: [ManualProvider]?
-        let authOptions: [AuthOption]?
-        let prepareOptions: [PrepareOption]?
-        let recommendedInstalls: [RecommendedInstall]?
-        let configuredModel: String?
-        let setupComplete: Bool?
-
-        var persistedActivationState: PersistedActivationState? {
-            self.setupComplete.map {
-                PersistedActivationState(
-                    setupComplete: $0,
-                    configuredModel: self.configuredModel)
-            }
-        }
-    }
-
-    struct ActivateResult: Decodable {
-        let ok: Bool
-        let modelRef: String?
-        let latencyMs: Double?
-        let lines: [String]?
-        let status: String?
-        let error: String?
     }
 
     func startIfNeeded() {
@@ -958,9 +866,7 @@ extension OnboardingAISetupModel {
             let failure = Self.transportFailure(
                 "Secure storage is unavailable, so OpenClaw cannot safely resume this AI setup.")
             self.statuses[kind] = .failed(failure)
-            if !tryNextCandidateOnFailure {
-                self.detectError = failure
-            }
+            self.exposeActivationFailure(failure, whenTerminal: !tryNextCandidateOnFailure)
             self.phase = .ready
             return
         }
@@ -985,9 +891,7 @@ extension OnboardingAISetupModel {
             let failure = Self.transportFailure(
                 "No Gateway is selected. Select a Gateway, then try again.")
             self.statuses[kind] = .failed(failure)
-            if !tryNextCandidateOnFailure {
-                self.detectError = failure
-            }
+            self.exposeActivationFailure(failure, whenTerminal: !tryNextCandidateOnFailure)
             self.phase = .ready
             return
         }
@@ -1048,9 +952,7 @@ extension OnboardingAISetupModel {
             // this activation and its credential mutation completed safely.
             let failure = Self.transportFailure(error.localizedDescription)
             self.statuses[kind] = .failed(failure)
-            if !tryNextCandidateOnFailure {
-                self.detectError = failure
-            }
+            self.exposeActivationFailure(failure, whenTerminal: !tryNextCandidateOnFailure)
             if Self.activationFailureIsDefinitive(error) {
                 self.pendingActivationVerification = false
                 self.clearPendingHandoff(ifOwnedBy: context, activationOwner: activationOwner)
@@ -1083,6 +985,11 @@ extension OnboardingAISetupModel {
                     activationDeadline: activationDeadline)
             }
         }
+    }
+
+    private func exposeActivationFailure(_ failure: Failure, whenTerminal: Bool) {
+        guard whenTerminal else { return }
+        self.detectError = failure
     }
 
     private func reconcileActivationAfterGatewayRestart(
@@ -1146,13 +1053,13 @@ extension OnboardingAISetupModel {
         timeoutMs: Int) async -> Bool
     {
         guard timeoutMs > 0,
-              isCurrentAttempt(context),
+              self.isCurrentAttempt(context),
               !Task.isCancelled,
               OnboardingSystemAgentResumeStore.isOwned(
                   by: activationOwner,
                   for: context.routeIdentity,
-                  defaults: defaults),
-              await gateway.activationOwnershipFingerprint(ifCurrentServerLease: serverLease) ==
+                  defaults: self.defaults),
+              await self.gateway.activationOwnershipFingerprint(ifCurrentServerLease: serverLease) ==
               activationOwner.routeFingerprint
         else { return false }
         guard let detectData = try? await gateway.request(

@@ -3,6 +3,64 @@ import OpenClawChatUI
 import OpenClawKit
 
 extension OnboardingAISetupModel {
+    struct PersistedActivationState: Equatable {
+        let setupComplete: Bool
+        let configuredModel: String?
+    }
+
+    struct AttemptContext: Equatable {
+        let token: UUID
+        let routeIdentity: String
+    }
+
+    struct PendingVerification {
+        let context: AttemptContext
+        let task: Task<PendingVerificationOutcome, Never>
+    }
+
+    struct CompletedHandoff {
+        let routeIdentity: String
+        let activationOwner: OnboardingSystemAgentResumeStore.ActivationOwner?
+    }
+
+    struct DetectResult: Decodable {
+        struct DetectedCandidate: Decodable {
+            let icon: String?
+            let website: String?
+            let kind: String
+            let label: String
+            let detail: String
+            let modelRef: String
+            let credentials: Bool?
+        }
+
+        let candidates: [DetectedCandidate]
+        let unavailableCandidates: [UnavailableCandidate]?
+        let manualProviders: [ManualProvider]?
+        let authOptions: [AuthOption]?
+        let prepareOptions: [PrepareOption]?
+        let recommendedInstalls: [RecommendedInstall]?
+        let configuredModel: String?
+        let setupComplete: Bool?
+
+        var persistedActivationState: PersistedActivationState? {
+            self.setupComplete.map {
+                PersistedActivationState(
+                    setupComplete: $0,
+                    configuredModel: self.configuredModel)
+            }
+        }
+    }
+
+    struct ActivateResult: Decodable {
+        let ok: Bool
+        let modelRef: String?
+        let latencyMs: Double?
+        let lines: [String]?
+        let status: String?
+        let error: String?
+    }
+
     struct Candidate: Identifiable, Equatable {
         let kind: String
         let label: String
@@ -105,6 +163,38 @@ extension OnboardingAISetupModel {
             case .prepare: "openclaw.setup.prepare.start"
             }
         }
+    }
+
+    var selectedManualProvider: ManualProvider? {
+        self.manualProviders.first { $0.id == self.manualProviderID }
+    }
+
+    var prepareOptions: [PrepareOption] {
+        guard self.prepareAvailable else { return [] }
+        return Self.prepareOptions(
+            candidates: self.candidates,
+            advertisedOptions: self.detectedPrepareOptions)
+    }
+
+    var isPreparingModel: Bool {
+        self.providerWizardKind == .prepare
+    }
+
+    var connected: Bool {
+        self.phase == .connected
+    }
+
+    var isBusy: Bool {
+        self.phase == .detecting || self.phase == .testing || self.manualTesting || self.authBusy ||
+            self.pendingActivationVerification
+    }
+
+    /// Once setup starts changing inference, its successful result belongs to
+    /// OpenClaw rather than the existing-Gateway onboarding bypass.
+    var ownsInferenceTransition: Bool {
+        (self.phase == .detecting && self.configuredGatewayBlocker == nil) ||
+            self.phase == .testing || self.manualTesting || self.authBusy || self.connected ||
+            self.pendingActivationVerification
     }
 
     static func prepareOptions(
@@ -257,7 +347,7 @@ extension OnboardingAISetupModel {
     var connectedSummary: String {
         guard let modelRef = connectedModelRef else { return "Your AI is connected." }
         let label = candidates.first { $0.kind == self.selectedKind }?.label ??
-            (selectedKind == "api-key" ? selectedManualProvider?.label : nil)
+            (selectedKind == "api-key" ? self.selectedManualProvider?.label : nil)
         let via = label.map { " via \($0)" } ?? ""
         if let latency = connectedLatencyMs {
             let seconds = Double(latency) / 1000
