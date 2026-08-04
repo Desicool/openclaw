@@ -869,7 +869,7 @@ describe("llama.cpp inference provider", () => {
     const disposing = inferenceRuntime.dispose();
     rejectCleanup(new Error("context cleanup failed"));
     await expect(unavailable.result()).resolves.toMatchObject({
-      errorMessage: "llama.cpp runtime stopped after cleanup failed",
+      errorMessage: expect.stringContaining("openclaw gateway restart"),
     });
     await expect(disposing).rejects.toThrow("context cleanup failed");
     expectDisposeCalls(2, 1, 0);

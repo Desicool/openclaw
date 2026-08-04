@@ -95,7 +95,7 @@ function runtimeUnavailableMessage(
     content: [],
     stopReason: "error",
     errorMessage: state.cleanupFailure
-      ? "llama.cpp runtime stopped after cleanup failed"
+      ? "llama.cpp runtime stopped after cleanup failed. Run `openclaw gateway restart` to recover."
       : "llama.cpp runtime is stopping",
   });
 }
