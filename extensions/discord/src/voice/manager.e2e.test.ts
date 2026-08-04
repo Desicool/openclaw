@@ -4114,6 +4114,66 @@ describe("DiscordVoiceManager", () => {
     expectUserMessageIncludes("third answer");
   });
 
+  it("terminates realtime voice when retained exact speech exceeds the character budget", async () => {
+    const manager = createAgentProxyManager();
+
+    await manager.join({ guildId: "g1", channelId: "1001" });
+    const entry = getSessionEntry(manager);
+    const realtime = entry.realtime as unknown as {
+      enqueueExactSpeechMessage: (text: string) => void;
+    };
+    const connection = (entry as unknown as { connection: { destroy: ReturnType<typeof vi.fn> } })
+      .connection;
+    const bridgeParams = lastRealtimeBridgeParams();
+    const accepted = "a".repeat(32 * 1024);
+
+    realtime.enqueueExactSpeechMessage(accepted);
+    expectUserMessageIncludes(accepted);
+    expect(manager.status()).toHaveLength(1);
+
+    realtime.enqueueExactSpeechMessage("overflow");
+
+    expect(manager.status()).toStrictEqual([]);
+    expect(connection.destroy).toHaveBeenCalledOnce();
+    expect(realtimeSessionMock.close).toHaveBeenCalledOnce();
+    expectUserMessageNotIncludes("overflow");
+
+    bridgeParams.onReady?.();
+    bridgeParams.onEvent?.({ direction: "server", type: "response.done" });
+    realtime.enqueueExactSpeechMessage("late");
+    entry.stop();
+
+    expect(connection.destroy).toHaveBeenCalledOnce();
+    expect(realtimeSessionMock.close).toHaveBeenCalledOnce();
+    expectUserMessageNotIncludes("late");
+  });
+
+  it("terminates realtime voice when retained exact speech exceeds the message budget", async () => {
+    const manager = createAgentProxyManager();
+
+    await manager.join({ guildId: "g1", channelId: "1001" });
+    const entry = getSessionEntry(manager);
+    const realtime = entry.realtime as unknown as {
+      enqueueExactSpeechMessage: (text: string) => void;
+    };
+    const connection = (entry as unknown as { connection: { destroy: ReturnType<typeof vi.fn> } })
+      .connection;
+
+    for (let index = 0; index < 32; index += 1) {
+      realtime.enqueueExactSpeechMessage(`answer-${index}`);
+    }
+
+    expect(manager.status()).toHaveLength(1);
+    expect(realtimeSessionMock.sendUserMessage).toHaveBeenCalledOnce();
+
+    realtime.enqueueExactSpeechMessage("answer-overflow");
+
+    expect(manager.status()).toStrictEqual([]);
+    expect(connection.destroy).toHaveBeenCalledOnce();
+    expect(realtimeSessionMock.close).toHaveBeenCalledOnce();
+    expectUserMessageNotIncludes("answer-overflow");
+  });
+
   it("does not interrupt active exact speech for a later forced agent-proxy consult", async () => {
     agentCommandMock
       .mockResolvedValueOnce({ payloads: [{ text: "first answer" }] })
