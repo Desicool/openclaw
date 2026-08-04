@@ -433,15 +433,18 @@ describe("DiscordVoiceManager", () => {
       runtime: createRuntime(),
     });
 
-  const createAgentProxyManager = () =>
-    createManager({
-      groupPolicy: "open",
-      voice: {
-        enabled: true,
-        mode: "agent-proxy",
-        realtime: { provider: "openai" },
+  const createAgentProxyManager = (clientOverride?: ReturnType<typeof createClient>) =>
+    createManager(
+      {
+        groupPolicy: "open",
+        voice: {
+          enabled: true,
+          mode: "agent-proxy",
+          realtime: { provider: "openai" },
+        },
       },
-    });
+      clientOverride,
+    );
 
   const expectConnectedStatus = (
     manager: InstanceType<typeof managerModule.DiscordVoiceManager>,
@@ -4115,7 +4118,17 @@ describe("DiscordVoiceManager", () => {
   });
 
   it("terminates realtime voice when retained exact speech exceeds the character budget", async () => {
-    const manager = createAgentProxyManager();
+    const client = createClient();
+    client.fetchChannel.mockImplementation(async (channelId: string) => {
+      const guildId = channelId === "2001" ? "g2" : "g1";
+      return {
+        id: channelId,
+        guildId,
+        guild: { id: guildId, name: guildId },
+        type: ChannelType.GuildVoice,
+      };
+    });
+    const manager = createAgentProxyManager(client);
 
     await manager.join({ guildId: "g1", channelId: "1001" });
     const entry = getSessionEntry(manager);
@@ -4127,16 +4140,26 @@ describe("DiscordVoiceManager", () => {
     const bridgeParams = lastRealtimeBridgeParams();
     const accepted = "a".repeat(32 * 1024);
 
+    await manager.join({ guildId: "g2", channelId: "2001" });
+    const siblingRealtime = getSessionEntry(manager, "g2").realtime as unknown as {
+      enqueueExactSpeechMessage: (text: string) => void;
+    };
+
     realtime.enqueueExactSpeechMessage(accepted);
     expectUserMessageIncludes(accepted);
-    expect(manager.status()).toHaveLength(1);
+    expect(manager.status()).toHaveLength(2);
 
     realtime.enqueueExactSpeechMessage("overflow");
 
-    expect(manager.status()).toStrictEqual([]);
+    expect(manager.status()).toEqual([
+      expect.objectContaining({ guildId: "g2", channelId: "2001" }),
+    ]);
     expect(connection.destroy).toHaveBeenCalledOnce();
     expect(realtimeSessionMock.close).toHaveBeenCalledOnce();
     expectUserMessageNotIncludes("overflow");
+
+    siblingRealtime.enqueueExactSpeechMessage("sibling remains usable");
+    expectUserMessageIncludes("sibling remains usable");
 
     bridgeParams.onReady?.();
     bridgeParams.onEvent?.({ direction: "server", type: "response.done" });
