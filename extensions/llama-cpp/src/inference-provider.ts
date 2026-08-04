@@ -356,9 +356,14 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
         state.llamaInstance = undefined;
       }
     }
-  }).finally(() => {
-    state.lifecycle = "closed";
-  });
+  })
+    .catch((error) => {
+      recordCleanupFailure(state, error);
+      throw error;
+    })
+    .finally(() => {
+      state.lifecycle = "closed";
+    });
   return state.disposePromise;
 }
 

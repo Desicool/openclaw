@@ -950,17 +950,17 @@ describe("llama.cpp inference provider", () => {
     expectDisposeCalls(1, 1, 1);
   });
 
-  it("keeps a failed cleanup terminal", async () => {
+  it("keeps a failed native runtime cleanup terminal", async () => {
     await collectTestEvents();
-    mocks.contextDispose.mockRejectedValueOnce(new Error("context cleanup failed"));
-
+    mocks.llamaDispose.mockRejectedValueOnce(new Error("llama cleanup failed"));
     const firstDisposal = inferenceRuntime.dispose();
-    await expect(firstDisposal).rejects.toThrow("context cleanup failed");
-    expectDisposeCalls(1, 0, 0);
-    const repeatedDisposal = inferenceRuntime.dispose();
-    expect(repeatedDisposal).toBe(firstDisposal);
-    await expect(repeatedDisposal).rejects.toThrow("context cleanup failed");
-    expectDisposeCalls(1, 0, 0);
+    await expect(firstDisposal).rejects.toThrow("llama cleanup failed");
+    expectDisposeCalls(1, 1, 1);
+    const unavailable = await createTestStream({ prompt: "after failed stop" });
+    await expect(unavailable.result()).resolves.toMatchObject({
+      errorMessage: expect.stringContaining("openclaw gateway restart"),
+    });
+    expect(inferenceRuntime.dispose()).toBe(firstDisposal);
   });
 
   it.each([
