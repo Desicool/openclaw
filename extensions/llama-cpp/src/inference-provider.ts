@@ -312,31 +312,13 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
   // Plugin services stop once, and node-llama-cpp disposers mark themselves
   // disposed before awaiting cleanup. The first disposal attempt is authoritative.
   state.disposePromise = serialize(state, async () => {
-    const errors: unknown[] = [];
-    const attemptDispose = async (dispose: () => Promise<void>) => {
-      try {
-        await dispose();
-      } catch (error) {
-        errors.push(error);
-      }
-    };
-    if (state.loadedModel) {
-      const previous = state.loadedModel;
-      await attemptDispose(() => previous.context.dispose());
-      await attemptDispose(() => previous.model.dispose());
-      if (state.loadedModel === previous) {
-        state.loadedModel = undefined;
-      }
-    }
+    await disposeLoadedModel(state);
     if (state.llamaInstance) {
       const previous = state.llamaInstance;
-      await attemptDispose(() => previous.dispose());
+      await previous.dispose();
       if (state.llamaInstance === previous) {
         state.llamaInstance = undefined;
       }
-    }
-    if (errors.length > 0) {
-      throw new AggregateError(errors, `llama.cpp runtime cleanup failed: ${String(errors[0])}`);
     }
   }).finally(() => {
     state.lifecycle = "closed";
