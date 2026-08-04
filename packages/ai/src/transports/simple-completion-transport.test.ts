@@ -122,6 +122,7 @@ describe("prepareModelForSimpleCompletion", () => {
       },
       SIMPLE_COMPLETION_SOURCE_ID,
     );
+    resolveProviderStreamFn.mockReturnValueOnce(undefined);
     wrapProviderSimpleCompletionStreamFn.mockImplementationOnce(
       ({ context }) =>
         (
@@ -236,6 +237,54 @@ describe("prepareModelForSimpleCompletion", () => {
       { apiKey: secret, headers: { "X-Managed": `Bearer ${secret}` } },
     );
     expect(result).toBe(model);
+  });
+
+  it("aliases a provider-owned stream when its wire-format api is already registered", async () => {
+    const builtInStream = vi.fn(() => createAssistantMessageEventStream());
+    apiRegistry.registerApiProvider(
+      {
+        api: "openai-completions",
+        stream: builtInStream,
+        streamSimple: builtInStream,
+      },
+      SIMPLE_COMPLETION_SOURCE_ID,
+    );
+    const model: Model<"openai-completions"> = {
+      id: "qwen3-0.6b",
+      name: "Qwen3 0.6B",
+      api: "openai-completions",
+      provider: "llama-cpp",
+      baseUrl: "local://llama-cpp",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32768,
+      maxTokens: 2048,
+    };
+
+    const result = prepareModelForSimpleCompletion({ model });
+
+    const expectedApi =
+      "openclaw-provider-stream:llama-cpp:qwen3-0.6b:openai-completions:local%3A%2F%2Fllama-cpp";
+    expect(resolveProviderStreamFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "llama-cpp",
+        context: expect.objectContaining({ model }),
+      }),
+    );
+    expect(ensureCustomApiRegistered).toHaveBeenCalledWith(
+      apiRegistry,
+      expectedApi,
+      expect.any(Function),
+    );
+    expect(result).toEqual({ ...model, api: expectedApi });
+    apiRegistry.getApiProvider("openai-completions")?.stream(model, { messages: [] });
+    expect(builtInStream).toHaveBeenCalledOnce();
+    expect(pluginStreamFn).not.toHaveBeenCalled();
+
+    const registeredStream = ensureCustomApiRegistered.mock.calls.at(-1)?.[2] as StreamFn;
+    await registeredStream(result, { messages: [] }, {});
+    expect(pluginStreamFn).toHaveBeenCalledOnce();
   });
 
   it("uses a custom api alias for Anthropic Vertex simple completions", () => {
