@@ -132,9 +132,10 @@ extension OnboardingAISetupModel {
                 website: nil),
         ]
         return (advertisedOptions ?? legacyOptions).filter { choice in
+            let providerKind = self.providerAutoSetupKind(choiceID: choice.id)
             guard !candidates.contains(where: {
                 $0.credentials != false &&
-                    ($0.kind == "provider-auto:\(choice.id)" ||
+                    ($0.kind == providerKind ||
                         $0.modelRef.hasPrefix("\(choice.brandId ?? choice.id)/"))
             }) else { return false }
             return true
@@ -194,6 +195,13 @@ extension OnboardingAISetupModel {
             params["modelRef"] = AnyCodable(modelRef)
         }
         return params
+    }
+
+    static func providerAutoSetupKind(choiceID: String) -> String {
+        let componentCharacters = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")
+        let encoded = choiceID.addingPercentEncoding(withAllowedCharacters: componentCharacters) ?? choiceID
+        return "provider-auto:\(encoded)"
     }
 
     static func providerAuthCancellationSessionID(requested: String, returned: String) -> String? {

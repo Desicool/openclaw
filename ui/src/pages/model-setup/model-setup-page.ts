@@ -19,7 +19,11 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { fetchCatalogIconBlobUrl } from "../plugins/icon-loader.ts";
 import type { ModelSetupDetectionConnection } from "./detect-cache.ts";
-import { findPreparedModelCandidate, type ModelSetupPrepareOption } from "./prepare-options.ts";
+import {
+  findPreparedModelCandidate,
+  type ModelSetupPrepareOption,
+  providerAutoSetupKind,
+} from "./prepare-options.ts";
 import { detectModelSetup, verifyModelSetup } from "./rpc.ts";
 import {
   activationTargetId,
@@ -553,7 +557,7 @@ export class ModelSetupPage extends OpenClawLightDomElement {
       startMethod === "openclaw.setup.prepare.start" ? this.pendingPrepareOption : null;
     this.pendingPrepareOption = null;
     if (prepareOption && preparedModelRef) {
-      const kind = `provider-auto:${prepareOption.id}` as const;
+      const kind = providerAutoSetupKind(prepareOption.id);
       this.wizard.close();
       void this.activate(
         { kind, modelRef: preparedModelRef },
