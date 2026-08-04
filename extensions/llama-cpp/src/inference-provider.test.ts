@@ -144,6 +144,12 @@ function deferGeneration() {
   return () => finishGeneration?.();
 }
 
+function expectDisposeCalls(contextCount: number, modelCount: number, llamaCount: number) {
+  expect(mocks.contextDispose).toHaveBeenCalledTimes(contextCount);
+  expect(mocks.modelDispose).toHaveBeenCalledTimes(modelCount);
+  expect(mocks.llamaDispose).toHaveBeenCalledTimes(llamaCount);
+}
+
 beforeEach(() => {
   inferenceRuntime = createLlamaCppInferenceRuntime();
   vi.clearAllMocks();
@@ -848,26 +854,37 @@ describe("llama.cpp inference provider", () => {
     expect(mocks.generateResponse.mock.calls[0]?.[1]).not.toHaveProperty("grammar");
   });
 
-  it("disposes changed models without reusing retired state", async () => {
+  it("makes failed changed-model cleanup terminal", async () => {
     const otherModel = { ...model, id: "other.gguf", params: { modelPath: "other.gguf" } };
     await collectTestEvents({ prompt: "one" });
     await collectTestEvents({ selectedModel: otherModel, prompt: "two" });
-    mocks.contextDispose.mockRejectedValueOnce(new Error("context cleanup failed"));
-    await collectTestEvents({ prompt: "three" });
-    await collectTestEvents({ selectedModel: otherModel, prompt: "four" });
-    expect(mocks.contextDispose).toHaveBeenCalledTimes(2);
-    expect(mocks.modelDispose).toHaveBeenCalledTimes(1);
-    expect(mocks.llama.loadModel).toHaveBeenCalledTimes(3);
+    const cleanup = Promise.withResolvers<void>();
+    mocks.contextDispose.mockImplementationOnce(async () => await cleanup.promise);
+    const failedSwitch = await createTestStream({ prompt: "three" });
+    await vi.waitFor(() => expect(mocks.contextDispose).toHaveBeenCalledTimes(2));
+    const disposing = inferenceRuntime.dispose();
+    cleanup.reject(new Error("context cleanup failed"));
+    await failedSwitch.result();
+    const unavailable = await createTestStream({ selectedModel: otherModel, prompt: "four" });
+    await expect(unavailable.result()).resolves.toMatchObject({
+      errorMessage: "llama.cpp runtime stopped after cleanup failed",
+    });
+    await expect(disposing).rejects.toThrow("context cleanup failed");
+    expectDisposeCalls(2, 1, 0);
+    expect(mocks.llama.loadModel).toHaveBeenCalledTimes(2);
+  });
+
+  it("records cleanup failure during partial model initialization", async () => {
+    mocks.model.createContext.mockRejectedValueOnce(new Error("context creation failed"));
+    mocks.modelDispose.mockRejectedValueOnce(new Error("model cleanup failed"));
+    await collectTestEvents();
+    await expect(inferenceRuntime.dispose()).rejects.toThrow("model cleanup failed");
+    expectDisposeCalls(0, 1, 0);
   });
 
   it("reuses one context sequence across serialized requests for the same model", async () => {
-    const streamFn = inferenceRuntime.createStreamFn({});
-    await collectEvents(
-      await streamFn(model, { messages: [{ role: "user", content: "one", timestamp: 1 }] }),
-    );
-    await collectEvents(
-      await streamFn(model, { messages: [{ role: "user", content: "two", timestamp: 2 }] }),
-    );
+    await collectTestEvents({ prompt: "one" });
+    await collectTestEvents({ prompt: "two" });
 
     expect(mocks.context.getSequence).toHaveBeenCalledTimes(1);
     expect(mocks.llama.loadModel).toHaveBeenCalledTimes(1);
@@ -878,9 +895,7 @@ describe("llama.cpp inference provider", () => {
 
     await inferenceRuntime.dispose();
 
-    expect(mocks.contextDispose).toHaveBeenCalledOnce();
-    expect(mocks.modelDispose).toHaveBeenCalledOnce();
-    expect(mocks.llamaDispose).toHaveBeenCalledOnce();
+    expectDisposeCalls(1, 1, 1);
     expect(mocks.contextDispose.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.modelDispose.mock.invocationCallOrder[0] ?? 0,
     );
@@ -902,9 +917,7 @@ describe("llama.cpp inference provider", () => {
     await stream.result();
     await disposing;
 
-    expect(mocks.contextDispose).toHaveBeenCalledOnce();
-    expect(mocks.modelDispose).toHaveBeenCalledOnce();
-    expect(mocks.llamaDispose).toHaveBeenCalledOnce();
+    expectDisposeCalls(1, 1, 1);
   });
 
   it("rejects new inference once runtime disposal begins", async () => {
@@ -932,9 +945,7 @@ describe("llama.cpp inference provider", () => {
     const disposals = [inferenceRuntime.dispose(), inferenceRuntime.dispose()];
     expect(disposals[1]).toBe(disposals[0]);
     await Promise.all(disposals);
-    expect(mocks.contextDispose).toHaveBeenCalledOnce();
-    expect(mocks.modelDispose).toHaveBeenCalledOnce();
-    expect(mocks.llamaDispose).toHaveBeenCalledOnce();
+    expectDisposeCalls(1, 1, 1);
   });
 
   it("keeps a failed cleanup terminal", async () => {
@@ -943,14 +954,11 @@ describe("llama.cpp inference provider", () => {
 
     const firstDisposal = inferenceRuntime.dispose();
     await expect(firstDisposal).rejects.toThrow("context cleanup failed");
-    expect(mocks.modelDispose).not.toHaveBeenCalled();
-    expect(mocks.llamaDispose).not.toHaveBeenCalled();
+    expectDisposeCalls(1, 0, 0);
     const repeatedDisposal = inferenceRuntime.dispose();
     expect(repeatedDisposal).toBe(firstDisposal);
     await expect(repeatedDisposal).rejects.toThrow("context cleanup failed");
-    expect(mocks.contextDispose).toHaveBeenCalledOnce();
-    expect(mocks.modelDispose).not.toHaveBeenCalled();
-    expect(mocks.llamaDispose).not.toHaveBeenCalled();
+    expectDisposeCalls(1, 0, 0);
   });
 
   it.each([

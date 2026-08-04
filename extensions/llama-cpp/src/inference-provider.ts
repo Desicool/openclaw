@@ -46,6 +46,7 @@ type LlamaCppInferenceRuntimeState = {
   llamaInstance?: Llama;
   operationQueue: Promise<void>;
   lifecycle: "open" | "closing" | "closed";
+  cleanupFailure?: { error: unknown };
   disposePromise?: Promise<void>;
 };
 
@@ -248,8 +249,18 @@ async function disposeLoadedModel(state: LlamaCppInferenceRuntimeState): Promise
   }
   const previous = state.loadedModel;
   state.loadedModel = undefined;
-  await previous.context.dispose();
-  await previous.model.dispose();
+  try {
+    await previous.context.dispose();
+    await previous.model.dispose();
+  } catch (error) {
+    recordCleanupFailure(state, error);
+    throw error;
+  }
+}
+
+function recordCleanupFailure(state: LlamaCppInferenceRuntimeState, error: unknown): void {
+  state.cleanupFailure ??= { error };
+  state.lifecycle = "closed";
 }
 
 async function getLoadedModel(params: {
@@ -287,8 +298,13 @@ async function getLoadedModel(params: {
     params.state.loadedModel = { key, llama, model, context, sequence };
     return params.state.loadedModel;
   } catch (error) {
-    await context?.dispose();
-    await model.dispose();
+    try {
+      await context?.dispose();
+      await model.dispose();
+    } catch (cleanupError) {
+      recordCleanupFailure(params.state, cleanupError);
+      throw cleanupError;
+    }
     throw error;
   }
 }
@@ -306,11 +322,18 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
   if (state.disposePromise) {
     return state.disposePromise;
   }
+  if (state.cleanupFailure) {
+    state.disposePromise = Promise.reject(state.cleanupFailure.error);
+    return state.disposePromise;
+  }
   state.lifecycle = "closing";
   // node-llama-cpp disposers are one-shot and child cleanup releases the
   // parent's disposal guard. Do not force parent cleanup after a child rejects:
   // the retained guard can make that parent disposer wait forever.
   state.disposePromise = serialize(state, async () => {
+    if (state.cleanupFailure) {
+      throw state.cleanupFailure.error;
+    }
     await disposeLoadedModel(state);
     if (state.llamaInstance) {
       const previous = state.llamaInstance;
@@ -339,7 +362,9 @@ function createLlamaCppStreamFnForRuntime(
           model,
           content: [],
           stopReason: "error",
-          errorMessage: "llama.cpp runtime is stopping",
+          errorMessage: state.cleanupFailure
+            ? "llama.cpp runtime stopped after cleanup failed"
+            : "llama.cpp runtime is stopping",
         }),
       });
       stream.end();
