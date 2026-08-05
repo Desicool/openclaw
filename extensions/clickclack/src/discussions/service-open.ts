@@ -44,6 +44,7 @@ type OpenDiscussionParams = {
   ensureTimer: () => void;
   reconcilePendingOpen: (pending: PendingDiscussionOpen) => Promise<void>;
   withChannelMutationLock: <T>(run: () => Promise<T>) => Promise<T>;
+  ensureBindingCapacity: (sessionKey: string) => void;
   finalizePendingBinding: (sessionKey: string, binding: ClickClackDiscussionBinding) => void;
   warn: (message: string) => void;
 };
@@ -228,9 +229,7 @@ export async function openClickClackDiscussionBinding(
     label,
   );
   return await params.withChannelMutationLock(async () => {
-    if (!store.hasCapacity(sessionKey)) {
-      throw new Error("ClickClack discussion binding capacity is exhausted");
-    }
+    params.ensureBindingCapacity(sessionKey);
     let channels = await client.channels(workspace.id);
     assertManagedChannelListContract(channels);
     const destinationIdentity = [serverBaseUrl, workspace.id].join("\0");

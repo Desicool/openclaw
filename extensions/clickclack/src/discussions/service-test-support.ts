@@ -81,6 +81,7 @@ export function createHarness(
     bindingGenerationFactory?: () => string;
     gatewayEvents?: Pick<OpenClawPluginGatewayEvents, "onSessionsChanged">;
     startTimer?: boolean;
+    maxRetainedDetachedBindings?: number;
   } = {},
 ) {
   let sessionEntry = entry;
@@ -172,6 +173,9 @@ export function createHarness(
     installationId: TEST_INSTALLATION_ID,
     bindingGenerationFactory: options.bindingGenerationFactory ?? (() => TEST_BINDING_GENERATION),
     startTimer: options.startTimer ?? false,
+    ...(options.maxRetainedDetachedBindings !== undefined
+      ? { maxRetainedDetachedBindings: options.maxRetainedDetachedBindings }
+      : {}),
     ...(options.gatewayEvents ? { gatewayEvents: options.gatewayEvents } : {}),
   });
   return {

@@ -520,6 +520,50 @@ describe("ClickClack discussion service contracts", () => {
     expect(harness.createChannel).not.toHaveBeenCalled();
   });
 
+  it("reclaims a deleted-session binding before rejecting a new active session", async () => {
+    const harness = createHarness(undefined);
+    const deletedKey = "agent:main:capacity-deleted";
+    const activeKey = "agent:main:capacity-active";
+    const entries = new Map<string, { sessionId: string; label: string; updatedAt: number }>();
+    vi.mocked(harness.runtime.agent.session.getSessionEntry).mockImplementation(({ sessionKey }) =>
+      entries.get(sessionKey),
+    );
+
+    entries.set(deletedKey, {
+      sessionId: "session-deleted",
+      label: "Capacity deleted",
+      updatedAt: 1,
+    });
+    await harness.service.open(deletedKey);
+    entries.delete(deletedKey);
+    await harness.service.reconcile(deletedKey);
+    for (let index = 0; index < 9_999; index += 1) {
+      harness.store.register(`occupied-${index}`, {});
+    }
+
+    harness.createChannel.mockImplementationOnce(async (_workspaceId, input) => ({
+      id: "chn_capacity_active",
+      route_id: "capacity-active-route",
+      workspace_id: "wsp_team",
+      ...input,
+      kind: "public",
+      created_at: "2026-07-19T00:00:00.000Z",
+    }));
+    entries.set(activeKey, {
+      sessionId: "session-active",
+      label: "Capacity active",
+      updatedAt: 2,
+    });
+
+    await expect(harness.service.open(activeKey)).resolves.toMatchObject({ state: "open" });
+    expect(harness.store.lookup(deletedKey)).toBeUndefined();
+    expect(harness.store.lookup(activeKey)).toMatchObject({
+      channelId: "chn_capacity_active",
+    });
+    expect(harness.revokedStore.entries()).toHaveLength(1);
+    expect(harness.store.entries()).toHaveLength(10_000);
+  });
+
   it("keeps the remote channel quarantined when binding persistence fails", async () => {
     const harness = createHarness({ label: "Persistence failure" });
     harness.store.register = vi.fn(() => {

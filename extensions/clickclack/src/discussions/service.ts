@@ -20,6 +20,7 @@ import {
 import {
   attachBindingToCurrentActiveSession,
   getClickClackDiscussionBindingStore,
+  MAX_RETAINED_DETACHED_DISCUSSION_BINDINGS,
   type ClickClackDiscussionBinding,
   type ClickClackDiscussionBindingStore,
 } from "./binding-store.js";
@@ -61,6 +62,7 @@ type DiscussionServiceOptions = {
   bindingGenerationFactory?: () => string;
   gatewayEvents?: Pick<OpenClawPluginGatewayEvents, "onSessionsChanged">;
   startTimer?: boolean;
+  maxRetainedDetachedBindings?: number;
 };
 
 type DiscussionBindingUseResolution = DiscussionBindingAccountResolution | { state: "retargeted" };
@@ -72,6 +74,7 @@ export class ClickClackDiscussionService {
   readonly #clientFactory: (account: ResolvedClickClackAccount) => ClickClackClient;
   readonly #installationId: string;
   readonly #bindingGenerationFactory: () => string;
+  readonly #maxRetainedDetachedBindings: number;
   readonly #timersEnabled: boolean;
   readonly #sessionLocks = new Map<string, Promise<unknown>>();
   readonly #reconcileScheduler = new DiscussionReconcileScheduler({
@@ -98,6 +101,8 @@ export class ClickClackDiscussionService {
       ((account) => createClickClackClient({ baseUrl: account.apiEndpoint, token: account.token }));
     this.#installationId = options.installationId ?? getClickClackDiscussionInstallationId(runtime);
     this.#bindingGenerationFactory = options.bindingGenerationFactory ?? randomUUID;
+    this.#maxRetainedDetachedBindings =
+      options.maxRetainedDetachedBindings ?? MAX_RETAINED_DETACHED_DISCUSSION_BINDINGS;
     this.#timersEnabled = options.startTimer !== false;
     this.provider = {
       id: "clickclack",
@@ -211,6 +216,7 @@ export class ClickClackDiscussionService {
           reconcilePendingOpen: async (pending) =>
             await this.#reconcilePendingOpen(pending, { allowRetry: false }),
           withChannelMutationLock: async (run) => await this.#withChannelMutationLock(run),
+          ensureBindingCapacity: (key) => this.#ensureBindingCapacity(key),
           finalizePendingBinding: (key, nextBinding) =>
             this.#finalizePendingBinding(key, nextBinding),
           warn: (message) => this.#logger().warn(message),
@@ -332,6 +338,19 @@ export class ClickClackDiscussionService {
       this.#store.delete(sessionKey);
       return;
     }
+    const entry = this.#runtime.agent.session.getSessionEntry({
+      sessionKey,
+      readConsistency: "latest",
+    });
+    if (!entry) {
+      this.#markBindingDetached(sessionKey, binding);
+      return;
+    }
+    const retainedBinding = this.#clearBindingDetached(sessionKey, binding);
+    if (!retainedBinding) {
+      return;
+    }
+    binding = retainedBinding;
     const resolved = resolvedAccount
       ? ({ state: "active", account: resolvedAccount } as const)
       : await this.#resolveBindingForUse(binding);
@@ -352,18 +371,14 @@ export class ClickClackDiscussionService {
         `ClickClack discussion account is no longer configured: ${binding.accountId}`,
       );
     }
+    if (entry.archivedAt !== undefined) {
+      return;
+    }
     const attached = this.#refreshSessionAttachment(sessionKey, binding);
     if (!attached) {
       return;
     }
     const currentBinding = attached;
-    const entry = this.#runtime.agent.session.getSessionEntry({
-      sessionKey,
-      readConsistency: "latest",
-    });
-    if (!entry || entry.archivedAt !== undefined) {
-      return;
-    }
     const fallback = fallbackDiscussionLabel(sessionKey, currentBinding.agentId);
     const label = resolveDiscussionLabel(entry, sessionKey, currentBinding.agentId);
     const section = entry.category?.trim() || account.discussions.section;
@@ -569,6 +584,76 @@ export class ClickClackDiscussionService {
     // the binding so inbound routing still fails closed.
     markClickClackDiscussionChannelRevoked(this.#runtime, binding);
     this.#store.delete(sessionKey);
+  }
+
+  #sameRoom(left: ClickClackDiscussionBinding, right: ClickClackDiscussionBinding): boolean {
+    return (
+      left.serverBaseUrl === right.serverBaseUrl &&
+      left.channelId === right.channelId &&
+      left.externalRef === right.externalRef
+    );
+  }
+
+  #markBindingDetached(sessionKey: string, binding: ClickClackDiscussionBinding): void {
+    const current = this.#store.get(sessionKey);
+    if (!current || !this.#sameRoom(current, binding)) {
+      return;
+    }
+    if (current.detachedAt === undefined) {
+      this.#store.set(sessionKey, { ...current, detachedAt: Date.now() });
+    }
+    while (this.#store.detachedCount() > this.#maxRetainedDetachedBindings) {
+      if (!this.#pruneOldestDetachedBinding()) {
+        throw new Error("ClickClack detached discussion binding retention could not be reduced");
+      }
+    }
+  }
+
+  #clearBindingDetached(
+    sessionKey: string,
+    binding: ClickClackDiscussionBinding,
+  ): ClickClackDiscussionBinding | undefined {
+    const current = this.#store.get(sessionKey);
+    if (!current || !this.#sameRoom(current, binding)) {
+      return undefined;
+    }
+    if (current.detachedAt === undefined) {
+      return current;
+    }
+    const { detachedAt: _detachedAt, ...retained } = current;
+    this.#store.set(sessionKey, retained);
+    return retained;
+  }
+
+  #pruneOldestDetachedBinding(): boolean {
+    for (;;) {
+      const oldest = this.#store.oldestDetached();
+      if (!oldest) {
+        return false;
+      }
+      const current = this.#store.get(oldest.sessionKey);
+      if (!current || current.detachedAt === undefined) {
+        continue;
+      }
+      const entry = this.#runtime.agent.session.getSessionEntry({
+        sessionKey: oldest.sessionKey,
+        readConsistency: "latest",
+      });
+      if (entry) {
+        this.#clearBindingDetached(oldest.sessionKey, current);
+        continue;
+      }
+      this.#revokeAndDeleteBinding(oldest.sessionKey, current);
+      return true;
+    }
+  }
+
+  #ensureBindingCapacity(sessionKey: string): void {
+    while (!this.#store.hasCapacity(sessionKey)) {
+      if (!this.#pruneOldestDetachedBinding()) {
+        throw new Error("ClickClack discussion binding capacity is exhausted");
+      }
+    }
   }
 
   #finalizePendingBinding(sessionKey: string, binding: ClickClackDiscussionBinding): void {
