@@ -192,11 +192,10 @@ export function createHarness(
   };
 }
 
-export function testExternalRef(sessionKey: string, sessionId = "session-id"): string {
+export function testExternalRef(sessionKey: string): string {
   return discussionExternalRef(
     TEST_INSTALLATION_ID,
     sessionKey,
-    sessionId,
     TEST_DESTINATION_IDENTITY,
     TEST_BINDING_GENERATION,
   );

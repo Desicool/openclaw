@@ -3,6 +3,7 @@ import type {
   OpenClawPluginSessionsChangedEvent,
 } from "openclaw/plugin-sdk/core";
 import { describe, expect, it, vi } from "vitest";
+import type { ClickClackDiscussionBinding } from "./binding-store.js";
 import { createHarness } from "./service-test-support.js";
 
 function createGatewayEventsHarness() {
@@ -78,6 +79,57 @@ describe("ClickClack discussion session events", () => {
         "chn_discussion",
         expect.objectContaining({ display_title: "Renamed", name: "renamed" }),
       );
+    } finally {
+      harness.service.cleanup();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps one durable room through archive, reset, deletion, and recreation events", async () => {
+    vi.useFakeTimers();
+    const gateway = createGatewayEventsHarness();
+    const harness = createHarness(
+      { sessionId: "session-original", label: "Durable event room" },
+      { gatewayEvents: gateway.gatewayEvents },
+    );
+    const sessionKey = "agent:main:event-durable-room";
+    try {
+      await harness.service.open(sessionKey);
+      const originalBinding = harness.store.lookup(sessionKey) as
+        | ClickClackDiscussionBinding
+        | undefined;
+      if (!originalBinding) {
+        throw new Error("expected persisted binding");
+      }
+      harness.updateChannel.mockClear();
+
+      harness.setSessionEntry({
+        sessionId: "session-original",
+        label: "Durable event room",
+        archivedAt: 123,
+      });
+      gateway.emit({ sessionKey, reason: "archive" });
+      await vi.advanceTimersByTimeAsync(250);
+
+      harness.setSessionEntry({ sessionId: "session-reset", label: "Durable event room" });
+      gateway.emit({ sessionKey, reason: "reset" });
+      await vi.advanceTimersByTimeAsync(250);
+
+      harness.setSessionEntry(undefined);
+      gateway.emit({ sessionKey, reason: "delete" });
+      await vi.advanceTimersByTimeAsync(250);
+
+      harness.setSessionEntry({ sessionId: "session-recreated", label: "Durable event room" });
+      gateway.emit({ sessionKey, reason: "create" });
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(harness.createChannel).toHaveBeenCalledOnce();
+      expect(harness.updateChannel).not.toHaveBeenCalled();
+      expect(harness.store.lookup(sessionKey)).toMatchObject({
+        sessionId: "session-recreated",
+        channelId: originalBinding.channelId,
+        externalRef: originalBinding.externalRef,
+      });
     } finally {
       harness.service.cleanup();
       vi.useRealTimers();

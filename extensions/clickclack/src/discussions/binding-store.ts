@@ -24,18 +24,6 @@ export type ClickClackDiscussionBinding = {
   displayTitle?: string;
 };
 
-export function bindingMatchesSessionIncarnation(
-  runtime: PluginRuntime,
-  sessionKey: string,
-  binding: ClickClackDiscussionBinding,
-): boolean {
-  const entry = runtime.agent.session.getSessionEntry({
-    sessionKey,
-    readConsistency: "latest",
-  });
-  return Boolean(entry && binding.sessionId && entry.sessionId === binding.sessionId);
-}
-
 export function bindingMatchesActiveSessionIncarnation(
   runtime: PluginRuntime,
   sessionKey: string,
@@ -51,6 +39,32 @@ export function bindingMatchesActiveSessionIncarnation(
     entry.sessionId === binding.sessionId &&
     entry.archivedAt === undefined,
   );
+}
+
+/**
+ * Refresh the replaceable session attachment without changing the durable room identity.
+ * The store registers persisted state before reindexing, so a failed write leaves the
+ * previous attachment authoritative in both persistence and memory.
+ */
+export function attachBindingToCurrentActiveSession(params: {
+  runtime: PluginRuntime;
+  store: ClickClackDiscussionBindingStore;
+  sessionKey: string;
+  binding: ClickClackDiscussionBinding;
+}): ClickClackDiscussionBinding | undefined {
+  const entry = params.runtime.agent.session.getSessionEntry({
+    sessionKey: params.sessionKey,
+    readConsistency: "latest",
+  });
+  if (!entry?.sessionId || entry.archivedAt !== undefined) {
+    return undefined;
+  }
+  if (entry.sessionId === params.binding.sessionId) {
+    return params.binding;
+  }
+  const attached = { ...params.binding, sessionId: entry.sessionId };
+  params.store.set(params.sessionKey, attached);
+  return attached;
 }
 
 const DISCUSSION_BINDINGS_NAMESPACE = "discussion-bindings";
