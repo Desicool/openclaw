@@ -58,6 +58,11 @@ import { createLlamaCppInferenceRuntime } from "./inference-provider.js";
 
 type LlamaCppInferenceRuntime = ReturnType<typeof createLlamaCppInferenceRuntime>;
 let inferenceRuntime: LlamaCppInferenceRuntime;
+const testApi = (globalThis as Record<PropertyKey, unknown>)[
+  Symbol.for("openclaw.llamaCppInferenceTestApi")
+] as {
+  resetInferenceRuntimeCoordinator: () => void;
+};
 
 const model: Model = {
   id: "test.gguf",
@@ -145,6 +150,7 @@ function expectDisposeCalls(contextCount: number, modelCount: number, llamaCount
 }
 
 beforeEach(() => {
+  testApi.resetInferenceRuntimeCoordinator();
   inferenceRuntime = createLlamaCppInferenceRuntime();
   vi.clearAllMocks();
   mocks.generateResponse.mockResolvedValue({
@@ -815,6 +821,86 @@ describe("llama.cpp inference provider", () => {
     expect(mocks.modelDispose.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.llamaDispose.mock.invocationCallOrder[0] ?? 0,
     );
+  });
+
+  it("blocks a published replacement until predecessor service stop finishes", async () => {
+    const retiringRuntime = inferenceRuntime;
+    await collectTestEvents();
+    let finishCleanup!: () => void;
+    mocks.contextDispose.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          finishCleanup = resolve;
+        }),
+    );
+    // Gateway publishes the replacement registry before stopping old services.
+    const disposing = retiringRuntime.dispose();
+    await vi.waitFor(() => expect(mocks.contextDispose).toHaveBeenCalledOnce());
+
+    const replacementRuntime = createLlamaCppInferenceRuntime();
+    const replacementEvents = collectEvents(
+      await replacementRuntime.createStreamFn({})(model, {
+        messages: [{ role: "user", content: "after reload", timestamp: 2 }],
+      }),
+    );
+    await Promise.resolve();
+    expect(mocks.llama.loadModel).toHaveBeenCalledOnce();
+
+    finishCleanup();
+    await disposing;
+    await expect(replacementEvents).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "done", reason: "stop" })]),
+    );
+    expect(mocks.llama.loadModel).toHaveBeenCalledTimes(2);
+    inferenceRuntime = replacementRuntime;
+  });
+
+  it("keeps a published replacement blocked when predecessor service stop fails", async () => {
+    const retiringRuntime = inferenceRuntime;
+    await collectTestEvents();
+    mocks.contextDispose.mockRejectedValueOnce(new Error("retiring cleanup failed"));
+
+    const replacementRuntime = createLlamaCppInferenceRuntime();
+    // Match reload ordering: replacement is reachable before old service stop settles.
+    const disposing = retiringRuntime.dispose();
+    const replacementEvents = collectEvents(
+      await replacementRuntime.createStreamFn({})(model, {
+        messages: [{ role: "user", content: "after failed reload", timestamp: 2 }],
+      }),
+    );
+
+    await expect(disposing).rejects.toThrow("retiring cleanup failed");
+    await expect(replacementEvents).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "error",
+          error: expect.objectContaining({
+            errorMessage: expect.stringContaining("openclaw gateway restart"),
+          }),
+        }),
+      ]),
+    );
+    expect(mocks.llama.loadModel).toHaveBeenCalledOnce();
+    await expect(replacementRuntime.dispose()).resolves.toBeUndefined();
+    inferenceRuntime = replacementRuntime;
+  });
+
+  it("lets a superseded waiting replacement stop before its predecessor retires", async () => {
+    await collectTestEvents();
+    const waitingRuntime = createLlamaCppInferenceRuntime();
+    const waitingStream = await waitingRuntime.createStreamFn({})(model, {
+      messages: [{ role: "user", content: "superseded reload", timestamp: 2 }],
+    });
+    await Promise.resolve();
+
+    const disposingWaitingRuntime = waitingRuntime.dispose();
+
+    await expect(waitingStream.result()).resolves.toMatchObject({
+      stopReason: "error",
+      errorMessage: "llama.cpp runtime is stopping",
+    });
+    await expect(disposingWaitingRuntime).resolves.toBeUndefined();
+    expect(mocks.llama.loadModel).toHaveBeenCalledOnce();
   });
 
   it("waits for admitted inference before disposing the runtime", async () => {

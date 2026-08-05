@@ -10,13 +10,7 @@ import type {
   LlamaModel,
 } from "node-llama-cpp";
 import type { StreamFn } from "openclaw/plugin-sdk/agent-core";
-import type {
-  AssistantMessage,
-  Context,
-  StopReason,
-  ToolCall,
-  Usage,
-} from "openclaw/plugin-sdk/llm";
+import type { AssistantMessage, Context, StopReason, ToolCall } from "openclaw/plugin-sdk/llm";
 import { createAssistantMessageEventStream, parseStreamingJson } from "openclaw/plugin-sdk/llm";
 import type { ModelProviderConfig } from "openclaw/plugin-sdk/provider-model-shared";
 import { createPlainTextToolCallCompatWrapper } from "openclaw/plugin-sdk/provider-stream-shared";
@@ -25,6 +19,16 @@ import {
   resolveLlamaCppModelCacheDir,
   resolveLlamaCppModelSource,
 } from "./defaults.js";
+import {
+  buildMessage,
+  runtimeUnavailableErrorMessage,
+  runtimeUnavailableMessage,
+  zeroCostUsage,
+} from "./inference-messages.js";
+import {
+  createLlamaCppInferenceRuntimeToken,
+  type LlamaCppInferenceRuntimeToken,
+} from "./inference-runtime-coordinator.js";
 import {
   formatLlamaCppSetupError,
   importNodeLlamaCpp,
@@ -42,11 +46,13 @@ type LoadedModel = {
 type LlamaJsonSchemaInput = Parameters<Llama["createGrammarForJsonSchema"]>[0];
 
 type LlamaCppInferenceRuntimeState = {
+  admission: LlamaCppInferenceRuntimeToken;
   loadedModel?: LoadedModel;
   llamaInstance?: Llama;
   operationQueue: Promise<void>;
   lifecycle: "open" | "closing" | "closed";
   cleanupFailure?: { error: Error };
+  retiringRuntimeFailure?: boolean;
   disposePromise?: Promise<void>;
 };
 
@@ -55,53 +61,8 @@ type LlamaCppInferenceRuntime = {
   dispose: () => Promise<void>;
 };
 
-function zeroCostUsage(input = 0, output = 0): Usage {
-  return {
-    input,
-    output,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: input + output,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  };
-}
-
-function buildMessage(params: {
-  model: Parameters<StreamFn>[0];
-  content: AssistantMessage["content"];
-  stopReason: StopReason;
-  usage?: Usage;
-  errorMessage?: string;
-}): AssistantMessage {
-  return {
-    role: "assistant",
-    content: params.content,
-    api: params.model.api,
-    provider: params.model.provider,
-    model: params.model.id,
-    stopReason: params.stopReason,
-    usage: params.usage ?? zeroCostUsage(),
-    timestamp: Date.now(),
-    ...(params.errorMessage ? { errorMessage: params.errorMessage } : {}),
-  };
-}
-
-function runtimeUnavailableErrorMessage(state: LlamaCppInferenceRuntimeState): string {
-  return state.cleanupFailure
-    ? "llama.cpp runtime stopped after cleanup failed. Run `openclaw gateway restart` to recover."
-    : "llama.cpp runtime is stopping";
-}
-
-function runtimeUnavailableMessage(
-  state: LlamaCppInferenceRuntimeState,
-  model: Parameters<StreamFn>[0],
-): AssistantMessage {
-  return buildMessage({
-    model,
-    content: [],
-    stopReason: "error",
-    errorMessage: runtimeUnavailableErrorMessage(state),
-  });
+function runtimeRequiresRestart(state: LlamaCppInferenceRuntimeState): boolean {
+  return Boolean(state.cleanupFailure || state.retiringRuntimeFailure);
 }
 
 function extractText(content: unknown): string {
@@ -279,6 +240,12 @@ async function disposeLoadedModel(state: LlamaCppInferenceRuntimeState): Promise
 function recordCleanupFailure(state: LlamaCppInferenceRuntimeState, error: unknown): void {
   state.cleanupFailure ??= { error: error instanceof Error ? error : new Error(String(error)) };
   state.lifecycle = "closed";
+  state.admission.fail(state.cleanupFailure.error);
+}
+
+function recordRetiringRuntimeFailure(state: LlamaCppInferenceRuntimeState): void {
+  state.retiringRuntimeFailure = true;
+  state.lifecycle = "closed";
 }
 
 async function getLoadedModel(params: {
@@ -345,6 +312,7 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
     return state.disposePromise;
   }
   state.lifecycle = "closing";
+  state.admission.close();
   // node-llama-cpp disposers are one-shot and child cleanup releases the
   // parent's disposal guard. Do not force parent cleanup after a child rejects:
   // the retained guard can make that parent disposer wait forever.
@@ -360,6 +328,7 @@ function disposeLlamaCppInferenceRuntime(state: LlamaCppInferenceRuntimeState): 
         state.llamaInstance = undefined;
       }
     }
+    state.admission.release();
   })
     .catch((error: unknown) => {
       recordCleanupFailure(state, error);
@@ -381,7 +350,7 @@ function createLlamaCppStreamFnForRuntime(
       stream.push({
         type: "error",
         reason: "error",
-        error: runtimeUnavailableMessage(state, model),
+        error: runtimeUnavailableMessage(model, runtimeRequiresRestart(state)),
       });
       stream.end();
       return stream;
@@ -424,9 +393,17 @@ function createLlamaCppStreamFnForRuntime(
           stream.push({
             type: "error",
             reason: "error",
-            error: runtimeUnavailableMessage(state, model),
+            error: runtimeUnavailableMessage(model, runtimeRequiresRestart(state)),
           });
           return;
+        }
+        await state.admission.acquire({
+          signal,
+          isLive: () => state.lifecycle === "open",
+          onRestartRequired: () => recordRetiringRuntimeFailure(state),
+        });
+        if (state.lifecycle !== "open") {
+          throw new Error("llama.cpp runtime is stopping");
         }
         const runtime = await importNodeLlamaCpp();
         const loaded = await getLoadedModel({
@@ -688,8 +665,8 @@ function createLlamaCppStreamFnForRuntime(
         const reason = aborted ? "aborted" : "error";
         const errorMessage = aborted
           ? "Request was aborted"
-          : state.cleanupFailure
-            ? runtimeUnavailableErrorMessage(state)
+          : state.lifecycle !== "open"
+            ? runtimeUnavailableErrorMessage(runtimeRequiresRestart(state))
             : formatLlamaCppSetupError(error);
         stream.push({
           type: "error",
@@ -715,6 +692,7 @@ function createLlamaCppStreamFnForRuntime(
 
 export function createLlamaCppInferenceRuntime(): LlamaCppInferenceRuntime {
   const state: LlamaCppInferenceRuntimeState = {
+    admission: createLlamaCppInferenceRuntimeToken(),
     operationQueue: Promise.resolve(),
     lifecycle: "open",
   };
@@ -725,8 +703,10 @@ export function createLlamaCppInferenceRuntime(): LlamaCppInferenceRuntime {
 }
 
 if (process.env.VITEST || process.env.NODE_ENV === "test") {
-  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.llamaCppInferenceTestApi")] = {
+  const globalStore = globalThis as Record<PropertyKey, unknown>;
+  const testApiKey = Symbol.for("openclaw.llamaCppInferenceTestApi");
+  Object.assign((globalStore[testApiKey] ??= {}), {
     mapContextToLlamaChatHistory,
     mapToolsToLlamaFunctions,
-  };
+  });
 }
