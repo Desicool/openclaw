@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  createLlamaCppInferenceRuntimeToken,
-  LlamaCppInferenceRestartRequiredError,
-} from "./inference-runtime-coordinator.js";
+import { createLlamaCppInferenceRuntimeToken } from "./inference-runtime-coordinator.js";
 
 const testApi = (globalThis as Record<PropertyKey, unknown>)[
   Symbol.for("openclaw.llamaCppInferenceTestApi")
@@ -105,9 +102,13 @@ describe("llama.cpp inference runtime coordinator", () => {
 
     first.fail(new Error("native cleanup failed"));
 
-    await expect(waitingAcquisition).rejects.toBeInstanceOf(LlamaCppInferenceRestartRequiredError);
-    await expect(createLiveToken().acquire()).rejects.toBeInstanceOf(
-      LlamaCppInferenceRestartRequiredError,
-    );
+    await expect(waitingAcquisition).rejects.toMatchObject({
+      name: "LlamaCppInferenceRestartRequiredError",
+      code: "LLAMA_CPP_INFERENCE_RESTART_REQUIRED",
+    });
+    await expect(createLiveToken().acquire()).rejects.toMatchObject({
+      name: "LlamaCppInferenceRestartRequiredError",
+      code: "LLAMA_CPP_INFERENCE_RESTART_REQUIRED",
+    });
   });
 });

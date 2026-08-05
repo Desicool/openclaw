@@ -31,7 +31,7 @@ export type LlamaCppInferenceRuntimeToken = {
   release: () => void;
 };
 
-export class LlamaCppInferenceRestartRequiredError extends Error {
+class LlamaCppInferenceRestartRequiredError extends Error {
   readonly code = RESTART_REQUIRED_CODE;
 
   constructor(cause: Error) {
