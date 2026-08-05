@@ -4,6 +4,7 @@ import type {
 } from "openclaw/plugin-sdk/core";
 import { describe, expect, it, vi } from "vitest";
 import type { ClickClackDiscussionBinding } from "./binding-store.js";
+import { resolveClickClackDiscussionRoute } from "./routing.js";
 import { createHarness } from "./service-test-support.js";
 
 function createGatewayEventsHarness() {
@@ -82,6 +83,76 @@ describe("ClickClack discussion session events", () => {
     } finally {
       harness.service.cleanup();
       vi.useRealTimers();
+    }
+  });
+
+  it("does not overwrite a replacement attachment when metadata reconciliation settles late", async () => {
+    const harness = createHarness({
+      sessionId: "session-original",
+      label: "Original",
+      category: "Projects",
+    });
+    const sessionKey = "agent:main:event-concurrent-reset";
+    try {
+      await harness.service.open(sessionKey);
+      harness.updateChannel.mockClear();
+      let releaseUpdate: (() => void) | undefined;
+      harness.updateChannel.mockImplementationOnce(async (_channelId, patch) => {
+        await new Promise<void>((resolve) => {
+          releaseUpdate = resolve;
+        });
+        return {
+          id: "chn_discussion",
+          route_id: "discussion-route",
+          workspace_id: "wsp_team",
+          name: patch.name ?? "renamed",
+          kind: "public",
+          external_managed: true,
+          external_ref: "agent:main:main",
+          external_url: patch.external_url ?? "https://control.example/control/chat/main",
+          sidebar_section: patch.sidebar_section ?? "Projects",
+          ...(patch.display_title !== undefined ? { display_title: patch.display_title } : {}),
+          archived: false,
+          created_at: "2026-07-19T00:00:00.000Z",
+        };
+      });
+      harness.setSessionEntry({
+        sessionId: "session-original",
+        label: "Renamed",
+        category: "Projects",
+      });
+
+      const reconcile = harness.service.reconcile(sessionKey);
+      await vi.waitFor(() => expect(harness.updateChannel).toHaveBeenCalledOnce());
+
+      harness.setSessionEntry({
+        sessionId: "session-replacement",
+        label: "Renamed",
+        category: "Projects",
+      });
+      expect(
+        resolveClickClackDiscussionRoute({
+          runtime: harness.runtime,
+          config: harness.config,
+          accountId: "default",
+          serverBaseUrl: "https://clickclack.example",
+          workspaceId: "wsp_team",
+          channelId: "chn_discussion",
+        }),
+      ).toMatchObject({ state: "active" });
+      expect(harness.store.lookup(sessionKey)).toMatchObject({
+        sessionId: "session-replacement",
+      });
+
+      releaseUpdate?.();
+      await reconcile;
+
+      expect(harness.store.lookup(sessionKey)).toMatchObject({
+        sessionId: "session-replacement",
+        label: "Renamed",
+      });
+    } finally {
+      harness.service.cleanup();
     }
   });
 

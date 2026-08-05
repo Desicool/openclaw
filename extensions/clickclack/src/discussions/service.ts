@@ -439,8 +439,17 @@ export class ClickClackDiscussionService {
       updated = await client.updateChannel(currentBinding.channelId, patch);
       assertChannelPatch(updated, patch);
     }
+    const latestBinding = this.#store.get(sessionKey);
+    if (
+      !latestBinding ||
+      latestBinding.serverBaseUrl !== currentBinding.serverBaseUrl ||
+      latestBinding.channelId !== currentBinding.channelId ||
+      latestBinding.externalRef !== currentBinding.externalRef
+    ) {
+      return;
+    }
     this.#store.set(sessionKey, {
-      ...currentBinding,
+      ...latestBinding,
       externalUrl,
       label,
       section,
