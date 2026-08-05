@@ -53,6 +53,7 @@ import type {
   WorkerEnvironmentServiceContract,
   WorkerPlacementDispatchContract,
 } from "../worker-environments/service-contract.js";
+import type { ChatMetadataReadParams, ChatMetadataResult } from "./chat-metadata-contract.js";
 import type { TrustedSessionCreation } from "./session-creation-provenance.js";
 
 /**
@@ -219,6 +220,7 @@ export type GatewayRequestContext = {
     agentDir?: string;
     workspaceDir?: string;
   }) => Promise<ModelCatalogEntry[] | undefined>;
+  readChatMetadata: (params: ChatMetadataReadParams) => Promise<ChatMetadataResult>;
   getHealthCache: () => HealthSummary | null;
   refreshHealthSnapshot: (opts?: {
     probe?: boolean;
