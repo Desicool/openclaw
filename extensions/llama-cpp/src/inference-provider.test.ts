@@ -63,6 +63,8 @@ const testApi = (globalThis as Record<PropertyKey, unknown>)[
 ] as {
   resetInferenceRuntimeCoordinator: () => void;
 };
+const NATIVE_CLEANUP_RECOVERY_MESSAGE =
+  "llama.cpp runtime stopped after native cleanup failed. Fully stop the managed Gateway service or foreground Gateway process, then start it again. An in-process restart cannot recover native resources.";
 
 const model: Model = {
   id: "test.gguf",
@@ -780,10 +782,10 @@ describe("llama.cpp inference provider", () => {
     const disposing = inferenceRuntime.dispose();
     rejectCleanup(new Error("context cleanup failed"));
     await expect(failedSwitch.result()).resolves.toMatchObject({
-      errorMessage: expect.stringContaining("openclaw gateway restart"),
+      errorMessage: NATIVE_CLEANUP_RECOVERY_MESSAGE,
     });
     await expect(unavailable.result()).resolves.toMatchObject({
-      errorMessage: expect.stringContaining("openclaw gateway restart"),
+      errorMessage: NATIVE_CLEANUP_RECOVERY_MESSAGE,
     });
     await expect(disposing).rejects.toThrow("context cleanup failed");
     expectDisposeCalls(2, 1, 0);
@@ -795,7 +797,7 @@ describe("llama.cpp inference provider", () => {
     mocks.modelDispose.mockRejectedValueOnce(new Error("model cleanup failed"));
     const failedInitialization = await createTestStream();
     await expect(failedInitialization.result()).resolves.toMatchObject({
-      errorMessage: expect.stringContaining("openclaw gateway restart"),
+      errorMessage: NATIVE_CLEANUP_RECOVERY_MESSAGE,
     });
     await expect(inferenceRuntime.dispose()).rejects.toThrow("model cleanup failed");
     expectDisposeCalls(0, 1, 0);
@@ -875,7 +877,7 @@ describe("llama.cpp inference provider", () => {
         expect.objectContaining({
           type: "error",
           error: expect.objectContaining({
-            errorMessage: expect.stringContaining("openclaw gateway restart"),
+            errorMessage: NATIVE_CLEANUP_RECOVERY_MESSAGE,
           }),
         }),
       ]),
@@ -955,7 +957,7 @@ describe("llama.cpp inference provider", () => {
     expectDisposeCalls(1, 1, 1);
     const unavailable = await createTestStream({ prompt: "after failed stop" });
     await expect(unavailable.result()).resolves.toMatchObject({
-      errorMessage: expect.stringContaining("openclaw gateway restart"),
+      errorMessage: NATIVE_CLEANUP_RECOVERY_MESSAGE,
     });
     expect(inferenceRuntime.dispose()).toBe(firstDisposal);
   });

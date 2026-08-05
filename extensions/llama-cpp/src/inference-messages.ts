@@ -34,7 +34,7 @@ export function buildMessage(params: {
 
 export function runtimeUnavailableErrorMessage(restartRequired: boolean): string {
   return restartRequired
-    ? "llama.cpp runtime stopped after cleanup failed. Run `openclaw gateway restart` to recover."
+    ? "llama.cpp runtime stopped after native cleanup failed. Fully stop the managed Gateway service or foreground Gateway process, then start it again. An in-process restart cannot recover native resources."
     : "llama.cpp runtime is stopping";
 }
 
