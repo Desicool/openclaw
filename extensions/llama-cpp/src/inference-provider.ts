@@ -86,6 +86,12 @@ function buildMessage(params: {
   };
 }
 
+function runtimeUnavailableErrorMessage(state: LlamaCppInferenceRuntimeState): string {
+  return state.cleanupFailure
+    ? "llama.cpp runtime stopped after cleanup failed. Run `openclaw gateway restart` to recover."
+    : "llama.cpp runtime is stopping";
+}
+
 function runtimeUnavailableMessage(
   state: LlamaCppInferenceRuntimeState,
   model: Parameters<StreamFn>[0],
@@ -94,9 +100,7 @@ function runtimeUnavailableMessage(
     model,
     content: [],
     stopReason: "error",
-    errorMessage: state.cleanupFailure
-      ? "llama.cpp runtime stopped after cleanup failed. Run `openclaw gateway restart` to recover."
-      : "llama.cpp runtime is stopping",
+    errorMessage: runtimeUnavailableErrorMessage(state),
   });
 }
 
@@ -682,7 +686,11 @@ function createLlamaCppStreamFnForRuntime(
       } catch (error) {
         const aborted = generationAborted || options?.signal?.aborted === true;
         const reason = aborted ? "aborted" : "error";
-        const errorMessage = aborted ? "Request was aborted" : formatLlamaCppSetupError(error);
+        const errorMessage = aborted
+          ? "Request was aborted"
+          : state.cleanupFailure
+            ? runtimeUnavailableErrorMessage(state)
+            : formatLlamaCppSetupError(error);
         stream.push({
           type: "error",
           reason,

@@ -768,11 +768,14 @@ describe("llama.cpp inference provider", () => {
       rejectCleanup = reject;
     });
     mocks.contextDispose.mockImplementationOnce(async () => await cleanup);
-    await createTestStream({ prompt: "three" });
+    const failedSwitch = await createTestStream({ prompt: "three" });
     await vi.waitFor(() => expect(mocks.contextDispose).toHaveBeenCalledTimes(2));
     const unavailable = await createTestStream({ selectedModel: otherModel, prompt: "four" });
     const disposing = inferenceRuntime.dispose();
     rejectCleanup(new Error("context cleanup failed"));
+    await expect(failedSwitch.result()).resolves.toMatchObject({
+      errorMessage: expect.stringContaining("openclaw gateway restart"),
+    });
     await expect(unavailable.result()).resolves.toMatchObject({
       errorMessage: expect.stringContaining("openclaw gateway restart"),
     });
@@ -784,7 +787,10 @@ describe("llama.cpp inference provider", () => {
   it("records cleanup failure during partial model initialization", async () => {
     mocks.model.createContext.mockRejectedValueOnce(new Error("context creation failed"));
     mocks.modelDispose.mockRejectedValueOnce(new Error("model cleanup failed"));
-    await collectTestEvents();
+    const failedInitialization = await createTestStream();
+    await expect(failedInitialization.result()).resolves.toMatchObject({
+      errorMessage: expect.stringContaining("openclaw gateway restart"),
+    });
     await expect(inferenceRuntime.dispose()).rejects.toThrow("model cleanup failed");
     expectDisposeCalls(0, 1, 0);
   });
