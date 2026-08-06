@@ -1,5 +1,5 @@
 // Chat-owned composer display controls: the View menu plus model controls.
-import { html } from "lit";
+import { html, nothing } from "lit";
 import type { UiSettings } from "../../../app/settings.ts";
 import { icons } from "../../../components/icons.ts";
 import "../../../components/tooltip.ts";
@@ -11,6 +11,7 @@ type ChatControlsProps = {
   paneId: string;
   model: ChatModelControlsProps;
   onboarding: boolean;
+  preferencesBrowserOnly: boolean;
   settings: UiSettings;
   viewMenuOpen: boolean;
   onSettingsChange: (patch: Partial<UiSettings>) => void;
@@ -105,6 +106,11 @@ export function renderChatControls(props: ChatControlsProps) {
               </wa-dropdown-item>
             `,
           )}
+          ${props.preferencesBrowserOnly
+            ? html`<div class="chat-view-menu__provenance" role="note">
+                ${t("quickSettings.personal.browserOnly")}
+              </div>`
+            : nothing}
         </wa-dropdown>
       </openclaw-tooltip>
     </div>

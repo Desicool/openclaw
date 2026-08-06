@@ -487,7 +487,7 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
     }
   });
 
-  it("keeps read-only edits browser-local across reload and restores the server baseline", async () => {
+  it("keeps every read-only preference surface browser-local across reload", async () => {
     const context = await browser.newContext({
       locale: "en-US",
       serviceWorkers: "block",
@@ -544,6 +544,65 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
         .poll(() => themeDescription.textContent())
         .not.toContain("Stored in this browser only");
       await page.waitForTimeout(100);
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+
+      await page.goto(`${server.baseUrl}chat`);
+      const viewMenuTrigger = page.locator(".chat-view-menu-trigger");
+      await viewMenuTrigger.click();
+      const viewMenu = page.locator("wa-dropdown.chat-view-menu");
+      await expect
+        .poll(() => viewMenu.locator(".chat-view-menu__provenance").textContent())
+        .toContain("Stored in this browser only");
+      const reasoning = viewMenu.getByRole("menuitemcheckbox", { name: "Reasoning" });
+      await reasoning.click();
+      await expect.poll(() => reasoning.getAttribute("aria-checked")).toBe("false");
+
+      const sidebar = page.locator("openclaw-app-sidebar");
+      await sidebar.locator(".sidebar-nav__head-action").click();
+      await sidebar
+        .locator("wa-dropdown.sidebar-more-menu")
+        .getByRole("menuitem", { name: "Edit pinned items" })
+        .click();
+      const customizeMenu = sidebar.locator(
+        "wa-dropdown.sidebar-customize-menu:not(.sidebar-more-menu):not(.sidebar-agent-menu)",
+      );
+      await expect
+        .poll(() => customizeMenu.locator(".sidebar-customize-menu__provenance").textContent())
+        .toContain("Stored in this browser only");
+      const tasks = customizeMenu.getByRole("menuitemcheckbox", { name: "Tasks" });
+      await tasks.click();
+      await expect.poll(() => tasks.getAttribute("aria-checked")).toBe("true");
+      await page.waitForTimeout(100);
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+
+      await page.reload();
+      await viewMenuTrigger.click();
+      await expect
+        .poll(() => viewMenu.locator(".chat-view-menu__provenance").textContent())
+        .toContain("Stored in this browser only");
+      await expect
+        .poll(() =>
+          viewMenu
+            .getByRole("menuitemcheckbox", { name: "Reasoning" })
+            .getAttribute("aria-checked"),
+        )
+        .toBe("false");
+
+      await sidebar.locator(".sidebar-nav__head-action").click();
+      await sidebar
+        .locator("wa-dropdown.sidebar-more-menu")
+        .getByRole("menuitem", { name: "Edit pinned items" })
+        .click();
+      await expect
+        .poll(() => customizeMenu.locator(".sidebar-customize-menu__provenance").textContent())
+        .toContain("Stored in this browser only");
+      await expect
+        .poll(() =>
+          customizeMenu
+            .getByRole("menuitemcheckbox", { name: "Tasks" })
+            .getAttribute("aria-checked"),
+        )
+        .toBe("true");
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
     } finally {
       await context.close();
