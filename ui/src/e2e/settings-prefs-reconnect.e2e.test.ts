@@ -116,14 +116,26 @@ async function readSettingsMirror(page: Page): Promise<Record<string, unknown> |
   });
 }
 
-function themeCard(page: Page, theme: "claw" | "knot") {
+async function readPendingPrefStorage(page: Page): Promise<Record<string, unknown>[]> {
+  return page.evaluate(() =>
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith("openclaw.control.serverPrefs.pending.v1:"))
+      .map((key) => JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown>),
+  );
+}
+
+function themeCard(page: Page, theme: "claw" | "knot" | "dash") {
   return page.locator(`.settings-theme-card--${theme}`);
 }
 
-async function expectThemeActive(page: Page, theme: "claw" | "knot"): Promise<void> {
+async function expectThemeActive(page: Page, theme: "claw" | "knot" | "dash"): Promise<void> {
   await expect
     .poll(() => themeCard(page, theme).getAttribute("class"), { timeout: 10_000 })
     .toContain("settings-theme-card--active");
+}
+
+function themeModeOption(page: Page, mode: "system" | "light" | "dark") {
+  return page.locator(`wa-radio.settings-segmented__btn[value="${mode}"]`);
 }
 
 describeControlUiE2e("Control UI server prefs reconnect sync", () => {
@@ -214,6 +226,54 @@ describeControlUiE2e("Control UI server prefs reconnect sync", () => {
       await expect
         .poll(async () => (await gateway.getRequests("config.patch")).length, { timeout: 10_000 })
         .toBe(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("does not resurrect an offline edit superseded browser-locally in another tab", async () => {
+    const context = await createContext();
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+    const initial = configResponse({ theme: "claw", themeMode: "system" }, "prefs-tabs-1");
+    const gatewayA = await installMockGateway(pageA, {
+      methodResponses: { "config.get": initial },
+    });
+    const gatewayB = await installMockGateway(pageB, {
+      methodResponses: { "config.get": initial },
+    });
+    try {
+      await Promise.all([
+        pageA.goto(`${server.baseUrl}settings/appearance`),
+        pageB.goto(`${server.baseUrl}settings/appearance`),
+      ]);
+      await Promise.all([themeCard(pageA, "claw").waitFor(), themeCard(pageB, "claw").waitFor()]);
+      await Promise.all([
+        gatewayA.waitForRequest("config.get"),
+        gatewayB.waitForRequest("config.get"),
+      ]);
+
+      await proxyReconnect(pageB, gatewayB, async () => {
+        await gatewayB.setOperatorScopes(["operator.read"]);
+      });
+
+      await proxyReconnect(pageA, gatewayA, async () => {
+        await themeCard(pageA, "knot").click();
+        await expectThemeActive(pageA, "knot");
+        expect(await readPendingPrefStorage(pageA)).toEqual([{ theme: "knot" }]);
+        await themeCard(pageB, "dash").click();
+        await expectThemeActive(pageB, "dash");
+        expect(await readPendingPrefStorage(pageB)).toEqual([]);
+      });
+      expect(await readPendingPrefStorage(pageA)).toEqual([]);
+
+      await themeModeOption(pageA, "dark").click();
+      const patch = await gatewayA.waitForRequest("config.patch");
+      expect(patchPrefs(patch)).toEqual({ themeMode: "dark" });
+      expect(await gatewayA.getRequests("config.patch")).toHaveLength(1);
+      expect(await gatewayB.getRequests("config.patch")).toHaveLength(0);
+      await expectThemeActive(pageA, "dash");
+      await expectThemeActive(pageB, "dash");
     } finally {
       await context.close();
     }

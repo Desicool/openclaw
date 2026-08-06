@@ -71,7 +71,7 @@ function clientWithRequest(request: unknown): ChatHost["client"] {
 }
 
 type TestChatHost = Omit<ChatHost, "settings"> & {
-  applySettings: (next: UiSettings) => void;
+  applySettings: (patch: Partial<UiSettings>) => void;
   basePath: string;
   chatAvatarUrl: string | null;
   chatAvatarSource?: string | null;
@@ -409,14 +409,9 @@ function makeHost(overrides?: MakeHostOverrides): TestChatHost | TestChatHostWit
     chatNewMessagesBelow: false,
     chatIsProgrammaticScroll: false,
     chatProgrammaticScrollTarget: 0,
-    applySettings: vi.fn((next: UiSettings) => {
+    applySettings: vi.fn((patch: Partial<UiSettings>) => {
       // Chat pages own display/layout settings; active-session persistence belongs to pane bindings.
-      Object.assign(settings, {
-        chatShowThinking: next.chatShowThinking,
-        chatShowToolCalls: next.chatShowToolCalls,
-        chatPersistCommentary: next.chatPersistCommentary,
-        chatSendShortcut: next.chatSendShortcut,
-      });
+      Object.assign(settings, patch);
     }),
     ...hostOverrides,
     settings,

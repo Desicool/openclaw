@@ -13,7 +13,7 @@ type ChatControlsProps = {
   onboarding: boolean;
   settings: UiSettings;
   viewMenuOpen: boolean;
-  onSettingsChange: (next: UiSettings) => void;
+  onSettingsChange: (patch: Partial<UiSettings>) => void;
   onViewMenuOpenChange: (
     open: boolean,
     options?: { trigger?: HTMLElement | null; restoreFocus?: boolean },
@@ -36,20 +36,17 @@ function chatViewMenuRows(props: ChatControlsProps): ChatViewMenuRow[] {
     {
       label: t("chat.view.reasoning"),
       checked: showThinking,
-      onToggle: () =>
-        props.onSettingsChange({ ...settings, chatShowThinking: !settings.chatShowThinking }),
+      onToggle: () => props.onSettingsChange({ chatShowThinking: !settings.chatShowThinking }),
     },
     {
       label: t("chat.view.toolCalls"),
       checked: showToolCalls,
-      onToggle: () =>
-        props.onSettingsChange({ ...settings, chatShowToolCalls: !settings.chatShowToolCalls }),
+      onToggle: () => props.onSettingsChange({ chatShowToolCalls: !settings.chatShowToolCalls }),
     },
     {
       label: t("chat.view.commentary"),
       checked: persistCommentary,
-      onToggle: () =>
-        props.onSettingsChange({ ...settings, chatPersistCommentary: !persistCommentary }),
+      onToggle: () => props.onSettingsChange({ chatPersistCommentary: !persistCommentary }),
     },
   ];
 }

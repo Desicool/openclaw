@@ -263,13 +263,8 @@ export function createPageState(
   state.handleChatScroll = (event) => handleChatScroll(state, event);
   state.handleChatDraftChange = (next) => handleChatDraftChange(state, next);
   state.handleChatInputHistoryKey = (input) => handleChatInputHistoryKey(state, input);
-  state.applySettings = (next) => {
-    state.settings = patchSettings({
-      chatShowThinking: next.chatShowThinking,
-      chatShowToolCalls: next.chatShowToolCalls,
-      chatPersistCommentary: next.chatPersistCommentary,
-      chatSendShortcut: next.chatSendShortcut,
-    });
+  state.applySettings = (patch) => {
+    state.settings = patchSettings(patch);
     renderLifecycle.invalidate();
   };
   state.setChatViewMenuOpen = (open, options) => {

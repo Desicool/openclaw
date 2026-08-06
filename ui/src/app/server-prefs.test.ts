@@ -1025,6 +1025,89 @@ describe("pushServerUiPrefs", () => {
     await vi.waitFor(() => expect(localStorage.getItem(pendingKey("ws://gw"))).toBeNull());
   });
 
+  it("does not replay persisted intent that another tab cancelled", async () => {
+    const scope = "ws://gw";
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
+    const client = createClient(request, scope, false);
+
+    pushServerUiPrefs(client, { theme: "knot" });
+    expect(readPending(scope)).toEqual({ theme: "knot" });
+
+    localStorage.removeItem(pendingKey(scope));
+    (client.state as { connected: boolean }).connected = true;
+    flushServerUiPrefs(client);
+    await Promise.resolve();
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect a sibling key another tab cancelled during a read-only edit", async () => {
+    const scope = "ws://gw";
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
+    const client = createClient(request, scope, false);
+
+    pushServerUiPrefs(client, { locale: "de", theme: "knot" });
+    localStorage.setItem(pendingKey(scope), JSON.stringify({ theme: "knot" }));
+    (client.state as { connected: boolean }).connected = true;
+    (client as { canPatch: boolean }).canPatch = false;
+    pushServerUiPrefs(client, { themeMode: "dark" });
+
+    expect(readPending(scope)).toEqual({ theme: "knot" });
+    expect(request).not.toHaveBeenCalled();
+
+    (client as { canPatch: boolean }).canPatch = true;
+    flushServerUiPrefs(client);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenCalledWith("config.patch", {
+      raw: JSON.stringify({ ui: { prefs: { theme: "knot" } } }),
+      note: "control-ui prefs sync",
+    });
+  });
+
+  it("dispatches a same-key replacement persisted by another tab", async () => {
+    const scope = "ws://gw";
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
+    const client = createClient(request, scope, false);
+
+    pushServerUiPrefs(client, { theme: "knot" });
+    localStorage.setItem(pendingKey(scope), JSON.stringify({ theme: "dash" }));
+    (client.state as { connected: boolean }).connected = true;
+    flushServerUiPrefs(client);
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenCalledWith("config.patch", {
+      raw: JSON.stringify({ ui: { prefs: { theme: "dash" } } }),
+      note: "control-ui prefs sync",
+    });
+  });
+
+  it("retains in-memory pending intent when localStorage is unavailable", async () => {
+    const storageError = new Error("storage unavailable");
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw storageError;
+      },
+      removeItem: () => {
+        throw storageError;
+      },
+      setItem: () => {
+        throw storageError;
+      },
+    });
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
+    const client = createClient(request, "ws://gw", false);
+
+    pushServerUiPrefs(client, { locale: "de" });
+    (client.state as { connected: boolean }).connected = true;
+    flushServerUiPrefs(client);
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenCalledWith("config.patch", {
+      raw: JSON.stringify({ ui: { prefs: { locale: "de" } } }),
+      note: "control-ui prefs sync",
+    });
+  });
+
   it("retains a connected transient failure and retries it on flush", async () => {
     const request = vi
       .fn<(method: string, params?: unknown) => Promise<unknown>>()
@@ -1350,6 +1433,30 @@ describe("pushServerUiPrefs", () => {
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     expect(request.mock.calls[1]?.[1]).toMatchObject({
       raw: JSON.stringify({ ui: { prefs: { themeMode: "dark" } } }),
+    });
+  });
+
+  it("does not migrate cancelled pre-connection intent into an adopted gateway scope", async () => {
+    const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));
+    const writer = createClient(request, "", false);
+    (writer.state as { client: GatewayBrowserClient | null }).client = null;
+
+    pushServerUiPrefs(writer, { theme: "knot" });
+    localStorage.removeItem(pendingKey(""));
+
+    (writer.state as { client: GatewayBrowserClient | null; connected: boolean }).client = {
+      request,
+      gatewayUrl: "ws://first",
+      connected: true,
+    } as unknown as GatewayBrowserClient;
+    (writer.state as { connected: boolean }).connected = true;
+    flushServerUiPrefs(writer);
+    pushServerUiPrefs(writer, { themeMode: "dark" });
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenCalledWith("config.patch", {
+      raw: JSON.stringify({ ui: { prefs: { themeMode: "dark" } } }),
+      note: "control-ui prefs sync",
     });
   });
 

@@ -321,6 +321,7 @@ const requestedDeviceLocalPrefResets = new Set<SyncedPrefKey>();
 let applyingServerPrefs = false;
 let pendingScope = "";
 let pendingPrefs: ServerUiPrefs | null = null;
+let pendingPersistedKeys = new Set<SyncedPrefKey>();
 let pushWriter: ServerUiPrefsWriter | null = null;
 let pushScope = "";
 let pushAfterCommit: ((commit: ServerUiPrefsCommit) => void) | undefined;
@@ -341,23 +342,39 @@ function clearConflictRedrain(): void {
   }
   consecutiveConflictRedrains = 0;
 }
-function readStorage(root: string, scope: string): string | null {
+function readStorageState(
+  root: string,
+  scope: string,
+): { available: boolean; value: string | null } {
   try {
-    return globalThis.localStorage?.getItem(`${root}:${scope}`) ?? null;
+    const storage = globalThis.localStorage;
+    if (!storage) {
+      return { available: false, value: null };
+    }
+    return { available: true, value: storage.getItem(`${root}:${scope}`) };
   } catch {
-    return null;
+    return { available: false, value: null };
   }
 }
-function writeStorage(root: string, scope: string, value: string | null): void {
+function readStorage(root: string, scope: string): string | null {
+  return readStorageState(root, scope).value;
+}
+function writeStorage(root: string, scope: string, value: string | null): boolean {
   try {
+    const storage = globalThis.localStorage;
+    if (!storage) {
+      return false;
+    }
     const key = `${root}:${scope}`;
     if (value === null) {
-      globalThis.localStorage?.removeItem(key);
+      storage.removeItem(key);
     } else {
-      globalThis.localStorage?.setItem(key, value);
+      storage.setItem(key, value);
     }
+    return true;
   } catch {
     // Quota/security failures degrade to in-memory tracking for this session.
+    return false;
   }
 }
 function parseStoredPrefs(raw: string | null): ServerUiPrefs | null {
@@ -367,6 +384,16 @@ function parseStoredPrefs(raw: string | null): ServerUiPrefs | null {
   } catch {
     return null;
   }
+}
+function readStoredPrefs(
+  root: string,
+  scope: string,
+): { available: boolean; prefs: ServerUiPrefs | null } {
+  const stored = readStorageState(root, scope);
+  return {
+    available: stored.available,
+    prefs: parseStoredPrefs(stored.value),
+  };
 }
 function readRetainedLocalKeys(scope: string): Set<SyncedPrefKey> {
   const stored = parseStoredPrefs(readStorage(RETAINED_LOCAL_KEY, scope));
@@ -406,12 +433,26 @@ function adoptPendingScope(scope: string, force = false): void {
     return;
   }
   pendingScope = scope;
-  pendingPrefs = parseStoredPrefs(readStorage(PENDING_KEY, scope));
+  const stored = readStoredPrefs(PENDING_KEY, scope);
+  pendingPrefs = stored.prefs;
+  pendingPersistedKeys = new Set(
+    stored.available && stored.prefs ? (Object.keys(stored.prefs) as SyncedPrefKey[]) : [],
+  );
 }
 function writePendingStorage(prefs: ServerUiPrefs | null): void {
-  writeStorage(PENDING_KEY, pendingScope, prefs ? JSON.stringify(prefs) : null);
+  const persisted = writeStorage(PENDING_KEY, pendingScope, prefs ? JSON.stringify(prefs) : null);
+  if (persisted) {
+    pendingPersistedKeys = new Set(
+      pendingPrefs ? (Object.keys(pendingPrefs) as SyncedPrefKey[]) : [],
+    );
+  } else {
+    pendingPersistedKeys.clear();
+  }
 }
 function cancelPendingKeys(scope: string, keys: readonly SyncedPrefKey[]): void {
+  if (scope === pendingScope) {
+    reconcilePersistedPendingPrefs();
+  }
   const active = scope === pendingScope ? pendingPrefs : null;
   const remaining = {
     ...parseStoredPrefs(readStorage(PENDING_KEY, scope)),
@@ -423,6 +464,8 @@ function cancelPendingKeys(scope: string, keys: readonly SyncedPrefKey[]): void 
   const next = Object.keys(remaining).length ? remaining : null;
   if (scope === pendingScope) {
     pendingPrefs = next;
+    writePendingStorage(next);
+    return;
   }
   writeStorage(PENDING_KEY, scope, next ? JSON.stringify(next) : null);
 }
@@ -444,11 +487,46 @@ function settlePendingStorage(ackedBatch: ServerUiPrefs): void {
   const merged = { ...stored, ...pendingPrefs };
   writePendingStorage(Object.keys(merged).length ? merged : null);
 }
+// Only persisted keys participate in cross-tab reconciliation. An in-memory-only key means
+// localStorage was unavailable, so absence from storage cannot be interpreted as cancellation.
+function reconcilePersistedPendingPrefs(): void {
+  if (!pendingPrefs || pendingPersistedKeys.size === 0) {
+    return;
+  }
+  const stored = readStoredPrefs(PENDING_KEY, pendingScope);
+  if (!stored.available) {
+    return;
+  }
+  const current = stored.prefs ?? {};
+  for (const key of [...pendingPersistedKeys]) {
+    if (!Object.hasOwn(current, key)) {
+      delete pendingPrefs[key];
+      pendingPersistedKeys.delete(key);
+      continue;
+    }
+    const storedValue = current[key];
+    if (!prefValuesEqual(pendingPrefs[key], storedValue)) {
+      (pendingPrefs as Record<string, unknown>)[key] = storedValue;
+    }
+  }
+  if (!Object.keys(pendingPrefs).length) {
+    pendingPrefs = null;
+  }
+}
+function batchIsCurrent(batch: ServerUiPrefs): boolean {
+  return Boolean(
+    pendingPrefs &&
+    (Object.keys(batch) as SyncedPrefKey[]).every(
+      (key) => Object.hasOwn(pendingPrefs, key) && prefValuesEqual(pendingPrefs[key], batch[key]),
+    ),
+  );
+}
 export function resetServerUiPrefsSync() {
   clearConflictRedrain();
   applyingServerPrefs = pushDraining = drainRequested = false;
   pendingScope = "";
   pendingPrefs = pushWriter = null;
+  pendingPersistedKeys.clear();
   pushScope = "";
   lastReconciledScope = "";
   lastReconciledConfigObject = null;
@@ -562,6 +640,9 @@ function adoptPushWriter(writer: ServerUiPrefsWriter): void {
   if (pushWriter === writer && pushScope === scope) {
     return;
   }
+  // Reconcile the scope being left before moving pre-connection intent forward.
+  // Otherwise another tab can cancel storage while this realm later resurrects its stale memory.
+  reconcilePersistedPendingPrefs();
   const unscopedPending =
     pendingScope === ""
       ? {
@@ -591,6 +672,7 @@ function removeBatch(batch: ServerUiPrefs): void {
   for (const key of Object.keys(batch) as SyncedPrefKey[]) {
     if (prefValuesEqual(pendingPrefs[key], batch[key])) {
       delete pendingPrefs[key];
+      pendingPersistedKeys.delete(key);
     }
   }
   if (!Object.keys(pendingPrefs).length) {
@@ -616,6 +698,10 @@ async function drainPendingPrefs(writer: ServerUiPrefsWriter, epoch: number): Pr
     if (pushWriter !== writer || pushEpoch !== epoch) {
       return;
     }
+    reconcilePersistedPendingPrefs();
+    if (!pendingPrefs) {
+      return;
+    }
     const batch = { ...pendingPrefs };
     const afterCommit = pushAfterCommit;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -636,7 +722,17 @@ async function drainPendingPrefs(writer: ServerUiPrefsWriter, epoch: number): Pr
           }),
         {
           waitForWritesResumed: true,
-          canDispatch: () => writer.canPatch !== false,
+          canDispatch: () => {
+            if (writer.canPatch === false) {
+              return false;
+            }
+            reconcilePersistedPendingPrefs();
+            if (batchIsCurrent(batch)) {
+              return true;
+            }
+            drainRequested = Boolean(pendingPrefs);
+            return false;
+          },
           dispatchError: "Access changed before preferences could sync.",
         },
       );
@@ -733,6 +829,7 @@ export function pushServerUiPrefs(
     hooks.afterCommit?.({ needsRefresh: false, retainedLocal: true });
     return;
   }
+  reconcilePersistedPendingPrefs();
   pendingPrefs = { ...pendingPrefs, ...prefs };
   mergePendingIntoStorage();
   startPendingDrain(writer);
