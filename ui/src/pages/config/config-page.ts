@@ -737,6 +737,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       "locale",
       this.context.gateway.connection.gatewayUrl,
       this.settings,
+      { canSync: this.serverUiPrefsCanSync() },
     );
   }
 
@@ -746,6 +747,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       "theme",
       this.context.gateway.connection.gatewayUrl,
       this.settings,
+      { canSync: this.serverUiPrefsCanSync() },
     );
   }
 
@@ -755,6 +757,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       "themeMode",
       this.context.gateway.connection.gatewayUrl,
       this.settings,
+      { canSync: this.serverUiPrefsCanSync() },
     );
   }
 
@@ -764,6 +767,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       "chatSendShortcut",
       this.context.gateway.connection.gatewayUrl,
       this.settings,
+      { canSync: this.serverUiPrefsCanSync() },
     );
   }
 
@@ -773,11 +777,21 @@ export class ConfigPage extends OpenClawLightDomElement {
       "chatFollowUpMode",
       this.context.gateway.connection.gatewayUrl,
       this.settings,
+      { canSync: this.serverUiPrefsCanSync() },
     );
   }
 
+  private serverUiPrefsCanSync(): boolean | null {
+    const runtimeConfig = this.context.runtimeConfig;
+    return runtimeConfig.state.connected ? runtimeConfig.canPatch !== false : null;
+  }
+
   private resetLocale() {
-    this.settings = resetServerUiPref("locale", this.currentLocalePref());
+    this.settings = resetServerUiPref(
+      "locale",
+      this.currentLocalePref(),
+      this.context.gateway.connection.gatewayUrl,
+    );
     if (isSupportedLocale(this.settings.locale)) {
       void i18n.setLocale(this.settings.locale);
     } else {
@@ -791,16 +805,32 @@ export class ConfigPage extends OpenClawLightDomElement {
     switch (key) {
       case "theme":
         this.customThemeImportOwner.recordActivation(null);
-        this.settings = resetServerUiPref("theme", this.currentThemePref());
+        this.settings = resetServerUiPref(
+          "theme",
+          this.currentThemePref(),
+          this.context.gateway.connection.gatewayUrl,
+        );
         break;
       case "themeMode":
-        this.settings = resetServerUiPref("themeMode", this.currentThemeModePref());
+        this.settings = resetServerUiPref(
+          "themeMode",
+          this.currentThemeModePref(),
+          this.context.gateway.connection.gatewayUrl,
+        );
         break;
       case "chatSendShortcut":
-        this.settings = resetServerUiPref("chatSendShortcut", this.currentChatSendShortcutPref());
+        this.settings = resetServerUiPref(
+          "chatSendShortcut",
+          this.currentChatSendShortcutPref(),
+          this.context.gateway.connection.gatewayUrl,
+        );
         break;
       case "chatFollowUpMode":
-        this.settings = resetServerUiPref("chatFollowUpMode", this.currentChatFollowUpModePref());
+        this.settings = resetServerUiPref(
+          "chatFollowUpMode",
+          this.currentChatFollowUpModePref(),
+          this.context.gateway.connection.gatewayUrl,
+        );
         break;
     }
     this.context.theme.refresh();

@@ -112,7 +112,7 @@ type ResettableServerUiPrefKey =
 type SyncedPrefValue<K extends SyncedPrefKey> =
   ReturnType<(typeof SYNCED_PREFS)[K]["extract"]> extends (infer T) | undefined ? T : never;
 type ServerUiPrefs = { [K in SyncedPrefKey]?: SyncedPrefValue<K> | null };
-type ServerUiPrefsWriter = Pick<RuntimeConfigCapability, "runExternalMutation"> & {
+type ServerUiPrefsWriter = Pick<RuntimeConfigCapability, "canPatch" | "runExternalMutation"> & {
   readonly state: {
     readonly client: GatewayBrowserClient | null;
     readonly connected: boolean;
@@ -150,6 +150,7 @@ export function resolveServerUiPrefState<K extends SyncedPrefKey>(
   key: K,
   scope = "",
   settings = loadSettings(),
+  options: { canSync?: boolean | null } = {},
 ): ServerUiPrefState<SyncedPrefValue<K>> {
   const specification = SYNCED_PREFS[key];
   const localValue = specification.local(settings) as SyncedPrefValue<K> | undefined;
@@ -168,9 +169,30 @@ export function resolveServerUiPrefState<K extends SyncedPrefKey>(
       value: localValue,
     };
   };
+  const prefs = asRecord(asRecord(asRecord(configObject)?.ui)?.prefs);
+  const serverValue =
+    prefs && Object.hasOwn(prefs, key)
+      ? (specification.extract(prefs[key]) as SyncedPrefValue<K> | undefined)
+      : undefined;
+  const canApplyServerValue =
+    serverValue !== undefined &&
+    (!specification.canApply ||
+      (specification.canApply as (value: unknown, settings: UiSettings) => boolean)(
+        serverValue,
+        settings,
+      ));
+  const applicableServerValue = canApplyServerValue ? serverValue : productDefault;
   const shadowPrefs =
     scope === pendingScope ? pendingPrefs : parseStoredPrefs(readStorage(PENDING_KEY, scope));
   if (shadowPrefs && key in shadowPrefs) {
+    if (options.canSync === false) {
+      return {
+        ...localState(applicableServerValue),
+        // The queued intent remains available for a later authorized reconnect,
+        // but this connected browser cannot claim that the value is pending sync.
+        provenance: "device-local",
+      };
+    }
     const shadowValue = shadowPrefs[key];
     if (shadowValue === null) {
       return { ...localState(productDefault), provenance: "pending" };
@@ -182,21 +204,16 @@ export function resolveServerUiPrefState<K extends SyncedPrefKey>(
       value: shadowValue as SyncedPrefValue<K>,
     };
   }
-  const prefs = asRecord(asRecord(asRecord(configObject)?.ui)?.prefs);
   if (!prefs || !Object.hasOwn(prefs, key)) {
     return localState(productDefault);
   }
-  const serverValue = specification.extract(prefs[key]) as SyncedPrefValue<K> | undefined;
   if (serverValue === undefined) {
     return localState(productDefault);
   }
-  const canApply =
-    !specification.canApply ||
-    (specification.canApply as (value: unknown, settings: UiSettings) => boolean)(
-      serverValue,
-      settings,
-    );
-  if (!canApply) {
+  if (!canApplyServerValue) {
+    if (options.canSync === false) {
+      return localState(productDefault);
+    }
     // The server still owns this authored preference even when this device cannot
     // render it. Preserve that provenance so Restore default removes the override.
     return {
@@ -294,6 +311,9 @@ const LAST_SEEN_KEY = "openclaw.control.serverPrefs.v1";
 // Pending keys are local edits not yet acknowledged by the gateway. They shadow reconciliation so
 // snapshots cannot revert unacked edits, and persist so offline edits replay after reload/reconnect.
 const PENDING_KEY = "openclaw.control.serverPrefs.pending.v1";
+// Connected read-only edits never enter the replay outbox. Retain only their keys until the next
+// snapshot establishes a LAST_SEEN baseline, then normal server-delta reconciliation resumes.
+const RETAINED_LOCAL_KEY = "openclaw.control.serverPrefs.retained-local.v1";
 const CONFLICT_REDRAIN_DELAY_MS = 1_000;
 const MAX_CONFLICT_REDRAINS = 5;
 const requestedServerUiPrefResets = new Set<SyncedPrefKey>();
@@ -348,6 +368,39 @@ function parseStoredPrefs(raw: string | null): ServerUiPrefs | null {
     return null;
   }
 }
+function readRetainedLocalKeys(scope: string): Set<SyncedPrefKey> {
+  const stored = parseStoredPrefs(readStorage(RETAINED_LOCAL_KEY, scope));
+  return new Set(
+    stored
+      ? (Object.keys(stored).filter((key) => Object.hasOwn(SYNCED_PREFS, key)) as SyncedPrefKey[])
+      : [],
+  );
+}
+function writeRetainedLocalKeys(scope: string, keys: ReadonlySet<SyncedPrefKey>): void {
+  writeStorage(
+    RETAINED_LOCAL_KEY,
+    scope,
+    keys.size ? JSON.stringify(Object.fromEntries([...keys].map((key) => [key, true]))) : null,
+  );
+}
+function updateRetainedLocalKeys(
+  scope: string,
+  keys: readonly SyncedPrefKey[],
+  retained: boolean,
+): void {
+  const stored = readRetainedLocalKeys(scope);
+  for (const key of keys) {
+    if (retained) {
+      stored.add(key);
+    } else {
+      stored.delete(key);
+    }
+  }
+  writeRetainedLocalKeys(scope, stored);
+  if (retained && scope === lastReconciledScope) {
+    lastReconciledConfigObject = null;
+  }
+}
 function adoptPendingScope(scope: string, force = false): void {
   if (!force && scope === pendingScope) {
     return;
@@ -357,6 +410,21 @@ function adoptPendingScope(scope: string, force = false): void {
 }
 function writePendingStorage(prefs: ServerUiPrefs | null): void {
   writeStorage(PENDING_KEY, pendingScope, prefs ? JSON.stringify(prefs) : null);
+}
+function cancelPendingKeys(scope: string, keys: readonly SyncedPrefKey[]): void {
+  const active = scope === pendingScope ? pendingPrefs : null;
+  const remaining = {
+    ...parseStoredPrefs(readStorage(PENDING_KEY, scope)),
+    ...active,
+  };
+  for (const key of keys) {
+    delete remaining[key];
+  }
+  const next = Object.keys(remaining).length ? remaining : null;
+  if (scope === pendingScope) {
+    pendingPrefs = next;
+  }
+  writeStorage(PENDING_KEY, scope, next ? JSON.stringify(next) : null);
 }
 // localStorage pending is a cross-tab merged pool per gateway. Per-key read-merge-write prevents
 // one tab from clobbering sibling offline intent; its ms-scale race is accepted because storage has
@@ -391,6 +459,7 @@ export function resetServerUiPrefsSync() {
 export function resetServerUiPref<K extends ResettableServerUiPrefKey>(
   key: K,
   state?: ServerUiPrefState<SyncedPrefValue<K>>,
+  scope = pendingScope,
 ): UiSettings {
   const specification = SYNCED_PREFS[key];
   const reset = specification.reset;
@@ -404,6 +473,8 @@ export function resetServerUiPref<K extends ResettableServerUiPrefKey>(
     if (!write) {
       throw new Error(`Server UI preference cannot restore a retained local value: ${key}`);
     }
+    cancelPendingKeys(scope, [key]);
+    updateRetainedLocalKeys(scope, [key], false);
     requestedDeviceLocalPrefResets.add(key);
     return patchSettings(write(state.resetValue));
   }
@@ -428,6 +499,7 @@ export function applyServerUiPrefs(
   };
   const shadowPrefs =
     scope === pendingScope ? pendingPrefs : parseStoredPrefs(readStorage(PENDING_KEY, scope));
+  const retainedLocalKeys = readRetainedLocalKeys(scope);
   const prefs = extractServerUiPrefs(configObject);
   const key = JSON.stringify(prefs);
   const lastSeenRaw = readStorage(LAST_SEEN_KEY, scope);
@@ -442,6 +514,7 @@ export function applyServerUiPrefs(
   for (const prefKey of Object.keys(prefs) as Array<keyof ServerUiPrefs>) {
     if (
       !(shadowPrefs && prefKey in shadowPrefs) &&
+      !retainedLocalKeys.has(prefKey) &&
       (lastSeenRaw === null || !prefValuesEqual(prefs[prefKey], lastSeen[prefKey]))
     ) {
       (changed as Record<string, unknown>)[prefKey] = prefs[prefKey];
@@ -451,12 +524,16 @@ export function applyServerUiPrefs(
     if (
       !(prefKey in prefs) &&
       !(shadowPrefs && prefKey in shadowPrefs) &&
+      !retainedLocalKeys.has(prefKey) &&
       SYNCED_PREFS[prefKey]?.clearable
     ) {
       (changed as Record<string, unknown>)[prefKey] = null;
     }
   }
   writeStorage(LAST_SEEN_KEY, scope, key);
+  if (retainedLocalKeys.size) {
+    updateRetainedLocalKeys(scope, [...retainedLocalKeys], false);
+  }
   recordReconciledObject();
   if (Object.hasOwn(changed, "theme")) {
     hooks.onThemeChanged?.(changed.theme ?? null);
@@ -554,7 +631,11 @@ async function drainPendingPrefs(writer: ServerUiPrefsWriter, epoch: number): Pr
               : {}),
             note: "control-ui prefs sync",
           }),
-        { waitForWritesResumed: true },
+        {
+          waitForWritesResumed: true,
+          canDispatch: () => writer.canPatch !== false,
+          dispatchError: "Access changed before preferences could sync.",
+        },
       );
       if (pushWriter !== writer || pushEpoch !== epoch) {
         return;
@@ -615,6 +696,9 @@ function startPendingDrain(writer: ServerUiPrefsWriter): void {
   if (!pendingPrefs) {
     return;
   }
+  if (writer.state.connected && writer.canPatch === false) {
+    return;
+  }
   pushDraining = true;
   const epoch = pushEpoch;
   void drainPendingPrefs(writer, epoch)
@@ -636,8 +720,17 @@ export function pushServerUiPrefs(
 ): void {
   adoptPushWriter(writer);
   clearConflictRedrain();
-  pendingPrefs = { ...pendingPrefs, ...prefs };
   pushAfterCommit = hooks.afterCommit;
+  if (writer.state.connected && writer.canPatch === false) {
+    // A connected read-only edit is intentionally browser-local. Supersede only
+    // same-key offline intent so a later authorization cannot replay stale input.
+    const keys = Object.keys(prefs) as SyncedPrefKey[];
+    cancelPendingKeys(pendingScope, keys);
+    updateRetainedLocalKeys(pendingScope, keys, true);
+    hooks.afterCommit?.({ needsRefresh: false, retainedLocal: true });
+    return;
+  }
+  pendingPrefs = { ...pendingPrefs, ...prefs };
   mergePendingIntoStorage();
   startPendingDrain(writer);
 }
