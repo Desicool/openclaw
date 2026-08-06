@@ -786,7 +786,7 @@ describe("pushServerUiPrefs", () => {
 
     pushServerUiPrefs(writer, { locale: "de" });
     canPatch = false;
-    gate.resolve();
+    gate.resolve(undefined);
     await vi.waitFor(() => expect(readPending(scope)).toEqual({ locale: "de" }));
 
     expect(request).not.toHaveBeenCalled();

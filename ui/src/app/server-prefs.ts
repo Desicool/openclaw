@@ -514,10 +514,11 @@ function reconcilePersistedPendingPrefs(): void {
   }
 }
 function batchIsCurrent(batch: ServerUiPrefs): boolean {
+  const current = pendingPrefs;
   return Boolean(
-    pendingPrefs &&
+    current &&
     (Object.keys(batch) as SyncedPrefKey[]).every(
-      (key) => Object.hasOwn(pendingPrefs, key) && prefValuesEqual(pendingPrefs[key], batch[key]),
+      (key) => Object.hasOwn(current, key) && prefValuesEqual(current[key], batch[key]),
     ),
   );
 }
