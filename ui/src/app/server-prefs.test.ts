@@ -670,6 +670,35 @@ describe("pushServerUiPrefs", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("applies the first server delta after a post-snapshot read-only edit", () => {
+    const scope = "ws://read-only";
+    const initial = configWithPrefs({ theme: "claw" });
+    applyServerUiPrefs(initial, { scope, onApplied: vi.fn() });
+    patchSettings({ theme: "knot" });
+
+    pushServerUiPrefs(
+      createClient(vi.fn(), scope, true, { ok: true }, false),
+      { theme: "knot" },
+      {
+        afterCommit: ({ retainedLocal }) => {
+          expect(retainedLocal).toBe(true);
+          expect(applyServerUiPrefs(initial, { scope, onApplied: vi.fn() })).toBe(false);
+        },
+      },
+    );
+
+    expect(
+      localStorage.getItem(`openclaw.control.serverPrefs.retained-local.v1:${scope}`),
+    ).toBeNull();
+    expect(
+      applyServerUiPrefs(configWithPrefs({ theme: "dash" }), {
+        scope,
+        onApplied: vi.fn(),
+      }),
+    ).toBe(true);
+    expect(loadSettings().theme).toBe("dash");
+  });
+
   it("keeps offline intent through read-only reconnect and replays it after authorization", async () => {
     const scope = "ws://read-only";
     const request = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(async () => ({}));

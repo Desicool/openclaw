@@ -504,6 +504,9 @@ export function applyServerUiPrefs(
   const key = JSON.stringify(prefs);
   const lastSeenRaw = readStorage(LAST_SEEN_KEY, scope);
   if (key === lastSeenRaw) {
+    if (retainedLocalKeys.size) {
+      updateRetainedLocalKeys(scope, [...retainedLocalKeys], false);
+    }
     recordReconciledObject();
     return false;
   }
