@@ -264,7 +264,13 @@ export function createPageState(
   state.handleChatDraftChange = (next) => handleChatDraftChange(state, next);
   state.handleChatInputHistoryKey = (input) => handleChatInputHistoryKey(state, input);
   state.applySettings = (patch) => {
-    state.settings = patchSettings(patch);
+    const next = { ...state.settings, ...patch };
+    state.settings = patchSettings({
+      chatShowThinking: next.chatShowThinking,
+      chatShowToolCalls: next.chatShowToolCalls,
+      chatPersistCommentary: next.chatPersistCommentary,
+      chatSendShortcut: next.chatSendShortcut,
+    });
     renderLifecycle.invalidate();
   };
   state.setChatViewMenuOpen = (open, options) => {

@@ -411,7 +411,13 @@ function makeHost(overrides?: MakeHostOverrides): TestChatHost | TestChatHostWit
     chatProgrammaticScrollTarget: 0,
     applySettings: vi.fn((patch: Partial<UiSettings>) => {
       // Chat pages own display/layout settings; active-session persistence belongs to pane bindings.
-      Object.assign(settings, patch);
+      const next = { ...settings, ...patch };
+      Object.assign(settings, {
+        chatShowThinking: next.chatShowThinking,
+        chatShowToolCalls: next.chatShowToolCalls,
+        chatPersistCommentary: next.chatPersistCommentary,
+        chatSendShortcut: next.chatSendShortcut,
+      });
     }),
     ...hostOverrides,
     settings,
