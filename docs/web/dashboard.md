@@ -35,7 +35,8 @@ The Control UI is an **admin surface** (chat, config, exec approvals). Do not ex
 
 - After onboarding, the CLI auto-opens the dashboard and prints a clean link.
 - Re-open or repair a browser anytime: `openclaw dashboard`. It copies/opens a single-use pairing link
-  that replaces stale browser credentials without granting blanket remote auto-approval.
+  that grants administrator access to that exact signed browser, including recovery from a previously
+  limited credential, without granting blanket remote auto-approval.
 - If clipboard and browser delivery both fail, `openclaw dashboard` either gives a safe manual-token
   hint or tells you to run `openclaw dashboard --json` and open its short-lived `browserUrl`; it never
   prints the shared token value in interactive logs.
@@ -49,7 +50,8 @@ The Control UI is an **admin surface** (chat, config, exec approvals). Do not ex
   is kept in sessionStorage for the current tab and selected gateway URL, not localStorage.
 - **Host-authorized browser handoff**: `openclaw dashboard` issues a short-lived, single-use bootstrap
   instead of putting the shared Gateway token in the browser launch URL. The bootstrap is bound to
-  that browser's signed device identity and exchanged for a durable per-device credential.
+  that browser's signed device identity and exchanged for a durable administrator credential. A
+  different browser profile cannot redeem the same handoff or inherit the resulting access.
 - **Missing-config runtime token**: if startup says it generated a runtime token, that token is ephemeral and cannot be recovered. Loopback still requires auth. Run `openclaw doctor --generate-gateway-token`, restart the Gateway, then run `openclaw gateway auth-token --show` in an interactive terminal and paste the output into Control UI settings.
 - If `gateway.auth.token` is SecretRef-managed, the interactive dashboard handoff still works because
   it carries only the short-lived browser bootstrap; the external shared token is not placed in
@@ -69,7 +71,9 @@ Requirements:
 - Run `/dashboard` in a DM with the bot. Group invocations only tell you to open the command in DM and do not include a button.
 - Docker installs: Serve/Funnel modes require the gateway to bind loopback next to `tailscaled`, which bridge networking with published ports cannot satisfy. Run the gateway container with `network_mode: host` and mount the host `tailscaled` socket (`/var/run/tailscale`) plus the `tailscale` CLI into the container.
 
-The Mini App performs a one-time owner handoff and redirects to Control UI with a short-lived bootstrap token. It does not expose a shared gateway token in the URL.
+The Mini App performs a bounded one-time dashboard handoff and redirects to Control UI with a
+short-lived bootstrap token. It does not expose a shared gateway token in the URL, and it does not
+receive the administrator grant reserved for handoffs issued directly by the Gateway host.
 
 Non-goals for v1:
 
