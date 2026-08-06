@@ -177,6 +177,48 @@ describeControlUiE2e("Control UI server prefs reconnect sync", () => {
     }
   });
 
+  it("keeps offline intent through read-only reconnect and dispatches once after authorization", async () => {
+    const context = await createContext();
+    const page = await context.newPage();
+    const initial = configResponse({ theme: "claw", themeMode: "system" }, "prefs-scope-1");
+    const committed = configResponse({ theme: "knot", themeMode: "system" }, "prefs-scope-2");
+    const gateway = await installMockGateway(page, {
+      methodResponses: { "config.get": initial },
+    });
+
+    try {
+      const response = await page.goto(`${server.baseUrl}settings/appearance`);
+      expect(response?.status()).toBe(200);
+      await themeCard(page, "claw").waitFor();
+      await gateway.waitForRequest("config.get");
+
+      await proxyReconnect(page, gateway, async () => {
+        await themeCard(page, "knot").click();
+        await expectThemeActive(page, "knot");
+        await gateway.setOperatorScopes(["operator.read"]);
+      });
+
+      await expectThemeActive(page, "knot");
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+
+      await gateway.deferNext("config.patch");
+      await gateway.setMethodResponse("config.get", committed);
+      await proxyReconnect(page, gateway, async () => {
+        await gateway.setOperatorScopes(["operator.admin", "operator.read", "operator.write"]);
+      });
+
+      const patch = await gateway.waitForRequest("config.patch");
+      expect(patchPrefs(patch)).toEqual({ theme: "knot" });
+      await gateway.resolveDeferred("config.patch", committed);
+      await expectThemeActive(page, "knot");
+      await expect
+        .poll(async () => (await gateway.getRequests("config.patch")).length, { timeout: 10_000 })
+        .toBe(1);
+    } finally {
+      await context.close();
+    }
+  });
+
   it("keeps disjoint edits from two pages after both hash-free patches", async () => {
     const contextA = await createContext();
     const contextB = await createContext();

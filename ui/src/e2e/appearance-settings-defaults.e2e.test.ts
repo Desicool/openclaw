@@ -487,6 +487,69 @@ describeControlUiE2e("Control UI Appearance defaults mocked Gateway E2E", () => 
     }
   });
 
+  it("keeps read-only edits browser-local across reload and restores the server baseline", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1440 },
+    });
+    const page = await context.newPage();
+    const gateway = await installMockGateway(page, {
+      operatorScopes: ["operator.read"],
+      methodResponses: {
+        "config.get": configResponse({ theme: "knot" }, "appearance-read-only-1"),
+      },
+    });
+
+    try {
+      const response = await page.goto(`${server.baseUrl}settings/appearance`);
+      expect(response?.status()).toBe(200);
+      await waitForControlUiSettingsTakeover(page);
+      await gateway.waitForRequest("config.get");
+
+      const themeSection = page.locator("#settings-appearance-theme");
+      const themeDescription = themeSection.locator(":scope > .settings-section__desc");
+      await themeSection.locator(".settings-theme-card--claw").click();
+
+      await expect
+        .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
+        .toBe("true");
+      await expect
+        .poll(() => themeDescription.textContent())
+        .toContain("Stored in this browser only");
+      await expect.poll(() => readPersistedSettings(page)).toMatchObject({ theme: "claw" });
+      await page.waitForTimeout(100);
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+
+      await page.reload();
+      await waitForControlUiSettingsTakeover(page);
+      await expect
+        .poll(() => themeSection.locator(".settings-theme-card--claw").getAttribute("aria-pressed"))
+        .toBe("true");
+      await expect
+        .poll(() => themeDescription.textContent())
+        .toContain("Stored in this browser only");
+      await expect.poll(() => readPersistedSettings(page)).toMatchObject({ theme: "claw" });
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+
+      await themeSection
+        .locator(":scope > .settings-section__header")
+        .locator("button.btn--icon")
+        .click();
+      await expect
+        .poll(() => themeSection.locator(".settings-theme-card--knot").getAttribute("aria-pressed"))
+        .toBe("true");
+      await expect.poll(() => themeDescription.textContent()).toContain("Default: Claw");
+      await expect
+        .poll(() => themeDescription.textContent())
+        .not.toContain("Stored in this browser only");
+      await page.waitForTimeout(100);
+      expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+    } finally {
+      await context.close();
+    }
+  });
+
   it("keeps Clear authoritative after a delayed custom-theme replacement", async () => {
     const existingTheme = await importCustomThemeFromUrl(
       "existing",
