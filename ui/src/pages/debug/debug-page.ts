@@ -1,6 +1,6 @@
 import { consume } from "@lit/context";
 import { initialState, Task, TaskStatus } from "@lit/task";
-import { html, nothing } from "lit";
+import { html } from "lit";
 import { state } from "lit/decorators.js";
 import type { EventLogEntry } from "../../api/event-log.ts";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
@@ -188,6 +188,7 @@ class DebugPage extends OpenClawLightDomElement {
       health: this.debugHealth,
       models: this.debugModels,
       heartbeat: this.debugHeartbeat,
+      diagnosticsError: this.debugDiagnosticsError,
       eventLog: this.eventLog,
       methods: (this.context.gateway.snapshot.hello?.features?.methods ?? []).toSorted(),
       callMethod: this.debugCallMethod,
@@ -199,19 +200,13 @@ class DebugPage extends OpenClawLightDomElement {
       onRefresh: () => void this.loadDiagnostics(),
       onCall: () => void this.callDebugMethod(),
     });
-    const body = html`
-      ${this.debugDiagnosticsError
-        ? html`<div class="callout danger" role="alert">${this.debugDiagnosticsError}</div>`
-        : nothing}
-      ${debugView}
-    `;
     return html`
       <section class="content-header">
         <div>
           <div class="page-title">${titleForRoute("debug")}</div>
         </div>
       </section>
-      ${renderSettingsWorkspace(body)}
+      ${renderSettingsWorkspace(debugView)}
     `;
   }
 }

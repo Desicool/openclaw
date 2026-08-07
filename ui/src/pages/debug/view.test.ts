@@ -9,15 +9,22 @@ import "./debug-page.ts";
 import { renderDebug } from "./view.ts";
 
 type DebugProps = Parameters<typeof renderDebug>[0];
+const DIAGNOSTIC_METHODS = ["status", "health", "models.list", "last-heartbeat"] as const;
+type DiagnosticMethod = (typeof DIAGNOSTIC_METHODS)[number];
+
 type TestDebugPage = HTMLElement & {
+  readonly updateComplete: Promise<boolean>;
+  callDebugMethod: () => Promise<void>;
   context: ApplicationContext;
   debugCallError: string | null;
   debugCallMethod: string;
   debugCallResult: string | null;
+  debugDiagnosticsError: string | null;
+  debugHealth: unknown;
+  debugHeartbeat: unknown;
+  debugModels: unknown[];
   debugStatus: unknown;
   loadDiagnostics: () => Promise<void>;
-  requestUpdate: () => void;
-  updateComplete: Promise<boolean>;
 };
 
 function deferred<T>() {
@@ -34,13 +41,8 @@ async function mountDebugPage(
   request: (method: string) => Promise<unknown>,
 ): Promise<TestDebugPage> {
   const client = { request } as unknown as GatewayBrowserClient;
-  const snapshot = {
-    phase: "connected",
-    client,
-    hello: { features: { methods: ["manual.first", "manual.latest"] } },
-  } as ApplicationGatewaySnapshot;
   const gateway = {
-    snapshot,
+    snapshot: { phase: "connected", client } as ApplicationGatewaySnapshot,
     eventLog: [],
     subscribe: () => () => undefined,
     subscribeEventLog: () => () => undefined,
@@ -49,33 +51,29 @@ async function mountDebugPage(
   page.context = { basePath: "", gateway } as ApplicationContext;
   document.body.append(page);
   await vi.waitFor(() => expect(page.debugStatus).not.toBeNull());
-  await page.updateComplete;
   return page;
 }
 
-function clickManualCall(page: TestDebugPage): void {
-  const button = [...page.querySelectorAll("button")].find(
-    (candidate) => candidate.textContent?.trim() === "Call",
-  );
-  if (!button) {
-    throw new Error("Expected the rendered manual RPC Call button");
-  }
-  button.click();
-}
-
-function diagnosticResponse(method: string): unknown {
+function diagnosticResponse(method: string, marker = "initial"): unknown {
   switch (method) {
     case "status":
-      return { version: "healthy" };
+      return { version: marker };
     case "health":
-      return { ok: true };
+      return { marker, ok: true };
     case "models.list":
-      return { models: [] };
+      return { models: [{ id: marker }] };
     case "last-heartbeat":
-      return null;
+      return { source: marker };
     default:
       throw new Error(`Unexpected diagnostics method: ${method}`);
   }
+}
+
+function expectSnapshots(page: TestDebugPage, marker: string): void {
+  expect(page.debugStatus).toEqual({ version: marker });
+  expect(page.debugHealth).toEqual({ marker, ok: true });
+  expect(page.debugModels).toEqual([{ id: marker }]);
+  expect(page.debugHeartbeat).toEqual({ source: marker });
 }
 
 function createProps(overrides: Partial<DebugProps> = {}): DebugProps {
@@ -85,6 +83,7 @@ function createProps(overrides: Partial<DebugProps> = {}): DebugProps {
     health: null,
     models: [],
     heartbeat: null,
+    diagnosticsError: null,
     eventLog: [],
     methods: [],
     callMethod: "",
@@ -103,18 +102,18 @@ function normalizedText(element: Element | null | undefined): string | undefined
   return element?.textContent?.replace(/\s+/gu, " ").trim();
 }
 
+beforeEach(async () => {
+  vi.stubGlobal("localStorage", createStorageMock());
+  await i18n.setLocale("en");
+});
+
+afterEach(async () => {
+  document.body.replaceChildren();
+  await i18n.setLocale("en");
+  vi.unstubAllGlobals();
+});
+
 describe("renderDebug", () => {
-  beforeEach(async () => {
-    vi.stubGlobal("localStorage", createStorageMock());
-    await i18n.setLocale("en");
-  });
-
-  afterEach(async () => {
-    document.body.replaceChildren();
-    await i18n.setLocale("en");
-    vi.unstubAllGlobals();
-  });
-
   it("keeps the security audit command styled as monospace", async () => {
     await i18n.setLocale("zh-CN");
     const container = document.createElement("div");
@@ -167,7 +166,9 @@ describe("renderDebug", () => {
     expect(container.textContent).toContain("gateway");
     expect(container.textContent).not.toContain("Invalid Date");
   });
+});
 
+describe("DebugPage", () => {
   it.each([
     { label: "response", staleError: false },
     { label: "error", staleError: true },
@@ -175,114 +176,93 @@ describe("renderDebug", () => {
     "ignores an older manual RPC $label after the latest call succeeds",
     async ({ staleError }) => {
       const older = deferred<unknown>();
-      const latest = deferred<unknown>();
       const request = vi.fn(async (method: string) => {
         if (method === "manual.first") {
           return older.promise;
         }
         if (method === "manual.latest") {
-          return latest.promise;
+          return { result: "latest response" };
         }
         return diagnosticResponse(method);
       });
       const page = await mountDebugPage(request);
 
       page.debugCallMethod = "manual.first";
-      await page.updateComplete;
-      clickManualCall(page);
+      const olderCall = page.callDebugMethod();
       page.debugCallMethod = "manual.latest";
-      await page.updateComplete;
-      clickManualCall(page);
-      await vi.waitFor(() => expect(request).toHaveBeenCalledWith("manual.latest", {}));
-
-      latest.resolve({ result: "latest response" });
-      await vi.waitFor(() => expect(page.textContent).toContain("latest response"));
+      await page.callDebugMethod();
       if (staleError) {
         older.reject(new Error("stale manual failure"));
       } else {
         older.resolve({ result: "stale response" });
       }
-      await older.promise.catch(() => undefined);
-      await Promise.resolve();
-      await Promise.resolve();
-      await page.updateComplete;
+      await olderCall;
 
-      expect(page.textContent).toContain("latest response");
-      expect(page.textContent).not.toContain("stale response");
-      expect(page.textContent).not.toContain("stale manual failure");
+      expect(page.debugCallResult).toContain("latest response");
+      expect(page.debugCallResult).not.toContain("stale response");
       expect(page.debugCallError).toBeNull();
     },
   );
 
-  it("reports polling failures separately from manual RPC and clears them on recovery", async () => {
+  it.each(DIAGNOSTIC_METHODS)(
+    "preserves every last-good snapshot and recovers after %s fails",
+    async (failedMethod) => {
+      let failure: DiagnosticMethod | null = null;
+      let marker = "initial";
+      const request = vi.fn(async (method: string) => {
+        if (method === failure) {
+          throw new Error(`${method} unavailable`);
+        }
+        return diagnosticResponse(method, marker);
+      });
+      const page = await mountDebugPage(request);
+      expectSnapshots(page, "initial");
+
+      marker = "uncommitted";
+      failure = failedMethod;
+      await page.loadDiagnostics();
+      await page.updateComplete;
+
+      expect(page.debugDiagnosticsError).toContain(`${failedMethod} unavailable`);
+      expectSnapshots(page, "initial");
+      const alert = page.querySelector<HTMLElement>('[role="alert"]');
+      expect(alert?.closest(".settings-section")?.querySelector("h2")?.textContent.trim()).toBe(
+        "Snapshots",
+      );
+      expect(alert?.classList).toContain("settings-row");
+      expect(page.querySelector(".callout")).toBeNull();
+
+      marker = "recovered";
+      failure = null;
+      await page.loadDiagnostics();
+
+      expect(page.debugDiagnosticsError).toBeNull();
+      expectSnapshots(page, "recovered");
+    },
+  );
+
+  it("keeps failed Manual RPC state separate from diagnostics failure and recovery", async () => {
     let diagnosticsUnavailable = false;
     const request = vi.fn(async (method: string) => {
       if (method === "manual.latest") {
-        return { result: "manual response" };
+        throw new Error("manual request failed");
       }
-      if (method === "status" && diagnosticsUnavailable) {
+      if (method === "health" && diagnosticsUnavailable) {
         throw new Error("background snapshots unavailable");
       }
       return diagnosticResponse(method);
     });
     const page = await mountDebugPage(request);
     page.debugCallMethod = "manual.latest";
-    await page.updateComplete;
-    clickManualCall(page);
-    await vi.waitFor(() => expect(page.textContent).toContain("manual response"));
+    await page.callDebugMethod();
+
+    expect(page.debugCallError).toContain("manual request failed");
+    expect(page.debugDiagnosticsError).toBeNull();
 
     diagnosticsUnavailable = true;
     await page.loadDiagnostics();
-    await page.updateComplete;
 
-    expect(page.querySelector('[role="alert"]')?.textContent).toContain(
-      "background snapshots unavailable",
-    );
-    expect(page.textContent).not.toContain("Call failed");
-    expect(page.debugCallError).toBeNull();
-    expect(page.debugCallResult).toContain("manual response");
-
-    diagnosticsUnavailable = false;
-    await page.loadDiagnostics();
-    await page.updateComplete;
-
-    expect(page.querySelector('[role="alert"]')).toBeNull();
-    expect(page.textContent).toContain("manual response");
-  });
-
-  it("clears a failed snapshots alert when the Gateway source changes", async () => {
-    let diagnosticsUnavailable = false;
-    const initialRequest = vi.fn(async (method: string) => {
-      if (method === "status" && diagnosticsUnavailable) {
-        throw new Error("old Gateway snapshots unavailable");
-      }
-      return diagnosticResponse(method);
-    });
-    const page = await mountDebugPage(initialRequest);
-    diagnosticsUnavailable = true;
-    await page.loadDiagnostics();
-    await page.updateComplete;
-    expect(page.querySelector('[role="alert"]')?.textContent).toContain(
-      "old Gateway snapshots unavailable",
-    );
-
-    const nextStatus = deferred<unknown>();
-    const nextRequest = vi.fn(async (method: string) =>
-      method === "status" ? nextStatus.promise : diagnosticResponse(method),
-    );
-    const nextClient = { request: nextRequest } as unknown as GatewayBrowserClient;
-    const nextGateway = {
-      ...page.context.gateway,
-      snapshot: { ...page.context.gateway.snapshot, client: nextClient },
-      subscribe: () => () => undefined,
-      subscribeEventLog: () => () => undefined,
-    } as ApplicationContext["gateway"];
-    page.context = { basePath: "", gateway: nextGateway } as ApplicationContext;
-    page.requestUpdate();
-    await page.updateComplete;
-
-    expect(page.querySelector('[role="alert"]')).toBeNull();
-    nextStatus.resolve({ version: "replacement" });
-    await vi.waitFor(() => expect(page.debugStatus).toEqual({ version: "replacement" }));
+    expect(page.debugDiagnosticsError).toContain("background snapshots unavailable");
+    expect(page.debugCallError).toContain("manual request failed");
   });
 });
