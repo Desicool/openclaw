@@ -1,8 +1,10 @@
 import { consume } from "@lit/context";
+import type { PropertyValues } from "lit";
 import { property } from "lit/decorators.js";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
+import { loadDashboardsRoute } from "./route.ts";
 import { renderDashboards, type DashboardsRouteData } from "./view.ts";
 
 class DashboardsPage extends OpenClawLightDomElement {
@@ -15,6 +17,8 @@ class DashboardsPage extends OpenClawLightDomElement {
   private observedAgentSelection?: ApplicationContext["agentSelection"];
   private observedDependencies = "";
   private dependenciesInitialized = false;
+  private refreshGeneration = 0;
+  private data?: DashboardsRouteData;
   private readonly subscriptions = new SubscriptionsController(this)
     .effect(
       () => this.context?.sessions,
@@ -32,8 +36,15 @@ class DashboardsPage extends OpenClawLightDomElement {
     );
 
   override disconnectedCallback() {
+    this.refreshGeneration += 1;
     this.subscriptions.clear();
     super.disconnectedCallback();
+  }
+
+  override willUpdate(changed: PropertyValues<this>) {
+    if (changed.has("routeData")) {
+      this.data = this.routeData;
+    }
   }
 
   private synchronizeDependencies(): void {
@@ -55,19 +66,51 @@ class DashboardsPage extends OpenClawLightDomElement {
     ) {
       return;
     }
-    const shouldRevalidate =
-      this.dependenciesInitialized && context.gateway.snapshot.phase === "connected";
+    const shouldRefresh =
+      context.gateway.snapshot.phase === "connected" &&
+      (this.dependenciesInitialized ||
+        (this.routeData?.result === null && this.routeData.error === null));
     this.dependenciesInitialized = true;
     this.observedSessions = sessions;
     this.observedAgentSelection = agentSelection;
     this.observedDependencies = dependencies;
-    if (shouldRevalidate) {
-      void context.revalidate("dashboards").catch(() => undefined);
+    if (shouldRefresh) {
+      void this.refresh(context, sessions, agentSelection, dependencies);
     }
   }
 
+  private async refresh(
+    context: ApplicationContext,
+    sessions: ApplicationContext["sessions"],
+    agentSelection: ApplicationContext["agentSelection"],
+    dependencies: string,
+  ): Promise<void> {
+    const gateway = context.gateway;
+    const client = gateway.snapshot.phase === "connected" ? gateway.snapshot.client : null;
+    if (!client) {
+      return;
+    }
+    const generation = ++this.refreshGeneration;
+    const data = await loadDashboardsRoute(context);
+    if (
+      generation !== this.refreshGeneration ||
+      this.context !== context ||
+      context.sessions !== sessions ||
+      context.agentSelection !== agentSelection ||
+      this.observedDependencies !== dependencies ||
+      context.gateway !== gateway ||
+      gateway.snapshot.phase !== "connected" ||
+      gateway.snapshot.client !== client ||
+      (data.result === null && data.error === null)
+    ) {
+      return;
+    }
+    this.data = data;
+    this.requestUpdate();
+  }
+
   override render() {
-    return renderDashboards(this.routeData);
+    return renderDashboards(this.data);
   }
 }
 

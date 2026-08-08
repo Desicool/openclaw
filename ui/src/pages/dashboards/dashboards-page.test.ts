@@ -56,7 +56,8 @@ describe("DashboardsPage", () => {
     const selectionListeners = new Set<() => void>();
     let canonicalListRevision = 1;
     const selectionState = { selectedId: "main", scopeId: null as string | null };
-    let element: DashboardsPageElement;
+    const client = {};
+    const gateway = { snapshot: { client, phase: "connected", hello: null } };
     const list = vi
       .fn<() => Promise<SessionsListResult | null>>()
       .mockResolvedValueOnce(result(row("agent:main:before", "Before")))
@@ -64,7 +65,7 @@ describe("DashboardsPage", () => {
       .mockResolvedValueOnce(result(row("agent:writer:scoped", "Writer dashboard")));
     const context = {
       basePath: "",
-      gateway: { snapshot: { client: {}, phase: "connected", hello: null } },
+      gateway,
       sessions: {
         get canonicalListRevision() {
           return canonicalListRevision;
@@ -83,14 +84,6 @@ describe("DashboardsPage", () => {
         },
       },
       agents: { state: { agentsList: null } },
-      revalidate: vi.fn(async () => {
-        element.routeData = await loadDashboards(context, {
-          ...loaderOptions,
-          revalidating: true,
-          cause: "revalidate",
-        });
-        await element.updateComplete;
-      }),
     } as unknown as ApplicationContext;
     if (!dashboardsRoute.loader) {
       throw new Error("dashboards route has no loader");
@@ -103,7 +96,7 @@ describe("DashboardsPage", () => {
       deps: "",
       cause: "navigation" as const,
     };
-    element = document.createElement("openclaw-dashboards-page") as DashboardsPageElement;
+    const element = document.createElement("openclaw-dashboards-page") as DashboardsPageElement;
     element.routeData = await loadDashboards(context, loaderOptions);
     const provider = createApplicationContextProvider(context);
     provider.append(element);
@@ -111,29 +104,87 @@ describe("DashboardsPage", () => {
     await element.updateComplete;
 
     expect(list).toHaveBeenCalledTimes(1);
-    expect(context.revalidate).not.toHaveBeenCalled();
     expect(element.textContent).toContain("Before");
 
     canonicalListRevision += 1;
     sessionListeners.forEach((listener) => listener());
     await vi.waitFor(() => expect(element.textContent).toContain("After"));
     expect(list).toHaveBeenCalledTimes(2);
-    expect(context.revalidate).toHaveBeenCalledTimes(1);
 
     sessionListeners.forEach((listener) => listener());
     await Promise.resolve();
-    expect(context.revalidate).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(2);
 
     selectionState.scopeId = "writer";
     selectionListeners.forEach((listener) => listener());
     await vi.waitFor(() => expect(element.textContent).toContain("Writer dashboard"));
     expect(list).toHaveBeenCalledTimes(3);
-    expect(context.revalidate).toHaveBeenCalledTimes(2);
     expect(list).toHaveBeenLastCalledWith({
       limit: 50,
       boardFace: "dashboard",
       archivedFilter: "all",
       agentId: "writer",
     });
+  });
+
+  it("ignores a retired refresh after the replacement connection renders", async () => {
+    const sessionListeners = new Set<() => void>();
+    let canonicalListRevision = 1;
+    const clientA = {};
+    const clientB = {};
+    const gateway = { snapshot: { client: clientA, phase: "connected", hello: null } };
+    let resolveRetired!: (value: SessionsListResult | null) => void;
+    const retiredResult = new Promise<SessionsListResult | null>((resolve) => {
+      resolveRetired = resolve;
+    });
+    const list = vi
+      .fn<() => Promise<SessionsListResult | null>>()
+      .mockImplementationOnce(() => retiredResult)
+      .mockResolvedValueOnce(result(row("agent:main:current", "Current")));
+    const context = {
+      basePath: "",
+      gateway,
+      sessions: {
+        get canonicalListRevision() {
+          return canonicalListRevision;
+        },
+        list,
+        subscribe(listener: () => void) {
+          sessionListeners.add(listener);
+          return () => sessionListeners.delete(listener);
+        },
+      },
+      agentSelection: {
+        state: { selectedId: "main", scopeId: null },
+        subscribe: () => () => undefined,
+      },
+      agents: { state: { agentsList: null } },
+    } as unknown as ApplicationContext;
+    const element = document.createElement("openclaw-dashboards-page") as DashboardsPageElement;
+    element.routeData = {
+      result: result(row("agent:main:before", "Before")),
+      error: null,
+      basePath: "",
+      fallbackAgentId: "main",
+      mainKey: "main",
+    };
+    const provider = createApplicationContextProvider(context);
+    provider.append(element);
+    document.body.append(provider);
+    await element.updateComplete;
+
+    canonicalListRevision = 2;
+    sessionListeners.forEach((listener) => listener());
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    gateway.snapshot = { client: clientB, phase: "connected", hello: null };
+    canonicalListRevision = 3;
+    sessionListeners.forEach((listener) => listener());
+    await vi.waitFor(() => expect(element.textContent).toContain("Current"));
+
+    resolveRetired(result(row("agent:main:retired", "Retired")));
+    await Promise.resolve();
+    await element.updateComplete;
+    expect(element.textContent).toContain("Current");
+    expect(element.textContent).not.toContain("Retired");
   });
 });

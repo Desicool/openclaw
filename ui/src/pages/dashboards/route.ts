@@ -7,25 +7,9 @@ import { resolveSessionNavigationAgentId } from "../../lib/sessions/route-naviga
 import { resolveUiConfiguredMainKey } from "../../lib/sessions/session-key.ts";
 import type { DashboardsRouteData } from "./view.ts";
 
-function waitForSupersedingNavigation(signal: AbortSignal): Promise<never> {
-  const abortError = () =>
-    signal.reason instanceof Error
-      ? signal.reason
-      : new DOMException("Dashboard route load superseded", "AbortError");
-  if (signal.aborted) {
-    return Promise.reject(abortError());
-  }
-  return new Promise((_, reject) => {
-    signal.addEventListener("abort", () => reject(abortError()), { once: true });
-  });
-}
-
-async function loadDashboardsRoute(
+export async function loadDashboardsRoute(
   context: ApplicationContext,
-  signal: AbortSignal,
 ): Promise<DashboardsRouteData> {
-  const gateway = context.gateway;
-  const client = gateway.snapshot.phase === "connected" ? gateway.snapshot.client : null;
   let value = null;
   let error: string | null = null;
   try {
@@ -39,17 +23,6 @@ async function loadDashboardsRoute(
     });
   } catch (cause) {
     error = String(cause);
-  }
-  if (
-    client &&
-    (gateway !== context.gateway ||
-      gateway.snapshot.phase !== "connected" ||
-      gateway.snapshot.client !== client ||
-      (error === null && value === null))
-  ) {
-    // Keep the last successful match visible until reconnect hydration starts
-    // a current-connection load and the router aborts this retired request.
-    return waitForSupersedingNavigation(signal);
   }
   return {
     result: value,
@@ -65,9 +38,7 @@ async function loadDashboardsRoute(
 
 export const page = definePage({
   ...routePageSpec("dashboards"),
-  loaderDeps: (context: ApplicationContext) =>
-    `${context.agentSelection.state.scopeId ?? "all"}\u0000${context.sessions.canonicalListRevision}`,
-  loader: (context: ApplicationContext, { signal }) => loadDashboardsRoute(context, signal),
+  loader: loadDashboardsRoute,
   component: () =>
     import("./dashboards-page.ts").then(() => ({
       header: true,
