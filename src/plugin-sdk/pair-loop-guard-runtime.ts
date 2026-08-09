@@ -45,8 +45,7 @@ export type PairLoopGuardSnapshotEntry = {
 };
 
 type PairLoopGuardEntry = {
-  recentMs: number[];
-  eventDecisions: Map<string, { result: PairLoopGuardResult; expiresAtMs: number }>;
+  recentEvents: Array<{ timestampMs: number; eventId?: string }>;
   windowMs: number;
   cooldownStartedAtMs: number;
   cooldownUntilMs: number;
@@ -181,21 +180,13 @@ function buildPairKey(params: {
   return [params.scopeId, params.conversationId, lhs, rhs].join(KEY_SEPARATOR);
 }
 
-function pruneRecentTimestamps(entry: PairLoopGuardEntry, nowMs: number, windowMs: number): void {
+function pruneRecentEvents(entry: PairLoopGuardEntry, nowMs: number, windowMs: number): void {
   const cutoff = nowMs - windowMs;
-  entry.recentMs = entry.recentMs.filter((timestampMs) => timestampMs > cutoff);
+  entry.recentEvents = entry.recentEvents.filter((event) => event.timestampMs > cutoff);
 }
 
 function countCurrentWindowEvents(entry: PairLoopGuardEntry, nowMs: number): number {
-  return entry.recentMs.filter((timestampMs) => timestampMs <= nowMs).length;
-}
-
-function pruneEventDecisions(entry: PairLoopGuardEntry, nowMs: number): void {
-  for (const [eventId, decision] of entry.eventDecisions) {
-    if (decision.expiresAtMs <= nowMs) {
-      entry.eventDecisions.delete(eventId);
-    }
-  }
+  return entry.recentEvents.filter((event) => event.timestampMs <= nowMs).length;
 }
 
 /** Creates an in-memory pair-loop guard with bounded periodic pruning. */
@@ -210,13 +201,8 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
     }
     nextPruneAtMs = nowMs + pruneIntervalMs;
     for (const [key, entry] of tracked) {
-      pruneRecentTimestamps(entry, nowMs, entry.windowMs);
-      pruneEventDecisions(entry, nowMs);
-      if (
-        entry.recentMs.length === 0 &&
-        entry.eventDecisions.size === 0 &&
-        entry.cooldownUntilMs <= nowMs
-      ) {
+      pruneRecentEvents(entry, nowMs, entry.windowMs);
+      if (entry.recentEvents.length === 0 && entry.cooldownUntilMs <= nowMs) {
         tracked.delete(key);
       }
     }
@@ -260,8 +246,7 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
     let entry = tracked.get(key);
     if (!entry) {
       entry = {
-        recentMs: [],
-        eventDecisions: new Map(),
+        recentEvents: [],
         windowMs,
         cooldownStartedAtMs: 0,
         cooldownUntilMs: 0,
@@ -269,48 +254,28 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
       tracked.set(key, entry);
     }
     entry.windowMs = windowMs;
-    pruneEventDecisions(entry, nowMs);
+    pruneRecentEvents(entry, nowMs, windowMs);
     const eventId = paramsLocal.eventId?.trim();
-    const priorDecision = eventId ? entry.eventDecisions.get(eventId) : undefined;
-    if (priorDecision) {
-      return priorDecision.result;
+    if (eventId && entry.recentEvents.some((event) => event.eventId === eventId)) {
+      return { suppressed: false };
     }
     if (entry.cooldownStartedAtMs <= nowMs && entry.cooldownUntilMs > nowMs) {
-      const result = { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs } as const;
-      if (eventId) {
-        entry.eventDecisions.set(eventId, {
-          result,
-          expiresAtMs: entry.cooldownUntilMs,
-        });
-      }
-      return result;
+      return { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs };
     }
 
-    pruneRecentTimestamps(entry, nowMs, windowMs);
-    entry.recentMs.push(nowMs);
+    entry.recentEvents.push({
+      timestampMs: nowMs,
+      ...(eventId ? { eventId } : {}),
+    });
     if (countCurrentWindowEvents(entry, nowMs) > maxEventsPerWindow) {
       entry.cooldownStartedAtMs = nowMs;
       entry.cooldownUntilMs = nowMs + cooldownMs;
       // Keep only future records during cooldown; past events should not extend suppression.
-      entry.recentMs = entry.recentMs.filter((timestampMs) => timestampMs > nowMs);
-      const result = { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs } as const;
-      if (eventId) {
-        entry.eventDecisions.set(eventId, {
-          result,
-          expiresAtMs: entry.cooldownUntilMs,
-        });
-      }
-      return result;
+      entry.recentEvents = entry.recentEvents.filter((event) => event.timestampMs > nowMs);
+      return { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs };
     }
 
-    const result = { suppressed: false } as const;
-    if (eventId) {
-      entry.eventDecisions.set(eventId, {
-        result,
-        expiresAtMs: nowMs + Math.max(windowMs, cooldownMs),
-      });
-    }
-    return result;
+    return { suppressed: false };
   }
 
   return {
@@ -322,7 +287,7 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
     snapshot: () =>
       Array.from(tracked.entries()).map(([key, entry]) => ({
         key,
-        recentCount: entry.recentMs.length,
+        recentCount: entry.recentEvents.length,
         cooldownUntilMs: entry.cooldownUntilMs,
       })),
   };
