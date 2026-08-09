@@ -469,7 +469,9 @@ Accepted bot messages also pass through OpenClaw's shared bot-pair loop guard.
 Use `botLoopProtection` on the account or `channels.defaults.botLoopProtection`
 to tune its window, budget, cooldown, or enabled state. Group-level `allowBots`
 and `botLoopProtection` values follow the same exact-channel, wildcard, then
-account-level precedence as the other group policies.
+account-level precedence as the other group policies. Top-level channel
+messages share a channel budget, while replies in different ClickClack threads
+use independent thread-root budgets.
 
 Older ClickClack responses may omit `author.kind`. Those messages intentionally
 remain on the legacy `allowFrom` path: `allowFrom: ["*"]` can admit them, and

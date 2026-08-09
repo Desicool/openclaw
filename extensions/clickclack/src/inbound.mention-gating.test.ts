@@ -286,9 +286,43 @@ describe("ClickClack inbound mention gating", () => {
       conversationId: "chn_1",
       senderId: "usr_sender",
       receiverId: "usr_receiver",
+      eventId: "msg_1",
       defaultsConfig: { maxEventsPerWindow: 7 },
       defaultEnabled: true,
     });
+  });
+
+  it("isolates bot loop budgets by ClickClack thread root", async () => {
+    const runtime = createRuntime();
+    setClickClackRuntime(runtime);
+    const account = createAgentAccount({ allowFrom: ["usr_sender"], allowBots: true });
+    const author = createAuthor({ id: "usr_sender", kind: "bot", handle: "sender" });
+
+    const threadA = await resolveClickClackInboundAccess({
+      account,
+      config: {} satisfies CoreConfig,
+      message: createMessage({
+        id: "msg_thread_a_reply",
+        author_id: "usr_sender",
+        parent_message_id: "msg_thread_a",
+        thread_root_id: "msg_thread_a",
+        author,
+      }),
+    });
+    const threadB = await resolveClickClackInboundAccess({
+      account,
+      config: {} satisfies CoreConfig,
+      message: createMessage({
+        id: "msg_thread_b_reply",
+        author_id: "usr_sender",
+        parent_message_id: "msg_thread_b",
+        thread_root_id: "msg_thread_b",
+        author,
+      }),
+    });
+
+    expect(threadA.botLoopProtection?.conversationId).toBe("msg_thread_a");
+    expect(threadB.botLoopProtection?.conversationId).toBe("msg_thread_b");
   });
 
   it("does not let bot opt-in bypass the wildcard human allowFrom default", async () => {

@@ -50,9 +50,7 @@ export function resolveClickClackBotPolicy(params: {
   // account-wide override.
   const groups = channelKey ? account.groups : undefined;
   const wildcard = groups?.["*"];
-  const exact = channelKey
-    ? Object.entries(groups ?? {}).find(([key]) => key.trim() === channelKey)?.[1]
-    : undefined;
+  const exact = channelKey ? groups?.[channelKey] : undefined;
   return {
     allowBots: exact?.allowBots ?? wildcard?.allowBots ?? account.allowBots ?? false,
     botLoopProtection: mergePairLoopGuardConfig(

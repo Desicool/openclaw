@@ -53,6 +53,18 @@ type ClickClackPreparedInboundRoute = {
   revoked: boolean;
 };
 
+function resolveClickClackBotLoopConversationId(params: {
+  message: ClickClackMessage;
+  isDirect: boolean;
+}): string {
+  if (params.message.parent_message_id && params.message.thread_root_id) {
+    return params.message.thread_root_id;
+  }
+  return params.isDirect
+    ? (params.message.direct_conversation_id ?? params.message.author_id)
+    : (params.message.channel_id ?? params.message.thread_root_id ?? params.message.author_id);
+}
+
 function resolveAccountAgentRoute(params: {
   cfg: OpenClawConfig;
   account: ResolvedClickClackAccount;
@@ -235,11 +247,10 @@ export async function resolveClickClackInboundAccess(params: {
           // The workspace is the shared boundary; account IDs would let the
           // same conversation evade the budget by alternating receivers.
           scopeId: params.account.workspace,
-          conversationId: preparedRoute.isDirect
-            ? (params.message.direct_conversation_id ?? params.message.author_id)
-            : (params.message.channel_id ??
-              params.message.thread_root_id ??
-              params.message.author_id),
+          conversationId: resolveClickClackBotLoopConversationId({
+            message: params.message,
+            isDirect: preparedRoute.isDirect,
+          }),
           senderId: params.message.author_id,
           receiverId: params.account.botUserId,
           eventId: params.message.id,
