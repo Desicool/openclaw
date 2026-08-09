@@ -473,6 +473,9 @@ account-level precedence as the other group policies. Top-level channel
 messages share a channel budget, while replies in different ClickClack threads
 use independent thread-root budgets.
 
+ClickClack `agent_commentary` and `agent_tool` activity rows never trigger
+OpenClaw inbound turns, even when their author bot is explicitly allowed.
+
 Older ClickClack responses may omit `author.kind`. Those messages intentionally
 remain on the legacy `allowFrom` path: `allowFrom: ["*"]` can admit them, and
 the bot-specific `allowBots` and bot-pair loop-protection checks do not apply

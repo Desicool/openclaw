@@ -212,6 +212,15 @@ export async function resolveClickClackInboundAccess(params: {
     agentId: preparedRoute.route.agentId,
     channelId: params.message.channel_id,
   });
+  if (params.message.kind !== undefined && params.message.kind !== "message") {
+    return {
+      shouldDispatch: false,
+      commandAuthorized: false,
+      requireMention: effectiveGroupPolicy.requireMention,
+      mentionFacts,
+      preparedRoute,
+    };
+  }
   const effectiveBotPolicy = resolveClickClackBotPolicy({
     account: params.account,
     channelId: params.message.channel_id,

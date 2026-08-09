@@ -196,6 +196,7 @@ export type ClickClackMessage = {
   body: string;
   body_format: "markdown";
   created_at: string;
+  kind?: "message" | "agent_commentary" | "agent_tool";
   author?: ClickClackUser;
   thread_state?: {
     root_message_id: string;

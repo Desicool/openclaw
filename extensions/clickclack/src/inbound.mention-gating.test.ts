@@ -264,6 +264,27 @@ describe("ClickClack inbound mention gating", () => {
     expect(runtime.channel.inbound.dispatch).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["agent_commentary", "agent_tool"] as const)(
+    "does not dispatch ClickClack %s activity rows as bot prompts",
+    async (kind) => {
+      const runtime = createRuntime();
+      setClickClackRuntime(runtime);
+
+      await handleClickClackInbound({
+        account: createAgentAccount({ allowFrom: ["usr_sender"], allowBots: true }),
+        config: {} satisfies CoreConfig,
+        message: createMessage({
+          author_id: "usr_sender",
+          kind,
+          author: createAuthor({ id: "usr_sender", kind: "bot", handle: "sender" }),
+        }),
+      });
+
+      expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+      expect(runtime.llm.complete).not.toHaveBeenCalled();
+    },
+  );
+
   it("dispatches an allowed bot-authored message through the shared loop guard", async () => {
     const runtime = createRuntime();
     setClickClackRuntime(runtime);
