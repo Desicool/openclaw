@@ -1,9 +1,9 @@
 // User turn transcript tests cover transcript extraction for user turns.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { castAgentMessage } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { formatSqliteSessionFileMarker } from "../config/sessions/legacy-sqlite-marker.js";
 import {
   loadTranscriptEvents,
@@ -20,7 +20,7 @@ import {
 import { persistUserTurnTranscript } from "./user-turn-transcript.test-support.js";
 
 describe("user turn transcript persistence", () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useAutoCleanupTempDirTracker(afterEach);
   const unusedRecorderTarget = {
     agentId: "main",
     sessionEntry: undefined,
@@ -28,18 +28,6 @@ describe("user turn transcript persistence", () => {
     sessionKey: "agent:main:unused",
     storePath: "/tmp/openclaw-unused-sessions.json",
   };
-
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  function createTempDir(prefix: string): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-    tempDirs.push(dir);
-    return dir;
-  }
 
   function createSqliteTranscriptTarget(params: {
     dir: string;
@@ -262,7 +250,7 @@ describe("user turn transcript persistence", () => {
 
   describe("persistUserTurnTranscript", () => {
     it("resolves the session file and persists the user turn", async () => {
-      const dir = createTempDir("openclaw-user-turn-persist-");
+      const dir = tempDirs.make("openclaw-user-turn-persist-");
       const target = createSqliteTranscriptTarget({ dir });
       const sessionStore = {
         [target.sessionKey]: {
@@ -321,7 +309,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("persists fallback user turns only once", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-fallback-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-fallback-");
       const target = createSqliteTranscriptTarget({ dir });
       const recorder = createUserTurnTranscriptRecorder({
         input: {
@@ -354,7 +342,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("notifies once after fallback user-turn persistence", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-notify-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-notify-");
       const target = createSqliteTranscriptTarget({ dir });
       const persistedMessages: unknown[] = [];
       const recorder = createUserTurnTranscriptRecorder({
@@ -390,7 +378,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("resolves media lazily at persistence time", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-lazy-media-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-lazy-media-");
       const target = createSqliteTranscriptTarget({ dir });
       let resolverCalled = false;
       const recorder = createUserTurnTranscriptRecorder({
@@ -451,7 +439,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("appends #99495 media that resolves after the admitted turn reached the provider", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-late-media-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-late-media-");
       const target = createSqliteTranscriptTarget({ dir });
       const admittedInput = {
         text: "describe this",
@@ -531,7 +519,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("records the exact self-persisted admission identity", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-receipt-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-receipt-");
       const target = createSqliteTranscriptTarget({ dir });
       const recorder = createUserTurnTranscriptRecorder({
         input: {
@@ -599,7 +587,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("preserves distinct text supplied with late-resolved media", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-late-caption-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-late-caption-");
       const target = createSqliteTranscriptTarget({ dir });
       const admittedInput = {
         text: "describe this",
@@ -647,7 +635,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("keeps #99495 media inline when it resolves before first serialization", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-early-media-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-early-media-");
       const target = createSqliteTranscriptTarget({ dir });
       const recorder = createUserTurnTranscriptRecorder({
         input: {
@@ -681,7 +669,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("falls back to the admitted text message when lazy media resolution fails", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-lazy-failed-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-lazy-failed-");
       const target = createSqliteTranscriptTarget({ dir });
       const errors: unknown[] = [];
       const recorder = createUserTurnTranscriptRecorder({
@@ -719,7 +707,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("does not fallback-persist after runtime persistence is marked", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-runtime-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-runtime-");
       const target = createSqliteTranscriptTarget({ dir });
       const recorder = createUserTurnTranscriptRecorder({
         input: {
@@ -743,7 +731,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("approved persistence skips file targets after runtime persistence is marked", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-runtime-approved-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-runtime-approved-");
       const target = createSqliteTranscriptTarget({ dir });
       const recorder = createUserTurnTranscriptRecorder({
         input: {
@@ -767,7 +755,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("approved persistence does not duplicate runtime-owned SQLite turns", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-runtime-canonical-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-runtime-canonical-");
       const storePath = path.join(dir, "sessions.json");
       const sessionStore = {};
       const recorder = createUserTurnTranscriptRecorder({
@@ -803,7 +791,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("does not fallback-persist after before_agent_run blocks the turn", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-blocked-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-blocked-");
       const target = createSqliteTranscriptTarget({ dir });
       const recorder = createUserTurnTranscriptRecorder({
         input: {
@@ -823,7 +811,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("uses the runtime target supplied at approved persistence time", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-target-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-target-");
       const staleTarget = createSqliteTranscriptTarget({ dir, sessionId: "stale-session" });
       const admittedTarget = createSqliteTranscriptTarget({ dir, sessionId: "admitted-session" });
       const recorder = createUserTurnTranscriptRecorder({
@@ -854,7 +842,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("re-resolves the target after an explicitly retryable persistence miss", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-retry-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-retry-");
       const admittedTarget = createSqliteTranscriptTarget({ dir, sessionId: "admitted-session" });
       let targetResolutionCount = 0;
       const recorder = createUserTurnTranscriptRecorder({
@@ -883,7 +871,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("keeps concurrent persistence retries single-flight", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-concurrent-retry-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-concurrent-retry-");
       const admittedTarget = createSqliteTranscriptTarget({ dir, sessionId: "admitted-session" });
       let targetResolutionCount = 0;
       const recorder = createUserTurnTranscriptRecorder({
@@ -916,7 +904,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("waits for runtime persistence before deciding fallback ownership", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-pending-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-pending-");
       const target = createSqliteTranscriptTarget({ dir });
       let releaseRuntimePersistence!: () => void;
       const runtimePersistenceStarted = new Promise<void>((resolve) => {
@@ -958,7 +946,7 @@ describe("user turn transcript persistence", () => {
     });
 
     it("fallback-persists when pending runtime persistence fails", async () => {
-      const dir = createTempDir("openclaw-user-turn-recorder-pending-failed-");
+      const dir = tempDirs.make("openclaw-user-turn-recorder-pending-failed-");
       const target = createSqliteTranscriptTarget({ dir });
       const errors: unknown[] = [];
       let rejectRuntimePersistence!: (error: unknown) => void;
