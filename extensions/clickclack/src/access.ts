@@ -242,6 +242,7 @@ export async function resolveClickClackInboundAccess(params: {
               params.message.author_id),
           senderId: params.message.author_id,
           receiverId: params.account.botUserId,
+          eventId: params.message.id,
           ...(Number.isFinite(Date.parse(params.message.created_at))
             ? { nowMs: Date.parse(params.message.created_at) }
             : {}),

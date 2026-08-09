@@ -46,6 +46,7 @@ export type PairLoopGuardSnapshotEntry = {
 
 type PairLoopGuardEntry = {
   recentMs: number[];
+  eventDecisions: Map<string, { result: PairLoopGuardResult; expiresAtMs: number }>;
   windowMs: number;
   cooldownStartedAtMs: number;
   cooldownUntilMs: number;
@@ -63,6 +64,8 @@ export type PairLoopGuard = {
     senderId: string;
     /** Receiver id for this event; paired with senderId without direction. */
     receiverId: string;
+    /** Stable provider event identity used to avoid double-counting retries. */
+    eventId?: string;
     /** Resolved guard thresholds for the current channel/account. */
     settings: PairLoopGuardSettings;
     /** Optional test/runtime clock override in epoch milliseconds. */
@@ -187,6 +190,14 @@ function countCurrentWindowEvents(entry: PairLoopGuardEntry, nowMs: number): num
   return entry.recentMs.filter((timestampMs) => timestampMs <= nowMs).length;
 }
 
+function pruneEventDecisions(entry: PairLoopGuardEntry, nowMs: number): void {
+  for (const [eventId, decision] of entry.eventDecisions) {
+    if (decision.expiresAtMs <= nowMs) {
+      entry.eventDecisions.delete(eventId);
+    }
+  }
+}
+
 /** Creates an in-memory pair-loop guard with bounded periodic pruning. */
 export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): PairLoopGuard {
   const tracked = new Map<string, PairLoopGuardEntry>();
@@ -200,7 +211,12 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
     nextPruneAtMs = nowMs + pruneIntervalMs;
     for (const [key, entry] of tracked) {
       pruneRecentTimestamps(entry, nowMs, entry.windowMs);
-      if (entry.recentMs.length === 0 && entry.cooldownUntilMs <= nowMs) {
+      pruneEventDecisions(entry, nowMs);
+      if (
+        entry.recentMs.length === 0 &&
+        entry.eventDecisions.size === 0 &&
+        entry.cooldownUntilMs <= nowMs
+      ) {
         tracked.delete(key);
       }
     }
@@ -211,6 +227,7 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
     conversationId: string;
     senderId: string;
     receiverId: string;
+    eventId?: string;
     settings: PairLoopGuardSettings;
     nowMs?: number;
   }): PairLoopGuardResult {
@@ -242,14 +259,33 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
     const key = buildPairKey(paramsLocal);
     let entry = tracked.get(key);
     if (!entry) {
-      entry = { recentMs: [], windowMs, cooldownStartedAtMs: 0, cooldownUntilMs: 0 };
+      entry = {
+        recentMs: [],
+        eventDecisions: new Map(),
+        windowMs,
+        cooldownStartedAtMs: 0,
+        cooldownUntilMs: 0,
+      };
       tracked.set(key, entry);
     }
+    entry.windowMs = windowMs;
+    pruneEventDecisions(entry, nowMs);
+    const eventId = paramsLocal.eventId?.trim();
+    const priorDecision = eventId ? entry.eventDecisions.get(eventId) : undefined;
+    if (priorDecision) {
+      return priorDecision.result;
+    }
     if (entry.cooldownStartedAtMs <= nowMs && entry.cooldownUntilMs > nowMs) {
-      return { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs };
+      const result = { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs } as const;
+      if (eventId) {
+        entry.eventDecisions.set(eventId, {
+          result,
+          expiresAtMs: entry.cooldownUntilMs,
+        });
+      }
+      return result;
     }
 
-    entry.windowMs = windowMs;
     pruneRecentTimestamps(entry, nowMs, windowMs);
     entry.recentMs.push(nowMs);
     if (countCurrentWindowEvents(entry, nowMs) > maxEventsPerWindow) {
@@ -257,10 +293,24 @@ export function createPairLoopGuard(params?: { pruneIntervalMs?: number }): Pair
       entry.cooldownUntilMs = nowMs + cooldownMs;
       // Keep only future records during cooldown; past events should not extend suppression.
       entry.recentMs = entry.recentMs.filter((timestampMs) => timestampMs > nowMs);
-      return { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs };
+      const result = { suppressed: true, cooldownUntilMs: entry.cooldownUntilMs } as const;
+      if (eventId) {
+        entry.eventDecisions.set(eventId, {
+          result,
+          expiresAtMs: entry.cooldownUntilMs,
+        });
+      }
+      return result;
     }
 
-    return { suppressed: false };
+    const result = { suppressed: false } as const;
+    if (eventId) {
+      entry.eventDecisions.set(eventId, {
+        result,
+        expiresAtMs: nowMs + Math.max(windowMs, cooldownMs),
+      });
+    }
+    return result;
   }
 
   return {

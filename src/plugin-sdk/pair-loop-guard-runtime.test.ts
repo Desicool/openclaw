@@ -77,6 +77,31 @@ describe("createPairLoopGuard", () => {
     expect(guard.recordAndCheck({ ...base, scopeId: "scope-2" })).toEqual({ suppressed: false });
   });
 
+  it("does not consume another budget slot when the same event is retried", () => {
+    const guard = createPairLoopGuard();
+    const strictSettings = { ...settings, maxEventsPerWindow: 1 };
+    const base = {
+      scopeId: "scope-1",
+      conversationId: "conversation-1",
+      senderId: "participant-a",
+      receiverId: "participant-b",
+      settings: strictSettings,
+    };
+
+    expect(guard.recordAndCheck({ ...base, eventId: "event-1", nowMs: 1_000 })).toEqual({
+      suppressed: false,
+    });
+    expect(guard.recordAndCheck({ ...base, eventId: "event-1", nowMs: 1_000 })).toEqual({
+      suppressed: false,
+    });
+    const second = guard.recordAndCheck({ ...base, eventId: "event-2", nowMs: 1_001 });
+    expect(second).toEqual({
+      suppressed: true,
+      cooldownUntilMs: 1_001 + strictSettings.cooldownMs,
+    });
+    expect(guard.recordAndCheck({ ...base, eventId: "event-2", nowMs: 1_001 })).toEqual(second);
+  });
+
   it("prunes inactive pair entries opportunistically", () => {
     const guard = createPairLoopGuard();
     const base = { scopeId: "scope-1", conversationId: "conversation-1", settings };
