@@ -59,12 +59,15 @@ describe("chat attachment route handoff", () => {
       paneId: "p1",
       scopeKey: "agent:main:one",
       attachments: staged,
+      fallbacks: {},
     });
 
     const consumed = handoff.consume({ owner, paneId: "p1", scopeKey: "agent:main:one" });
-    expect(consumed).toEqual(staged);
-    expect(consumed).not.toBe(staged);
-    expect(consumed?.every((attachment, index) => attachment === staged[index])).toBe(true);
+    expect(consumed?.attachments).toEqual(staged);
+    expect(consumed?.attachments).not.toBe(staged);
+    expect(consumed?.attachments.every((attachment, index) => attachment === staged[index])).toBe(
+      true,
+    );
     expect(handoff.consume({ owner, paneId: "p1", scopeKey: "agent:main:one" })).toBeNull();
     for (const attachment of ordinary) {
       expect(getChatAttachmentDataUrl(attachment)).not.toBeNull();
@@ -89,6 +92,7 @@ describe("chat attachment route handoff", () => {
         paneId: "p1",
         scopeKey: "agent:main:one",
         attachments: [annotation],
+        fallbacks: {},
       });
 
       expect(
@@ -108,10 +112,16 @@ describe("chat attachment route handoff", () => {
     const oversized = Array.from({ length: 33 }, (_, index) =>
       storedAttachment(`oversized-${index}`, "image/png", false),
     );
-    handoff.prepare({ owner, paneId: "oversized", scopeKey: "oversized", attachments: oversized });
-    expect(handoff.consume({ owner, paneId: "oversized", scopeKey: "oversized" })).toEqual(
-      oversized,
-    );
+    handoff.prepare({
+      owner,
+      paneId: "oversized",
+      scopeKey: "oversized",
+      attachments: oversized,
+      fallbacks: {},
+    });
+    expect(
+      handoff.consume({ owner, paneId: "oversized", scopeKey: "oversized" })?.attachments,
+    ).toEqual(oversized);
     expect(getChatAttachmentDataUrl(oversized[32]!)).not.toBeNull();
 
     const annotations = Array.from({ length: 33 }, (_, index) =>
@@ -123,6 +133,7 @@ describe("chat attachment route handoff", () => {
         paneId: `p${index}`,
         scopeKey: `scope-${index}`,
         attachments: [annotation],
+        fallbacks: {},
       }),
     );
 
@@ -144,6 +155,7 @@ describe("chat attachment route handoff", () => {
       paneId: "p1",
       scopeKey: "agent:main:one",
       attachments: [annotation],
+      fallbacks: {},
     });
 
     expect(getChatAttachmentDataUrl(annotation)).toBeNull();

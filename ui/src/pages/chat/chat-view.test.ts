@@ -4478,11 +4478,12 @@ describe("chat attachment picker", () => {
       paneId: "p1",
       scopeKey: "agent:main:one",
       attachments,
+      fallbacks: {},
     });
     attachments = expectDefined(
       handoff.consume({ owner, paneId: "p1", scopeKey: "agent:main:one" }),
       "restored attachments",
-    );
+    ).attachments;
 
     expect(attachments).toHaveLength(1);
     expect(attachments[0]).toBe(original);

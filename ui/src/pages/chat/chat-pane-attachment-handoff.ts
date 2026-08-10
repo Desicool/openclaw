@@ -29,13 +29,6 @@ function releaseAttachments(
   }
 }
 
-function releaseFallbackAttachments(state: ChatPageHost, retainedIds = new Set<string>()): void {
-  const releasedIds = new Set<string>();
-  for (const fallback of Object.values(state.chatComposerFallbackByScope)) {
-    releaseAttachments(fallback.attachments, retainedIds, releasedIds);
-  }
-}
-
 export function restorePaneStagedAttachments(
   context: ApplicationContext,
   paneId: string,
@@ -49,8 +42,12 @@ export function restorePaneStagedAttachments(
   const currentIds = new Set(state.chatAttachments.map((attachment) => attachment.id));
   state.chatAttachments = [
     ...state.chatAttachments,
-    ...restored.filter((attachment) => !currentIds.has(attachment.id)),
+    ...restored.attachments.filter((attachment) => !currentIds.has(attachment.id)),
   ];
+  state.chatComposerFallbackByScope = {
+    ...restored.fallbacks,
+    ...state.chatComposerFallbackByScope,
+  };
 }
 
 export function preparePaneStagedAttachments(
@@ -63,8 +60,8 @@ export function preparePaneStagedAttachments(
   context.chatAttachmentHandoff.prepare({
     ...handoffKey(paneId, state, owner),
     attachments,
+    fallbacks: state.chatComposerFallbackByScope,
   });
-  releaseFallbackAttachments(state, new Set(attachments.map((attachment) => attachment.id)));
 }
 
 export function discardStateStagedAttachments(state: ChatPageHost | undefined): void {

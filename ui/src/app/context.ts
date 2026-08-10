@@ -4,7 +4,7 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { AgentIdentityCapability } from "../lib/agents/identity.ts";
 import type { AgentCapability } from "../lib/agents/index.ts";
 import type { ChannelCapability } from "../lib/channels/index.ts";
-import type { ChatAttachment } from "../lib/chat/chat-types.ts";
+import type { ChatAttachment, ChatComposerMemoryFallback } from "../lib/chat/chat-types.ts";
 import type { RuntimeConfigCapability } from "../lib/config/index.ts";
 import type { SessionCapability } from "../lib/sessions/index.ts";
 import type { WorkboardCapability } from "../lib/workboard/capability.ts";
@@ -80,8 +80,16 @@ type ChatAttachmentHandoffKey = {
 };
 
 export type ApplicationChatAttachmentHandoff = {
-  prepare(handoff: ChatAttachmentHandoffKey & { attachments: readonly ChatAttachment[] }): void;
-  consume(handoff: ChatAttachmentHandoffKey): ChatAttachment[] | null;
+  prepare(
+    handoff: ChatAttachmentHandoffKey & {
+      attachments: readonly ChatAttachment[];
+      fallbacks: Readonly<Record<string, ChatComposerMemoryFallback>>;
+    },
+  ): void;
+  consume(handoff: ChatAttachmentHandoffKey): {
+    attachments: ChatAttachment[];
+    fallbacks: Record<string, ChatComposerMemoryFallback>;
+  } | null;
   clearPane(paneId: string): void;
   dispose(): void;
 };

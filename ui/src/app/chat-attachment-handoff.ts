@@ -1,4 +1,4 @@
-import type { ChatAttachment } from "../lib/chat/chat-types.ts";
+import type { ChatAttachment, ChatComposerMemoryFallback } from "../lib/chat/chat-types.ts";
 import { releaseChatAttachmentPayloads } from "../pages/chat/attachment-payload-store.ts";
 import type { ApplicationChatAttachmentHandoff } from "./context.ts";
 
@@ -10,6 +10,7 @@ type PendingChatAttachmentHandoff = {
   owner: NonNullable<Parameters<ApplicationChatAttachmentHandoff["prepare"]>[0]["owner"]>;
   scopeKey: string;
   attachments: ChatAttachment[];
+  fallbacks: Record<string, ChatComposerMemoryFallback>;
 };
 
 export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff {
@@ -18,6 +19,18 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
 
   const release = (attachments: readonly ChatAttachment[] = []) =>
     releaseChatAttachmentPayloads(attachments);
+  const releaseHandoff = (handoff: PendingChatAttachmentHandoff | undefined) => {
+    if (!handoff) {
+      return;
+    }
+    const byId = new Map(handoff.attachments.map((attachment) => [attachment.id, attachment]));
+    for (const fallback of Object.values(handoff.fallbacks)) {
+      for (const attachment of fallback.attachments) {
+        byId.set(attachment.id, attachment);
+      }
+    }
+    release([...byId.values()]);
+  };
   const take = (paneId: string) => {
     const handoff = pending.get(paneId);
     if (handoff) {
@@ -27,26 +40,39 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
   };
 
   return {
-    prepare: ({ owner, paneId, scopeKey, attachments }) => {
+    prepare: ({ owner, paneId, scopeKey, attachments, fallbacks }) => {
       const previous = take(paneId);
-      if (attachments.length === 0) {
-        release(previous?.attachments);
+      const fallbackEntries = Object.entries(fallbacks);
+      if (attachments.length === 0 && fallbackEntries.length === 0) {
+        releaseHandoff(previous);
         return;
       }
-      const retainedIds = new Set(attachments.map((attachment) => attachment.id));
-      release(previous?.attachments.filter((attachment) => !retainedIds.has(attachment.id)));
+      releaseHandoff(previous);
       if (!owner || disposed) {
         release(attachments);
+        for (const fallback of Object.values(fallbacks)) {
+          release(fallback.attachments);
+        }
         return;
       }
-      pending.set(paneId, { owner, scopeKey, attachments: [...attachments] });
+      pending.set(paneId, {
+        owner,
+        scopeKey,
+        attachments: [...attachments],
+        fallbacks: Object.fromEntries(
+          fallbackEntries.map(([key, fallback]) => [
+            key,
+            { ...fallback, attachments: [...fallback.attachments] },
+          ]),
+        ),
+      });
       // Route handoffs normally consume immediately. Bounds make abandoned
       // split panes release their packages instead of leaking for the tab lifetime.
       for (const oldestPaneId of pending.keys()) {
         if (pending.size <= MAX_PENDING_CHAT_ATTACHMENT_ENTRIES) {
           break;
         }
-        release(take(oldestPaneId)?.attachments);
+        releaseHandoff(take(oldestPaneId));
       }
     },
     consume: ({ owner, paneId, scopeKey }) => {
@@ -54,16 +80,16 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
       // Reusing a pane id with another session or Gateway is terminal for the
       // old owner; keeping it would allow a later remount to recover stale evidence.
       if (match?.owner === owner && match.scopeKey === scopeKey) {
-        return match.attachments;
+        return { attachments: match.attachments, fallbacks: match.fallbacks };
       }
-      release(match?.attachments);
+      releaseHandoff(match);
       return null;
     },
-    clearPane: (paneId) => release(take(paneId)?.attachments),
+    clearPane: (paneId) => releaseHandoff(take(paneId)),
     dispose: () => {
       disposed = true;
       for (const handoff of pending.values()) {
-        release(handoff.attachments);
+        releaseHandoff(handoff);
       }
       pending.clear();
     },

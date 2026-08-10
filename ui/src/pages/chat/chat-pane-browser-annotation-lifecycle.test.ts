@@ -108,17 +108,24 @@ describe("staged attachment composer adoption", () => {
     pane.disconnectedCallback();
 
     expect(getChatAttachmentDataUrl(shared)).not.toBeNull();
-    expect(getChatAttachmentDataUrl(fallback)).toBeNull();
+    expect(getChatAttachmentDataUrl(fallback)).not.toBeNull();
     expect(getChatAttachmentDataUrl(ordinary)).not.toBeNull();
     const transferred = pane.context.chatAttachmentHandoff.consume({
       owner,
       paneId: pane.paneId,
       scopeKey,
     });
-    expect(transferred).toEqual([shared, ordinary]);
-    expect(transferred?.[0]).toBe(shared);
-    expect(transferred?.[1]).toBe(ordinary);
+    expect(transferred?.attachments).toEqual([shared, ordinary]);
+    expect(transferred?.attachments[0]).toBe(shared);
+    expect(transferred?.attachments[1]).toBe(ordinary);
+    expect(transferred?.fallbacks.fallback).toMatchObject({
+      message: "",
+      sequence: 1,
+      storageFailed: false,
+    });
+    expect(transferred?.fallbacks.fallback?.attachments).toEqual([shared, fallback, ordinary]);
     releaseChatAttachmentPayload(shared.id);
+    releaseChatAttachmentPayload(fallback.id);
     releaseChatAttachmentPayload(ordinary.id);
   });
 
