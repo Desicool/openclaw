@@ -5,6 +5,7 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { createChatAttachmentHandoff } from "../../app/chat-attachment-handoff.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
+import type { SessionCapability } from "../../lib/sessions/index.ts";
 import {
   getChatAttachmentDataUrl,
   registerChatAttachmentPayload,
@@ -15,7 +16,9 @@ import {
   preparePaneStagedAttachments,
   restorePaneStagedAttachments,
 } from "./chat-pane-attachment-handoff.ts";
+import { createTestChatPane } from "./chat-pane.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
+import { resolveStoredChatOutboxScope, storedChatOutboxScopeKey } from "./composer-persistence.ts";
 import type { ChatSplitLayout } from "./split-layout.ts";
 
 function storedAttachment(id: string, mimeType = "image/png"): ChatAttachment {
@@ -66,6 +69,54 @@ describe("staged chat attachment pane handoff", () => {
 
     expect(closePaneStagedAttachments(context, root, layout, "p1")?.id).toBe("p2");
     expect(calls).toEqual(["discard", "clear"]);
+  });
+
+  it("does not restage a closed pane when its id is reused after disconnect", () => {
+    const owner = {} as GatewayBrowserClient;
+    const { pane, state: current } = createTestChatPane({
+      client: owner,
+      sessions: {} as SessionCapability,
+    });
+    pane.paneId = "p2";
+    const fallback = storedAttachment("closed-fallback");
+    current.chatComposerFallbackByScope = {
+      fallback: {
+        attachments: [fallback],
+        message: "closed pane draft",
+        sequence: 1,
+        storageFailed: false,
+      },
+    };
+    const root = { querySelectorAll: () => [pane] } as unknown as ParentNode;
+    const layout = {
+      columns: [
+        {
+          id: "c1",
+          panes: [
+            { id: "p1", sessionKey: "one" },
+            { id: "p2", sessionKey: current.sessionKey },
+          ],
+          paneWeights: [1, 1],
+        },
+      ],
+      columnWeights: [1],
+      activePaneId: "p2",
+    } satisfies ChatSplitLayout;
+    const scopeKey = storedChatOutboxScopeKey(
+      resolveStoredChatOutboxScope(current, current.sessionKey),
+    );
+
+    closePaneStagedAttachments(pane.context, root, layout, pane.paneId);
+    pane.disconnectedCallback();
+
+    expect(getChatAttachmentDataUrl(fallback)).toBeNull();
+    expect(
+      pane.context.chatAttachmentHandoff.consume({
+        owner,
+        paneId: "p2",
+        scopeKey,
+      }),
+    ).toBeNull();
   });
 
   it("deduplicates current and fallback payload release", () => {

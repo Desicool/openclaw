@@ -72,8 +72,12 @@ const COMPOSER_PREFILL_ATTENTION_CLASS = "agent-chat__input--prefill-attention";
 
 export abstract class ChatPaneLifecycle extends ChatPaneBoard {
   private stagedAttachmentGatewayOwner: ChatAttachmentGatewayOwner = null;
+  private suppressStagedAttachmentHandoffOnDisconnect = false;
 
   public discardStagedAttachments(): void {
+    // Explicit pane disposal is terminal. The DOM disconnect that follows must
+    // not recreate an empty fallback handoff under a later reused pane id.
+    this.suppressStagedAttachmentHandoffOnDisconnect = true;
     discardStateStagedAttachments(this.state);
   }
 
@@ -438,6 +442,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
 
   override connectedCallback() {
     this.boardProviderLifecycleConnected = true;
+    this.suppressStagedAttachmentHandoffOnDisconnect = false;
     super.connectedCallback();
     const mountGatewayOwner = this.context.gateway.snapshot.client;
     this.stagedAttachmentGatewayOwner = mountGatewayOwner;
@@ -665,7 +670,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
   }
 
   override disconnectedCallback() {
-    if (this.state) {
+    if (this.state && !this.suppressStagedAttachmentHandoffOnDisconnect) {
       preparePaneStagedAttachments(
         this.context,
         this.paneId,
