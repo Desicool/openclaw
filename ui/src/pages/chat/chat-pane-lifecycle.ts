@@ -78,7 +78,12 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
     // Explicit pane disposal is terminal. The DOM disconnect that follows must
     // not recreate an empty fallback handoff under a later reused pane id.
     this.suppressStagedAttachmentHandoffOnDisconnect = true;
+    this.chatState.attachmentReads.abortReads();
     discardStateStagedAttachments(this.state);
+  }
+
+  public resumeStagedAttachments(): void {
+    this.suppressStagedAttachmentHandoffOnDisconnect = false;
   }
 
   protected browserAnnotationOwner(): NonNullable<ChatAttachmentGatewayOwner> | undefined {
@@ -442,7 +447,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
 
   override connectedCallback() {
     this.boardProviderLifecycleConnected = true;
-    this.suppressStagedAttachmentHandoffOnDisconnect = false;
+    this.resumeStagedAttachments();
     super.connectedCallback();
     const mountGatewayOwner = this.context.gateway.snapshot.client;
     this.stagedAttachmentGatewayOwner = mountGatewayOwner;

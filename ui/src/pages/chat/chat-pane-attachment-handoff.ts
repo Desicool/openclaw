@@ -3,7 +3,7 @@ import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
 import { releaseChatAttachmentPayload } from "./attachment-payload-store.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { resolveStoredChatOutboxScope, storedChatOutboxScopeKey } from "./composer-persistence.ts";
-import { panesOf, type ChatSplitLayout } from "./split-layout.ts";
+import { panesOf, type ChatSplitLayout, visiblePanesOf } from "./split-layout.ts";
 
 export type ChatAttachmentGatewayOwner = ApplicationContext["gateway"]["snapshot"]["client"];
 
@@ -106,8 +106,25 @@ export function replacePaneStagedAttachmentGatewayOwner(
 
 type StagedAttachmentPane = Element & {
   paneId: string;
+  sessionKey: string;
   discardStagedAttachments?: () => void;
+  resumeStagedAttachments?: () => void;
 };
+
+export function resumeVisiblePaneStagedAttachments(
+  root: ParentNode,
+  layout: ChatSplitLayout,
+  narrow: boolean,
+): void {
+  const visibleSessions = new Map(
+    visiblePanesOf(layout, narrow).map((pane) => [pane.id, pane.sessionKey]),
+  );
+  for (const pane of root.querySelectorAll<StagedAttachmentPane>("openclaw-chat-pane")) {
+    if (visibleSessions.get(pane.paneId) === pane.sessionKey) {
+      pane.resumeStagedAttachments?.();
+    }
+  }
+}
 
 export function closePaneStagedAttachments(
   context: ApplicationContext,

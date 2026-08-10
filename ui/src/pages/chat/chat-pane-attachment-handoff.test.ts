@@ -9,6 +9,7 @@ import type { SessionCapability } from "../../lib/sessions/index.ts";
 import {
   getChatAttachmentDataUrl,
   registerChatAttachmentPayload,
+  releaseChatAttachmentPayload,
 } from "./attachment-payload-store.ts";
 import {
   closePaneStagedAttachments,
@@ -120,6 +121,40 @@ describe("staged chat attachment pane handoff", () => {
         scopeKey,
       }),
     ).toBeNull();
+  });
+
+  it("hands off new work after a retained closed pane is reactivated", () => {
+    const owner = {} as GatewayBrowserClient;
+    const { pane, state: current } = createTestChatPane({
+      client: owner,
+      sessions: {} as SessionCapability,
+    });
+    pane.paneId = "p2";
+    pane.discardStagedAttachments?.();
+    pane.resumeStagedAttachments?.();
+    pane.connectedClient = null;
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client: owner,
+      phase: "reconnecting",
+      hello: null,
+    });
+    const reopened = storedAttachment("reopened");
+    current.chatAttachments = [reopened];
+    const scopeKey = storedChatOutboxScopeKey(
+      resolveStoredChatOutboxScope(current, current.sessionKey),
+    );
+
+    pane.disconnectedCallback();
+
+    expect(
+      pane.context.chatAttachmentHandoff.consume({
+        owner,
+        paneId: pane.paneId,
+        scopeKey,
+      })?.attachments,
+    ).toEqual([reopened]);
+    releaseChatAttachmentPayload(reopened.id);
   });
 
   it("deduplicates current and fallback payload release", () => {

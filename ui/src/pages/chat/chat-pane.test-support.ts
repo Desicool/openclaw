@@ -42,6 +42,7 @@ export type TestChatPane = HTMLElement & {
   restoreArchivedSession: (sessionKey: string) => Promise<void>;
   disconnectedCallback: () => void;
   discardStagedAttachments?: () => void;
+  resumeStagedAttachments?: () => void;
   acceptTaskSuggestion: (
     suggestion: TaskSuggestion,
     mode: TaskSuggestionAcceptMode,

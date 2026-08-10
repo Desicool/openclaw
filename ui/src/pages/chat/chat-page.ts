@@ -20,7 +20,10 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { persistSessionBoardFace } from "./chat-board-face-persistence.ts";
 import { stillOwnsCanonicalLocation } from "./chat-canonical-location.ts";
-import { closePaneStagedAttachments } from "./chat-pane-attachment-handoff.ts";
+import {
+  closePaneStagedAttachments,
+  resumeVisiblePaneStagedAttachments,
+} from "./chat-pane-attachment-handoff.ts";
 import { ChatViewerPresenceController } from "./chat-viewer-presence.ts";
 import "../../styles/chat.css";
 import "./chat-pane.ts";
@@ -125,6 +128,7 @@ export class ChatPage extends OpenClawLightDomElement {
 
   override updated(changedProperties: Map<PropertyKey, unknown>) {
     const layout = this.layout ?? this.classicLayout();
+    resumeVisiblePaneStagedAttachments(this, layout, this.narrow);
     if (this.isConnected) {
       this.viewerPresence.sync(this.context?.gateway, layout, this.narrow);
     }
