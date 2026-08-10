@@ -111,7 +111,7 @@ type StagedAttachmentPane = Element & {
   resumeStagedAttachments?: () => void;
 };
 
-export function resumeVisiblePaneStagedAttachments(
+export function resumeStagedPanes(
   root: ParentNode,
   layout: ChatSplitLayout,
   narrow: boolean,
@@ -126,7 +126,7 @@ export function resumeVisiblePaneStagedAttachments(
   }
 }
 
-export function closePaneStagedAttachments(
+export function closeStagedPane(
   context: ApplicationContext,
   root: ParentNode,
   layout: ChatSplitLayout,

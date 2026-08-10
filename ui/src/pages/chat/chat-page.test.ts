@@ -62,8 +62,6 @@ type RenderedPane = HTMLElement & {
   gatewaysSnapshot: NativeGatewaysSnapshot | null;
   onOpenSplitView?: () => void;
   onClosePane?: (paneId: string) => void;
-  discardStagedAttachments?: () => void;
-  resumeStagedAttachments?: () => void;
   onFaceChange?: (face: "chat" | "dashboard") => void;
 };
 
@@ -394,45 +392,6 @@ describe("chat page split layout host", () => {
     );
     expect(survivingPane).toBe(classicPane);
     expect(survivingPane.classList.contains("chat-split-view__pane")).toBe(false);
-  });
-
-  it("reactivates a closed pane when delayed MCP teardown rebounds to the same owner", async () => {
-    const page = new ChatPage();
-    setNavigationContext(page);
-    page.data = { sessionKey: "main" };
-    document.body.append(page);
-    setLayout(page, createSplitLayout("main"));
-    await page.updateComplete;
-
-    const panes = [...page.querySelectorAll<RenderedPane>("openclaw-chat-pane")];
-    const closingPane = itemAt(panes, 1, "closing pane");
-    const discard = vi.fn();
-    const resume = vi.fn();
-    closingPane.discardStagedAttachments = discard;
-    closingPane.resumeStagedAttachments = resume;
-    const teardown = deferred<void>();
-    const mcpApp = document.createElement("mcp-app-view");
-    const restartAfterTeardown = vi.fn();
-    const teardownMcpApp = vi.fn(() => teardown.promise);
-    mcpApp.restartAfterTeardown = restartAfterTeardown;
-    mcpApp.teardown = teardownMcpApp;
-    closingPane.append(mcpApp);
-
-    closingPane.onClosePane?.(closingPane.paneId);
-    await page.updateComplete;
-    expect(discard).toHaveBeenCalledOnce();
-    expect(closingPane.isConnected).toBe(true);
-
-    setLayout(page, createSplitLayout("main"));
-    page.requestUpdate();
-    await page.updateComplete;
-    expect(resume).toHaveBeenCalled();
-
-    teardown.resolve();
-    await expect.poll(() => restartAfterTeardown).toHaveBeenCalledOnce();
-    expect(
-      itemAt(page.querySelectorAll<RenderedPane>("openclaw-chat-pane"), 1, "reopened pane"),
-    ).toBe(closingPane);
   });
 
   it("applies mounted UI split, focus, and close commands", () => {

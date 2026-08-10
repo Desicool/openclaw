@@ -12,7 +12,7 @@ import {
   releaseChatAttachmentPayload,
 } from "./attachment-payload-store.ts";
 import {
-  closePaneStagedAttachments,
+  closeStagedPane,
   discardStateStagedAttachments,
   preparePaneStagedAttachments,
   restorePaneStagedAttachments,
@@ -68,7 +68,7 @@ describe("staged chat attachment pane handoff", () => {
       activePaneId: "p1",
     } satisfies ChatSplitLayout;
 
-    expect(closePaneStagedAttachments(context, root, layout, "p1")?.id).toBe("p2");
+    expect(closeStagedPane(context, root, layout, "p1")?.id).toBe("p2");
     expect(calls).toEqual(["discard", "clear"]);
   });
 
@@ -107,7 +107,7 @@ describe("staged chat attachment pane handoff", () => {
       resolveStoredChatOutboxScope(current, current.sessionKey),
     );
 
-    closePaneStagedAttachments(pane.context, root, layout, pane.paneId);
+    closeStagedPane(pane.context, root, layout, pane.paneId);
     const lateAttachment = storedAttachment("late-close-completion");
     current.chatAttachments.push(lateAttachment);
     pane.disconnectedCallback();
