@@ -7014,6 +7014,21 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     },
   );
 
+  it("pins transient validation refs before trusted Telegram QA dispatch", () => {
+    const releaseWorkflow = readReleaseChecksWorkflow();
+    const dispatchStep = releaseWorkflow.jobs.qa_live_telegram_release_checks.steps.find(
+      (step: WorkflowStep) => step.name === "Dispatch and await trusted Telegram QA",
+    );
+
+    expect(dispatchStep.env.TARGET_REF).toBe("${{ needs.resolve_target.outputs.ref }}");
+    expect(dispatchStep.env.TARGET_SHA).toBe("${{ needs.resolve_target.outputs.revision }}");
+    expect(dispatchStep.run).toContain('telegram_target_ref="$TARGET_REF"');
+    expect(dispatchStep.run).toContain("validation/target-* | refs/heads/validation/target-*)");
+    expect(dispatchStep.run).toContain('telegram_target_ref="$TARGET_SHA"');
+    expect(dispatchStep.run).toContain('-f target_ref="$telegram_target_ref"');
+    expect(dispatchStep.run).not.toContain("release/* | refs/heads/release/*)");
+  });
+
   it("keeps maturity scorecard release docs opt-in from release checks", () => {
     const releaseWorkflow = readReleaseChecksWorkflow();
     const job = releaseWorkflow.jobs.maturity_scorecard_release_checks;
