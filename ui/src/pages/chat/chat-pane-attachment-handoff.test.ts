@@ -107,9 +107,12 @@ describe("staged chat attachment pane handoff", () => {
     );
 
     closePaneStagedAttachments(pane.context, root, layout, pane.paneId);
+    const lateAttachment = storedAttachment("late-close-completion");
+    current.chatAttachments.push(lateAttachment);
     pane.disconnectedCallback();
 
     expect(getChatAttachmentDataUrl(fallback)).toBeNull();
+    expect(getChatAttachmentDataUrl(lateAttachment)).toBeNull();
     expect(
       pane.context.chatAttachmentHandoff.consume({
         owner,

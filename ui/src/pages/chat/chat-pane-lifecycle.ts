@@ -670,13 +670,19 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
   }
 
   override disconnectedCallback() {
-    if (this.state && !this.suppressStagedAttachmentHandoffOnDisconnect) {
-      preparePaneStagedAttachments(
-        this.context,
-        this.paneId,
-        this.state,
-        this.stagedAttachmentGatewayOwner,
-      );
+    if (this.state) {
+      if (this.suppressStagedAttachmentHandoffOnDisconnect) {
+        // MCP app teardown can delay DOM removal after pane close. Finalize any
+        // attachment that completed during that delay instead of leaking it.
+        discardStateStagedAttachments(this.state);
+      } else {
+        preparePaneStagedAttachments(
+          this.context,
+          this.paneId,
+          this.state,
+          this.stagedAttachmentGatewayOwner,
+        );
+      }
     }
     this.stagedAttachmentGatewayOwner = null;
     this.clearComposerPrefillAttention();
