@@ -590,10 +590,7 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
       gatewayUrl: state.settings.gatewayUrl,
     };
     const chat = renderChat(props);
-    const primary = this.renderBoardPrimary(board, chat, {
-      activeRunId: observerRunId,
-      lastReadAt: selectedSession?.lastReadAt,
-    });
+    const primary = this.renderBoardPrimary(board, chat);
     const discussion = this.buildSessionDiscussionPanel(state, state.sessionKey.trim());
     const panelTemplates = {
       chat,
@@ -678,7 +675,7 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
       layout: sidebarLayout,
       narrow: this.paneWidth < SIDEBAR_NARROW_BREAKPOINT_PX,
       panelMutationEnabled: {
-        chat: Boolean(board.activeTabId) && !board.activeTabReadOnly && board.provider.canMutate,
+        chat: Boolean(board.activeTabId) && board.provider.canMutate,
       },
       panelTemplates,
       primary,
