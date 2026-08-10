@@ -1,14 +1,35 @@
 ---
-name: openclaw-test-audit
-description: "Audit or remove low-value, implementation-coupled, or duplicative OpenClaw tests and simplify test-only seams."
+name: test-audit
+description: "Invoke whenever writing, changing, reviewing, or sweeping tests. Authoring gate for new tests plus audit workflow for low-value, implementation-coupled, or duplicative tests and the test-only production seams they demand."
 ---
 
-# OpenClaw Test Audit
+# Test Audit
 
-Use for focused sweeps of tests that re-assert source, duplicate stronger proof,
-couple behavior to implementation, or keep test-only production seams alive.
-Continue broad audits as separate coherent follow-up PRs; optimize for confidence,
-not deletion count.
+Two modes, one value bar. Authoring mode gates every new or changed test at
+write time. Audit mode runs focused sweeps of tests that re-assert source,
+duplicate stronger proof, couple behavior to implementation, or keep test-only
+production seams alive. Continue broad audits as separate coherent follow-up
+PRs; optimize for confidence, not deletion count.
+
+## Authoring gate
+
+Before adding any test, answer four questions; a missing answer means do not
+add it yet:
+
+1. What observable behavior, invariant, or independent contract does it protect?
+2. What credible regression makes it fail?
+3. Why does existing coverage not already catch that failure? Prefer extending a
+   table-driven case or shared fixture over a near-duplicate test.
+4. Does it need a production seam (export, flag, wrapper, injection hook) that no
+   production caller needs? If yes, move the test to the real boundary instead.
+
+A test that would break under behavior-preserving refactoring is asserting
+implementation, not behavior; rewrite it at the owning boundary before landing
+it.
+
+Bug regression tests must fail on the pre-fix code for the intended reason and
+pass after the owner-boundary repair. A regression test that never demonstrably
+failed proves the mock, not the fix.
 
 ## Value bar
 
