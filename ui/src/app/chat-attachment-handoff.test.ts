@@ -8,7 +8,7 @@ import {
   registerChatAttachmentPayload,
   releaseChatAttachmentPayload,
 } from "../pages/chat/attachment-payload-store.ts";
-import { createBrowserAnnotationHandoff } from "./browser-annotation-handoff.ts";
+import { createChatAttachmentHandoff } from "./chat-attachment-handoff.ts";
 
 const registeredIds = new Set<string>();
 
@@ -43,8 +43,8 @@ afterEach(() => {
   registeredIds.clear();
 });
 
-describe("browser annotation route handoff", () => {
-  it("transfers exact annotation objects once without transferring ordinary attachments", () => {
+describe("chat attachment route handoff", () => {
+  it("transfers every exact staged attachment object once", () => {
     const owner = {} as GatewayBrowserClient;
     const annotation = storedAttachment("annotation", "image/png", true);
     const ordinary = [
@@ -52,17 +52,19 @@ describe("browser annotation route handoff", () => {
       storedAttachment("file", "application/pdf", false),
       storedAttachment("pasted-text", "text/plain", false),
     ];
-    const handoff = createBrowserAnnotationHandoff();
+    const staged = [ordinary[0]!, annotation, ordinary[1]!, ordinary[2]!];
+    const handoff = createChatAttachmentHandoff();
     handoff.prepare({
       owner,
       paneId: "p1",
       scopeKey: "agent:main:one",
-      attachments: [ordinary[0]!, annotation, ordinary[1]!, ordinary[2]!],
+      attachments: staged,
     });
 
     const consumed = handoff.consume({ owner, paneId: "p1", scopeKey: "agent:main:one" });
-    expect(consumed).toEqual([annotation]);
-    expect(consumed?.[0]).toBe(annotation);
+    expect(consumed).toEqual(staged);
+    expect(consumed).not.toBe(staged);
+    expect(consumed?.every((attachment, index) => attachment === staged[index])).toBe(true);
     expect(handoff.consume({ owner, paneId: "p1", scopeKey: "agent:main:one" })).toBeNull();
     for (const attachment of ordinary) {
       expect(getChatAttachmentDataUrl(attachment)).not.toBeNull();
@@ -75,7 +77,7 @@ describe("browser annotation route handoff", () => {
       { ownerMatches: true, scopeKey: "agent:main:two" },
     ];
     for (const { ownerMatches, scopeKey } of cases) {
-      const handoff = createBrowserAnnotationHandoff();
+      const handoff = createChatAttachmentHandoff();
       const expectedOwner = {} as GatewayBrowserClient;
       const annotation = storedAttachment(
         `mismatch-${ownerMatches}-${scopeKey}`,
@@ -102,12 +104,15 @@ describe("browser annotation route handoff", () => {
 
   it("bounds abandoned entries and releases pane-clear and application disposal", () => {
     const owner = {} as GatewayBrowserClient;
-    const handoff = createBrowserAnnotationHandoff();
+    const handoff = createChatAttachmentHandoff();
     const oversized = Array.from({ length: 33 }, (_, index) =>
-      storedAttachment(`oversized-${index}`, "image/png", true),
+      storedAttachment(`oversized-${index}`, "image/png", false),
     );
     handoff.prepare({ owner, paneId: "oversized", scopeKey: "oversized", attachments: oversized });
-    expect(getChatAttachmentDataUrl(oversized[32]!)).toBeNull();
+    expect(handoff.consume({ owner, paneId: "oversized", scopeKey: "oversized" })).toEqual(
+      oversized,
+    );
+    expect(getChatAttachmentDataUrl(oversized[32]!)).not.toBeNull();
 
     const annotations = Array.from({ length: 33 }, (_, index) =>
       storedAttachment(`bounded-${index}`, "image/png", true),
@@ -130,7 +135,7 @@ describe("browser annotation route handoff", () => {
   });
 
   it("releases a late prepare after application disposal instead of restaging it", () => {
-    const handoff = createBrowserAnnotationHandoff();
+    const handoff = createChatAttachmentHandoff();
     const annotation = storedAttachment("late", "image/png", true);
     handoff.dispose();
 

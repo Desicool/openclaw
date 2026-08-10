@@ -1,0 +1,118 @@
+/* @vitest-environment jsdom */
+
+import { describe, expect, it } from "vitest";
+import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { createChatAttachmentHandoff } from "../../app/chat-attachment-handoff.ts";
+import type { ApplicationContext } from "../../app/context.ts";
+import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
+import {
+  getChatAttachmentDataUrl,
+  registerChatAttachmentPayload,
+} from "./attachment-payload-store.ts";
+import {
+  closePaneStagedAttachments,
+  discardStateStagedAttachments,
+  preparePaneStagedAttachments,
+  restorePaneStagedAttachments,
+} from "./chat-pane-attachment-handoff.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
+import type { ChatSplitLayout } from "./split-layout.ts";
+
+function storedAttachment(id: string, mimeType = "image/png"): ChatAttachment {
+  return registerChatAttachmentPayload({
+    attachment: { id, mimeType },
+    dataUrl: `data:${mimeType};base64,${id}`,
+    file: new File([id], id, { type: mimeType }),
+  });
+}
+
+function state(attachments: ChatAttachment[], sessionKey = "agent:main:one") {
+  return {
+    agentsList: { defaultId: "main", mainKey: "main" },
+    assistantAgentId: "main",
+    chatAttachments: attachments,
+    chatComposerFallbackByScope: {},
+    hello: null,
+    sessionKey,
+    settings: { gatewayUrl: "ws://example.test" },
+  } as unknown as ChatPageHost;
+}
+
+describe("staged chat attachment pane handoff", () => {
+  it("discards a mounted package before clearing a closed pane handoff", () => {
+    const calls: string[] = [];
+    const pane = {
+      paneId: "p1",
+      discardStagedAttachments: () => calls.push("discard"),
+    };
+    const root = { querySelectorAll: () => [pane] } as unknown as ParentNode;
+    const context = {
+      chatAttachmentHandoff: { clearPane: () => calls.push("clear") },
+    } as unknown as ApplicationContext;
+    const layout = {
+      columns: [
+        {
+          id: "c1",
+          panes: [
+            { id: "p1", sessionKey: "one" },
+            { id: "p2", sessionKey: "two" },
+          ],
+          paneWeights: [1, 1],
+        },
+      ],
+      columnWeights: [1],
+      activePaneId: "p1",
+    } satisfies ChatSplitLayout;
+
+    expect(closePaneStagedAttachments(context, root, layout, "p1")?.id).toBe("p2");
+    expect(calls).toEqual(["discard", "clear"]);
+  });
+
+  it("deduplicates current and fallback payload release", () => {
+    const shared = storedAttachment("shared");
+    const fallback = storedAttachment("fallback", "application/pdf");
+    const current = state([shared]);
+    current.chatComposerFallbackByScope = {
+      fallback: {
+        attachments: [shared, fallback],
+        message: "",
+        sequence: 1,
+        storageFailed: false,
+      },
+    };
+
+    discardStateStagedAttachments(current);
+
+    expect(getChatAttachmentDataUrl(shared)).toBeNull();
+    expect(getChatAttachmentDataUrl(fallback)).toBeNull();
+    expect(current.chatAttachments).toEqual([]);
+    expect(current.chatComposerFallbackByScope.fallback?.attachments).toEqual([]);
+  });
+
+  it("restores a mixed package only to the exact mounted owner", () => {
+    const owner = {} as GatewayBrowserClient;
+    const otherOwner = {} as GatewayBrowserClient;
+    const handoff = createChatAttachmentHandoff();
+    const context = { chatAttachmentHandoff: handoff } as unknown as ApplicationContext;
+    const image = storedAttachment("image");
+    const file = storedAttachment("file", "application/pdf");
+    const pastedText = storedAttachment("pasted-text", "text/plain");
+    const mixed = [image, file, pastedText];
+
+    preparePaneStagedAttachments(context, "p1", state(mixed), owner);
+    const mismatched = state([]);
+    restorePaneStagedAttachments(context, "p1", mismatched, otherOwner);
+    expect(mismatched.chatAttachments).toEqual([]);
+    expect(mixed.every((attachment) => getChatAttachmentDataUrl(attachment) === null)).toBe(true);
+
+    const second = [storedAttachment("second-image"), storedAttachment("second-file")];
+    preparePaneStagedAttachments(context, "p2", state(second), owner);
+    const remount = state([]);
+    restorePaneStagedAttachments(context, "p2", remount, owner);
+    expect(remount.chatAttachments).toEqual(second);
+    expect(remount.chatAttachments.every((attachment, index) => attachment === second[index])).toBe(
+      true,
+    );
+    discardStateStagedAttachments(remount);
+  });
+});

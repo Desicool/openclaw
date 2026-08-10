@@ -26,15 +26,17 @@ import {
 } from "../../lib/sessions/session-key.ts";
 import { invalidateChatAvatarCache, refreshChatAvatar } from "./chat-avatar.ts";
 import { clearChatHistory } from "./chat-history.ts";
+import {
+  type ChatAttachmentGatewayOwner,
+  discardStateStagedAttachments,
+  preparePaneStagedAttachments,
+  replacePaneStagedAttachmentGatewayOwner,
+  restorePaneStagedAttachments,
+} from "./chat-pane-attachment-handoff.ts";
 import { ChatPaneBoard } from "./chat-pane-board.ts";
 import {
-  type BrowserAnnotationGatewayOwner,
-  discardStateBrowserAnnotations,
   focusBrowserAnnotationComposerAfterUpdate,
-  preparePaneBrowserAnnotations as prepareAnnotations,
   receiveBrowserAnnotation as admitBrowserAnnotation,
-  replacePaneBrowserAnnotationGatewayOwner,
-  restorePaneBrowserAnnotations,
 } from "./chat-pane-browser-annotation.ts";
 import {
   CHAT_COMPOSER_TEXTAREA_SELECTOR,
@@ -69,22 +71,22 @@ const COMPOSER_PREFILL_ATTENTION_DURATION_MS = 1_200;
 const COMPOSER_PREFILL_ATTENTION_CLASS = "agent-chat__input--prefill-attention";
 
 export abstract class ChatPaneLifecycle extends ChatPaneBoard {
-  private browserAnnotationGatewayOwner: BrowserAnnotationGatewayOwner = null;
+  private stagedAttachmentGatewayOwner: ChatAttachmentGatewayOwner = null;
 
-  public discardBrowserAnnotations(): void {
-    discardStateBrowserAnnotations(this.state);
+  public discardStagedAttachments(): void {
+    discardStateStagedAttachments(this.state);
   }
 
-  protected browserAnnotationOwner(): NonNullable<BrowserAnnotationGatewayOwner> | undefined {
-    return this.browserAnnotationGatewayOwner ?? undefined;
+  protected browserAnnotationOwner(): NonNullable<ChatAttachmentGatewayOwner> | undefined {
+    return this.stagedAttachmentGatewayOwner ?? undefined;
   }
 
-  protected replaceBrowserAnnotationGatewayOwner(nextOwner: BrowserAnnotationGatewayOwner): void {
-    this.browserAnnotationGatewayOwner = replacePaneBrowserAnnotationGatewayOwner(
+  protected replaceStagedAttachmentGatewayOwner(nextOwner: ChatAttachmentGatewayOwner): void {
+    this.stagedAttachmentGatewayOwner = replacePaneStagedAttachmentGatewayOwner(
       this.context,
       this.paneId,
       this.state,
-      this.browserAnnotationGatewayOwner,
+      this.stagedAttachmentGatewayOwner,
       nextOwner,
     );
   }
@@ -330,7 +332,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
       return;
     }
     // A null mount binds only when its first annotation ownership begins.
-    this.browserAnnotationGatewayOwner ??= this.context.gateway.snapshot.client;
+    this.stagedAttachmentGatewayOwner ??= this.context.gateway.snapshot.client;
     focusBrowserAnnotationComposerAfterUpdate(this);
   }
 
@@ -438,7 +440,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
     this.boardProviderLifecycleConnected = true;
     super.connectedCallback();
     const mountGatewayOwner = this.context.gateway.snapshot.client;
-    this.browserAnnotationGatewayOwner = mountGatewayOwner;
+    this.stagedAttachmentGatewayOwner = mountGatewayOwner;
     this.requestUpdate();
     if (typeof ResizeObserver === "function") {
       this.paneResizeObserver = new ResizeObserver((entries) => {
@@ -507,7 +509,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
     }
     chatState.attach(pageState);
     chatState.restoreComposer({ preserveCurrent: true });
-    restorePaneBrowserAnnotations(this.context, this.paneId, pageState, mountGatewayOwner);
+    restorePaneStagedAttachments(this.context, this.paneId, pageState, mountGatewayOwner);
     chatState.startComposerPersistence();
     if (this.draft !== undefined) {
       this.state.handleChatDraftChange(this.draft);
@@ -664,9 +666,14 @@ export abstract class ChatPaneLifecycle extends ChatPaneBoard {
 
   override disconnectedCallback() {
     if (this.state) {
-      prepareAnnotations(this.context, this.paneId, this.state, this.browserAnnotationGatewayOwner);
+      preparePaneStagedAttachments(
+        this.context,
+        this.paneId,
+        this.state,
+        this.stagedAttachmentGatewayOwner,
+      );
     }
-    this.browserAnnotationGatewayOwner = null;
+    this.stagedAttachmentGatewayOwner = null;
     this.clearComposerPrefillAttention();
     this.retainedBoardSessionKey = "";
     this.boardProviderLifecycleConnected = false;

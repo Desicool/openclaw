@@ -73,15 +73,15 @@ export type ApplicationSkillWorkshopRevisionHandoff = {
   clear: (handoff?: SkillWorkshopRevisionHandoff) => void;
 };
 
-type BrowserAnnotationHandoffKey = {
+type ChatAttachmentHandoffKey = {
   owner: ApplicationGateway["snapshot"]["client"];
   paneId: string;
   scopeKey: string;
 };
 
-export type ApplicationBrowserAnnotationHandoff = {
-  prepare(handoff: BrowserAnnotationHandoffKey & { attachments: readonly ChatAttachment[] }): void;
-  consume(handoff: BrowserAnnotationHandoffKey): ChatAttachment[] | null;
+export type ApplicationChatAttachmentHandoff = {
+  prepare(handoff: ChatAttachmentHandoffKey & { attachments: readonly ChatAttachment[] }): void;
+  consume(handoff: ChatAttachmentHandoffKey): ChatAttachment[] | null;
   clearPane(paneId: string): void;
   dispose(): void;
 };
@@ -106,7 +106,7 @@ export type ApplicationContext<TRouteId extends string = string> = {
   readonly webPush: WebPushCapability;
   readonly skillWorkshopRevision: ApplicationSkillWorkshopRevisionHandoff;
   readonly initialUserMessage: ApplicationInitialUserMessageHandoff;
-  readonly browserAnnotationHandoff: ApplicationBrowserAnnotationHandoff;
+  readonly chatAttachmentHandoff: ApplicationChatAttachmentHandoff;
   readonly navigate: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly replace: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly revalidate: (routeId?: TRouteId) => Promise<void>;

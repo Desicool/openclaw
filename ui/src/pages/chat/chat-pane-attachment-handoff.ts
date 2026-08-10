@@ -1,0 +1,119 @@
+import type { ApplicationContext } from "../../app/context.ts";
+import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
+import { releaseChatAttachmentPayload } from "./attachment-payload-store.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
+import { resolveStoredChatOutboxScope, storedChatOutboxScopeKey } from "./composer-persistence.ts";
+import { panesOf, type ChatSplitLayout } from "./split-layout.ts";
+
+export type ChatAttachmentGatewayOwner = ApplicationContext["gateway"]["snapshot"]["client"];
+
+function handoffKey(paneId: string, state: ChatPageHost, owner: ChatAttachmentGatewayOwner) {
+  return {
+    owner,
+    paneId,
+    scopeKey: storedChatOutboxScopeKey(resolveStoredChatOutboxScope(state, state.sessionKey)),
+  };
+}
+
+function releaseAttachments(
+  attachments: readonly ChatAttachment[],
+  retainedIds = new Set<string>(),
+  releasedIds = new Set<string>(),
+): void {
+  for (const attachment of attachments) {
+    if (retainedIds.has(attachment.id) || releasedIds.has(attachment.id)) {
+      continue;
+    }
+    releasedIds.add(attachment.id);
+    releaseChatAttachmentPayload(attachment.id);
+  }
+}
+
+function releaseFallbackAttachments(state: ChatPageHost, retainedIds = new Set<string>()): void {
+  const releasedIds = new Set<string>();
+  for (const fallback of Object.values(state.chatComposerFallbackByScope)) {
+    releaseAttachments(fallback.attachments, retainedIds, releasedIds);
+  }
+}
+
+export function restorePaneStagedAttachments(
+  context: ApplicationContext,
+  paneId: string,
+  state: ChatPageHost,
+  owner: ChatAttachmentGatewayOwner,
+): void {
+  const restored = context.chatAttachmentHandoff.consume(handoffKey(paneId, state, owner));
+  if (!restored) {
+    return;
+  }
+  const currentIds = new Set(state.chatAttachments.map((attachment) => attachment.id));
+  state.chatAttachments = [
+    ...state.chatAttachments,
+    ...restored.filter((attachment) => !currentIds.has(attachment.id)),
+  ];
+}
+
+export function preparePaneStagedAttachments(
+  context: ApplicationContext,
+  paneId: string,
+  state: ChatPageHost,
+  owner: ChatAttachmentGatewayOwner,
+): void {
+  const attachments = [...state.chatAttachments];
+  context.chatAttachmentHandoff.prepare({
+    ...handoffKey(paneId, state, owner),
+    attachments,
+  });
+  releaseFallbackAttachments(state, new Set(attachments.map((attachment) => attachment.id)));
+}
+
+export function discardStateStagedAttachments(state: ChatPageHost | undefined): void {
+  if (!state) {
+    return;
+  }
+  const releasedIds = new Set<string>();
+  releaseAttachments(state.chatAttachments, new Set(), releasedIds);
+  for (const fallback of Object.values(state.chatComposerFallbackByScope)) {
+    releaseAttachments(fallback.attachments, new Set(), releasedIds);
+    fallback.attachments = [];
+  }
+  state.chatAttachments = [];
+}
+
+export function replacePaneStagedAttachmentGatewayOwner(
+  context: ApplicationContext,
+  paneId: string,
+  state: ChatPageHost | undefined,
+  previousOwner: ChatAttachmentGatewayOwner,
+  nextOwner: ChatAttachmentGatewayOwner,
+): ChatAttachmentGatewayOwner {
+  if (!nextOwner || previousOwner === nextOwner) {
+    return previousOwner;
+  }
+  discardStateStagedAttachments(state);
+  state?.requestUpdate?.();
+  context.chatAttachmentHandoff.clearPane(paneId);
+  // Rotating the token also invalidates any pending annotation Undo owned by the old client.
+  return nextOwner;
+}
+
+type StagedAttachmentPane = Element & {
+  paneId: string;
+  discardStagedAttachments?: () => void;
+};
+
+export function closePaneStagedAttachments(
+  context: ApplicationContext,
+  root: ParentNode,
+  layout: ChatSplitLayout,
+  paneId: string,
+) {
+  const survivingPane = panesOf(layout).find((candidate) => candidate.id !== paneId);
+  const pane = [...root.querySelectorAll<StagedAttachmentPane>("openclaw-chat-pane")].find(
+    (candidate) => candidate.paneId === paneId,
+  );
+  // Clear a mounted pane first so its disconnect cannot restage the closed package.
+  pane?.discardStagedAttachments?.();
+  context.chatAttachmentHandoff.clearPane(paneId);
+  return survivingPane;
+}
