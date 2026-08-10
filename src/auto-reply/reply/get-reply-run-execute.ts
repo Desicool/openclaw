@@ -36,6 +36,10 @@ import { normalizeToolProgressDetail } from "./prompt-session-context.js";
 import { resolveReplyToMode } from "./reply-threading.js";
 import { resolveRoutedDeliveryThreadId } from "./routed-delivery-thread.js";
 import {
+  setSourceReplyDeliveryModeOrigin,
+  type SourceReplyDeliveryRuntimeOptions,
+} from "./source-reply-delivery-runtime.js";
+import {
   buildChannelSourceTurnId,
   readChannelSourceTurnId,
   setChannelSourceTurnId,
@@ -446,7 +450,11 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
         : {}),
     },
   };
-
+  const sourceReplyDeliveryRuntimeOptions = opts as SourceReplyDeliveryRuntimeOptions | undefined;
+  setSourceReplyDeliveryModeOrigin(
+    followupRun.run,
+    sourceReplyDeliveryRuntimeOptions?.sourceReplyDeliveryModeOrigin,
+  );
   const replyThreadingOverride =
     isBareSessionReset && sessionCtx.ReplyThreading?.implicitCurrentMessage !== "deny"
       ? { ...sessionCtx.ReplyThreading, implicitCurrentMessage: "deny" as const }
