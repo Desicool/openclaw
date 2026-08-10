@@ -104,6 +104,11 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
       digest: observerDigest,
     });
     const workspaceConflict = workspaceResultConflictFromPlacement(selectedSession?.placement);
+    const placement = selectedSession?.placement;
+    const terminalReason = (placement as { terminalReason?: string } | undefined)?.terminalReason;
+    const placementRunError = terminalReason
+      ? { summary: t("chat.cloudWorkerFailed", { error: terminalReason }) }
+      : null;
     const visibleWorkspaceConflict =
       workspaceConflict &&
       this.dismissedWorkspaceConflictRefs.get(selectedSession?.key ?? state.sessionKey) !==
@@ -380,7 +385,7 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
       modelSetupRequired: modelSetupRequired && !selectedSessionArchived,
       onModelSetup: () => this.context.navigate("model-setup"),
       error: state.lastError,
-      runError: catalogKey ? null : (state.chatRunError ?? null),
+      runError: catalogKey ? null : (state.chatRunError ?? placementRunError),
       inlineApproval: sessionParticipationBlocked ? null : inlineApproval,
       approvalBusy: approvalSnapshot?.approvalBusy,
       approvalErrors: approvalSnapshot?.approvalErrors,
