@@ -368,7 +368,7 @@ describe("staged attachment composer adoption", () => {
     expect(getChatAttachmentDataUrl(ordinary)).toBeNull();
   });
 
-  it("discards an annotation captured without a client when the first client arrives", () => {
+  it("discards a staged package captured without a client when the first client arrives", () => {
     const client = {} as GatewayBrowserClient;
     const { pane, state } = createTestChatPane({
       client,
@@ -381,6 +381,8 @@ describe("staged attachment composer adoption", () => {
       pane as TestChatPane & { receiveBrowserAnnotation: (candidate: Event) => void }
     ).receiveBrowserAnnotation(annotationEvent());
     const annotation = state.chatAttachments[0]!;
+    const ordinary = storedAttachment("no-client-ordinary", false);
+    state.chatAttachments.push(ordinary);
 
     pane.applyGatewaySnapshot({
       ...pane.context.gateway.snapshot,
@@ -391,6 +393,7 @@ describe("staged attachment composer adoption", () => {
 
     expect(state.chatAttachments).toEqual([]);
     expect(getChatAttachmentDataUrl(annotation)).toBeNull();
+    expect(getChatAttachmentDataUrl(ordinary)).toBeNull();
   });
 
   it("invalidates annotation Undo when the logical Gateway client is replaced", async () => {
