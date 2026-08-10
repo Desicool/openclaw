@@ -115,4 +115,42 @@ describe("staged chat attachment pane handoff", () => {
     );
     discardStateStagedAttachments(remount);
   });
+
+  it("releases a restored fallback displaced by mounted state", () => {
+    const owner = {} as GatewayBrowserClient;
+    const handoff = createChatAttachmentHandoff();
+    const context = { chatAttachmentHandoff: handoff } as unknown as ApplicationContext;
+    const displaced = storedAttachment("displaced");
+    const mounted = storedAttachment("mounted");
+    handoff.prepare({
+      owner,
+      paneId: "p1",
+      scopeKey: "active",
+      attachments: [],
+      fallbacks: {
+        collision: {
+          attachments: [displaced],
+          message: "old",
+          sequence: 1,
+          storageFailed: false,
+        },
+      },
+    });
+    const remount = state([]);
+    remount.chatComposerFallbackByScope = {
+      collision: {
+        attachments: [mounted],
+        message: "new",
+        sequence: 2,
+        storageFailed: false,
+      },
+    };
+
+    restorePaneStagedAttachments(context, "p1", remount, owner);
+
+    expect(remount.chatComposerFallbackByScope.collision?.attachments).toEqual([mounted]);
+    expect(getChatAttachmentDataUrl(displaced)).toBeNull();
+    expect(getChatAttachmentDataUrl(mounted)).not.toBeNull();
+    discardStateStagedAttachments(remount);
+  });
 });

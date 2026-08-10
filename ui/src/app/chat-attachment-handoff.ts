@@ -19,17 +19,23 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
 
   const release = (attachments: readonly ChatAttachment[] = []) =>
     releaseChatAttachmentPayloads(attachments);
-  const releaseHandoff = (handoff: PendingChatAttachmentHandoff | undefined) => {
-    if (!handoff) {
-      return;
-    }
+  const handoffAttachments = (handoff: PendingChatAttachmentHandoff) => {
     const byId = new Map(handoff.attachments.map((attachment) => [attachment.id, attachment]));
     for (const fallback of Object.values(handoff.fallbacks)) {
       for (const attachment of fallback.attachments) {
         byId.set(attachment.id, attachment);
       }
     }
-    release([...byId.values()]);
+    return [...byId.values()];
+  };
+  const releaseHandoff = (
+    handoff: PendingChatAttachmentHandoff | undefined,
+    retainedIds = new Set<string>(),
+  ) => {
+    if (!handoff) {
+      return;
+    }
+    release(handoffAttachments(handoff).filter((attachment) => !retainedIds.has(attachment.id)));
   };
   const take = (paneId: string) => {
     const handoff = pending.get(paneId);
@@ -47,7 +53,13 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
         releaseHandoff(previous);
         return;
       }
-      releaseHandoff(previous);
+      const retainedIds = new Set(attachments.map((attachment) => attachment.id));
+      for (const fallback of Object.values(fallbacks)) {
+        for (const attachment of fallback.attachments) {
+          retainedIds.add(attachment.id);
+        }
+      }
+      releaseHandoff(previous, retainedIds);
       if (!owner || disposed) {
         release(attachments);
         for (const fallback of Object.values(fallbacks)) {

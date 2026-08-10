@@ -44,10 +44,20 @@ export function restorePaneStagedAttachments(
     ...state.chatAttachments,
     ...restored.attachments.filter((attachment) => !currentIds.has(attachment.id)),
   ];
+  const displaced = Object.entries(restored.fallbacks)
+    .filter(([scopeKey]) => Object.hasOwn(state.chatComposerFallbackByScope, scopeKey))
+    .flatMap(([, fallback]) => fallback.attachments);
   state.chatComposerFallbackByScope = {
     ...restored.fallbacks,
     ...state.chatComposerFallbackByScope,
   };
+  const retainedIds = new Set(state.chatAttachments.map((attachment) => attachment.id));
+  for (const fallback of Object.values(state.chatComposerFallbackByScope)) {
+    for (const attachment of fallback.attachments) {
+      retainedIds.add(attachment.id);
+    }
+  }
+  releaseAttachments(displaced, retainedIds);
 }
 
 export function preparePaneStagedAttachments(

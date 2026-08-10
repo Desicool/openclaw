@@ -106,6 +106,33 @@ describe("chat attachment route handoff", () => {
     }
   });
 
+  it("keeps payloads reused by a replacement prepare", () => {
+    const owner = {} as GatewayBrowserClient;
+    const retained = storedAttachment("replacement-retained", "image/png", false);
+    const removed = storedAttachment("replacement-removed", "image/png", false);
+    const handoff = createChatAttachmentHandoff();
+    handoff.prepare({
+      owner,
+      paneId: "p1",
+      scopeKey: "one",
+      attachments: [retained, removed],
+      fallbacks: {},
+    });
+    handoff.prepare({
+      owner,
+      paneId: "p1",
+      scopeKey: "one",
+      attachments: [retained],
+      fallbacks: {},
+    });
+
+    expect(getChatAttachmentDataUrl(retained)).not.toBeNull();
+    expect(getChatAttachmentDataUrl(removed)).toBeNull();
+    expect(handoff.consume({ owner, paneId: "p1", scopeKey: "one" })?.attachments).toEqual([
+      retained,
+    ]);
+  });
+
   it("bounds abandoned entries and releases pane-clear and application disposal", () => {
     const owner = {} as GatewayBrowserClient;
     const handoff = createChatAttachmentHandoff();
