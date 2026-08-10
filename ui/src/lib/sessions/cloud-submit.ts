@@ -9,9 +9,9 @@ import {
   deleteCloudDraftSession,
   deleteRecoveredCloudDraftSession,
   startCloudInitialTurn,
-} from "./cloud-target.ts";
+} from "./cloud-startup.ts";
 
-type CloudDraftAdvanceResult =
+export type CloudDraftAdvanceResult =
   | { status: "started"; messageId: string; messageSeq?: number }
   | { status: "send-rejected"; error: string; messageId: string }
   | { status: "cleanup-rejected"; error: string; messageId?: string }
@@ -20,54 +20,40 @@ type CloudDraftAdvanceResult =
   | { status: "interrupted" }
   | { status: "ownership-lost" };
 
-export type CloudRecoveryRetirement = "resolved" | "interrupted";
+type CloudRecoveryRetirement = "resolved" | "interrupted";
 
 export async function advanceCloudDraftSession(params: {
   client: Pick<GatewayBrowserClient, "request">;
-  key: string;
-  agentId: string;
-  profileId: string;
-  message: string;
-  attachments?: unknown[];
-  messageId: string;
-  gatewayUrl: string;
-  recoveryScope: string;
-  recoveryPhase: CloudSessionRecovery["phase"];
+  recovery: CloudSessionRecovery;
   persistRecovery?: boolean;
+  cleanupOnCancellation: boolean;
   recovering: boolean;
   isLifecycleCurrent: () => boolean;
   ownsRecovery: () => boolean;
   clearRecovery: (retirement: CloudRecoveryRetirement) => void;
-  setRecoveryPhase: (phase: CloudSessionRecovery["phase"]) => void;
+  setRecoveryPhase: (phase: CloudSessionRecovery["phase"], durable: boolean) => void;
 }): Promise<CloudDraftAdvanceResult> {
   const persistRecovery = params.persistRecovery !== false;
+  const recovery = params.recovery;
   // Dispatch and send require both fences. After accepted delivery, inspect
   // them separately so lifecycle interruption is not reported as takeover.
   const isCurrentOwner = () => params.isLifecycleCurrent() && params.ownsRecovery();
-  const recovery = {
-    sessionKey: params.key,
-    messageId: params.messageId,
-    message: params.message,
-    attachments: params.attachments,
-    profileId: params.profileId,
-    agentId: params.agentId,
-    gatewayUrl: params.gatewayUrl,
-    recoveryScope: params.recoveryScope,
-    phase: params.recoveryPhase,
-  } satisfies CloudSessionRecovery;
   const existingRecovery =
     params.recovering && persistRecovery
-      ? readCloudSessionRecovery(params.gatewayUrl, params.recoveryScope)
+      ? readCloudSessionRecovery(recovery.gatewayUrl, recovery.recoveryScope, recovery.sessionKey)
       : null;
   if (!isCurrentOwner()) {
+    if (!params.cleanupOnCancellation) {
+      return { status: "interrupted" };
+    }
     const recoveryPersisted = persistRecovery
       ? params.recovering
-        ? existingRecovery?.sessionKey === params.key
+        ? existingRecovery?.sessionKey === recovery.sessionKey
         : writeCloudSessionRecoveryIfAvailable(recovery)
       : false;
     const cleanupError = params.recovering
-      ? await deleteRecoveredCloudDraftSession(params.client, params.key, params.agentId)
-      : await deleteCloudDraftSession(params.client, params.key, params.agentId);
+      ? await deleteRecoveredCloudDraftSession(params.client, recovery.sessionKey, recovery.agentId)
+      : await deleteCloudDraftSession(params.client, recovery.sessionKey, recovery.agentId);
     if (!cleanupError) {
       params.clearRecovery("resolved");
     }
@@ -79,10 +65,13 @@ export async function advanceCloudDraftSession(params: {
   }
   const recoveryPersisted = persistRecovery
     ? params.recovering
-      ? existingRecovery?.sessionKey === params.key
+      ? existingRecovery?.sessionKey === recovery.sessionKey
       : writeCloudSessionRecovery(recovery)
     : true;
   if (!isCurrentOwner() || !recoveryPersisted) {
+    if (!params.cleanupOnCancellation && !isCurrentOwner()) {
+      return { status: "interrupted" };
+    }
     if (params.recovering && !recoveryPersisted) {
       return {
         status: "cancelled",
@@ -91,8 +80,8 @@ export async function advanceCloudDraftSession(params: {
       };
     }
     const cleanupError = params.recovering
-      ? await deleteRecoveredCloudDraftSession(params.client, params.key, params.agentId)
-      : await deleteCloudDraftSession(params.client, params.key, params.agentId);
+      ? await deleteRecoveredCloudDraftSession(params.client, recovery.sessionKey, recovery.agentId)
+      : await deleteCloudDraftSession(params.client, recovery.sessionKey, recovery.agentId);
     if (!cleanupError) {
       params.clearRecovery("resolved");
     }
@@ -102,33 +91,52 @@ export async function advanceCloudDraftSession(params: {
   const cloudStart = await startCloudInitialTurn(
     params.client,
     {
-      key: params.key,
-      agentId: params.agentId,
-      profileId: params.profileId,
-      message: params.message,
-      attachments: params.attachments,
-      messageId: params.messageId,
+      key: recovery.sessionKey,
+      agentId: recovery.agentId,
+      profileId: recovery.profileId,
+      message: recovery.message,
+      attachments: recovery.attachments,
+      messageId: recovery.messageId,
       recovering: params.recovering,
-      retryTerminalPlacement: params.recovering && params.recoveryPhase === "sending",
+      retryTerminalPlacement: params.recovering && recovery.phase === "sending",
+      cleanupOnCancellation: params.cleanupOnCancellation,
     },
     isCurrentOwner,
     () => {
-      if (params.recoveryPhase === "sending") {
+      if (recovery.phase === "sending") {
         return true;
       }
       if (!persistRecovery) {
-        params.setRecoveryPhase("sending");
+        params.setRecoveryPhase("sending", false);
         return true;
+      }
+      const currentRecovery = readCloudSessionRecovery(
+        recovery.gatewayUrl,
+        recovery.recoveryScope,
+        recovery.sessionKey,
+      );
+      if (currentRecovery && currentRecovery.messageId !== recovery.messageId) {
+        return false;
       }
       const persisted = writeCloudSessionRecovery({ ...recovery, phase: "sending" });
       if (persisted) {
-        params.setRecoveryPhase("sending");
+        params.setRecoveryPhase("sending", true);
       }
       return persisted;
     },
   );
+  if (!params.cleanupOnCancellation && !isCurrentOwner()) {
+    return { status: "interrupted" };
+  }
+  if (cloudStart.status === "interrupted") {
+    return cloudStart;
+  }
   if (cloudStart.status === "cancelled") {
-    const cleanupError = await deleteCloudDraftSession(params.client, params.key, params.agentId);
+    const cleanupError = await deleteCloudDraftSession(
+      params.client,
+      recovery.sessionKey,
+      recovery.agentId,
+    );
     if (!cleanupError) {
       params.clearRecovery("resolved");
     }
@@ -138,31 +146,25 @@ export async function advanceCloudDraftSession(params: {
     return cloudStart;
   }
   if (cloudStart.status === "send-not-started") {
-    const cleanupError = await deleteCloudDraftSession(params.client, params.key, params.agentId);
-    if (!cleanupError) {
-      params.clearRecovery("resolved");
-    }
-    return { status: "dispatch-rejected", error: cleanupError || cloudStart.error };
+    params.clearRecovery("resolved");
+    return { status: "dispatch-rejected", error: cloudStart.error };
   }
   if (cloudStart.status === "send-definitive-rejected") {
-    const cleanupError = await deleteCloudDraftSession(params.client, params.key, params.agentId);
-    if (!cleanupError) {
-      params.clearRecovery("resolved");
-    }
-    return { status: "dispatch-rejected", error: cleanupError || cloudStart.error };
+    params.clearRecovery("resolved");
+    return { status: "dispatch-rejected", error: cloudStart.error };
   }
   if (cloudStart.status === "session-missing") {
     params.clearRecovery("resolved");
     return { status: "dispatch-rejected", error: cloudStart.error };
   }
   if (cloudStart.status === "dispatch-rejected") {
-    const cleanupError = await deleteCloudDraftSession(params.client, params.key, params.agentId);
-    if (!cleanupError) {
-      params.clearRecovery("resolved");
-    }
+    // The created session is already the visible recovery surface. Dispatch
+    // owns worker cleanup; retain the session so a definitive failure cannot
+    // turn immediate navigation into a dead route.
+    params.clearRecovery("resolved");
     return {
       status: "dispatch-rejected",
-      error: cleanupError || cloudStart.error,
+      error: cloudStart.error,
     };
   }
   if (cloudStart.status === "send-rejected") {
