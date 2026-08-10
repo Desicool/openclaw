@@ -1,4 +1,7 @@
-/** Runs prompt dispatch, stream settlement, cleanup, and result projection. */
+/**
+ * Settles prompt dispatch, stream cleanup, and result projection.
+ * It may assume stream runtime preparation and session state are ready.
+ */
 import type { AssistantMessage } from "../../../llm/types.js";
 import {
   mergeAgentRunAttemptTerminal,
@@ -21,6 +24,8 @@ import { completeEmbeddedAttemptResult } from "./attempt-result.js";
 import { finalizeEmbeddedAttemptStreamPhase } from "./attempt-stream-finalize.js";
 import type { prepareEmbeddedAttemptStreamRuntime } from "./attempt-stream-runtime-prepare.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
+
+/** Runs prompt dispatch, stream settlement, cleanup, and result projection. */
 
 type PreparedStreamRuntime = Awaited<ReturnType<typeof prepareEmbeddedAttemptStreamRuntime>>;
 
