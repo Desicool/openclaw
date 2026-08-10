@@ -411,12 +411,11 @@ describe("chat page split layout host", () => {
     closingPane.discardStagedAttachments = discard;
     closingPane.resumeStagedAttachments = resume;
     const teardown = deferred<void>();
-    const mcpApp = document.createElement("mcp-app-view") as HTMLElement & {
-      restartAfterTeardown: ReturnType<typeof vi.fn>;
-      teardown: ReturnType<typeof vi.fn>;
-    };
-    mcpApp.restartAfterTeardown = vi.fn();
-    mcpApp.teardown = vi.fn(() => teardown.promise);
+    const mcpApp = document.createElement("mcp-app-view");
+    const restartAfterTeardown = vi.fn();
+    const teardownMcpApp = vi.fn(() => teardown.promise);
+    mcpApp.restartAfterTeardown = restartAfterTeardown;
+    mcpApp.teardown = teardownMcpApp;
     closingPane.append(mcpApp);
 
     closingPane.onClosePane?.(closingPane.paneId);
@@ -430,7 +429,7 @@ describe("chat page split layout host", () => {
     expect(resume).toHaveBeenCalled();
 
     teardown.resolve();
-    await expect.poll(() => mcpApp.restartAfterTeardown).toHaveBeenCalledOnce();
+    await expect.poll(() => restartAfterTeardown).toHaveBeenCalledOnce();
     expect(
       itemAt(page.querySelectorAll<RenderedPane>("openclaw-chat-pane"), 1, "reopened pane"),
     ).toBe(closingPane);
