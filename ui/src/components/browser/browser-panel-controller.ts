@@ -2,10 +2,12 @@ import type { ReactiveController } from "lit";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { t } from "../../i18n/index.ts";
 import type { AnnotationStroke } from "./browser-annotation.ts";
+import type { BrowserInspectedNode, BrowserPanelTab } from "./browser-client.ts";
 import {
   captureBrowserScreenshot,
   clickBrowserCoords,
   closeBrowserTab,
+  errorDetail,
   fetchBrowserScreenshotDataUrl,
   focusBrowserTab,
   goBrowserHistory,
@@ -17,8 +19,6 @@ import {
   pressBrowserKey,
   scrollBrowserBy,
   startBrowser,
-  type BrowserInspectedNode,
-  type BrowserPanelTab,
 } from "./browser-client.ts";
 import {
   BrowserPanelOperationOwnership,
@@ -128,8 +128,7 @@ export class BrowserPanelController implements ReactiveController {
   }
 
   private reportError(error: unknown): void {
-    const detail = error instanceof Error ? error.message : String(error);
-    this.setState("errorText", t("browser.errors.requestFailed", { error: detail }));
+    this.setState("errorText", t("browser.errors.requestFailed", { error: errorDetail(error) }));
   }
 
   async refreshAll(): Promise<void> {
@@ -482,6 +481,7 @@ export class BrowserPanelController implements ReactiveController {
         this.setState("loading", false);
       }
     }, false);
+    await this.host.updateComplete;
   }
 
   /** Real page reload: re-navigate to the current URL, then re-capture. A bare
