@@ -1,4 +1,5 @@
 import { css, html, nothing, svg, type TemplateResult } from "lit";
+import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
 import "./web-awesome-tabs.ts";
 
@@ -17,6 +18,35 @@ export type PanelTabStripTab = {
 
 const CLOSE_GLYPH = svg`<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>`;
 const PLUS_GLYPH = svg`<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>`;
+
+const reconciledTabOrders = new WeakMap<Element, string>();
+
+function reconcileSelectedTabElement(
+  element: Element | undefined,
+  tabOrder: string,
+  restoreFocus: boolean,
+): void {
+  if (!(element instanceof HTMLElement)) {
+    return;
+  }
+  const orderChanged = reconciledTabOrders.get(element) !== tabOrder;
+  reconciledTabOrders.set(element, tabOrder);
+  if (!orderChanged && !restoreFocus) {
+    return;
+  }
+  // Keyed movement can make the browser briefly focus the document or move the
+  // selected tab outside the overflow viewport. Reconcile only those changes.
+  queueMicrotask(() => {
+    if (!element.isConnected) {
+      return;
+    }
+    element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const current = document.activeElement;
+    if (restoreFocus && (current === document.body || current === document.documentElement)) {
+      element.focus({ preventScroll: true });
+    }
+  });
+}
 
 export function renderPanelTabStrip(params: {
   tabs: PanelTabStripTab[];
@@ -46,6 +76,12 @@ export function renderPanelTabStrip(params: {
     // visible. Keep the new-session control outside the group until one exists.
     return newButton(false);
   }
+  const focusedTabDomId =
+    document.activeElement instanceof HTMLElement &&
+    params.tabs.some((tab) => tab.domId === document.activeElement.id)
+      ? document.activeElement.id
+      : null;
+  const tabOrder = params.tabs.map((tab) => tab.id).join("\u0000");
   return html`
     <wa-tab-group
       class="tabstrip"
@@ -69,6 +105,11 @@ export function renderPanelTabStrip(params: {
               title=${tab.title || nothing}
               ?active=${selected}
               .tabIndex=${selected ? 0 : -1}
+              ${selected
+                ? ref((element) =>
+                    reconcileSelectedTabElement(element, tabOrder, focusedTabDomId === tab.domId),
+                  )
+                : nothing}
               @auxclick=${(event: MouseEvent) => {
                 if (event.button === 1) {
                   event.preventDefault();
