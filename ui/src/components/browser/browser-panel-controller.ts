@@ -351,32 +351,31 @@ export class BrowserPanelController implements ReactiveController {
       }
     } catch (error) {
       if (invocation.isCurrent()) {
-        this.reportError(error);
         if (previousNavigationQueued && this.activeTargetId) {
           const targetId = this.activeTargetId;
-          const navigationErrorText = this.errorText;
           // An earlier queued navigation may already have committed remotely.
           // Recover its actual document without replacing an unchanged view.
-          try {
-            const refreshed = await this.refreshTabsOnly(client, () => invocation.isCurrent());
-            const active = this.tabs.find((tab) => tab.id === targetId);
-            if (refreshed === "accepted" && invocation.isCurrent() && active) {
-              await this.refreshView(targetId, invocation.epoch);
-              if (
-                invocation.isCurrent() &&
-                this.view?.targetId === targetId &&
-                this.errorText === navigationErrorText
-              ) {
-                this.operations.markNavigationReconciled(client, targetId);
-              }
+          const refreshed = await this.refreshTabsOnly(client, () => invocation.isCurrent());
+          const active = this.tabs.find((tab) => tab.id === targetId);
+          if (refreshed === "accepted" && invocation.isCurrent() && active) {
+            this.setState("view", null);
+            await this.refreshView(targetId, invocation.epoch);
+            if (invocation.isCurrent() && this.view?.targetId === targetId) {
+              this.operations.markNavigationReconciled(client, targetId);
             }
-          } catch {
-            // Recovery is best-effort; retain the original navigation failure.
           }
-          if (invocation.isCurrent()) {
-            this.reportError(error);
+          if (
+            invocation.isCurrent() &&
+            this.operations.hasUnreconciledNavigation(client, targetId)
+          ) {
+            this.setState("activeTargetId", null);
+            this.setState("view", null);
+            if (!this.urlDraftEditing) {
+              this.setState("urlDraft", "");
+            }
           }
         }
+        this.reportError(error);
       }
     } finally {
       if (invocation.isCurrent()) {
