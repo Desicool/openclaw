@@ -391,7 +391,10 @@ export async function startGatewayCoreRuntime(input: {
   const reloadAttachedGatewayPlugins = async (params: {
     nextConfig: OpenClawConfig;
     changedPaths: readonly string[];
-    beforeReplace: (channels: ReadonlySet<ChannelId>) => Promise<void>;
+    beforeReplace: (
+      channels: ReadonlySet<ChannelId>,
+      accounts?: ReadonlyMap<ChannelId, ReadonlySet<string>>,
+    ) => Promise<void>;
     commitRuntime: () => Promise<void>;
     env: NodeJS.ProcessEnv;
     isAborted?: () => boolean;
@@ -473,7 +476,10 @@ export async function startGatewayCoreRuntime(input: {
         channelsToStopBeforeReplace.add(channelId);
       }
     }
-    await params.beforeReplace(channelsToStopBeforeReplace);
+    await params.beforeReplace(
+      channelsToStopBeforeReplace,
+      channelManager.getPluginCommandCatalogAccounts(),
+    );
     // If an in-process restart signalled abort during beforeReplace,
     // stop before any plugin metadata/runtime side effects continue.
     if (params.isAborted?.()) {
