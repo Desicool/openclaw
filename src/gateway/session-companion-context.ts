@@ -8,6 +8,10 @@ import {
   readSessionTranscriptBoundedContextMessageTailPage,
 } from "../config/sessions/session-accessor.sqlite-active-events.js";
 import { redactToolPayloadText } from "../logging/redact.js";
+import type {
+  SessionCompanionContextMessage,
+  SessionCompanionPreparedContext,
+} from "./session-companion-state.js";
 import { loadSessionEntryReadOnly } from "./session-utils.js";
 
 const CONTEXT_MAX_MESSAGES = 40;
@@ -16,18 +20,6 @@ const CONTEXT_MESSAGE_MAX_CHARS = 4000;
 const CONTEXT_READ_PAGE_MESSAGES = CONTEXT_MAX_MESSAGES * 4;
 const CONTEXT_READ_MAX_SCANNED_MESSAGES = 4096;
 const CONTEXT_READ_MAX_BYTES = 1024 * 1024;
-
-type SessionCompanionContextMessage = {
-  role: "assistant" | "summary" | "user";
-  text: string;
-  ts: number;
-};
-
-export type SessionCompanionPreparedContext = {
-  empty: boolean;
-  messages: SessionCompanionContextMessage[];
-  sessionId: string;
-};
 
 type SessionCompanionContextReadResult =
   | { kind: "ready"; context: SessionCompanionPreparedContext }

@@ -62,13 +62,13 @@ function createHarness(overrides?: {
       })),
   );
   const deps = {
+    contextReader: { currentSessionId, read: readContext },
     getConfig: () => cfg,
     sessionObserver: { getCompanionSnapshot },
     resolveUtilityModelRef: () => "openai/gpt-5.6-luna",
     run,
     now: overrides?.now ?? (() => 100),
   };
-  Object.assign(deps, { contextReader: { currentSessionId, read: readContext } });
   const service = createSessionCompanion(deps);
   return { currentSessionId, getCompanionSnapshot, readContext, run, service };
 }

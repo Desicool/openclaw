@@ -63,10 +63,9 @@ export type SessionTranscriptBoundedMessageTailPage = SessionTranscriptMessageEv
   serializedBytes: number;
 };
 
-export type SessionTranscriptBoundedContextMessageTailPage =
-  SessionTranscriptBoundedMessageTailPage & {
-    contextSummary?: { text: string; ts: number };
-  };
+type SessionTranscriptBoundedContextMessageTailPage = SessionTranscriptBoundedMessageTailPage & {
+  contextSummary?: { text: string; ts: number };
+};
 
 function parseMessageEventRow(row: {
   event_json: string;

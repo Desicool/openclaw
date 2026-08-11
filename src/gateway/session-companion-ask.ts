@@ -10,10 +10,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { Message, Usage } from "../llm/types.js";
 import { redactToolPayloadText } from "../logging/redact.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import {
-  defaultSessionCompanionContextReader,
-  type SessionCompanionContextReader,
-} from "./session-companion-context.js";
+import type { SessionCompanionContextReader } from "./session-companion-context.js";
 import {
   buildSessionCompanionRunConfig,
   SESSION_COMPANION_TOOLS,
@@ -58,7 +55,7 @@ export type SessionCompanionAskDeps = {
     getCompanionSnapshot: (sessionKey: string) => SessionObserverCompanionSnapshot;
   };
   resolveUtilityModelRef?: typeof resolveUtilityModelRefForAgent;
-  contextReader?: SessionCompanionContextReader;
+  contextReader: SessionCompanionContextReader;
   run?: (params: SessionCompanionRunParams) => Promise<string>;
   now?: () => number;
   setTimeoutFn?: typeof setTimeout;
@@ -366,7 +363,7 @@ function contextError(
 
 export function createSessionCompanionAskRuntime(params: SessionCompanionAskRuntimeParams) {
   const resolveUtilityModelRef = params.resolveUtilityModelRef ?? resolveUtilityModelRefForAgent;
-  const contextReader = params.contextReader ?? defaultSessionCompanionContextReader;
+  const contextReader = params.contextReader;
   const run = params.run ?? defaultRun;
   const setTimeoutFn = params.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = params.clearTimeoutFn ?? clearTimeout;

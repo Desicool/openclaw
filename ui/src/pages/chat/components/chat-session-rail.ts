@@ -202,23 +202,22 @@ function companionHasActivity(thread: ChatSessionCompanionThread): boolean {
   );
 }
 
+const COMPANION_HINT_KEYS = {
+  busy: "chat.rail.askBusy",
+  "history-unavailable": "chat.rail.askHistoryUnavailable",
+  missing: "chat.rail.askMissing",
+  "model-unavailable": "chat.rail.askModelUnavailable",
+  "rate-limited": "chat.rail.askRateLimited",
+  unavailable: "chat.rail.askUnavailable",
+} as const satisfies Record<
+  NonNullable<ChatSessionCompanionThread["hint"]>,
+  Parameters<typeof t>[0]
+>;
+
 function companionHintKey(
   hint: NonNullable<ChatSessionCompanionThread["hint"]>,
 ): Parameters<typeof t>[0] {
-  switch (hint) {
-    case "busy":
-      return "chat.rail.askBusy";
-    case "history-unavailable":
-      return "chat.rail.askHistoryUnavailable";
-    case "missing":
-      return "chat.rail.askMissing";
-    case "model-unavailable":
-      return "chat.rail.askModelUnavailable";
-    case "rate-limited":
-      return "chat.rail.askRateLimited";
-    case "unavailable":
-      return "chat.rail.askUnavailable";
-  }
+  return COMPANION_HINT_KEYS[hint];
 }
 
 export class ChatSessionRailElement extends OpenClawLightDomElement {
