@@ -663,7 +663,7 @@ describe("BrowserPanelController capture and input ownership", () => {
     const previousUrl = "https://example.test/previous";
     const { client, request } = createBrowserClient(async (envelope) => {
       if (envelope.path === "/act") {
-        const fn = String(envelope.body?.fn ?? "");
+        const fn = typeof envelope.body?.fn === "string" ? envelope.body.fn : "";
         return fn.includes("history.go")
           ? { result: true }
           : createBrowserPanelTestMetrics(previousUrl, "Previous");

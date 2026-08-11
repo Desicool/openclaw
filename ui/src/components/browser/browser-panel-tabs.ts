@@ -1,6 +1,24 @@
 import { t } from "../../i18n/index.ts";
 import { renderPanelTabStrip, type PanelTabStripTab } from "../panel-tab-strip.ts";
-import type { BrowserPanelTab } from "./browser-client.ts";
+import type { BrowserPageMetrics, BrowserPanelTab } from "./browser-client.ts";
+
+export function reconcileCapturedTab(
+  tabs: BrowserPanelTab[],
+  targetId: string,
+  metrics: BrowserPageMetrics | null,
+  screenshotUrl: string,
+): BrowserPanelTab[] {
+  const tab = tabs.find((entry) => entry.id === targetId);
+  if (!tab) {
+    return tabs;
+  }
+  const title = metrics?.title ?? tab.title;
+  const url = metrics?.url || screenshotUrl || tab.url;
+  if (title === tab.title && url === tab.url) {
+    return tabs;
+  }
+  return tabs.map((entry) => (entry.id === targetId ? { ...entry, title, url } : entry));
+}
 
 function tabLabel(tab: BrowserPanelTab): string {
   if (tab.title.trim()) {
