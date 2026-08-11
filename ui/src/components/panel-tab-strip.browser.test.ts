@@ -174,8 +174,9 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
     closeButton?.focus();
     expect(document.activeElement).toBe(closeButton);
 
+    closeButton?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    closeButton?.blur();
     closeButton?.click();
-    expect(document.activeElement).toBe(closeButton);
     close.resolve();
     await close.promise;
     await Promise.resolve();

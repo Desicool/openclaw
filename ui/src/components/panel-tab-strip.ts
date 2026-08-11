@@ -20,6 +20,7 @@ const CLOSE_GLYPH = svg`<svg viewBox="0 0 16 16" width="14" height="14" fill="no
 const PLUS_GLYPH = svg`<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>`;
 
 const reconciledTabOrders = new WeakMap<Element, string>();
+const keyboardCloseActivations = new WeakSet<Element>();
 
 function reconcileSelectedTabElement(
   element: Element | undefined,
@@ -142,6 +143,14 @@ export function renderPanelTabStrip(params: {
               type="button"
               title=${tab.closeLabel}
               aria-label=${tab.closeLabel}
+              @keydown=${(event: KeyboardEvent) => {
+                if (
+                  (event.key === "Enter" || event.key === " ") &&
+                  event.currentTarget instanceof Element
+                ) {
+                  keyboardCloseActivations.add(event.currentTarget);
+                }
+              }}
               @click=${async (event: MouseEvent) => {
                 const button = event.currentTarget;
                 const renderRoot =
@@ -150,7 +159,9 @@ export function renderPanelTabStrip(params: {
                   renderRoot instanceof ShadowRoot
                     ? (renderRoot.host as HTMLElement & { updateComplete?: Promise<unknown> })
                     : null;
-                const restoreFocus = document.activeElement === button;
+                const restoreFocus =
+                  button instanceof Element &&
+                  (keyboardCloseActivations.delete(button) || document.activeElement === button);
                 await params.onClose(tab.id);
                 if (!restoreFocus) {
                   return;
