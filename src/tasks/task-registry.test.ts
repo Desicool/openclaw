@@ -589,6 +589,74 @@ describe("task-registry", () => {
     });
   });
 
+  it("bounds durable liveness writes for live activity deltas", async () => {
+    await withTaskRegistryTempDir(async () => {
+      resetTaskRegistryMemoryForTest();
+      const store = createInMemoryTaskRegistryStore();
+      const upsert = vi.spyOn(store, "upsertTaskWithDeliveryState");
+      configureTaskRegistryRuntime({ store });
+      createTaskFixture("subagent", {
+        childSessionKey: "agent:main:subagent:ephemeral",
+        runId: "run-ephemeral-activity",
+        task: "Keep streaming state in memory",
+      });
+      const initialLastEventAt = requireTaskByRunId("run-ephemeral-activity").lastEventAt!;
+      upsert.mockClear();
+
+      emitAgentEvent({
+        runId: "run-ephemeral-activity",
+        stream: "thinking",
+        data: { text: "Planning" },
+      });
+      emitAgentEvent({
+        runId: "run-ephemeral-activity",
+        stream: "assistant",
+        data: { text: "Editing" },
+      });
+      expect(upsert).not.toHaveBeenCalled();
+      const dateNow = vi.spyOn(Date, "now").mockReturnValue(initialLastEventAt + 60_000);
+      try {
+        emitAgentEvent({
+          runId: "run-ephemeral-activity",
+          stream: "assistant",
+          data: { text: "Still editing" },
+        });
+      } finally {
+        dateNow.mockRestore();
+      }
+      expect(upsert).toHaveBeenCalledOnce();
+      expect(requireTaskByRunId("run-ephemeral-activity").lastEventAt).toBe(
+        initialLastEventAt + 60_000,
+      );
+      upsert.mockClear();
+      emitAgentEvent({
+        runId: "run-ephemeral-activity",
+        stream: "tool",
+        data: {
+          phase: "start",
+          name: "write",
+          toolCallId: "write-1",
+          args: { path: "src/example.ts", content: "one\ntwo" },
+        },
+      });
+      expect(upsert).toHaveBeenCalledOnce();
+      upsert.mockClear();
+      emitAgentEvent({
+        runId: "run-ephemeral-activity",
+        stream: "tool",
+        data: { phase: "result", name: "write", toolCallId: "write-1", isError: false },
+      });
+
+      expect(upsert).not.toHaveBeenCalled();
+      emitAgentEvent({
+        runId: "run-ephemeral-activity",
+        stream: "lifecycle",
+        data: { phase: "end", endedAt: 200 },
+      });
+      expect(upsert).toHaveBeenCalledOnce();
+    });
+  });
+
   it.each([
     {
       name: "persists an ACP producer timestamp across lifecycle projection and SQLite reload",
