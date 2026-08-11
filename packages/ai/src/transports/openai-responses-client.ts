@@ -36,7 +36,6 @@ import {
 } from "./openai-responses-debug.js";
 import {
   buildOpenAIResponsesParams,
-  convertOpenAIResponsesMessagesForRequest,
   sanitizeOpenAICodexResponsesParams,
 } from "./openai-responses-params-internal.js";
 import { createResponsesPromptEgressObserver } from "./openai-responses-prompt-observer-internal.js";
@@ -331,13 +330,6 @@ function createResponsesTransportExecutor(config: ResponsesTransportExecutorOpti
               signal: websocketSignal,
               callerSignal: options?.signal,
               degradeCooldownMs: websocketSessionPolicy?.degradeCooldownMs,
-              resolveContinuationItems: () =>
-                convertOpenAIResponsesMessagesForRequest(
-                  model,
-                  { messages: [output] },
-                  responsesOptions,
-                  "checkpoint",
-                ).filter((item) => item.type !== "function_call_output"),
             });
             finishWebSocket = websocket.finish;
             observePrompt?.(websocket.request, {
