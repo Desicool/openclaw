@@ -84,7 +84,7 @@ export function renderSidebarAgentMenuForController(controller: SidebarMenusCont
     position,
     basePath: host.basePath,
     activeId,
-    activeName: agent ? normalizeAgentLabel(agent, identity) : activeId,
+    activeName: normalizeAgentLabel(agent ?? { id: activeId }, identity),
     agents,
     identities,
     filter: controller.agentMenuFilter,
