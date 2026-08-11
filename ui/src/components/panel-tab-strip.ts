@@ -20,6 +20,7 @@ const CLOSE_GLYPH = svg`<svg viewBox="0 0 16 16" width="14" height="14" fill="no
 const PLUS_GLYPH = svg`<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>`;
 
 const reconciledTabOrders = new WeakMap<Element, string>();
+const pendingCloseFocus = new WeakMap<Element, string>();
 
 function reconcileSelectedTabElement(
   element: Element | undefined,
@@ -31,7 +32,8 @@ function reconcileSelectedTabElement(
   }
   const orderChanged = reconciledTabOrders.get(element) !== tabOrder;
   reconciledTabOrders.set(element, tabOrder);
-  if (!orderChanged && !restoreFocus) {
+  const group = element.closest("wa-tab-group");
+  if (!orderChanged && !restoreFocus && !(group && pendingCloseFocus.has(group))) {
     return;
   }
   // Keyed movement can make the browser briefly focus the document or move the
@@ -40,9 +42,22 @@ function reconcileSelectedTabElement(
     if (!element.isConnected) {
       return;
     }
+    const currentGroup = element.closest("wa-tab-group");
+    const closedTabId = currentGroup ? pendingCloseFocus.get(currentGroup) : undefined;
+    const focusAfterClose =
+      closedTabId !== undefined &&
+      ![...currentGroup!.querySelectorAll<HTMLElement>("wa-tab")].some(
+        (tab) => tab.getAttribute("panel") === closedTabId,
+      );
+    if (currentGroup && closedTabId !== undefined) {
+      pendingCloseFocus.delete(currentGroup);
+    }
     element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     const current = document.activeElement;
-    if (restoreFocus && (current === document.body || current === document.documentElement)) {
+    if (
+      (restoreFocus || focusAfterClose) &&
+      (current === document.body || current === document.documentElement)
+    ) {
       element.focus({ preventScroll: true });
     }
   });
@@ -82,12 +97,6 @@ export function renderPanelTabStrip(params: {
     params.tabs.some((tab) => tab.domId === activeElement.id)
       ? activeElement.id
       : null;
-  const focusedCloseTabId =
-    activeElement instanceof HTMLElement && activeElement.classList.contains("tabstrip-tab__close")
-      ? (activeElement.dataset.tabId ?? null)
-      : null;
-  const focusedTabWasRemoved =
-    focusedCloseTabId !== null && !params.tabs.some((tab) => tab.id === focusedCloseTabId);
   const tabOrder = params.tabs.map((tab) => tab.id).join("\u0000");
   return html`
     <wa-tab-group
@@ -114,11 +123,7 @@ export function renderPanelTabStrip(params: {
               .tabIndex=${selected ? 0 : -1}
               ${selected
                 ? ref((element) =>
-                    reconcileSelectedTabElement(
-                      element,
-                      tabOrder,
-                      focusedTabDomId === tab.domId || focusedTabWasRemoved,
-                    ),
+                    reconcileSelectedTabElement(element, tabOrder, focusedTabDomId === tab.domId),
                   )
                 : nothing}
               @auxclick=${(event: MouseEvent) => {
@@ -141,10 +146,16 @@ export function renderPanelTabStrip(params: {
               slot="nav"
               class="tabstrip-tab__close"
               type="button"
-              data-tab-id=${tab.id}
               title=${tab.closeLabel}
               aria-label=${tab.closeLabel}
-              @click=${() => params.onClose(tab.id)}
+              @click=${(event: MouseEvent) => {
+                const button = event.currentTarget;
+                const group = button instanceof HTMLElement ? button.closest("wa-tab-group") : null;
+                if (group && document.activeElement === button) {
+                  pendingCloseFocus.set(group, tab.id);
+                }
+                params.onClose(tab.id);
+              }}
             >
               <span class="tabstrip-tab__close-box">${CLOSE_GLYPH}</span>
             </button>

@@ -1,5 +1,6 @@
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   panelTabStripStyles,
   renderPanelTabStrip,
@@ -152,13 +153,17 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
   it("moves focus to the selected fallback when the focused tab is closed", async () => {
     const container = document.createElement("div");
     document.body.append(container);
+    const close = createDeferred();
     let tabs = [tab("a"), tab("b")];
     let activeId = "a";
     const onSelect = vi.fn();
     const onClose = vi.fn((closedId: string) => {
-      tabs = tabs.filter((entry) => entry.id !== closedId);
-      activeId = tabs[0]?.id ?? "";
-      renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
+      void close.promise.then(() => {
+        (document.activeElement as HTMLElement | null)?.blur();
+        tabs = tabs.filter((entry) => entry.id !== closedId);
+        activeId = tabs[0]?.id ?? "";
+        renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
+      });
     });
     renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
     await expectControlledSelection(container, activeId);
@@ -167,6 +172,10 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
     expect(document.activeElement).toBe(closeButton);
 
     closeButton?.click();
+    expect(document.activeElement).toBe(closeButton);
+    close.resolve();
+    await close.promise;
+    await Promise.resolve();
 
     const fallback = await expectControlledSelection(container, activeId);
     await vi.waitFor(() => expect(document.activeElement).toBe(fallback));
