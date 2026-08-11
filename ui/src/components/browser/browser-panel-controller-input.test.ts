@@ -55,6 +55,50 @@ describe("BrowserPanelController capture and input ownership", () => {
     expect(controller.loading).toBe(false);
   });
 
+  it("does not restore a stale view when a background navigation commits before selection fails", async () => {
+    const navigation = createDeferred<{ ok: boolean }>();
+    const focus = createDeferred<{ ok: boolean }>();
+    const initialUrl = "https://example.test/initial";
+    const destinationUrl = "https://example.test/destination";
+    const { client, request } = createBrowserClient(async (envelope) => {
+      if (envelope.path === "/navigate") {
+        return await navigation.promise;
+      }
+      if (envelope.path === "/tabs/focus") {
+        return await focus.promise;
+      }
+      throw new Error(`Unexpected browser route: ${envelope.path}`);
+    });
+    const controller = createBrowserPanelTestController(client, "tab-a", initialUrl);
+    controller.tabs = [
+      { id: "tab-a", targetId: "raw-a", title: "Initial", url: initialUrl },
+      {
+        id: "tab-b",
+        targetId: "raw-b",
+        title: "Selected",
+        url: "https://example.test/selected",
+      },
+    ];
+
+    const pendingNavigation = controller.openUrl(destinationUrl, { newTab: false });
+    await flushBrowserResponses();
+    const pendingSelection = controller.selectTab("tab-b");
+    navigation.resolve({ ok: true });
+    await pendingNavigation;
+    focus.reject(new Error("Tab focus rejected"));
+    await pendingSelection;
+
+    expect(controller.activeTargetId).toBeNull();
+    expect(controller.view).toBeNull();
+    expect(controller.urlDraft).toBe("");
+    expect(controller.errorText).toBe("Browser request failed: Tab focus rejected");
+    expect(
+      request.mock.calls.filter(([, envelope]) => {
+        return (envelope as BrowserRequestEnvelope).path === "/tabs";
+      }),
+    ).toEqual([]);
+  });
+
   it("retains a newly opened tab after its original active tab closes", async () => {
     stubScreenshotMedia();
     const newUrl = "https://example.test/new";
@@ -378,40 +422,18 @@ describe("BrowserPanelController capture and input ownership", () => {
     expect(controller.loading).toBe(false);
   });
 
-  it("reconciles a committed background navigation without stealing the selected view", async () => {
+  it("does not poll tab metadata after a committed background navigation", async () => {
     stubScreenshotMedia();
     const navigation = createDeferred<{ ok: boolean }>();
     const initialUrl = "https://example.test/initial";
     const destinationUrl = "https://example.test/destination";
     const selectedUrl = "https://example.test/selected";
-    let backgroundUrl = initialUrl;
     const { client, request } = createBrowserClient(async (envelope) => {
       if (envelope.path === "/navigate") {
-        const result = await navigation.promise;
-        backgroundUrl = destinationUrl;
-        return result;
+        return await navigation.promise;
       }
       if (envelope.path === "/tabs/focus") {
         return { ok: true };
-      }
-      if (envelope.path === "/tabs") {
-        return {
-          running: true,
-          tabs: [
-            {
-              tabId: "tab-a",
-              targetId: "raw-a",
-              title: backgroundUrl === destinationUrl ? "Destination" : "Initial",
-              url: backgroundUrl,
-            },
-            {
-              tabId: "tab-b",
-              targetId: "raw-b",
-              title: "Selected",
-              url: selectedUrl,
-            },
-          ],
-        };
       }
       if (envelope.path === "/screenshot") {
         return { path: "/selected.png", targetId: "raw-b", url: selectedUrl };
@@ -437,9 +459,14 @@ describe("BrowserPanelController capture and input ownership", () => {
     expect(controller.view?.targetId).toBe("tab-b");
     expect(controller.view?.url).toBe(selectedUrl);
     expect(controller.tabs.find((tab) => tab.id === "tab-a")).toMatchObject({
-      title: "Destination",
-      url: destinationUrl,
+      title: "Initial",
+      url: initialUrl,
     });
+    expect(
+      request.mock.calls.filter(([, envelope]) => {
+        return (envelope as BrowserRequestEnvelope).path === "/tabs";
+      }),
+    ).toEqual([]);
     expect(
       request.mock.calls.filter(([, envelope]) => {
         const browserRequest = envelope as BrowserRequestEnvelope;

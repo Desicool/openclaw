@@ -339,14 +339,6 @@ export class BrowserPanelController implements ReactiveController {
           }
         });
         if (!invocation.isCurrent()) {
-          // The remote document can commit just before a tab switch supersedes
-          // this mutation. Reconcile its tab label without owning the new view.
-          if (this.operations.hasUnreconciledNavigation(client, targetId)) {
-            await this.refreshTabsOnly(
-              client,
-              this.operations.survivingInvocation(invocation, client),
-            );
-          }
           return;
         }
         this.setState("view", null);
@@ -422,20 +414,30 @@ export class BrowserPanelController implements ReactiveController {
     if (targetId === this.activeTargetId) {
       return;
     }
+    const client = this.operations.captureClient();
     const previous = { targetId: this.activeTargetId, view: this.view };
     this.invalidateViewOperations();
     const epoch = this.operations.epoch;
     this.setState("activeTargetId", targetId);
     this.setState("view", null);
     this.exitCaptureModes();
-    const focused = await this.runAction(async (client) => {
-      await focusBrowserTab(client, targetId);
+    const focused = await this.runAction(async (actionClient) => {
+      await focusBrowserTab(actionClient, targetId);
       await this.refreshView(targetId);
       if (this.activeTargetId === targetId && this.view?.targetId === targetId) {
-        this.operations.markNavigationReconciled(client, targetId);
+        this.operations.markNavigationReconciled(actionClient, targetId);
       }
     }, false);
     if (!focused && this.operations.isLive(epoch) && this.activeTargetId === targetId) {
+      if (this.operations.hasUnreconciledNavigation(client, previous.targetId)) {
+        // The prior remote document changed while selection failed. Expose an
+        // unavailable state instead of restoring a screenshot that no longer owns it.
+        this.setState("activeTargetId", null);
+        if (!this.urlDraftEditing) {
+          this.setState("urlDraft", "");
+        }
+        return;
+      }
       this.setState("activeTargetId", previous.targetId);
       this.setState("view", previous.view);
     }

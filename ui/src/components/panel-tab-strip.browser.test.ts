@@ -31,6 +31,7 @@ function renderControlledStrip(params: {
   tabs: PanelTabStripTab[];
   activeId: string;
   onSelect: (id: string) => void;
+  onClose?: (id: string) => void;
 }) {
   render(
     renderPanelTabStrip({
@@ -38,7 +39,7 @@ function renderControlledStrip(params: {
       activeId: params.activeId,
       ariaControls: "browser-test-panel",
       onSelect: params.onSelect,
-      onClose: vi.fn(),
+      onClose: params.onClose ?? vi.fn(),
       onNew: vi.fn(),
       newLabel: "New tab",
     }),
@@ -146,5 +147,28 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
     expect(nav.scrollWidth).toBeGreaterThan(nav.clientWidth);
     expect(activeRect.left).toBeGreaterThanOrEqual(navRect.left - 1);
     expect(activeRect.right).toBeLessThanOrEqual(navRect.right + 1);
+  });
+
+  it("moves focus to the selected fallback when the focused tab is closed", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    let tabs = [tab("a"), tab("b")];
+    let activeId = "a";
+    const onSelect = vi.fn();
+    const onClose = vi.fn((closedId: string) => {
+      tabs = tabs.filter((entry) => entry.id !== closedId);
+      activeId = tabs[0]?.id ?? "";
+      renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
+    });
+    renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
+    await expectControlledSelection(container, activeId);
+    const closeButton = container.querySelector<HTMLButtonElement>(".tabstrip-tab__close");
+    closeButton?.focus();
+    expect(document.activeElement).toBe(closeButton);
+
+    closeButton?.click();
+
+    const fallback = await expectControlledSelection(container, activeId);
+    await vi.waitFor(() => expect(document.activeElement).toBe(fallback));
   });
 });

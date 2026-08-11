@@ -82,6 +82,12 @@ export function renderPanelTabStrip(params: {
     params.tabs.some((tab) => tab.domId === activeElement.id)
       ? activeElement.id
       : null;
+  const focusedCloseTabId =
+    activeElement instanceof HTMLElement && activeElement.classList.contains("tabstrip-tab__close")
+      ? (activeElement.dataset.tabId ?? null)
+      : null;
+  const focusedTabWasRemoved =
+    focusedCloseTabId !== null && !params.tabs.some((tab) => tab.id === focusedCloseTabId);
   const tabOrder = params.tabs.map((tab) => tab.id).join("\u0000");
   return html`
     <wa-tab-group
@@ -108,7 +114,11 @@ export function renderPanelTabStrip(params: {
               .tabIndex=${selected ? 0 : -1}
               ${selected
                 ? ref((element) =>
-                    reconcileSelectedTabElement(element, tabOrder, focusedTabDomId === tab.domId),
+                    reconcileSelectedTabElement(
+                      element,
+                      tabOrder,
+                      focusedTabDomId === tab.domId || focusedTabWasRemoved,
+                    ),
                   )
                 : nothing}
               @auxclick=${(event: MouseEvent) => {
@@ -131,6 +141,7 @@ export function renderPanelTabStrip(params: {
               slot="nav"
               class="tabstrip-tab__close"
               type="button"
+              data-tab-id=${tab.id}
               title=${tab.closeLabel}
               aria-label=${tab.closeLabel}
               @click=${() => params.onClose(tab.id)}

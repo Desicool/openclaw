@@ -105,7 +105,10 @@ export class BrowserPanelOperationOwnership {
   }
 
   /** A committed document still needs its first owner-authoritative screenshot. */
-  hasUnreconciledNavigation(client: GatewayBrowserClient, targetId: string): boolean {
+  hasUnreconciledNavigation(client: GatewayBrowserClient | null, targetId: string | null): boolean {
+    if (!client || !targetId) {
+      return false;
+    }
     const state = this.navigationCommits.get(client)?.get(targetId);
     return state !== undefined && state.committed !== state.reconciled;
   }
