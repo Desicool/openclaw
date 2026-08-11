@@ -92,7 +92,9 @@ vi.mock("../../../config/sessions/session-accessor.js", async (importOriginal) =
   patchSessionEntry: async () => null,
 }));
 
-const announceSpy = vi.fn(async (_params: unknown) => true);
+const announceSpy = vi.fn(
+  async (_params: unknown): Promise<"delivered" | "retryable"> => "delivered",
+);
 const runSubagentEndedHookMock = vi.fn(async (_eventValue?: unknown, _ctx?: unknown) => {});
 const emitSessionLifecycleEventMock = vi.fn();
 const removeInternalSessionEffectsSessionMock = vi.fn(async (_target?: unknown) => {});
@@ -198,7 +200,7 @@ describe("subagent registry steer restarts", () => {
       resolveContextEngine: async () => noopContextEngine,
     });
     announceSpy.mockReset();
-    announceSpy.mockResolvedValue(true);
+    announceSpy.mockResolvedValue("delivered");
     runSubagentEndedHookMock.mockReset();
     runSubagentEndedHookMock.mockImplementation(async () => {});
     emitSessionLifecycleEventMock.mockReset();
@@ -215,17 +217,17 @@ describe("subagent registry steer restarts", () => {
     await vi.waitFor(assertion, { interval: 1, timeout: 1_000 });
   };
 
-  const createDeferredAnnounceResolver = (): ((value: boolean) => void) => {
+  const createDeferredAnnounceResolver = (): ((value: "delivered" | "retryable") => void) => {
     // Deferred announce lets tests observe registry state while delivery is
     // still in flight, then release the promise deterministically.
-    let resolveAnnounce: ((value: boolean) => void) | undefined;
+    let resolveAnnounce: ((value: "delivered" | "retryable") => void) | undefined;
     announceSpy.mockImplementationOnce(
       () =>
-        new Promise<boolean>((resolve) => {
+        new Promise<"delivered" | "retryable">((resolve) => {
           resolveAnnounce = resolve;
         }),
     );
-    return (value: boolean) => {
+    return (value: "delivered" | "retryable") => {
       if (!resolveAnnounce) {
         throw new Error("Expected subagent announcement resolver to be initialized");
       }
@@ -335,7 +337,7 @@ describe("subagent registry steer restarts", () => {
     vi.useRealTimers();
     mod.testing.setDepsForTest();
     announceSpy.mockReset();
-    announceSpy.mockResolvedValue(true);
+    announceSpy.mockResolvedValue("delivered");
     runSubagentEndedHookMock.mockReset();
     runSubagentEndedHookMock.mockImplementation(async () => {});
     emitSessionLifecycleEventMock.mockReset();
@@ -444,7 +446,7 @@ describe("subagent registry steer restarts", () => {
       });
       expect(runSubagentEndedHookMock).not.toHaveBeenCalled();
 
-      resolveAnnounce(true);
+      resolveAnnounce("delivered");
       await waitForRegistrySideEffect(() => {
         expect(runSubagentEndedHookMock).toHaveBeenCalledTimes(1);
       });
@@ -472,7 +474,7 @@ describe("subagent registry steer restarts", () => {
       await flushAnnounce();
       expect(runSubagentEndedHookMock).not.toHaveBeenCalled();
 
-      resolveAnnounce(true);
+      resolveAnnounce("delivered");
       await flushAnnounce();
 
       expect(runSubagentEndedHookMock).not.toHaveBeenCalled();
@@ -1123,9 +1125,9 @@ describe("subagent registry steer restarts", () => {
       const typed = params as { childRunId?: string };
       if (typed.childRunId === "run-parent") {
         parentAttempts += 1;
-        return parentAttempts >= 2;
+        return parentAttempts >= 2 ? "delivered" : "retryable";
       }
-      return true;
+      return "delivered";
     });
 
     registerRun({
@@ -1169,7 +1171,7 @@ describe("subagent registry steer restarts", () => {
     {
       vi.useFakeTimers();
       try {
-        announceSpy.mockResolvedValue(false);
+        announceSpy.mockResolvedValue("retryable");
 
         registerCompletionModeRun(
           "run-completion-retry",
@@ -1206,7 +1208,7 @@ describe("subagent registry steer restarts", () => {
   });
 
   it("keeps completion cleanup pending while descendants are still active", async () => {
-    announceSpy.mockResolvedValue(false);
+    announceSpy.mockResolvedValue("retryable");
 
     registerCompletionModeRun(
       "run-parent-expiry",
