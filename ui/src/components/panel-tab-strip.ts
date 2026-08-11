@@ -76,10 +76,11 @@ export function renderPanelTabStrip(params: {
     // visible. Keep the new-session control outside the group until one exists.
     return newButton(false);
   }
+  const activeElement = document.activeElement;
   const focusedTabDomId =
-    document.activeElement instanceof HTMLElement &&
-    params.tabs.some((tab) => tab.domId === document.activeElement.id)
-      ? document.activeElement.id
+    activeElement instanceof HTMLElement &&
+    params.tabs.some((tab) => tab.domId === activeElement.id)
+      ? activeElement.id
       : null;
   const tabOrder = params.tabs.map((tab) => tab.id).join("\u0000");
   return html`
