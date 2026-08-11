@@ -1,4 +1,4 @@
-import { render } from "lit";
+import { nothing, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import {
@@ -162,6 +162,7 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
         (document.activeElement as HTMLElement | null)?.blur();
         tabs = tabs.filter((entry) => entry.id !== closedId);
         activeId = tabs[0]?.id ?? "";
+        render(nothing, container);
         renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
       });
     });
@@ -178,6 +179,11 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
     await Promise.resolve();
 
     const fallback = await expectControlledSelection(container, activeId);
-    await vi.waitFor(() => expect(document.activeElement).toBe(fallback));
+    const group = container.querySelector<RenderedTabGroup & { updateComplete: Promise<boolean> }>(
+      "wa-tab-group",
+    );
+    await group?.updateComplete;
+    await new Promise(requestAnimationFrame);
+    expect(document.activeElement).toBe(fallback);
   });
 });
