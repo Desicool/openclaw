@@ -1,4 +1,5 @@
 import { css, html, nothing, svg, type TemplateResult } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import "./web-awesome-tabs.ts";
 
 export type PanelTabStripTab = {
@@ -53,41 +54,49 @@ export function renderPanelTabStrip(params: {
       without-scroll-controls
       @wa-tab-show=${(event: CustomEvent<{ name: string }>) => params.onSelect(event.detail.name)}
     >
-      ${params.tabs.map(
-        (tab) => html`
-          <wa-tab
-            id=${tab.domId}
-            class=${`tabstrip-tab ${tab.className ?? ""}`}
-            panel=${tab.id}
-            aria-controls=${params.ariaControls}
-            title=${tab.title || nothing}
-            @auxclick=${(event: MouseEvent) => {
-              if (event.button === 1) {
-                event.preventDefault();
-                params.onClose(tab.id);
-              }
-            }}
-          >
-            ${tab.icon == null || tab.icon === nothing
-              ? nothing
-              : html`<span class="tabstrip-tab__icon" aria-hidden="true">${tab.icon}</span>`}
-            <span class="tabstrip-tab__label">${tab.label}</span>
-            ${tab.badge ? html`<span class="tabstrip-tab__badge">${tab.badge}</span>` : nothing}
-            ${tab.statusLabel
-              ? html`<span class="tabstrip-tab__status">${tab.statusLabel}</span>`
-              : nothing}
-          </wa-tab>
-          <button
-            slot="nav"
-            class="tabstrip-tab__close"
-            type="button"
-            title=${tab.closeLabel}
-            aria-label=${tab.closeLabel}
-            @click=${() => params.onClose(tab.id)}
-          >
-            <span class="tabstrip-tab__close-box">${CLOSE_GLYPH}</span>
-          </button>
-        `,
+      ${repeat(
+        params.tabs,
+        (tab) => tab.id,
+        (tab) => {
+          const selected = tab.id === params.activeId;
+          return html`
+            <wa-tab
+              id=${tab.domId}
+              class=${`tabstrip-tab ${tab.className ?? ""}`}
+              panel=${tab.id}
+              aria-controls=${params.ariaControls}
+              aria-selected=${selected ? "true" : "false"}
+              title=${tab.title || nothing}
+              ?active=${selected}
+              .tabIndex=${selected ? 0 : -1}
+              @auxclick=${(event: MouseEvent) => {
+                if (event.button === 1) {
+                  event.preventDefault();
+                  params.onClose(tab.id);
+                }
+              }}
+            >
+              ${tab.icon == null || tab.icon === nothing
+                ? nothing
+                : html`<span class="tabstrip-tab__icon" aria-hidden="true">${tab.icon}</span>`}
+              <span class="tabstrip-tab__label">${tab.label}</span>
+              ${tab.badge ? html`<span class="tabstrip-tab__badge">${tab.badge}</span>` : nothing}
+              ${tab.statusLabel
+                ? html`<span class="tabstrip-tab__status">${tab.statusLabel}</span>`
+                : nothing}
+            </wa-tab>
+            <button
+              slot="nav"
+              class="tabstrip-tab__close"
+              type="button"
+              title=${tab.closeLabel}
+              aria-label=${tab.closeLabel}
+              @click=${() => params.onClose(tab.id)}
+            >
+              <span class="tabstrip-tab__close-box">${CLOSE_GLYPH}</span>
+            </button>
+          `;
+        },
       )}
       ${newButton(true)}
     </wa-tab-group>
