@@ -7085,19 +7085,84 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     },
   );
 
-  it("pins transient validation refs before trusted Telegram QA dispatch", () => {
+  it("keeps exact release validation identity separate from release context", () => {
+    const fullReleaseWorkflow = readWorkflow(".github/workflows/full-release-validation.yml");
     const releaseWorkflow = readReleaseChecksWorkflow();
+    const telegramWorkflow = readWorkflow(".github/workflows/openclaw-release-telegram-qa.yml");
+    const fullReleaseDispatchStep = fullReleaseWorkflow.jobs.release_checks.steps.find(
+      (step: WorkflowStep) => step.name === "Dispatch and monitor release checks",
+    );
     const dispatchStep = releaseWorkflow.jobs.qa_live_telegram_release_checks.steps.find(
       (step: WorkflowStep) => step.name === "Dispatch and await trusted Telegram QA",
     );
+    const identityStep = telegramWorkflow.jobs.trusted_identity.steps.find(
+      (step: WorkflowStep) => step.name === "Verify dispatched-main identity",
+    );
+    const provenanceSteps = [
+      telegramWorkflow.jobs.build_candidate.steps.find(
+        (step: WorkflowStep) => step.name === "Validate candidate release provenance",
+      ),
+      telegramWorkflow.jobs.run_telegram.steps.find(
+        (step: WorkflowStep) => step.name === "Revalidate candidate release provenance",
+      ),
+    ];
 
-    expect(dispatchStep.env.TARGET_REF).toBe("${{ needs.resolve_target.outputs.ref }}");
+    expect(fullReleaseWorkflow.on.workflow_dispatch.inputs.target_context_ref).toMatchObject({
+      required: false,
+      default: "",
+      type: "string",
+    });
+    expect(fullReleaseDispatchStep.run).toContain('-f ref="$TARGET_SHA"');
+    expect(fullReleaseDispatchStep.run).toContain('-f target_context_ref="$TARGET_CONTEXT_REF"');
+    expect(fullReleaseDispatchStep.run).not.toContain(
+      'release_checks_target_ref="${TARGET_CONTEXT_REF:-$TARGET_REF}"',
+    );
+    expect(releaseWorkflow.on.workflow_dispatch.inputs.target_context_ref).toMatchObject({
+      required: false,
+      default: "",
+      type: "string",
+    });
+    expect(telegramWorkflow.on.workflow_dispatch.inputs.target_context_ref).toMatchObject({
+      required: false,
+      default: "",
+      type: "string",
+    });
     expect(dispatchStep.env.TARGET_SHA).toBe("${{ needs.resolve_target.outputs.revision }}");
-    expect(dispatchStep.run).toContain('telegram_target_ref="$TARGET_REF"');
-    expect(dispatchStep.run).toContain("validation/target-* | refs/heads/validation/target-*)");
-    expect(dispatchStep.run).toContain('telegram_target_ref="$TARGET_SHA"');
-    expect(dispatchStep.run).toContain('-f target_ref="$telegram_target_ref"');
-    expect(dispatchStep.run).not.toContain("release/* | refs/heads/release/*)");
+    expect(dispatchStep.env.TARGET_CONTEXT_REF).toBe("${{ inputs.target_context_ref }}");
+    expect(dispatchStep.run).toContain('-f target_context_ref="$TARGET_CONTEXT_REF"');
+    expect(dispatchStep.run).toContain('-f target_ref="$TARGET_SHA"');
+    expect(dispatchStep.run).not.toContain("telegram_target_ref=");
+    expect(identityStep.run).toContain(
+      "Telegram QA target context must be a canonical release branch or tag.",
+    );
+    expect(identityStep.run).toContain(
+      "Telegram QA release context requires an exact-SHA target ref.",
+    );
+    for (const provenanceStep of provenanceSteps) {
+      expect(provenanceStep.env.TARGET_CONTEXT_REF).toBe("${{ inputs.target_context_ref }}");
+      expect(provenanceStep.run).toContain("frozen-release-branch-head");
+      expect(provenanceStep.run).toContain(
+        'elif [[ "$candidate_version" =~ ^${release_version_pattern}-beta\\.[0-9]+$ ]]',
+      );
+      expect(provenanceStep.run).toContain(
+        'frozen_release_branch_pattern="^release/${candidate_version_pattern}-code-frozen(-r[1-9][0-9]*)?$"',
+      );
+      expect(provenanceStep.run).toContain('elif [[ -z "$frozen_release_branch_pattern" ]]; then');
+      expect(provenanceStep.run).toContain(
+        "Telegram candidate version ${candidate_version} does not belong to release ${release_version}.",
+      );
+      expect(provenanceStep.run).toContain(
+        "Telegram candidate version ${candidate_version} does not match context ${normalized_context_ref}.",
+      );
+      expect(provenanceStep.run).toContain('context_release_branch="$normalized_context_ref"');
+      expect(provenanceStep.run).toContain('context_release_tag="$normalized_context_ref"');
+      expect(provenanceStep.run).toContain(
+        "Frozen release candidate ${candidate_sha} requires a valid maintainer signature.",
+      );
+      expect(provenanceStep.run).toContain(
+        'select(.state == "OPEN" and .headRepository.nameWithOwner == $repo and',
+      );
+    }
   });
 
   it("keeps maturity scorecard release docs opt-in from release checks", () => {
