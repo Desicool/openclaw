@@ -419,6 +419,15 @@ describe("ChatSessionCompanionThreads", () => {
         });
       },
       () => current,
+      async () => ({
+        exchanges: [
+          {
+            question: "Which connection owns this?",
+            answer: "stale answer",
+            ts: 3,
+          },
+        ],
+      }),
     );
     await vi.waitFor(() => expect(threads.view("one").phase).toBe("answering"));
     current = false;
@@ -426,11 +435,17 @@ describe("ChatSessionCompanionThreads", () => {
     await pending;
 
     expect(threads.view("one")).toMatchObject({
-      exchanges: [],
-      failedQuestion: "Which connection owns this?",
-      hint: "history-unavailable",
+      exchanges: [
+        {
+          question: "Which connection owns this?",
+          answer: "stale answer",
+          ts: 3,
+        },
+      ],
+      failedQuestion: null,
+      hint: null,
       pendingQuestion: null,
-      retryable: true,
+      retryable: false,
     });
   });
 
@@ -448,6 +463,7 @@ describe("ChatSessionCompanionThreads", () => {
         });
       },
       () => current,
+      async () => ({ exchanges: [] }),
     );
     await vi.waitFor(() => expect(threads.view("one").phase).toBe("answering"));
     current = false;

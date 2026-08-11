@@ -63,6 +63,7 @@ type SessionTranscriptContextWindow = {
 
 const resetMessageWindowCache = new Map<string, ResetMessageWindowCacheEntry>();
 const MAX_MESSAGE_WINDOW_CACHE = 64;
+const MAX_CONTEXT_BOUNDARY_BYTES = 1024 * 1024;
 
 function getResetWindowKysely(database: OpenClawAgentDatabase) {
   return getNodeSqliteKysely<ResetWindowDatabase>(database.db);
@@ -141,7 +142,35 @@ function readLatestActiveBoundaryByType(
           .onRef("event.session_id", "=", "active.session_id")
           .onRef("event.seq", "=", "active.event_seq"),
       )
-      .select(["active.active_position", "identity.event_type", "identity.seq", "event.event_json"])
+      .select([
+        "active.active_position",
+        "identity.event_type",
+        "identity.seq",
+        /* kysely-allow-raw: reject oversized/malformed boundaries before projecting scalars. */
+        sql<number>`LENGTH(CAST(event.event_json AS BLOB))`.as("serialized_bytes"),
+        sql<number>`json_valid(event.event_json)`.as("json_valid"),
+        sql<string | null>`CASE
+          WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
+            AND json_valid(event.event_json)
+            AND json_type(event.event_json, '$.firstKeptEntryId') = 'text'
+          THEN json_extract(event.event_json, '$.firstKeptEntryId')
+          ELSE NULL
+        END`.as("first_kept_entry_id"),
+        sql<string | null>`CASE
+          WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
+            AND json_valid(event.event_json)
+            AND json_type(event.event_json, '$.summary') = 'text'
+          THEN json_extract(event.event_json, '$.summary')
+          ELSE NULL
+        END`.as("summary"),
+        sql<string | number | null>`CASE
+          WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
+            AND json_valid(event.event_json)
+            AND json_type(event.event_json, '$.timestamp') IN ('integer', 'real', 'text')
+          THEN json_extract(event.event_json, '$.timestamp')
+          ELSE NULL
+        END`.as("timestamp"),
+      ])
       .where("active.session_id", "=", projection.resolved.sessionId)
       .where("identity.event_type", "=", eventType)
       .orderBy("identity.seq", "desc")
@@ -159,6 +188,14 @@ function readLatestActiveBoundary(projection: ResetWindowProjection) {
     return reset;
   }
   return reset.seq > compaction.seq ? reset : compaction;
+}
+
+function assertUsableBoundary(
+  boundary: NonNullable<ReturnType<typeof readLatestActiveBoundary>>,
+): void {
+  if (boundary.serialized_bytes > MAX_CONTEXT_BOUNDARY_BYTES || boundary.json_valid !== 1) {
+    throw new Error("Active transcript boundary exceeds the bounded context contract");
+  }
 }
 
 function readFirstKeptActivePosition(
@@ -197,7 +234,7 @@ function findLatestResetMessageWindow(
   if (!latestBoundaryRow || latestBoundaryRow.event_type !== "reset") {
     return null;
   }
-  const boundary = JSON.parse(latestBoundaryRow.event_json) as { firstKeptEntryId?: unknown };
+  assertUsableBoundary(latestBoundaryRow);
   const postBoundaryMessagePosition =
     executeSqliteQueryTakeFirstSync(
       projection.database.db,
@@ -213,7 +250,7 @@ function findLatestResetMessageWindow(
   let keptMessagePositions: number[] = [];
   const firstKeptActivePosition = readFirstKeptActivePosition(
     projection,
-    boundary.firstKeptEntryId,
+    latestBoundaryRow.first_kept_entry_id,
     latestBoundaryRow.active_position,
   );
   if (firstKeptActivePosition !== undefined) {
@@ -259,27 +296,24 @@ function findContextMessageWindow(
   if (!latestBoundaryRow) {
     return null;
   }
-  const boundary = JSON.parse(latestBoundaryRow.event_json) as {
-    firstKeptEntryId?: unknown;
-    summary?: unknown;
-    timestamp?: unknown;
-  };
+  assertUsableBoundary(latestBoundaryRow);
   const retainedStartActivePosition = readFirstKeptActivePosition(
     projection,
-    boundary.firstKeptEntryId,
+    latestBoundaryRow.first_kept_entry_id,
     latestBoundaryRow.active_position,
   );
   return {
     scanStartActivePosition: retainedStartActivePosition ?? latestBoundaryRow.active_position + 1,
-    ...(latestBoundaryRow.event_type === "compaction" && typeof boundary.summary === "string"
+    ...(latestBoundaryRow.event_type === "compaction" && latestBoundaryRow.summary
       ? {
           contextSummary: {
-            text: boundary.summary,
+            text: latestBoundaryRow.summary,
             ts:
-              typeof boundary.timestamp === "string"
-                ? Date.parse(boundary.timestamp) || 0
-                : typeof boundary.timestamp === "number" && Number.isFinite(boundary.timestamp)
-                  ? boundary.timestamp
+              typeof latestBoundaryRow.timestamp === "string"
+                ? Date.parse(latestBoundaryRow.timestamp) || 0
+                : typeof latestBoundaryRow.timestamp === "number" &&
+                    Number.isFinite(latestBoundaryRow.timestamp)
+                  ? latestBoundaryRow.timestamp
                   : 0,
           },
         }

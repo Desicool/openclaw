@@ -146,6 +146,7 @@ export class ChatSessionCompanionThreads {
       onPrepared: () => void,
     ) => Promise<SessionsCompanionAskResult>,
     isCurrent: () => boolean = () => true,
+    reload?: (sessionKey: string) => Promise<SessionsCompanionStateResult>,
   ): Promise<void> {
     const key = sessionKey.trim();
     const normalized = question.trim();
@@ -166,6 +167,38 @@ export class ChatSessionCompanionThreads {
     const token = Symbol(key);
     this.submissionTokens.set(key, token);
     this.notify();
+    const knownExchanges = new Set(
+      thread.exchanges.map(({ question: priorQuestion, answer, ts }) =>
+        JSON.stringify([priorQuestion, answer, ts]),
+      ),
+    );
+    const reconcileStale = async (
+      expectedAnswer?: string,
+    ): Promise<"committed" | "missing" | "superseded" | "unavailable"> => {
+      if (!reload) {
+        return "unavailable";
+      }
+      try {
+        const result = await reload(key);
+        if (this.submissionTokens.get(key) !== token) {
+          return "superseded";
+        }
+        thread.exchanges = result.exchanges.map(({ question: nextQuestion, answer, ts }) => ({
+          question: nextQuestion,
+          answer,
+          ts,
+        }));
+        const committed = thread.exchanges.some(
+          (exchange) =>
+            exchange.question === normalized &&
+            (expectedAnswer === undefined || exchange.answer === expectedAnswer) &&
+            !knownExchanges.has(JSON.stringify([exchange.question, exchange.answer, exchange.ts])),
+        );
+        return committed ? "committed" : "missing";
+      } catch {
+        return "unavailable";
+      }
+    };
     try {
       const result = await ask(key, normalized, () => {
         if (this.submissionTokens.get(key) !== token || !isCurrent()) {
@@ -179,10 +212,14 @@ export class ChatSessionCompanionThreads {
         return;
       }
       if (!isCurrent()) {
-        throw Object.assign(new Error("stale companion answer"), {
-          details: { reason: "context-unavailable" },
-          retryable: true,
-        });
+        const reconciliation = await reconcileStale(result.answer);
+        if (reconciliation === "committed" || reconciliation === "superseded") {
+          return;
+        }
+        thread.failedQuestion = normalized;
+        thread.hint = "unavailable";
+        thread.retryable = false;
+        return;
       }
       thread.exchanges = [
         ...thread.exchanges,
@@ -192,12 +229,17 @@ export class ChatSessionCompanionThreads {
       if (this.submissionTokens.get(key) !== token) {
         return;
       }
-      thread.failedQuestion = normalized;
       if (!isCurrent()) {
-        thread.hint = "history-unavailable";
-        thread.retryable = true;
+        const reconciliation = await reconcileStale();
+        if (reconciliation === "committed" || reconciliation === "superseded") {
+          return;
+        }
+        thread.failedQuestion = normalized;
+        thread.hint = reconciliation === "missing" ? "history-unavailable" : "unavailable";
+        thread.retryable = reconciliation === "missing";
         return;
       }
+      thread.failedQuestion = normalized;
       const reason = errorDetailReason(error);
       thread.hint =
         errorDetailCode(error) === COMPANION_BUSY_DETAIL_CODE

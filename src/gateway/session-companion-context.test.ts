@@ -236,6 +236,35 @@ describe("session companion context", () => {
     );
   });
 
+  it("returns unavailable without materializing an oversized compaction boundary", async () => {
+    const scope = createScope("companion-context-oversized-boundary");
+    await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+    await persistSessionTranscriptTurn(scope, {
+      messages: [
+        {
+          eventId: "retained",
+          parentId: null,
+          message: { role: "user" as const, content: "retained context", timestamp: 1 },
+        },
+      ],
+      touchSessionEntry: true,
+    });
+    await appendTranscriptEvent(scope, {
+      type: "compaction",
+      id: "oversized-compaction",
+      parentId: "retained",
+      timestamp: "2026-08-11T00:00:00.000Z",
+      summary: "small summary",
+      firstKeptEntryId: "retained",
+      tokensBefore: 100,
+      details: { payload: "x".repeat(1024 * 1024) },
+    });
+
+    await expect(defaultSessionCompanionContextReader.read(scope)).resolves.toEqual({
+      kind: "unavailable",
+    });
+  });
+
   it("returns unavailable rather than an empty context while the active projection is stale", async () => {
     const scope = createScope("companion-context-unavailable");
     await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
