@@ -7,7 +7,6 @@ import {
   captureBrowserScreenshot,
   clickBrowserCoords,
   closeBrowserTab,
-  errorDetail,
   fetchBrowserScreenshotDataUrl,
   focusBrowserTab,
   goBrowserHistory,
@@ -37,7 +36,6 @@ import {
   paintBrowserPanelOverlay,
   type BrowserPanelView,
 } from "./browser-panel-surface.ts";
-import { reconcileCapturedTab } from "./browser-panel-tabs.ts";
 import { normalizeBrowserUrlDraft } from "./browser-url.ts";
 
 const INSPECT_THROTTLE_MS = 120;
@@ -128,7 +126,8 @@ export class BrowserPanelController implements ReactiveController {
   }
 
   private reportError(error: unknown): void {
-    this.setState("errorText", t("browser.errors.requestFailed", { error: errorDetail(error) }));
+    const detail = error instanceof Error ? error.message : String(error);
+    this.setState("errorText", t("browser.errors.requestFailed", { error: detail }));
   }
 
   async refreshAll(): Promise<void> {
@@ -147,7 +146,7 @@ export class BrowserPanelController implements ReactiveController {
         return;
       }
       this.setState("running", snapshot.running);
-      this.setState("tabs", snapshot.tabs);
+      this.setState("tabs", this.operations.retainTabSnapshot(client, snapshot.tabs));
       // A mutation may adopt the same tab while this snapshot is pending.
       // Reconcile its tab strip, but never let it own document or loading state.
       if (!this.operations.canCaptureSnapshot(invocation)) {
@@ -225,7 +224,7 @@ export class BrowserPanelController implements ReactiveController {
           : observedMetrics;
       // Tab snapshots can lag history and in-page navigation. Keep the stable
       // identity aligned with the document this capture owns.
-      this.setState("tabs", reconcileCapturedTab(this.tabs, targetId, metrics, shot.url));
+      this.setState("tabs", this.operations.capturedTabs(this.tabs, targetId, metrics, shot.url));
       this.setState("view", { targetId, dataUrl, image, url: shot.url, metrics });
       if (!this.urlDraftEditing && shot.url) {
         this.setState("urlDraft", shot.url);
@@ -398,7 +397,7 @@ export class BrowserPanelController implements ReactiveController {
         this.operations.acceptSnapshot(invocation, this.activeTargetId, this.activeTargetId)
       ) {
         this.setState("running", snapshot.running);
-        this.setState("tabs", snapshot.tabs);
+        this.setState("tabs", this.operations.retainTabSnapshot(client, snapshot.tabs));
         return "accepted";
       }
       return "rejected";
@@ -446,6 +445,7 @@ export class BrowserPanelController implements ReactiveController {
     await this.runAction(async (client) => {
       const epoch = this.operations.epoch;
       await closeBrowserTab(client, targetId);
+      this.operations.forgetNavigation(client, targetId);
       if (!this.operations.isLive(epoch, client)) {
         if (this.operations.isLive(this.operations.epoch, client)) {
           await this.refreshAll();

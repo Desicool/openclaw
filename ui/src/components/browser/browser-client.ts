@@ -71,10 +71,6 @@ function stringOrEmpty(value: unknown): string {
   return readStringValue(value) ?? "";
 }
 
-export function errorDetail(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function asNullableFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

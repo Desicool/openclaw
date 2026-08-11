@@ -4,6 +4,7 @@ import {
   isBrowserEvaluateDisabledError,
   readBrowserPageMetrics,
   type BrowserPageMetrics,
+  type BrowserPanelTab,
 } from "./browser-client.ts";
 
 export interface BrowserPanelControllerHost extends ReactiveControllerHost {
@@ -125,10 +126,49 @@ export class BrowserPanelOperationOwnership {
   }
 
   markNavigationReconciled(client: GatewayBrowserClient, targetId: string): void {
-    const state = this.navigationCommits.get(client)?.get(targetId);
-    if (state) {
-      state.reconciled = state.committed;
+    this.forgetNavigation(client, targetId);
+  }
+
+  forgetNavigation(client: GatewayBrowserClient, targetId: string): void {
+    const commits = this.navigationCommits.get(client);
+    commits?.delete(targetId);
+    if (commits?.size === 0) {
+      this.navigationCommits.delete(client);
     }
+  }
+
+  retainTabSnapshot(client: GatewayBrowserClient, tabs: BrowserPanelTab[]): BrowserPanelTab[] {
+    const commits = this.navigationCommits.get(client);
+    if (!commits) {
+      return tabs;
+    }
+    const liveTargetIds = new Set(tabs.map((tab) => tab.id));
+    for (const targetId of commits.keys()) {
+      if (!liveTargetIds.has(targetId)) {
+        commits.delete(targetId);
+      }
+    }
+    if (commits.size === 0) {
+      this.navigationCommits.delete(client);
+    }
+    return tabs;
+  }
+
+  capturedTabs(
+    tabs: BrowserPanelTab[],
+    targetId: string,
+    metrics: BrowserPageMetrics | null,
+    screenshotUrl: string,
+  ): BrowserPanelTab[] {
+    const tab = tabs.find((entry) => entry.id === targetId);
+    if (!tab) {
+      return tabs;
+    }
+    const title = metrics?.title ?? tab.title;
+    const url = metrics?.url || screenshotUrl || tab.url;
+    return title === tab.title && url === tab.url
+      ? tabs
+      : tabs.map((entry) => (entry.id === targetId ? { ...entry, title, url } : entry));
   }
 
   /** Remote navigations for one gateway tab must commit in user-intent order. */
