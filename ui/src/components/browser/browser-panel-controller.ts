@@ -335,6 +335,14 @@ export class BrowserPanelController implements ReactiveController {
           }
         });
         if (!invocation.isCurrent()) {
+          // The remote document can commit just before a tab switch supersedes
+          // this mutation. Reconcile its tab label without owning the new view.
+          if (this.operations.hasUnreconciledNavigation(client, targetId)) {
+            await this.refreshTabsOnly(
+              client,
+              this.operations.survivingInvocation(invocation, client),
+            );
+          }
           return;
         }
         this.setState("view", null);
@@ -419,6 +427,9 @@ export class BrowserPanelController implements ReactiveController {
     const focused = await this.runAction(async (client) => {
       await focusBrowserTab(client, targetId);
       await this.refreshView(targetId);
+      if (this.activeTargetId === targetId && this.view?.targetId === targetId) {
+        this.operations.markNavigationReconciled(client, targetId);
+      }
     }, false);
     if (!focused && this.operations.isLive(epoch) && this.activeTargetId === targetId) {
       this.setState("activeTargetId", previous.targetId);
