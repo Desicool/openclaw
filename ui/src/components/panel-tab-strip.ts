@@ -146,11 +146,16 @@ export function renderPanelTabStrip(params: {
                 const button = event.currentTarget;
                 const renderRoot =
                   button instanceof Node ? (button.getRootNode() as ParentNode) : null;
+                const renderHost =
+                  renderRoot instanceof ShadowRoot
+                    ? (renderRoot.host as HTMLElement & { updateComplete?: Promise<unknown> })
+                    : null;
                 const restoreFocus = document.activeElement === button;
                 await params.onClose(tab.id);
                 if (!restoreFocus) {
                   return;
                 }
+                await renderHost?.updateComplete;
                 const settledGroup = [
                   ...(renderRoot?.querySelectorAll<
                     HTMLElement & { updateComplete?: Promise<unknown> }
