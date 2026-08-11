@@ -105,6 +105,15 @@ export class BrowserPanelOperationOwnership {
     return this.navigationCommits.get(client)?.has(targetId) ?? false;
   }
 
+  hasPendingNavigation(client: GatewayBrowserClient | null, targetId: string | null): boolean {
+    return Boolean(
+      client &&
+      targetId &&
+      (this.hasQueuedNavigation(client, targetId) ||
+        this.hasUnreconciledNavigation(client, targetId)),
+    );
+  }
+
   markNavigationCommitted(client: GatewayBrowserClient, targetId: string): void {
     let commits = this.navigationCommits.get(client);
     if (!commits) {

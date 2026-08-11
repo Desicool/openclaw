@@ -55,49 +55,59 @@ describe("BrowserPanelController capture and input ownership", () => {
     expect(controller.loading).toBe(false);
   });
 
-  it("does not restore a stale view when a background navigation commits before selection fails", async () => {
-    const navigation = createDeferred<{ ok: boolean }>();
-    const focus = createDeferred<{ ok: boolean }>();
-    const initialUrl = "https://example.test/initial";
-    const destinationUrl = "https://example.test/destination";
-    const { client, request } = createBrowserClient(async (envelope) => {
-      if (envelope.path === "/navigate") {
-        return await navigation.promise;
-      }
-      if (envelope.path === "/tabs/focus") {
-        return await focus.promise;
-      }
-      throw new Error(`Unexpected browser route: ${envelope.path}`);
-    });
-    const controller = createBrowserPanelTestController(client, "tab-a", initialUrl);
-    controller.tabs = [
-      { id: "tab-a", targetId: "raw-a", title: "Initial", url: initialUrl },
-      {
-        id: "tab-b",
-        targetId: "raw-b",
-        title: "Selected",
-        url: "https://example.test/selected",
-      },
-    ];
+  it.each(["navigation", "focus rejection"] as const)(
+    "does not restore a stale view when %s settles first",
+    async (first) => {
+      const navigation = createDeferred<{ ok: boolean }>();
+      const focus = createDeferred<{ ok: boolean }>();
+      const initialUrl = "https://example.test/initial";
+      const destinationUrl = "https://example.test/destination";
+      const { client, request } = createBrowserClient(async (envelope) => {
+        if (envelope.path === "/navigate") {
+          return await navigation.promise;
+        }
+        if (envelope.path === "/tabs/focus") {
+          return await focus.promise;
+        }
+        throw new Error(`Unexpected browser route: ${envelope.path}`);
+      });
+      const controller = createBrowserPanelTestController(client, "tab-a", initialUrl);
+      controller.tabs = [
+        { id: "tab-a", targetId: "raw-a", title: "Initial", url: initialUrl },
+        {
+          id: "tab-b",
+          targetId: "raw-b",
+          title: "Selected",
+          url: "https://example.test/selected",
+        },
+      ];
 
-    const pendingNavigation = controller.openUrl(destinationUrl, { newTab: false });
-    await flushBrowserResponses();
-    const pendingSelection = controller.selectTab("tab-b");
-    navigation.resolve({ ok: true });
-    await pendingNavigation;
-    focus.reject(new Error("Tab focus rejected"));
-    await pendingSelection;
+      const pendingNavigation = controller.openUrl(destinationUrl, { newTab: false });
+      await flushBrowserResponses();
+      const pendingSelection = controller.selectTab("tab-b");
+      if (first === "navigation") {
+        navigation.resolve({ ok: true });
+        await pendingNavigation;
+        focus.reject(new Error("Tab focus rejected"));
+        await pendingSelection;
+      } else {
+        focus.reject(new Error("Tab focus rejected"));
+        await pendingSelection;
+        navigation.resolve({ ok: true });
+        await pendingNavigation;
+      }
 
-    expect(controller.activeTargetId).toBeNull();
-    expect(controller.view).toBeNull();
-    expect(controller.urlDraft).toBe("");
-    expect(controller.errorText).toBe("Browser request failed: Tab focus rejected");
-    expect(
-      request.mock.calls.filter(([, envelope]) => {
-        return (envelope as BrowserRequestEnvelope).path === "/tabs";
-      }),
-    ).toEqual([]);
-  });
+      expect(controller.activeTargetId).toBeNull();
+      expect(controller.view).toBeNull();
+      expect(controller.urlDraft).toBe("");
+      expect(controller.errorText).toBe("Browser request failed: Tab focus rejected");
+      expect(
+        request.mock.calls.filter(([, envelope]) => {
+          return (envelope as BrowserRequestEnvelope).path === "/tabs";
+        }),
+      ).toEqual([]);
+    },
+  );
 
   it("retains a newly opened tab after its original active tab closes", async () => {
     stubScreenshotMedia();

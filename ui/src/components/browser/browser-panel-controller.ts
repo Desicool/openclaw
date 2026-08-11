@@ -427,7 +427,7 @@ export class BrowserPanelController implements ReactiveController {
       }
     }, false);
     if (!focused && this.operations.isLive(epoch) && this.activeTargetId === targetId) {
-      if (this.operations.hasUnreconciledNavigation(client, previous.targetId)) {
+      if (this.operations.hasPendingNavigation(client, previous.targetId)) {
         // The prior remote document changed while selection failed. Expose an
         // unavailable state instead of restoring a screenshot that no longer owns it.
         this.setState("activeTargetId", null);
