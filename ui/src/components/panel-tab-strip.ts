@@ -20,12 +20,10 @@ const CLOSE_GLYPH = svg`<svg viewBox="0 0 16 16" width="14" height="14" fill="no
 const PLUS_GLYPH = svg`<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>`;
 
 const reconciledTabOrders = new WeakMap<Element, string>();
-const pendingCloseFocus = new Map<string, string>();
 
 function reconcileSelectedTabElement(
   element: Element | undefined,
   tabOrder: string,
-  focusScope: string,
   restoreFocus: boolean,
 ): void {
   if (!(element instanceof HTMLElement)) {
@@ -33,7 +31,7 @@ function reconcileSelectedTabElement(
   }
   const orderChanged = reconciledTabOrders.get(element) !== tabOrder;
   reconciledTabOrders.set(element, tabOrder);
-  if (!orderChanged && !restoreFocus && !pendingCloseFocus.has(focusScope)) {
+  if (!orderChanged && !restoreFocus) {
     return;
   }
   // Keyed movement can make the browser briefly focus the document or move the
@@ -43,16 +41,6 @@ function reconcileSelectedTabElement(
       return;
     }
     const currentGroup = element.closest("wa-tab-group");
-    const closedTabId = pendingCloseFocus.get(focusScope);
-    const focusAfterClose =
-      currentGroup !== null &&
-      closedTabId !== undefined &&
-      ![...currentGroup!.querySelectorAll<HTMLElement>("wa-tab")].some(
-        (tab) => tab.getAttribute("panel") === closedTabId,
-      );
-    if (closedTabId !== undefined) {
-      pendingCloseFocus.delete(focusScope);
-    }
     const updateComplete =
       (currentGroup as (HTMLElement & { updateComplete?: Promise<unknown> }) | null)
         ?.updateComplete ?? Promise.resolve();
@@ -62,10 +50,7 @@ function reconcileSelectedTabElement(
       }
       element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       const current = document.activeElement;
-      if (
-        (restoreFocus || focusAfterClose) &&
-        (current === document.body || current === document.documentElement)
-      ) {
+      if (restoreFocus && (current === document.body || current === document.documentElement)) {
         element.focus({ preventScroll: true });
       }
     });
@@ -77,7 +62,7 @@ export function renderPanelTabStrip(params: {
   activeId: string | null;
   ariaControls: string;
   onSelect: (id: string) => void;
-  onClose: (id: string) => void;
+  onClose: (id: string) => void | Promise<void>;
   onNew: () => void;
   newLabel: string;
   newDisabled?: boolean;
@@ -96,7 +81,6 @@ export function renderPanelTabStrip(params: {
     </button>
   `;
   if (params.tabs.length === 0) {
-    pendingCloseFocus.delete(params.ariaControls);
     // Web Awesome 3.10 dereferences its first tab when an empty group becomes
     // visible. Keep the new-session control outside the group until one exists.
     return newButton(false);
@@ -133,18 +117,13 @@ export function renderPanelTabStrip(params: {
               .tabIndex=${selected ? 0 : -1}
               ${selected
                 ? ref((element) =>
-                    reconcileSelectedTabElement(
-                      element,
-                      tabOrder,
-                      params.ariaControls,
-                      focusedTabDomId === tab.domId,
-                    ),
+                    reconcileSelectedTabElement(element, tabOrder, focusedTabDomId === tab.domId),
                   )
                 : nothing}
               @auxclick=${(event: MouseEvent) => {
                 if (event.button === 1) {
                   event.preventDefault();
-                  params.onClose(tab.id);
+                  void params.onClose(tab.id);
                 }
               }}
             >
@@ -163,12 +142,31 @@ export function renderPanelTabStrip(params: {
               type="button"
               title=${tab.closeLabel}
               aria-label=${tab.closeLabel}
-              @click=${(event: MouseEvent) => {
+              @click=${async (event: MouseEvent) => {
                 const button = event.currentTarget;
-                if (button instanceof HTMLElement && document.activeElement === button) {
-                  pendingCloseFocus.set(params.ariaControls, tab.id);
+                const group = button instanceof HTMLElement ? button.closest("wa-tab-group") : null;
+                const groupOwner = group?.parentNode as ParentNode | null;
+                const restoreFocus = document.activeElement === button;
+                await params.onClose(tab.id);
+                if (!restoreFocus) {
+                  return;
                 }
-                params.onClose(tab.id);
+                const settledGroup = groupOwner?.querySelector<
+                  HTMLElement & { updateComplete?: Promise<unknown> }
+                >("wa-tab-group");
+                await settledGroup?.updateComplete;
+                const closingTab = [
+                  ...(settledGroup?.querySelectorAll<HTMLElement>("wa-tab") ?? []),
+                ].find((candidate) => candidate.getAttribute("panel") === tab.id);
+                const fallback = settledGroup?.querySelector<HTMLElement>("wa-tab[active]");
+                const current = document.activeElement;
+                if (
+                  !closingTab &&
+                  fallback &&
+                  (current === document.body || current === document.documentElement)
+                ) {
+                  fallback.focus({ preventScroll: true });
+                }
               }}
             >
               <span class="tabstrip-tab__close-box">${CLOSE_GLYPH}</span>

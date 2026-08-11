@@ -32,7 +32,7 @@ function renderControlledStrip(params: {
   tabs: PanelTabStripTab[];
   activeId: string;
   onSelect: (id: string) => void;
-  onClose?: (id: string) => void;
+  onClose?: (id: string) => void | Promise<void>;
 }) {
   render(
     renderPanelTabStrip({
@@ -157,15 +157,15 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
     let tabs = [tab("a"), tab("b")];
     let activeId = "a";
     const onSelect = vi.fn();
-    const onClose = vi.fn((closedId: string) => {
-      void close.promise.then(() => {
+    const onClose = vi.fn((closedId: string) =>
+      close.promise.then(() => {
         (document.activeElement as HTMLElement | null)?.blur();
         tabs = tabs.filter((entry) => entry.id !== closedId);
         activeId = tabs[0]?.id ?? "";
         render(nothing, container);
         renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
-      });
-    });
+      }),
+    );
     renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
     await expectControlledSelection(container, activeId);
     const closeButton = container.querySelector<HTMLButtonElement>(".tabstrip-tab__close");
