@@ -4970,6 +4970,7 @@ export const en: TranslationMap = {
       reply: "Reply",
       replyToMessage: "Reply to message",
       replyingTo: "Replying to {name}",
+      originalUnavailable: "The original message is unavailable.",
       message: "message",
       currentMessage: "current message",
       actions: "Message actions",
