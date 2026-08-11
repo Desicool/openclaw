@@ -123,6 +123,61 @@ function readTranscriptGeneration(projection: ResetWindowProjection): string | u
   )?.generation;
 }
 
+function sqliteBoundarySerializedBytes() {
+  return /* kysely-allow-raw: boundary size is checked before scalar projection. */ sql<number>`LENGTH(CAST(event.event_json AS BLOB))`;
+}
+
+function sqliteBoundaryJsonValid() {
+  return /* kysely-allow-raw: boundary JSON validity is part of the fail-closed contract. */ sql<number>`json_valid(event.event_json)`;
+}
+
+function sqliteBoundaryFirstKeptEntryId() {
+  return /* kysely-allow-raw: project one bounded canonical boundary scalar. */ sql<
+    string | null
+  >`CASE
+    WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
+      AND json_valid(event.event_json)
+      AND json_type(event.event_json, '$.firstKeptEntryId') = 'text'
+    THEN json_extract(event.event_json, '$.firstKeptEntryId')
+    ELSE NULL
+  END`;
+}
+
+function sqliteBoundarySummary() {
+  return /* kysely-allow-raw: project one bounded canonical boundary scalar. */ sql<
+    string | null
+  >`CASE
+    WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
+      AND json_valid(event.event_json)
+      AND json_type(event.event_json, '$.summary') = 'text'
+    THEN json_extract(event.event_json, '$.summary')
+    ELSE NULL
+  END`;
+}
+
+function sqliteBoundaryTimestamp() {
+  return /* kysely-allow-raw: project one bounded canonical boundary scalar. */ sql<
+    string | number | null
+  >`CASE
+    WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
+      AND json_valid(event.event_json)
+      AND json_type(event.event_json, '$.timestamp') IN ('integer', 'real', 'text')
+    THEN json_extract(event.event_json, '$.timestamp')
+    ELSE NULL
+  END`;
+}
+
+function sqliteContextMessageRole() {
+  return /* kysely-allow-raw: inspect the canonical role without loading payload JSON. */ sql<
+    string | null
+  >`CASE WHEN json_valid(event.event_json)
+    THEN json_extract(event.event_json, '$.message.role') ELSE NULL END`;
+}
+
+function sqliteContextMessageSerializedBytes() {
+  return /* kysely-allow-raw: enforce the payload budget before materialization. */ sql<number>`LENGTH(CAST(event.event_json AS BLOB)) + 1`;
+}
+
 function readLatestActiveBoundaryByType(
   projection: ResetWindowProjection,
   eventType: "compaction" | "reset",
@@ -146,30 +201,11 @@ function readLatestActiveBoundaryByType(
         "active.active_position",
         "identity.event_type",
         "identity.seq",
-        /* kysely-allow-raw: reject oversized/malformed boundaries before projecting scalars. */
-        sql<number>`LENGTH(CAST(event.event_json AS BLOB))`.as("serialized_bytes"),
-        sql<number>`json_valid(event.event_json)`.as("json_valid"),
-        sql<string | null>`CASE
-          WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
-            AND json_valid(event.event_json)
-            AND json_type(event.event_json, '$.firstKeptEntryId') = 'text'
-          THEN json_extract(event.event_json, '$.firstKeptEntryId')
-          ELSE NULL
-        END`.as("first_kept_entry_id"),
-        sql<string | null>`CASE
-          WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
-            AND json_valid(event.event_json)
-            AND json_type(event.event_json, '$.summary') = 'text'
-          THEN json_extract(event.event_json, '$.summary')
-          ELSE NULL
-        END`.as("summary"),
-        sql<string | number | null>`CASE
-          WHEN LENGTH(CAST(event.event_json AS BLOB)) <= ${MAX_CONTEXT_BOUNDARY_BYTES}
-            AND json_valid(event.event_json)
-            AND json_type(event.event_json, '$.timestamp') IN ('integer', 'real', 'text')
-          THEN json_extract(event.event_json, '$.timestamp')
-          ELSE NULL
-        END`.as("timestamp"),
+        sqliteBoundarySerializedBytes().as("serialized_bytes"),
+        sqliteBoundaryJsonValid().as("json_valid"),
+        sqliteBoundaryFirstKeptEntryId().as("first_kept_entry_id"),
+        sqliteBoundarySummary().as("summary"),
+        sqliteBoundaryTimestamp().as("timestamp"),
       ])
       .where("active.session_id", "=", projection.resolved.sessionId)
       .where("identity.event_type", "=", eventType)
@@ -431,10 +467,8 @@ export function readBoundedContextMessageTail(
       )
       .select([
         "active.message_position",
-        /* kysely-allow-raw: inspect role and bytes without materializing message payloads. */
-        sql<string | null>`CASE WHEN json_valid(event.event_json)
-          THEN json_extract(event.event_json, '$.message.role') ELSE NULL END`.as("message_role"),
-        sql<number>`LENGTH(CAST(event.event_json AS BLOB)) + 1`.as("serialized_bytes"),
+        sqliteContextMessageRole().as("message_role"),
+        sqliteContextMessageSerializedBytes().as("serialized_bytes"),
       ])
       .where("active.session_id", "=", projection.resolved.sessionId)
       .where("active.message_position", "is not", null)
