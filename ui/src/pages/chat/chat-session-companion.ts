@@ -13,7 +13,15 @@ export type ChatSessionCompanionThread = {
   exchanges: SessionCompanionExchange[];
   pendingQuestion: string | null;
   failedQuestion: string | null;
-  hint: "busy" | "missing" | "unavailable" | null;
+  hint:
+    | "busy"
+    | "history-unavailable"
+    | "missing"
+    | "model-unavailable"
+    | "rate-limited"
+    | "unavailable"
+    | null;
+  retryable?: boolean;
   phase?: "answering" | "reading" | null;
   draft: string;
 };
@@ -46,12 +54,19 @@ function errorDetailReason(error: unknown): string | null {
   return typeof reason === "string" ? reason : null;
 }
 
+function errorIsRetryable(error: unknown): boolean {
+  return Boolean(
+    error && typeof error === "object" && (error as { retryable?: unknown }).retryable,
+  );
+}
+
 function createThread(): MutableCompanionThread {
   return {
     exchanges: [],
     pendingQuestion: null,
     failedQuestion: null,
     hint: null,
+    retryable: false,
     phase: null,
     draft: "",
     revision: 0,
@@ -108,6 +123,7 @@ export class ChatSessionCompanionThreads {
       ) {
         thread.failedQuestion = null;
         thread.hint = null;
+        thread.retryable = false;
       }
       thread.revision += 1;
       this.notify();
@@ -143,6 +159,7 @@ export class ChatSessionCompanionThreads {
     thread.pendingQuestion = normalized;
     thread.failedQuestion = null;
     thread.hint = null;
+    thread.retryable = false;
     thread.phase = "reading";
     thread.draft = "";
     thread.revision += 1;
@@ -179,9 +196,16 @@ export class ChatSessionCompanionThreads {
       thread.hint =
         errorDetailCode(error) === COMPANION_BUSY_DETAIL_CODE
           ? "busy"
-          : reason === "session-missing"
-            ? "missing"
-            : "unavailable";
+          : reason === "context-unavailable"
+            ? "history-unavailable"
+            : reason === "session-missing"
+              ? "missing"
+              : reason === "rate-limited"
+                ? "rate-limited"
+                : reason === "utility-model-unavailable"
+                  ? "model-unavailable"
+                  : "unavailable";
+      thread.retryable = errorIsRetryable(error);
     } finally {
       if (this.submissionTokens.get(key) === token) {
         this.submissionTokens.delete(key);

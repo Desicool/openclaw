@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { GATEWAY_CLIENT_CAPS } from "../../packages/gateway-protocol/src/client-info.js";
 import { GatewayErrorDetailCodes } from "../../packages/gateway-protocol/src/index.js";
-import { CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP } from "../shared/control-ui-capabilities.js";
 import { SessionCompanionAskError } from "./session-companion-ask.js";
-import { attachSessionCompanionErrorDetail } from "./session-companion-error-detail.js";
 import {
   notifySessionCompanionPrepared,
   registerSessionCompanionProgress,
@@ -96,7 +95,7 @@ describe("session companion RPC", () => {
       { ask },
       {
         connId: "conn-1",
-        connect: { caps: [CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP] },
+        connect: { caps: [GATEWAY_CLIENT_CAPS.SESSION_COMPANION_PROGRESS] },
       },
     );
 
@@ -165,12 +164,9 @@ describe("session companion RPC", () => {
 
   it("returns a retryable typed context-read failure", async () => {
     const ask = vi.fn(async () => {
-      throw attachSessionCompanionErrorDetail(
-        new SessionCompanionAskError(
-          "unavailable",
-          "The selected session history could not be loaded.",
-        ),
+      throw new SessionCompanionAskError(
         "context-unavailable",
+        "The selected session history could not be loaded.",
       );
     });
     const respond = await invoke(
@@ -179,7 +175,7 @@ describe("session companion RPC", () => {
       { ask },
       {
         connId: "conn-1",
-        connect: { caps: [CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP] },
+        connect: { caps: [GATEWAY_CLIENT_CAPS.SESSION_COMPANION_PROGRESS] },
       },
     );
     expect(respond).toHaveBeenCalledWith(

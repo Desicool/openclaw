@@ -1,3 +1,4 @@
+import { GATEWAY_CLIENT_CAPS } from "../../packages/gateway-protocol/src/client-info.js";
 import {
   ErrorCodes,
   errorShape,
@@ -10,10 +11,8 @@ import {
   type SessionsCompanionResetParams,
   type SessionsCompanionStateParams,
 } from "../../packages/gateway-protocol/src/index.js";
-import { CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP } from "../shared/control-ui-capabilities.js";
 import type { GatewayRequestHandlers } from "./server-methods/types.js";
 import { SessionCompanionAskError } from "./session-companion-ask.js";
-import { readSessionCompanionErrorReason } from "./session-companion-error-detail.js";
 import { registerSessionCompanionProgress } from "./session-companion-progress.js";
 
 export const sessionCompanionHandlers: GatewayRequestHandlers = {
@@ -55,7 +54,7 @@ export const sessionCompanionHandlers: GatewayRequestHandlers = {
       return;
     }
     const unregisterProgress = client.connect.caps?.includes(
-      CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP,
+      GATEWAY_CLIENT_CAPS.SESSION_COMPANION_PROGRESS,
     )
       ? registerSessionCompanionProgress({
           connId: client.connId,
@@ -90,13 +89,12 @@ export const sessionCompanionHandlers: GatewayRequestHandlers = {
         );
         return;
       }
-      const reason = readSessionCompanionErrorReason(error);
-      const retryable = error.reason === "rate-limited" || reason === "context-unavailable";
+      const retryable = error.reason === "rate-limited" || error.reason === "context-unavailable";
       respond(
         false,
         undefined,
         errorShape(ErrorCodes.UNAVAILABLE, error.message, {
-          details: { reason },
+          details: { reason: error.reason },
           retryable,
           ...(error.retryAfterMs ? { retryAfterMs: error.retryAfterMs } : {}),
         }),

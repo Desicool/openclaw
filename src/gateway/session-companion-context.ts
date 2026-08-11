@@ -3,14 +3,17 @@ import {
   extractStoredAssistantText,
   stripToolMessages,
 } from "../agents/tools/chat-history-text.js";
-import { isSessionTranscriptProjectionUnavailableError } from "../config/sessions/session-accessor.sqlite-active-events.js";
-import { readSessionTranscriptBoundedContextTail } from "../config/sessions/session-accessor.sqlite-context-tail.js";
+import {
+  isSessionTranscriptProjectionUnavailableError,
+  readSessionTranscriptBoundedContextMessageTailPage,
+} from "../config/sessions/session-accessor.sqlite-active-events.js";
 import { redactToolPayloadText } from "../logging/redact.js";
 import { loadSessionEntryReadOnly } from "./session-utils.js";
 
 const CONTEXT_MAX_MESSAGES = 40;
 const CONTEXT_MAX_BYTES = 24 * 1024;
 const CONTEXT_MESSAGE_MAX_CHARS = 4000;
+const CONTEXT_READ_PAGE_MESSAGES = CONTEXT_MAX_MESSAGES * 4;
 const CONTEXT_READ_MAX_SCANNED_MESSAGES = 4096;
 const CONTEXT_READ_MAX_BYTES = 1024 * 1024;
 
@@ -147,22 +150,48 @@ async function readSessionCompanionContext(params: {
       sessionKey: params.sessionKey,
       storePath: loaded.storePath,
     };
-    if (params.signal?.aborted) {
-      return { kind: "unavailable" };
+    const messages: unknown[] = [];
+    let activeLeafEntryId: string | null | undefined;
+    let contextSummary: { text: string; ts: number } | undefined;
+    let offset = 0;
+    let serializedBytes = 0;
+    let totalMessages = Number.POSITIVE_INFINITY;
+    while (
+      stripToolMessages(messages).length < CONTEXT_MAX_MESSAGES &&
+      offset < totalMessages &&
+      offset < CONTEXT_READ_MAX_SCANNED_MESSAGES &&
+      serializedBytes < CONTEXT_READ_MAX_BYTES
+    ) {
+      if (params.signal?.aborted) {
+        return { kind: "unavailable" };
+      }
+      const page = readSessionTranscriptBoundedContextMessageTailPage(scope, {
+        maxBytes: CONTEXT_READ_MAX_BYTES - serializedBytes,
+        maxMessages: Math.min(
+          CONTEXT_READ_PAGE_MESSAGES,
+          CONTEXT_READ_MAX_SCANNED_MESSAGES - offset,
+        ),
+        offset,
+      });
+      if (activeLeafEntryId === undefined) {
+        activeLeafEntryId = page.activeLeafEntryId;
+        contextSummary = page.contextSummary;
+      } else if (page.activeLeafEntryId !== activeLeafEntryId) {
+        return { kind: "unavailable" };
+      }
+      totalMessages = page.totalMessages;
+      if (page.scannedMessages === 0) {
+        break;
+      }
+      messages.unshift(...readPageMessages(page.events));
+      offset += page.scannedMessages;
+      serializedBytes += page.serializedBytes;
     }
-    const tail = readSessionTranscriptBoundedContextTail(scope, {
-      maxBytes: CONTEXT_READ_MAX_BYTES,
-      maxContextMessages: CONTEXT_MAX_MESSAGES,
-      maxScannedMessages: CONTEXT_READ_MAX_SCANNED_MESSAGES,
-    });
-    if (params.signal?.aborted) {
-      return { kind: "unavailable" };
-    }
-    const selected = sanitizeContextMessages(readPageMessages(tail.events), tail.contextSummary);
+    const selected = sanitizeContextMessages(messages, contextSummary);
     return {
       kind: "ready",
       context: {
-        empty: tail.totalMessages === 0 && !tail.contextSummary,
+        empty: totalMessages === 0 && !contextSummary,
         messages: selected,
         sessionId,
       },

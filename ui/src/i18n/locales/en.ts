@@ -5059,8 +5059,11 @@ export const en: TranslationMap = {
       askReading: "Reading this session…",
       askAnswering: "Answering…",
       askBusy: "The companion is already answering a question.",
+      askHistoryUnavailable: "Couldn't load this session's history.",
       askMissing: "This session is no longer available.",
-      askUnavailable: "Couldn't load this session's history.",
+      askModelUnavailable: "No utility model is configured for this session.",
+      askRateLimited: "The companion reached its question limit. Try again shortly.",
+      askUnavailable: "The companion cannot answer right now.",
       askRetry: "Retry",
       asOf: "as of {time}",
       health: {

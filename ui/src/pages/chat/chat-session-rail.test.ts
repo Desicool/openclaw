@@ -302,12 +302,45 @@ describe("ChatSessionCompanionThreads", () => {
     await threads.submit("one", "Is it stuck?", async () => {
       throw Object.assign(new Error("busy"), {
         details: { code: "SESSION_COMPANION_BUSY" },
+        retryable: true,
       });
     });
 
     expect(threads.view("one")).toMatchObject({
       failedQuestion: "Is it stuck?",
       hint: "busy",
+      retryable: true,
+    });
+  });
+
+  it.each([
+    {
+      reason: "rate-limited",
+      retryable: true,
+      hint: "rate-limited",
+    },
+    {
+      reason: "utility-model-unavailable",
+      retryable: false,
+      hint: "model-unavailable",
+    },
+    {
+      reason: "unavailable",
+      retryable: false,
+      hint: "unavailable",
+    },
+  ] as const)("maps $reason without falsely blaming session history", async (expected) => {
+    const threads = new ChatSessionCompanionThreads();
+    await threads.submit("one", "What changed?", async () => {
+      throw Object.assign(new Error(expected.reason), {
+        details: { reason: expected.reason },
+        retryable: expected.retryable,
+      });
+    });
+
+    expect(threads.view("one")).toMatchObject({
+      hint: expected.hint,
+      retryable: expected.retryable,
     });
   });
 
@@ -316,17 +349,19 @@ describe("ChatSessionCompanionThreads", () => {
     await threads.submit("one", "What changed?", async () => {
       throw Object.assign(new Error("unavailable"), {
         details: { reason: "context-unavailable" },
+        retryable: true,
       });
     });
     expect(threads.view("one")).toMatchObject({
       failedQuestion: "What changed?",
-      hint: "unavailable",
+      hint: "history-unavailable",
       pendingQuestion: null,
+      retryable: true,
     });
     await threads.hydrate("one", async () => ({ exchanges: [] }));
     expect(threads.view("one")).toMatchObject({
       failedQuestion: "What changed?",
-      hint: "unavailable",
+      hint: "history-unavailable",
     });
 
     await threads.submit(
@@ -355,6 +390,7 @@ describe("ChatSessionCompanionThreads", () => {
     await threads.submit("one", "What changed?", async () => {
       throw Object.assign(new Error("disconnected"), {
         details: { reason: "context-unavailable" },
+        retryable: true,
       });
     });
 
@@ -392,7 +428,7 @@ describe("ChatSessionCompanionThreads", () => {
     expect(threads.view("one")).toMatchObject({
       exchanges: [],
       failedQuestion: "Which connection owns this?",
-      hint: "unavailable",
+      hint: "history-unavailable",
       pendingQuestion: null,
     });
   });
@@ -503,7 +539,8 @@ describe("ChatSessionRailElement", () => {
         exchanges: [],
         pendingQuestion: null,
         failedQuestion: "What changed?",
-        hint: "unavailable",
+        hint: "history-unavailable",
+        retryable: true,
         phase: null,
         draft: "",
       },

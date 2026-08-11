@@ -202,6 +202,25 @@ function companionHasActivity(thread: ChatSessionCompanionThread): boolean {
   );
 }
 
+function companionHintKey(
+  hint: NonNullable<ChatSessionCompanionThread["hint"]>,
+): Parameters<typeof t>[0] {
+  switch (hint) {
+    case "busy":
+      return "chat.rail.askBusy";
+    case "history-unavailable":
+      return "chat.rail.askHistoryUnavailable";
+    case "missing":
+      return "chat.rail.askMissing";
+    case "model-unavailable":
+      return "chat.rail.askModelUnavailable";
+    case "rate-limited":
+      return "chat.rail.askRateLimited";
+    case "unavailable":
+      return "chat.rail.askUnavailable";
+  }
+}
+
 export class ChatSessionRailElement extends OpenClawLightDomElement {
   @property({ attribute: false }) sessionKey = "";
   @property({ attribute: false }) digest: SessionObserverDigest | null = null;
@@ -216,6 +235,7 @@ export class ChatSessionRailElement extends OpenClawLightDomElement {
     pendingQuestion: null,
     failedQuestion: null,
     hint: null,
+    retryable: false,
     phase: null,
     draft: "",
   };
@@ -496,15 +516,9 @@ export class ChatSessionRailElement extends OpenClawLightDomElement {
               <article class="chat-session-rail__exchange chat-session-rail__exchange--error">
                 <div class="chat-session-rail__question">${this.companion.failedQuestion}</div>
                 <div class="chat-session-rail__hint">
-                  ${t(
-                    this.companion.hint === "busy"
-                      ? "chat.rail.askBusy"
-                      : this.companion.hint === "missing"
-                        ? "chat.rail.askMissing"
-                        : "chat.rail.askUnavailable",
-                  )}
+                  ${t(companionHintKey(this.companion.hint))}
                 </div>
-                ${this.companion.hint === "unavailable" && this.connected && this.onSubmit
+                ${this.companion.retryable && this.connected && this.onSubmit
                   ? html`
                       <button
                         class="btn btn--secondary chat-session-rail__retry"
