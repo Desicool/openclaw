@@ -223,6 +223,19 @@ export class BrowserPanelController implements ReactiveController {
         shot.url && observedMetrics?.url && shot.url !== observedMetrics.url
           ? null
           : observedMetrics;
+      const tabIndex = this.tabs.findIndex((tab) => tab.id === targetId);
+      const tab = this.tabs[tabIndex];
+      if (tab) {
+        // Tab snapshots can lag history and in-page navigation. Keep the active
+        // tab's stable identity aligned with the document this capture owns.
+        const url = metrics?.url || shot.url || tab.url;
+        const title = metrics ? metrics.title : tab.title;
+        if (url !== tab.url || title !== tab.title) {
+          const tabs = [...this.tabs];
+          tabs[tabIndex] = { ...tab, title, url };
+          this.setState("tabs", tabs);
+        }
+      }
       this.setState("view", { targetId, dataUrl, image, url: shot.url, metrics });
       if (!this.urlDraftEditing && shot.url) {
         this.setState("urlDraft", shot.url);

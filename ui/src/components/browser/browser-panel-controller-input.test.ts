@@ -656,6 +656,58 @@ describe("BrowserPanelController capture and input ownership", () => {
     expect(inspections[0]?.[1]).toMatchObject({ body: { targetId: "tab-a" } });
   });
 
+  it("reconciles selected tab metadata from the captured history document", async () => {
+    vi.useFakeTimers();
+    stubScreenshotMedia();
+    const currentUrl = "https://example.test/current";
+    const previousUrl = "https://example.test/previous";
+    const { client, request } = createBrowserClient(async (envelope) => {
+      if (envelope.path === "/act") {
+        const fn = String(envelope.body?.fn ?? "");
+        return fn.includes("history.go")
+          ? { result: true }
+          : createBrowserPanelTestMetrics(previousUrl, "Previous");
+      }
+      if (envelope.path === "/screenshot") {
+        return { path: "/fresh.png", targetId: "raw-a", url: previousUrl };
+      }
+      throw new Error(`Unexpected browser route: ${envelope.path}`);
+    });
+    const controller = createBrowserPanelTestController(client, "tab-a", currentUrl);
+    controller.tabs = [
+      { id: "tab-a", targetId: "raw-a", title: "Current", url: currentUrl },
+      {
+        id: "tab-b",
+        targetId: "raw-b",
+        title: "Background",
+        url: "https://example.test/background",
+      },
+    ];
+
+    controller.goHistory(-1);
+    await flushBrowserResponses();
+    await vi.advanceTimersByTimeAsync(350);
+    await flushBrowserResponses();
+    await vi.runAllTimersAsync();
+    await flushBrowserResponses();
+
+    expect(controller.tabs).toEqual([
+      { id: "tab-a", targetId: "raw-a", title: "Previous", url: previousUrl },
+      {
+        id: "tab-b",
+        targetId: "raw-b",
+        title: "Background",
+        url: "https://example.test/background",
+      },
+    ]);
+    expect(controller.urlDraft).toBe(previousUrl);
+    expect(
+      request.mock.calls.filter(([, envelope]) => {
+        return (envelope as BrowserRequestEnvelope).path === "/tabs";
+      }),
+    ).toEqual([]);
+  });
+
   it("never forwards a queued wheel action to a newly selected tab", async () => {
     vi.useFakeTimers();
     const { client, request } = createBrowserClient(async (envelope) => {
