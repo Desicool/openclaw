@@ -144,16 +144,23 @@ export function renderPanelTabStrip(params: {
               aria-label=${tab.closeLabel}
               @click=${async (event: MouseEvent) => {
                 const button = event.currentTarget;
-                const group = button instanceof HTMLElement ? button.closest("wa-tab-group") : null;
-                const groupOwner = group?.parentNode as ParentNode | null;
+                const renderRoot =
+                  button instanceof Node ? (button.getRootNode() as ParentNode) : null;
                 const restoreFocus = document.activeElement === button;
                 await params.onClose(tab.id);
                 if (!restoreFocus) {
                   return;
                 }
-                const settledGroup = groupOwner?.querySelector<
-                  HTMLElement & { updateComplete?: Promise<unknown> }
-                >("wa-tab-group");
+                const settledGroup = [
+                  ...(renderRoot?.querySelectorAll<
+                    HTMLElement & { updateComplete?: Promise<unknown> }
+                  >("wa-tab-group") ?? []),
+                ].find((candidate) =>
+                  [...candidate.querySelectorAll<HTMLElement>("wa-tab")].some(
+                    (renderedTab) =>
+                      renderedTab.getAttribute("aria-controls") === params.ariaControls,
+                  ),
+                );
                 await settledGroup?.updateComplete;
                 const closingTab = [
                   ...(settledGroup?.querySelectorAll<HTMLElement>("wa-tab") ?? []),

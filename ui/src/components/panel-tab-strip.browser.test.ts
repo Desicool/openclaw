@@ -1,4 +1,4 @@
-import { nothing, render } from "lit";
+import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import {
@@ -151,7 +151,7 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
   });
 
   it("moves focus to the selected fallback when the focused tab is closed", async () => {
-    const container = document.createElement("div");
+    let container = document.createElement("div");
     document.body.append(container);
     const close = createDeferred();
     let tabs = [tab("a"), tab("b")];
@@ -162,7 +162,9 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
         (document.activeElement as HTMLElement | null)?.blur();
         tabs = tabs.filter((entry) => entry.id !== closedId);
         activeId = tabs[0]?.id ?? "";
-        render(nothing, container);
+        const replacement = document.createElement("div");
+        container.replaceWith(replacement);
+        container = replacement;
         renderControlledStrip({ container, tabs, activeId, onSelect, onClose });
       }),
     );
