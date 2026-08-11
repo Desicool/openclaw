@@ -460,14 +460,9 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
       }
       const thread: SessionCompanionThread = {
         exchanges: [],
-        seed: {
-          messages: result.context.messages.flatMap((message): SessionCompanionSeedMessage[] =>
-            message.role === "summary"
-              ? []
-              : [{ role: message.role, text: message.text, ts: message.ts }],
-          ),
-          digestJson: "null",
-        },
+        // Public type compatibility only; authoritative prepared context stays
+        // in the private WeakMap so one thread never retains duplicate payloads.
+        seed: { messages: [], digestJson: "null" },
         lastNoteSequence: 0,
         busy: false,
         lastUsedAt: params.now(),

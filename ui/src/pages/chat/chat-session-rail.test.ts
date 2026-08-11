@@ -350,6 +350,25 @@ describe("ChatSessionCompanionThreads", () => {
     });
   });
 
+  it("clears a retry error when hydration confirms that exact answer committed", async () => {
+    const threads = new ChatSessionCompanionThreads();
+    await threads.submit("one", "What changed?", async () => {
+      throw Object.assign(new Error("disconnected"), {
+        details: { reason: "context-unavailable" },
+      });
+    });
+
+    await threads.hydrate("one", async () => ({
+      exchanges: [{ question: "What changed?", answer: "The fix committed.", ts: 4 }],
+    }));
+
+    expect(threads.view("one")).toMatchObject({
+      failedQuestion: null,
+      hint: null,
+      exchanges: [{ question: "What changed?", answer: "The fix committed.", ts: 4 }],
+    });
+  });
+
   it("rejects an answer that settles after the owning connection changes", async () => {
     let current = true;
     let resolveAnswer!: (value: { answer: string; ts: number }) => void;

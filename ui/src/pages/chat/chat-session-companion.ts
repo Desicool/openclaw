@@ -102,6 +102,13 @@ export class ChatSessionCompanionThreads {
         answer,
         ts,
       }));
+      if (
+        thread.failedQuestion &&
+        thread.exchanges.some((exchange) => exchange.question === thread.failedQuestion)
+      ) {
+        thread.failedQuestion = null;
+        thread.hint = null;
+      }
       thread.revision += 1;
       this.notify();
     } catch {

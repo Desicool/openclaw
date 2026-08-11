@@ -12,6 +12,11 @@ export function registerSessionCompanionProgress(params: {
   listener: SessionCompanionProgressListener;
 }): () => void {
   const key = progressKey(params.connId, params.sessionKey);
+  // A duplicate busy ask must not steal the accepted phase from the request
+  // that already owns this connection/session slot.
+  if (listeners.has(key)) {
+    return () => {};
+  }
   listeners.set(key, params.listener);
   return () => {
     if (listeners.get(key) === params.listener) {
@@ -25,5 +30,10 @@ export function notifySessionCompanionPrepared(params: {
   empty: boolean;
   sessionKey: string;
 }): void {
-  listeners.get(progressKey(params.connId, params.sessionKey))?.({ empty: params.empty });
+  try {
+    listeners.get(progressKey(params.connId, params.sessionKey))?.({ empty: params.empty });
+  } catch {
+    // Progress presentation is advisory; a callback failure cannot abort the
+    // authoritative companion request after context is ready.
+  }
 }

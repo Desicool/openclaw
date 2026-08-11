@@ -3,7 +3,10 @@ import { GatewayErrorDetailCodes } from "../../packages/gateway-protocol/src/ind
 import { CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP } from "../shared/control-ui-capabilities.js";
 import { SessionCompanionAskError } from "./session-companion-ask.js";
 import { attachSessionCompanionErrorDetail } from "./session-companion-error-detail.js";
-import { notifySessionCompanionPrepared } from "./session-companion-progress.js";
+import {
+  notifySessionCompanionPrepared,
+  registerSessionCompanionProgress,
+} from "./session-companion-progress.js";
 import { sessionCompanionHandlers } from "./session-companion-rpc.js";
 
 async function invoke(
@@ -30,6 +33,35 @@ async function invoke(
 }
 
 describe("session companion RPC", () => {
+  it("keeps the first progress owner and isolates callback failures", () => {
+    const first = vi.fn(() => {
+      throw new Error("presentation failed");
+    });
+    const second = vi.fn();
+    const clearFirst = registerSessionCompanionProgress({
+      connId: "conn-1",
+      sessionKey: "agent:main:main",
+      listener: first,
+    });
+    const clearSecond = registerSessionCompanionProgress({
+      connId: "conn-1",
+      sessionKey: "agent:main:main",
+      listener: second,
+    });
+
+    expect(() =>
+      notifySessionCompanionPrepared({
+        connId: "conn-1",
+        empty: false,
+        sessionKey: "agent:main:main",
+      }),
+    ).not.toThrow();
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).not.toHaveBeenCalled();
+    clearSecond();
+    clearFirst();
+  });
+
   it("dispatches a valid ask and returns its timestamp", async () => {
     const ask = vi.fn(async () => ({ answer: "It is checking the fix.", ts: 123 }));
     const respond = await invoke(
