@@ -26,11 +26,6 @@ type BrowserPanelInvocation = {
   isCurrent(): boolean;
 };
 
-type BrowserNavigationCommit = {
-  committed: number;
-  reconciled: number;
-};
-
 export type BrowserPanelSnapshotOutcome = "accepted" | "rejected" | "failed";
 
 /** Owns the panel lifecycle, tab snapshots, captures, and pointer operations. */
@@ -46,10 +41,7 @@ export class BrowserPanelOperationOwnership {
     GatewayBrowserClient,
     Map<string, Promise<unknown>>
   >();
-  private readonly navigationCommits = new WeakMap<
-    GatewayBrowserClient,
-    Map<string, BrowserNavigationCommit>
-  >();
+  private readonly navigationCommits = new WeakMap<GatewayBrowserClient, Set<string>>();
 
   constructor(private readonly host: BrowserPanelControllerHost) {}
 
@@ -110,19 +102,16 @@ export class BrowserPanelOperationOwnership {
     if (!client || !targetId) {
       return false;
     }
-    const state = this.navigationCommits.get(client)?.get(targetId);
-    return state !== undefined && state.committed !== state.reconciled;
+    return this.navigationCommits.get(client)?.has(targetId) ?? false;
   }
 
   markNavigationCommitted(client: GatewayBrowserClient, targetId: string): void {
     let commits = this.navigationCommits.get(client);
     if (!commits) {
-      commits = new Map();
+      commits = new Set();
       this.navigationCommits.set(client, commits);
     }
-    const state = commits.get(targetId) ?? { committed: 0, reconciled: 0 };
-    state.committed += 1;
-    commits.set(targetId, state);
+    commits.add(targetId);
   }
 
   markNavigationReconciled(client: GatewayBrowserClient, targetId: string): void {

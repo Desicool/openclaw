@@ -28,7 +28,7 @@ function tab(id: string): PanelTabStripTab {
 }
 
 function renderControlledStrip(params: {
-  container: HTMLElement;
+  container: HTMLElement | DocumentFragment;
   tabs: PanelTabStripTab[];
   activeId: string;
   onSelect: (id: string) => void;
@@ -84,14 +84,17 @@ afterEach(() => {
 
 describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
   it("preserves the focused active element when tabs reorder", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
+    const host = document.createElement("div");
+    const container = host.attachShadow({ mode: "open" });
+    document.body.append(host);
     const tabs = [tab("a"), tab("b"), tab("c")];
     renderControlledStrip({ container, tabs, activeId: "b", onSelect: vi.fn() });
     const initialActive = await expectControlledSelection(container, "b");
     initialActive.focus();
-    expect(document.activeElement).toBe(initialActive);
+    expect(document.activeElement).toBe(host);
+    expect(container.activeElement).toBe(initialActive);
 
+    queueMicrotask(() => initialActive.blur());
     renderControlledStrip({
       container,
       tabs: [tabs[2]!, { ...tabs[1]!, label: "Tab B navigated" }, tabs[0]!],
@@ -101,7 +104,7 @@ describe.skipIf(!hasBrowserLayout)("panel tab strip browser lifecycle", () => {
     const reorderedActive = await expectControlledSelection(container, "b");
 
     expect(reorderedActive).toBe(initialActive);
-    expect(document.activeElement).toBe(initialActive);
+    await vi.waitFor(() => expect(container.activeElement).toBe(initialActive));
   });
 
   it("keeps arrow and mouse activation controlled and the selected overflow tab visible", async () => {

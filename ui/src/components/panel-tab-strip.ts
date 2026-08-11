@@ -22,6 +22,30 @@ const PLUS_GLYPH = svg`<svg viewBox="0 0 16 16" width="13" height="13" fill="non
 const reconciledTabOrders = new WeakMap<Element, string>();
 const keyboardCloseActivations = new WeakSet<Element>();
 
+function activeElementFor(element: Element): Element | null {
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot
+    ? (root.activeElement ?? document.activeElement)
+    : document.activeElement;
+}
+
+function deepestActiveElement(): Element | null {
+  let active = document.activeElement;
+  while (active instanceof HTMLElement && active.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  return active;
+}
+
+function focusNeedsRecovery(element: Element, current: Element | null): boolean {
+  const root = element.getRootNode();
+  return (
+    current === document.body ||
+    current === document.documentElement ||
+    (root instanceof ShadowRoot && current === root.host)
+  );
+}
+
 function reconcileSelectedTabElement(
   element: Element | undefined,
   tabOrder: string,
@@ -50,8 +74,8 @@ function reconcileSelectedTabElement(
         return;
       }
       element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-      const current = document.activeElement;
-      if (restoreFocus && (current === document.body || current === document.documentElement)) {
+      const current = activeElementFor(element);
+      if (restoreFocus && focusNeedsRecovery(element, current)) {
         element.focus({ preventScroll: true });
       }
     });
@@ -86,7 +110,7 @@ export function renderPanelTabStrip(params: {
     // visible. Keep the new-session control outside the group until one exists.
     return newButton(false);
   }
-  const activeElement = document.activeElement;
+  const activeElement = deepestActiveElement();
   const focusedTabDomId =
     activeElement instanceof HTMLElement &&
     params.tabs.some((tab) => tab.domId === activeElement.id)
@@ -161,7 +185,7 @@ export function renderPanelTabStrip(params: {
                     : null;
                 const restoreFocus =
                   button instanceof Element &&
-                  (keyboardCloseActivations.delete(button) || document.activeElement === button);
+                  (keyboardCloseActivations.delete(button) || activeElementFor(button) === button);
                 await params.onClose(tab.id);
                 if (!restoreFocus) {
                   return;
@@ -182,12 +206,8 @@ export function renderPanelTabStrip(params: {
                   ...(settledGroup?.querySelectorAll<HTMLElement>("wa-tab") ?? []),
                 ].find((candidate) => candidate.getAttribute("panel") === tab.id);
                 const fallback = settledGroup?.querySelector<HTMLElement>("wa-tab[active]");
-                const current = document.activeElement;
-                if (
-                  !closingTab &&
-                  fallback &&
-                  (current === document.body || current === document.documentElement)
-                ) {
+                const current = fallback ? activeElementFor(fallback) : null;
+                if (!closingTab && fallback && focusNeedsRecovery(fallback, current)) {
                   fallback.focus({ preventScroll: true });
                 }
               }}
