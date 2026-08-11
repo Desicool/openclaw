@@ -35,6 +35,7 @@ import {
   CONTROL_UI_OWNER_BOOTSTRAP_PROFILE_HINT,
   type ControlUiBootstrapProfileHint,
 } from "../../../src/gateway/control-ui-contract.js";
+import { CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP } from "../../../src/shared/control-ui-capabilities.js";
 import {
   BOOTSTRAP_HANDOFF_OPERATOR_SCOPES,
   CONTROL_UI_OWNER_BOOTSTRAP_OPERATOR_SCOPES,
@@ -500,6 +501,7 @@ export class GatewayBrowserClient {
           GATEWAY_CLIENT_CAPS.TOOL_EVENTS,
           GATEWAY_CLIENT_CAPS.INLINE_WIDGETS,
           GATEWAY_CLIENT_CAPS.UI_COMMANDS,
+          CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP,
         ],
         auth: buildGatewayConnectAuth(selectedAuth),
         userAgent: navigator.userAgent,

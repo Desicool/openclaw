@@ -13,7 +13,8 @@ export type ChatSessionCompanionThread = {
   exchanges: SessionCompanionExchange[];
   pendingQuestion: string | null;
   failedQuestion: string | null;
-  hint: "busy" | "unavailable" | null;
+  hint: "busy" | "missing" | "unavailable" | null;
+  phase?: "answering" | "reading" | null;
   draft: string;
 };
 
@@ -33,12 +34,25 @@ function errorDetailCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
+function errorDetailReason(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const details = (error as { details?: unknown }).details;
+  if (!details || typeof details !== "object") {
+    return null;
+  }
+  const reason = (details as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : null;
+}
+
 function createThread(): MutableCompanionThread {
   return {
     exchanges: [],
     pendingQuestion: null,
     failedQuestion: null,
     hint: null,
+    phase: null,
     draft: "",
     revision: 0,
   };
@@ -48,6 +62,7 @@ function createThread(): MutableCompanionThread {
 export class ChatSessionCompanionThreads {
   private readonly threads = new Map<string, MutableCompanionThread>();
   private readonly hydrationTokens = new Map<string, symbol>();
+  private readonly submissionTokens = new Map<string, symbol>();
 
   constructor(private readonly notify: () => void = () => {}) {}
 
@@ -87,8 +102,6 @@ export class ChatSessionCompanionThreads {
         answer,
         ts,
       }));
-      thread.failedQuestion = null;
-      thread.hint = null;
       thread.revision += 1;
       this.notify();
     } catch {
@@ -104,7 +117,12 @@ export class ChatSessionCompanionThreads {
   async submit(
     sessionKey: string,
     question: string,
-    ask: (sessionKey: string, question: string) => Promise<SessionsCompanionAskResult>,
+    ask: (
+      sessionKey: string,
+      question: string,
+      onPrepared: () => void,
+    ) => Promise<SessionsCompanionAskResult>,
+    isCurrent: () => boolean = () => true,
   ): Promise<void> {
     const key = sessionKey.trim();
     const normalized = question.trim();
@@ -118,22 +136,53 @@ export class ChatSessionCompanionThreads {
     thread.pendingQuestion = normalized;
     thread.failedQuestion = null;
     thread.hint = null;
+    thread.phase = "reading";
     thread.draft = "";
     thread.revision += 1;
+    const token = Symbol(key);
+    this.submissionTokens.set(key, token);
     this.notify();
     try {
-      const result = await ask(key, normalized);
+      const result = await ask(key, normalized, () => {
+        if (this.submissionTokens.get(key) !== token || !isCurrent()) {
+          return;
+        }
+        thread.phase = "answering";
+        thread.revision += 1;
+        this.notify();
+      });
+      if (this.submissionTokens.get(key) !== token) {
+        return;
+      }
+      if (!isCurrent()) {
+        throw Object.assign(new Error("stale companion answer"), {
+          details: { reason: "context-unavailable" },
+        });
+      }
       thread.exchanges = [
         ...thread.exchanges,
         { question: normalized, answer: result.answer, ts: result.ts },
       ].slice(-MAX_COMPANION_EXCHANGES);
     } catch (error) {
+      if (this.submissionTokens.get(key) !== token) {
+        return;
+      }
       thread.failedQuestion = normalized;
-      thread.hint = errorDetailCode(error) === COMPANION_BUSY_DETAIL_CODE ? "busy" : "unavailable";
+      const reason = errorDetailReason(error);
+      thread.hint =
+        errorDetailCode(error) === COMPANION_BUSY_DETAIL_CODE
+          ? "busy"
+          : reason === "session-missing"
+            ? "missing"
+            : "unavailable";
     } finally {
-      thread.pendingQuestion = null;
-      thread.revision += 1;
-      this.notify();
+      if (this.submissionTokens.get(key) === token) {
+        this.submissionTokens.delete(key);
+        thread.pendingQuestion = null;
+        thread.phase = null;
+        thread.revision += 1;
+        this.notify();
+      }
     }
   }
 
@@ -147,6 +196,7 @@ export class ChatSessionCompanionThreads {
     }
     await clear(key);
     this.hydrationTokens.delete(key);
+    this.submissionTokens.delete(key);
     this.threads.set(key, createThread());
     this.notify();
   }
@@ -166,11 +216,13 @@ export function requestSessionCompanionAnswer(
   client: Pick<GatewayBrowserClient, "request">,
   sessionKey: string,
   question: string,
+  onPrepared: () => void,
 ): Promise<SessionsCompanionAskResult> {
-  return client.request<SessionsCompanionAskResult>("sessions.companion.ask", {
-    sessionKey,
-    question,
-  });
+  return client.request<SessionsCompanionAskResult>(
+    "sessions.companion.ask",
+    { sessionKey, question },
+    { expectFinal: true, onAccepted: onPrepared },
+  );
 }
 
 export function requestSessionCompanionState(

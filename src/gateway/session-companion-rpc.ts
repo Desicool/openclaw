@@ -10,8 +10,11 @@ import {
   type SessionsCompanionResetParams,
   type SessionsCompanionStateParams,
 } from "../../packages/gateway-protocol/src/index.js";
+import { CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP } from "../shared/control-ui-capabilities.js";
 import type { GatewayRequestHandlers } from "./server-methods/types.js";
 import { SessionCompanionAskError } from "./session-companion-ask.js";
+import { readSessionCompanionErrorReason } from "./session-companion-error-detail.js";
+import { registerSessionCompanionProgress } from "./session-companion-progress.js";
 
 export const sessionCompanionHandlers: GatewayRequestHandlers = {
   "sessions.companion.ask": async ({ params, respond, client, context }) => {
@@ -51,6 +54,15 @@ export const sessionCompanionHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    const unregisterProgress = client.connect.caps?.includes(
+      CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP,
+    )
+      ? registerSessionCompanionProgress({
+          connId: client.connId,
+          sessionKey,
+          listener: (prepared) => respond(true, { status: "accepted", ...prepared }),
+        })
+      : undefined;
     try {
       const result = await context.sessionCompanion.ask({
         sessionKey,
@@ -78,18 +90,21 @@ export const sessionCompanionHandlers: GatewayRequestHandlers = {
         );
         return;
       }
+      const reason = readSessionCompanionErrorReason(error);
+      const retryable = error.reason === "rate-limited" || reason === "context-unavailable";
       respond(
         false,
         undefined,
         errorShape(ErrorCodes.UNAVAILABLE, error.message, {
-          details: { reason: error.reason },
-          retryable: error.reason === "rate-limited",
+          details: { reason },
+          retryable,
           ...(error.retryAfterMs ? { retryAfterMs: error.retryAfterMs } : {}),
         }),
       );
+    } finally {
+      unregisterProgress?.();
     }
   },
-
   "sessions.companion.state": ({ params, respond, context }) => {
     if (!validateSessionsCompanionStateParams(params)) {
       respond(

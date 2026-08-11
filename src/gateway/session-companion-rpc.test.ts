@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { GatewayErrorDetailCodes } from "../../packages/gateway-protocol/src/index.js";
+import { CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP } from "../shared/control-ui-capabilities.js";
 import { SessionCompanionAskError } from "./session-companion-ask.js";
+import { attachSessionCompanionErrorDetail } from "./session-companion-error-detail.js";
+import { notifySessionCompanionPrepared } from "./session-companion-progress.js";
 import { sessionCompanionHandlers } from "./session-companion-rpc.js";
 
 async function invoke(
@@ -11,7 +14,10 @@ async function invoke(
     state?: ReturnType<typeof vi.fn>;
     reset?: ReturnType<typeof vi.fn>;
   },
-  client: { connId?: string } = { connId: "conn-1" },
+  client: { connId?: string; connect?: { caps?: string[] } } = {
+    connId: "conn-1",
+    connect: { caps: [] },
+  },
 ) {
   const respond = vi.fn();
   await sessionCompanionHandlers[method]?.({
@@ -41,6 +47,36 @@ describe("session companion RPC", () => {
       answer: "It is checking the fix.",
       ts: 123,
     });
+  });
+
+  it("emits progress only after context is ready, then returns the answer", async () => {
+    const ask = vi.fn(async () => {
+      notifySessionCompanionPrepared({
+        connId: "conn-1",
+        empty: false,
+        sessionKey: "agent:main:main",
+      });
+      return { answer: "It is checking the fix.", ts: 123 };
+    });
+    const respond = await invoke(
+      "sessions.companion.ask",
+      { sessionKey: "agent:main:main", question: "What is happening?" },
+      { ask },
+      {
+        connId: "conn-1",
+        connect: { caps: [CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP] },
+      },
+    );
+
+    expect(ask).toHaveBeenCalledWith({
+      sessionKey: "agent:main:main",
+      question: "What is happening?",
+      connId: "conn-1",
+    });
+    expect(respond.mock.calls).toEqual([
+      [true, { status: "accepted", empty: false }],
+      [true, { answer: "It is checking the fix.", ts: 123 }],
+    ]);
   });
 
   it.each([
@@ -91,6 +127,36 @@ describe("session companion RPC", () => {
         code: "UNAVAILABLE",
         retryable: true,
         details: { code: GatewayErrorDetailCodes.SESSION_COMPANION_BUSY },
+      }),
+    );
+  });
+
+  it("returns a retryable typed context-read failure", async () => {
+    const ask = vi.fn(async () => {
+      throw attachSessionCompanionErrorDetail(
+        new SessionCompanionAskError(
+          "unavailable",
+          "The selected session history could not be loaded.",
+        ),
+        "context-unavailable",
+      );
+    });
+    const respond = await invoke(
+      "sessions.companion.ask",
+      { sessionKey: "agent:main:main", question: "Why?" },
+      { ask },
+      {
+        connId: "conn-1",
+        connect: { caps: [CONTROL_UI_SESSION_COMPANION_PROGRESS_CAP] },
+      },
+    );
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "UNAVAILABLE",
+        retryable: true,
+        details: { reason: "context-unavailable" },
       }),
     );
   });

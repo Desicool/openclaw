@@ -1962,6 +1962,10 @@ openclaw-chat-session-rail {
   color: var(--danger);
 }
 
+.chat-session-rail__retry {
+  justify-self: start;
+}
+
 .chat-session-rail__exchange--pending .chat-session-rail__hint {
   animation: chat-session-rail-pending-pulse 1.4s ease-in-out infinite;
 }

@@ -250,8 +250,18 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
       this.sessionCompanionThreads.setDraft(sessionKey, question);
       return;
     }
-    await this.sessionCompanionThreads.submit(sessionKey, question, (key, value) =>
-      requestSessionCompanionAnswer(state.client!, key, value),
+    const client = state.client;
+    const connectionGeneration = this.connectionGeneration;
+    await this.sessionCompanionThreads.submit(
+      sessionKey,
+      question,
+      (key, value, onPrepared) => requestSessionCompanionAnswer(client, key, value, onPrepared),
+      () =>
+        this.state === state &&
+        state.connected &&
+        state.client === client &&
+        state.sessionKey === sessionKey &&
+        this.connectionGeneration === connectionGeneration,
     );
   };
 
