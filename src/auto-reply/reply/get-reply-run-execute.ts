@@ -37,6 +37,7 @@ import { resolveReplyToMode } from "./reply-threading.js";
 import { resolveRoutedDeliveryThreadId } from "./routed-delivery-thread.js";
 import {
   setSourceReplyDeliveryModeOrigin,
+  setSourceReplyDeliveryPromptVariants,
   type SourceReplyDeliveryRuntimeOptions,
 } from "./source-reply-delivery-runtime.js";
 import {
@@ -86,6 +87,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     useFastReplyRuntime,
     fullAccessState,
     extraSystemPromptParts,
+    extraSystemPromptBySourceReplyDeliveryMode,
     extraSystemPromptStatic,
     cliSessionBindingFacts,
     baseBodyTrimmedRaw,
@@ -455,6 +457,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     followupRun.run,
     sourceReplyDeliveryRuntimeOptions?.sourceReplyDeliveryModeOrigin,
   );
+  setSourceReplyDeliveryPromptVariants(followupRun.run, extraSystemPromptBySourceReplyDeliveryMode);
   const replyThreadingOverride =
     isBareSessionReset && sessionCtx.ReplyThreading?.implicitCurrentMessage !== "deny"
       ? { ...sessionCtx.ReplyThreading, implicitCurrentMessage: "deny" as const }
