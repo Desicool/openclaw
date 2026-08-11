@@ -14,10 +14,8 @@ import type {
   TranscriptEvent,
 } from "./session-accessor.sqlite-contract.js";
 import {
+  readBoundedContextMessageTail,
   readVisibleMessageRange,
-  resolveContextBoundarySummary,
-  resolveContextMessagePositionRange,
-  resolveContextMessagePositions,
   resolveVisibleMessagePositionRange,
   resolveVisibleMessagePositions,
 } from "./session-accessor.sqlite-reset-window.js";
@@ -63,8 +61,11 @@ export type SessionTranscriptBoundedMessageTailPage = SessionTranscriptMessageEv
   serializedBytes: number;
 };
 
-type SessionTranscriptBoundedContextMessageTailPage = SessionTranscriptBoundedMessageTailPage & {
+type SessionTranscriptBoundedContextMessageTailPage = {
+  authoritative: boolean;
   contextSummary?: { text: string; ts: number };
+  empty: boolean;
+  events: SessionTranscriptMessageEvent[];
 };
 
 function parseMessageEventRow(row: {
@@ -562,19 +563,10 @@ export function readSessionTranscriptBoundedMessageTailPage(
  */
 export function readSessionTranscriptBoundedContextMessageTailPage(
   scope: SessionTranscriptReadScope,
-  options: { maxBytes: number; maxMessages: number; offset: number },
+  options: { maxBytes: number; maxMessages: number; maxScannedMessages: number },
 ): SessionTranscriptBoundedContextMessageTailPage {
-  return readBoundedMessageTailPage(
-    scope,
-    options,
-    {
-      resolvePositionRange: resolveContextMessagePositionRange,
-      resolvePositions: resolveContextMessagePositions,
-    },
-    (projection) => {
-      const contextSummary = resolveContextBoundarySummary(projection);
-      return contextSummary ? { contextSummary } : {};
-    },
+  return withCurrentProjectionSnapshot(scope, (projection) =>
+    readBoundedContextMessageTail(projection, options),
   );
 }
 

@@ -110,6 +110,72 @@ describe("session companion context", () => {
     );
   });
 
+  it.each([
+    { expectedKind: "ready", unsupportedCount: 4095 },
+    { expectedKind: "unavailable", unsupportedCount: 4096 },
+  ] as const)(
+    "fails closed only when unsupported roles exceed the bounded scan ($unsupportedCount)",
+    async ({ expectedKind, unsupportedCount }) => {
+      const scope = createScope(`companion-context-unsupported-${unsupportedCount}`);
+      await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+      const messages = [
+        {
+          eventId: "visible-user",
+          parentId: null,
+          message: { role: "user" as const, content: "authoritative question", timestamp: 1 },
+        },
+        ...Array.from({ length: unsupportedCount }, (_, index) => ({
+          eventId: `custom-${index}`,
+          parentId: index === 0 ? "visible-user" : `custom-${index - 1}`,
+          message: {
+            role: "custom" as const,
+            customType: "test-context",
+            content: `unsupported ${index}`,
+            timestamp: index + 2,
+          },
+        })),
+      ];
+      await persistSessionTranscriptTurn(scope, { messages, touchSessionEntry: true });
+
+      const result = await defaultSessionCompanionContextReader.read(scope);
+
+      expect(result.kind).toBe(expectedKind);
+      if (result.kind === "ready") {
+        expect(result.context.messages.map((message) => message.text)).toEqual([
+          "authoritative question",
+        ]);
+      }
+    },
+  );
+
+  it("returns unavailable instead of backfilling past an oversized latest user message", async () => {
+    const scope = createScope("companion-context-oversized-latest");
+    await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+    await persistSessionTranscriptTurn(scope, {
+      messages: [
+        {
+          eventId: "older",
+          parentId: null,
+          message: { role: "user" as const, content: "stale older question", timestamp: 1 },
+        },
+        {
+          eventId: "oversized",
+          parentId: "older",
+          message: {
+            role: "user" as const,
+            content: "x".repeat(1024 * 1024),
+            timestamp: 2,
+          },
+        },
+      ],
+      touchSessionEntry: true,
+    });
+
+    await expect(defaultSessionCompanionContextReader.read(scope)).resolves.toEqual({
+      kind: "unavailable",
+    });
+  });
+
   it("preserves the latest compaction summary and retained context without resurrecting history", async () => {
     const scope = createScope("companion-context-compaction");
     await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });

@@ -181,6 +181,7 @@ export class ChatSessionCompanionThreads {
       if (!isCurrent()) {
         throw Object.assign(new Error("stale companion answer"), {
           details: { reason: "context-unavailable" },
+          retryable: true,
         });
       }
       thread.exchanges = [
@@ -192,6 +193,11 @@ export class ChatSessionCompanionThreads {
         return;
       }
       thread.failedQuestion = normalized;
+      if (!isCurrent()) {
+        thread.hint = "history-unavailable";
+        thread.retryable = true;
+        return;
+      }
       const reason = errorDetailReason(error);
       thread.hint =
         errorDetailCode(error) === COMPANION_BUSY_DETAIL_CODE

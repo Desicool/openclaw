@@ -68,6 +68,17 @@ type SessionCompanionAskRuntimeParams = SessionCompanionAskDeps & {
   isDisposed: () => boolean;
 };
 
+type SessionCompanionCancellationKind =
+  | "backing-session-revoked"
+  | "disposed"
+  | "explicit-reset"
+  | "timeout";
+
+type SessionCompanionActiveAsk = {
+  cancellation?: SessionCompanionCancellationKind;
+  controller: AbortController;
+};
+
 type SessionCompanionAskErrorReason =
   | "busy"
   | "context-unavailable"
@@ -367,7 +378,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
   const run = params.run ?? defaultRun;
   const setTimeoutFn = params.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = params.clearTimeoutFn ?? clearTimeout;
-  const controllers = new Map<string, AbortController>();
+  const activeAsks = new Map<string, SessionCompanionActiveAsk>();
   const preparations = new Map<string, Promise<SessionCompanionThread>>();
   const admissions: Array<{ connId: string; admittedAt: number }> = [];
 
@@ -404,10 +415,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
     const preparation = (async () => {
       const result = await contextReader.read({ agentId, sessionKey, signal });
       if (signal.aborted || params.isDisposed()) {
-        throw contextError(
-          "context-unavailable",
-          "The selected session changed before its history was ready.",
-        );
+        throw new Error("session companion preparation was cancelled");
       }
       if (result.kind === "missing") {
         throw contextError("session-missing", "The selected session is no longer available.");
@@ -456,7 +464,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
       throw new SessionCompanionAskError("unavailable", "Session companion is unavailable.");
     }
     const existing = params.threads.get(sessionKey);
-    if (existing?.busy || controllers.has(sessionKey)) {
+    if (existing?.busy || activeAsks.has(sessionKey)) {
       throw new SessionCompanionAskError(
         "busy",
         "The session companion is answering another question.",
@@ -482,7 +490,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
           )
         : 0;
     if (
-      controllers.size >= MAX_CONCURRENT_ASKS ||
+      activeAsks.size >= MAX_CONCURRENT_ASKS ||
       globalRetryAfterMs > 0 ||
       connectionRetryAfterMs > 0
     ) {
@@ -490,7 +498,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
         "rate-limited",
         "The session companion has reached its question limit. Try again shortly.",
         Math.max(
-          controllers.size >= MAX_CONCURRENT_ASKS ? ASK_TIMEOUT_MS : 0,
+          activeAsks.size >= MAX_CONCURRENT_ASKS ? ASK_TIMEOUT_MS : 0,
           globalRetryAfterMs,
           connectionRetryAfterMs,
         ),
@@ -499,8 +507,16 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
 
     admissions.push({ connId: request.connId, admittedAt });
     const controller = new AbortController();
-    controllers.set(sessionKey, controller);
-    const timeout = setTimeoutFn(() => controller.abort(), ASK_TIMEOUT_MS);
+    const activeAsk: SessionCompanionActiveAsk = { controller };
+    activeAsks.set(sessionKey, activeAsk);
+    const abort = (cancellation: SessionCompanionCancellationKind) => {
+      if (activeAsks.get(sessionKey) !== activeAsk || activeAsk.cancellation) {
+        return;
+      }
+      activeAsk.cancellation = cancellation;
+      controller.abort();
+    };
+    const timeout = setTimeoutFn(() => abort("timeout"), ASK_TIMEOUT_MS);
     const aborted = new Promise<never>((_resolve, reject) => {
       controller.signal.addEventListener(
         "abort",
@@ -508,8 +524,16 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
         { once: true },
       );
     });
+    let ownedAgentId: string | undefined;
+    let ownedThread: SessionCompanionThread | undefined;
+    const discardOwnedThread = () => {
+      if (ownedThread && params.threads.get(sessionKey) === ownedThread) {
+        params.threads.delete(sessionKey);
+      }
+    };
     try {
       const thread = await prepareThread(sessionKey, controller.signal);
+      ownedThread = thread;
       notifySessionCompanionPrepared({
         connId: request.connId,
         empty: thread.context.empty,
@@ -524,6 +548,7 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
       thread.busy = true;
       thread.lastUsedAt = admittedAt;
       const { agentId, cfg } = resolveTarget(sessionKey);
+      ownedAgentId = agentId;
       if (currentSessionId(sessionKey, agentId) !== thread.context.sessionId) {
         params.threads.delete(sessionKey);
         throw contextError(
@@ -565,13 +590,25 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
         }),
         aborted,
       ]);
+      if (activeAsk.cancellation === "backing-session-revoked") {
+        discardOwnedThread();
+        throw contextError(
+          "context-unavailable",
+          "The selected session changed before the companion could answer.",
+        );
+      }
+      if (activeAsk.cancellation || params.isDisposed()) {
+        throw new Error("session companion ask was cancelled");
+      }
       if (
-        controller.signal.aborted ||
-        params.isDisposed() ||
         params.threads.get(sessionKey) !== thread ||
         currentSessionId(sessionKey, agentId) !== thread.context.sessionId
       ) {
-        throw new Error("session companion ask is no longer active");
+        discardOwnedThread();
+        throw contextError(
+          "context-unavailable",
+          "The selected session changed before the companion could answer.",
+        );
       }
       const answer = sanitizeAnswer(rawAnswer);
       if (!answer) {
@@ -588,33 +625,68 @@ export function createSessionCompanionAskRuntime(params: SessionCompanionAskRunt
       if (error instanceof SessionCompanionAskError) {
         throw error;
       }
+      if (activeAsk.cancellation === "backing-session-revoked") {
+        discardOwnedThread();
+        throw contextError(
+          "context-unavailable",
+          "The selected session changed before the companion could answer.",
+        );
+      }
+      if (!activeAsk.cancellation && ownedThread) {
+        if (
+          params.threads.get(sessionKey) !== ownedThread ||
+          (ownedAgentId &&
+            currentSessionId(sessionKey, ownedAgentId) !== ownedThread.context.sessionId)
+        ) {
+          discardOwnedThread();
+          throw contextError(
+            "context-unavailable",
+            "The selected session changed before the companion could answer.",
+          );
+        }
+      }
       companionLog.warn("session companion ask failed", { sessionKey, error });
       throw new SessionCompanionAskError(
         "unavailable",
-        "The session companion could not answer right now.",
+        activeAsk.cancellation === "timeout"
+          ? "The session companion timed out."
+          : activeAsk.cancellation === "explicit-reset"
+            ? "The session companion request was cancelled."
+            : "The session companion could not answer right now.",
       );
     } finally {
       clearTimeoutFn(timeout);
-      if (controllers.get(sessionKey) === controller) {
-        controllers.delete(sessionKey);
+      if (activeAsks.get(sessionKey) === activeAsk) {
+        activeAsks.delete(sessionKey);
       }
-      const thread = params.threads.get(sessionKey);
-      if (thread) {
-        thread.busy = false;
+      if (ownedThread && params.threads.get(sessionKey) === ownedThread) {
+        ownedThread.busy = false;
       }
     }
   };
 
   return {
     ask,
-    cancel(sessionKey: string) {
-      controllers.get(sessionKey)?.abort();
+    cancel(
+      sessionKey: string,
+      cancellation: Extract<
+        SessionCompanionCancellationKind,
+        "backing-session-revoked" | "explicit-reset"
+      >,
+    ) {
+      const activeAsk = activeAsks.get(sessionKey);
+      if (!activeAsk || activeAsk.cancellation) {
+        return;
+      }
+      activeAsk.cancellation = cancellation;
+      activeAsk.controller.abort();
     },
     dispose() {
-      for (const controller of controllers.values()) {
-        controller.abort();
+      for (const activeAsk of activeAsks.values()) {
+        activeAsk.cancellation ??= "disposed";
+        activeAsk.controller.abort();
       }
-      controllers.clear();
+      activeAsks.clear();
       preparations.clear();
       admissions.length = 0;
     },

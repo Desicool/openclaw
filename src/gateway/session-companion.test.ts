@@ -262,10 +262,19 @@ describe("session companion asks", () => {
   it("discards an answer when the backing session identity changes", async () => {
     vi.useFakeTimers();
     let sessionId = "session-1";
+    let runCount = 0;
     const pending = deferred<string>();
     const harness = createHarness({
       currentSessionId: () => sessionId,
-      run: async () => await pending.promise,
+      readContext: async () => ({
+        kind: "ready",
+        context: {
+          empty: false,
+          messages: [{ role: "user", text: `question for ${sessionId}`, ts: 1 }],
+          sessionId,
+        },
+      }),
+      run: async () => (runCount++ === 0 ? await pending.promise : "fresh answer"),
     });
     const active = harness.service.ask({
       sessionKey: "agent:main:main",
@@ -277,9 +286,18 @@ describe("session companion asks", () => {
     pending.resolve("stale answer");
 
     await expect(active).rejects.toMatchObject({
-      reason: "unavailable",
+      reason: "context-unavailable",
     } satisfies Partial<SessionCompanionAskError>);
     expect(harness.service.state("agent:main:main")).toEqual({ exchanges: [] });
+
+    await expect(
+      harness.service.ask({
+        sessionKey: "agent:main:main",
+        question: "Which session now?",
+        connId: "conn-1",
+      }),
+    ).resolves.toMatchObject({ answer: "fresh answer" });
+    expect(harness.readContext).toHaveBeenCalledTimes(2);
     harness.service.dispose();
   });
 
@@ -450,6 +468,69 @@ describe("session companion asks", () => {
     await expect(active).rejects.toMatchObject({
       reason: "unavailable",
     } satisfies Partial<SessionCompanionAskError>);
+    expect(harness.service.state("agent:main:main")).toEqual({ exchanges: [] });
+    harness.service.dispose();
+  });
+
+  it("makes a committed backing-session reset retryable and ignores the late model result", async () => {
+    vi.useFakeTimers();
+    const pending = deferred<string>();
+    const harness = createHarness({ run: async () => await pending.promise });
+    const active = harness.service.ask({
+      sessionKey: "agent:main:main",
+      question: "Still the same backing session?",
+      connId: "conn-1",
+    });
+    await vi.waitFor(() => expect(harness.run).toHaveBeenCalledOnce());
+
+    notifyGatewaySessionReset("agent:main:main");
+    pending.resolve("stale answer");
+
+    await expect(active).rejects.toMatchObject({
+      reason: "context-unavailable",
+    } satisfies Partial<SessionCompanionAskError>);
+    expect(harness.service.state("agent:main:main")).toEqual({ exchanges: [] });
+    harness.service.dispose();
+  });
+
+  it("disposal cancels an active ask without committing its late model result", async () => {
+    vi.useFakeTimers();
+    const pending = deferred<string>();
+    const harness = createHarness({ run: async () => await pending.promise });
+    const active = harness.service.ask({
+      sessionKey: "agent:main:main",
+      question: "Will this survive shutdown?",
+      connId: "conn-1",
+    });
+    await vi.waitFor(() => expect(harness.run).toHaveBeenCalledOnce());
+
+    harness.service.dispose();
+    pending.resolve("late answer");
+
+    await expect(active).rejects.toMatchObject({
+      reason: "unavailable",
+    } satisfies Partial<SessionCompanionAskError>);
+    expect(harness.service.state("agent:main:main")).toEqual({ exchanges: [] });
+  });
+
+  it("keeps provider failures terminal after one model call", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness({
+      run: async () => {
+        throw new Error("provider unavailable");
+      },
+    });
+
+    await expect(
+      harness.service.ask({
+        sessionKey: "agent:main:main",
+        question: "Can the provider answer?",
+        connId: "conn-1",
+      }),
+    ).rejects.toMatchObject({
+      reason: "unavailable",
+    } satisfies Partial<SessionCompanionAskError>);
+    expect(harness.run).toHaveBeenCalledOnce();
     expect(harness.service.state("agent:main:main")).toEqual({ exchanges: [] });
     harness.service.dispose();
   });

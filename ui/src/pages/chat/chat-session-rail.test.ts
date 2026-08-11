@@ -430,8 +430,66 @@ describe("ChatSessionCompanionThreads", () => {
       failedQuestion: "Which connection owns this?",
       hint: "history-unavailable",
       pendingQuestion: null,
+      retryable: true,
     });
   });
+
+  it("makes a rejected stale connection settlement retryable", async () => {
+    let current = true;
+    let rejectAnswer!: (error: Error) => void;
+    const threads = new ChatSessionCompanionThreads();
+    const pending = threads.submit(
+      "one",
+      "Which connection rejected this?",
+      (_sessionKey, _question, prepared) => {
+        prepared();
+        return new Promise((_resolve, reject) => {
+          rejectAnswer = reject;
+        });
+      },
+      () => current,
+    );
+    await vi.waitFor(() => expect(threads.view("one").phase).toBe("answering"));
+    current = false;
+    rejectAnswer(new Error("old socket closed"));
+    await pending;
+
+    expect(threads.view("one")).toMatchObject({
+      exchanges: [],
+      failedQuestion: "Which connection rejected this?",
+      hint: "history-unavailable",
+      retryable: true,
+    });
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "does not resurrect a reset pending request after late $outcome",
+    async (outcome) => {
+      let resolveAnswer!: (value: { answer: string; ts: number }) => void;
+      let rejectAnswer!: (error: Error) => void;
+      const threads = new ChatSessionCompanionThreads();
+      const pending = threads.submit("one", "Will reset keep this?", () => {
+        return new Promise((resolve, reject) => {
+          resolveAnswer = resolve;
+          rejectAnswer = reject;
+        });
+      });
+
+      await threads.reset("one", async () => ({ ok: true }));
+      if (outcome === "resolve") {
+        resolveAnswer({ answer: "late answer", ts: 5 });
+      } else {
+        rejectAnswer(new Error("late error"));
+      }
+      await pending;
+
+      expect(threads.view("one")).toMatchObject({
+        exchanges: [],
+        failedQuestion: null,
+        pendingQuestion: null,
+      });
+    },
+  );
 
   it("clears local state only after the reset RPC succeeds", async () => {
     const threads = new ChatSessionCompanionThreads();
