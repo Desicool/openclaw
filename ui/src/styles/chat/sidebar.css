@@ -1507,6 +1507,8 @@ openclaw-session-discussion {
 }
 
 .file-view__search input {
+  --control-ui-touch-input-size: var(--control-ui-text-sm);
+
   min-width: 0;
   flex: 1;
   height: 28px;
@@ -1518,12 +1520,6 @@ openclaw-session-discussion {
   color: var(--text);
   font: inherit;
   font-size: var(--control-ui-text-sm);
-}
-
-@media (hover: none) and (pointer: coarse) {
-  .file-view__search input {
-    font-size: max(16px, var(--control-ui-text-sm));
-  }
 }
 
 .file-view__search input:focus-visible {
