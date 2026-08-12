@@ -25,6 +25,8 @@ const repositoryScriptEntries = [
   "scripts/check-control-ui-precompressed-assets.mts!",
   "scripts/check-live-cache.ts!",
   "scripts/check-package-dist-imports.mjs!",
+  // Cloudflare deployment template: wrangler bundles the Worker from this entry.
+  "scripts/cloudflare/src/index.ts!",
   "scripts/dev/ios-node-e2e.ts!",
   "scripts/diffs-shiki-curated.ts!",
   // Reusable Docker workflows invoke this from the downloaded .release-harness tree.
@@ -434,6 +436,9 @@ const config = {
     ".": {
       ignoreDependencies: [
         "@openclaw/*",
+        // Cloudflare template dependency: declared in scripts/cloudflare/package.json
+        // (isolated deploy tooling), not in the root manifest.
+        "@cloudflare/containers",
         // Docker packaging stages @openclaw/ai without nested dependencies after
         // verifying the root owns its exact runtime dependency versions.
         "@mistralai/mistralai",
