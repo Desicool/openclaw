@@ -3462,6 +3462,36 @@ describe("runWithModelFallback", () => {
     expect(store.order?.[provider]).toEqual(orderedProfileIds);
   });
 
+  it("does not skip a provider when only its user-pinned profile is cooling down", async () => {
+    const provider = `pinned-cooldown-${crypto.randomUUID()}`;
+    const pinnedProfileId = `${provider}:pinned`;
+    const backupProfileId = `${provider}:backup`;
+    const store: AuthProfileStore = {
+      version: AUTH_STORE_VERSION,
+      profiles: {
+        [pinnedProfileId]: { type: "api_key", provider, key: "pinned-key" },
+        [backupProfileId]: { type: "api_key", provider, key: "backup-key" },
+        "fallback:default": { type: "api_key", provider: "fallback", key: "fallback-key" },
+      },
+      order: { [provider]: [backupProfileId] },
+      usageStats: {
+        [pinnedProfileId]: { cooldownUntil: Date.now() + 60_000 },
+      },
+    };
+    const run = vi.fn().mockResolvedValue("ok");
+
+    const result = await runWithStoredAuth({
+      cfg: makeProviderFallbackCfg(provider),
+      store,
+      provider,
+      run,
+      userLockedAuthProfileId: pinnedProfileId,
+    });
+
+    expect(result.result).toBe("ok");
+    expect(run.mock.calls).toEqual([[provider, "m1", { isFinalFallbackAttempt: false }]]);
+  });
+
   it("discovers an exact external CLI user lock before cooldown admission", async () => {
     const provider = "minimax-portal";
     const orderedProfileId = "minimax-portal:api";
