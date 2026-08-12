@@ -804,7 +804,7 @@ function mergeRuntimeExternalProfileReferences(params: {
   return merged;
 }
 
-function preserveResolvedSecretBackedCredentials(params: {
+export function preserveResolvedSecretBackedCredentials(params: {
   next: AuthProfileStore;
   existing: AuthProfileStore;
 }): AuthProfileStore {
