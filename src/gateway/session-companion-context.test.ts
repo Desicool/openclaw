@@ -5,6 +5,7 @@ import {
   persistSessionTranscriptTurn,
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
+import * as activeTranscriptEvents from "../config/sessions/session-accessor.sqlite-active-events.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
@@ -193,6 +194,44 @@ describe("session companion context", () => {
     await expect(defaultSessionCompanionContextReader.read(scope)).resolves.toEqual({
       kind: "unavailable",
     });
+  });
+
+  it("rejects context assembled across different transcript snapshots", async () => {
+    const scope = createScope("companion-context-snapshot-fence");
+    await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+    const page = vi
+      .spyOn(activeTranscriptEvents, "readSessionTranscriptBoundedMessageTailPage")
+      .mockReturnValueOnce({
+        activeLeafEntryId: "leaf-1",
+        events: [
+          {
+            event: {
+              type: "message",
+              id: "message-1",
+              parentId: null,
+              message: { role: "user", content: "stable context", timestamp: 1 },
+            },
+            seq: 1,
+          },
+        ],
+        scannedMessages: 1,
+        serializedBytes: 128,
+        snapshot: { generation: "generation-1", indexedSeq: 1 },
+        totalMessages: 1,
+      })
+      .mockReturnValueOnce({
+        activeLeafEntryId: "leaf-1",
+        events: [],
+        scannedMessages: 0,
+        serializedBytes: 0,
+        snapshot: { generation: "generation-2", indexedSeq: 1 },
+        totalMessages: 1,
+      });
+
+    await expect(defaultSessionCompanionContextReader.read(scope)).resolves.toEqual({
+      kind: "unavailable",
+    });
+    expect(page).toHaveBeenCalledTimes(2);
   });
 
   it("keeps transcript-visible messages across compaction", async () => {

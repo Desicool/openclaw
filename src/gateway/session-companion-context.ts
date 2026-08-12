@@ -142,6 +142,14 @@ async function readSessionCompanionContext(params: {
     let rawBytes = 0;
     let scannedMessages = 0;
     let totalMessages = 0;
+    let snapshot:
+      | {
+          activeLeafEntryId?: string | null;
+          generation?: string;
+          indexedSeq: number;
+          totalMessages: number;
+        }
+      | undefined;
     let contextMessages: SessionCompanionContextMessage[] = [];
     while (
       contextMessages.length < CONTEXT_MAX_MESSAGES &&
@@ -158,6 +166,21 @@ async function readSessionCompanionContext(params: {
       if (params.signal?.aborted || page.events.length !== page.scannedMessages) {
         return { kind: "unavailable" };
       }
+      const pageSnapshot = {
+        activeLeafEntryId: page.activeLeafEntryId,
+        generation: page.snapshot.generation,
+        indexedSeq: page.snapshot.indexedSeq,
+        totalMessages: page.totalMessages,
+      };
+      snapshot ??= pageSnapshot;
+      if (
+        pageSnapshot.activeLeafEntryId !== snapshot.activeLeafEntryId ||
+        pageSnapshot.generation !== snapshot.generation ||
+        pageSnapshot.indexedSeq !== snapshot.indexedSeq ||
+        pageSnapshot.totalMessages !== snapshot.totalMessages
+      ) {
+        return { kind: "unavailable" };
+      }
       totalMessages = page.totalMessages;
       rawBytes += page.serializedBytes;
       scannedMessages += page.scannedMessages;
@@ -171,6 +194,21 @@ async function readSessionCompanionContext(params: {
       }
     }
     if (contextMessages.length < CONTEXT_MAX_MESSAGES && offset < totalMessages) {
+      return { kind: "unavailable" };
+    }
+    const fence = readSessionTranscriptBoundedMessageTailPage(scope, {
+      maxBytes: 0,
+      maxMessages: 0,
+      offset: 0,
+    });
+    if (
+      params.signal?.aborted ||
+      !snapshot ||
+      fence.activeLeafEntryId !== snapshot.activeLeafEntryId ||
+      fence.snapshot.generation !== snapshot.generation ||
+      fence.snapshot.indexedSeq !== snapshot.indexedSeq ||
+      fence.totalMessages !== snapshot.totalMessages
+    ) {
       return { kind: "unavailable" };
     }
     return {

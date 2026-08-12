@@ -339,8 +339,11 @@ describe("ChatSessionCompanionThreads", () => {
     });
   });
 
-  it("hydrates an answer committed before a disconnect response was lost", async () => {
+  it("hydrates only a newly committed repeated question after a lost response", async () => {
     const threads = new ChatSessionCompanionThreads();
+    await threads.hydrate("one", async () => ({
+      exchanges: [{ question: "What changed?", answer: "Earlier answer.", ts: 1 }],
+    }));
     await threads.submit("one", "What changed?", async () => {
       throw new Error("socket closed");
     });
@@ -351,14 +354,29 @@ describe("ChatSessionCompanionThreads", () => {
     });
 
     await threads.hydrate("one", async () => ({
-      exchanges: [{ question: "What changed?", answer: "The fix committed.", ts: 4 }],
+      exchanges: [{ question: "What changed?", answer: "Earlier answer.", ts: 1 }],
+    }));
+    expect(threads.view("one")).toMatchObject({
+      failedQuestion: "What changed?",
+      hint: "unavailable",
+      retryable: true,
+    });
+
+    await threads.hydrate("one", async () => ({
+      exchanges: [
+        { question: "What changed?", answer: "Earlier answer.", ts: 1 },
+        { question: "What changed?", answer: "The fix committed.", ts: 4 },
+      ],
     }));
 
     expect(threads.view("one")).toMatchObject({
       failedQuestion: null,
       hint: null,
       retryable: false,
-      exchanges: [{ question: "What changed?", answer: "The fix committed.", ts: 4 }],
+      exchanges: [
+        { question: "What changed?", answer: "Earlier answer.", ts: 1 },
+        { question: "What changed?", answer: "The fix committed.", ts: 4 },
+      ],
     });
   });
 

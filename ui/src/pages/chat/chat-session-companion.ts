@@ -27,8 +27,13 @@ export type ChatSessionCompanionThread = {
 };
 
 type MutableCompanionThread = ChatSessionCompanionThread & {
+  failedQuestionKnownExchanges: ReadonlySet<string> | null;
   revision: number;
 };
+
+function exchangeKey(exchange: SessionCompanionExchange): string {
+  return JSON.stringify([exchange.question, exchange.answer, exchange.ts]);
+}
 
 function errorDetailCode(error: unknown): string | null {
   if (!error || typeof error !== "object") {
@@ -65,6 +70,7 @@ function createThread(): MutableCompanionThread {
     exchanges: [],
     pendingQuestion: null,
     failedQuestion: null,
+    failedQuestionKnownExchanges: null,
     hint: null,
     retryable: false,
     draft: "",
@@ -118,9 +124,14 @@ export class ChatSessionCompanionThreads {
       }));
       if (
         thread.failedQuestion &&
-        thread.exchanges.some((exchange) => exchange.question === thread.failedQuestion)
+        thread.exchanges.some(
+          (exchange) =>
+            exchange.question === thread.failedQuestion &&
+            !thread.failedQuestionKnownExchanges?.has(exchangeKey(exchange)),
+        )
       ) {
         thread.failedQuestion = null;
+        thread.failedQuestionKnownExchanges = null;
         thread.hint = null;
         thread.retryable = false;
       }
@@ -152,11 +163,13 @@ export class ChatSessionCompanionThreads {
     }
     thread.pendingQuestion = normalized;
     thread.failedQuestion = null;
+    thread.failedQuestionKnownExchanges = null;
     thread.hint = null;
     thread.retryable = false;
     thread.draft = "";
     thread.revision += 1;
     const token = Symbol(key);
+    const knownExchanges = new Set(thread.exchanges.map(exchangeKey));
     this.submissionTokens.set(key, token);
     this.notify();
     try {
@@ -168,11 +181,13 @@ export class ChatSessionCompanionThreads {
         ...thread.exchanges,
         { question: normalized, answer: result.answer, ts: result.ts },
       ].slice(-MAX_COMPANION_EXCHANGES);
+      thread.failedQuestionKnownExchanges = null;
     } catch (error) {
       if (this.submissionTokens.get(key) !== token) {
         return;
       }
       thread.failedQuestion = normalized;
+      thread.failedQuestionKnownExchanges = knownExchanges;
       const reason = errorDetailReason(error);
       thread.hint =
         errorDetailCode(error) === COMPANION_BUSY_DETAIL_CODE
