@@ -8,6 +8,7 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 
 const COMPANION_BUSY_DETAIL_CODE = "SESSION_COMPANION_BUSY";
 const MAX_COMPANION_EXCHANGES = 24;
+const COMPANION_ASK_TIMEOUT_MS = 70_000;
 
 export type ChatSessionCompanionThread = {
   exchanges: SessionCompanionExchange[];
@@ -22,7 +23,6 @@ export type ChatSessionCompanionThread = {
     | "unavailable"
     | null;
   retryable?: boolean;
-  phase?: "answering" | "reading" | null;
   draft: string;
 };
 
@@ -67,7 +67,6 @@ function createThread(): MutableCompanionThread {
     failedQuestion: null,
     hint: null,
     retryable: false,
-    phase: null,
     draft: "",
     revision: 0,
   };
@@ -140,13 +139,7 @@ export class ChatSessionCompanionThreads {
   async submit(
     sessionKey: string,
     question: string,
-    ask: (
-      sessionKey: string,
-      question: string,
-      onPrepared: () => void,
-    ) => Promise<SessionsCompanionAskResult>,
-    isCurrent: () => boolean = () => true,
-    reload?: (sessionKey: string) => Promise<SessionsCompanionStateResult>,
+    ask: (sessionKey: string, question: string) => Promise<SessionsCompanionAskResult>,
   ): Promise<void> {
     const key = sessionKey.trim();
     const normalized = question.trim();
@@ -161,64 +154,14 @@ export class ChatSessionCompanionThreads {
     thread.failedQuestion = null;
     thread.hint = null;
     thread.retryable = false;
-    thread.phase = "reading";
     thread.draft = "";
     thread.revision += 1;
     const token = Symbol(key);
     this.submissionTokens.set(key, token);
     this.notify();
-    const knownExchanges = new Set(
-      thread.exchanges.map(({ question: priorQuestion, answer, ts }) =>
-        JSON.stringify([priorQuestion, answer, ts]),
-      ),
-    );
-    const reconcileStale = async (
-      expectedAnswer?: string,
-    ): Promise<"committed" | "missing" | "superseded" | "unavailable"> => {
-      if (!reload) {
-        return "unavailable";
-      }
-      try {
-        const result = await reload(key);
-        if (this.submissionTokens.get(key) !== token) {
-          return "superseded";
-        }
-        thread.exchanges = result.exchanges.map(({ question: nextQuestion, answer, ts }) => ({
-          question: nextQuestion,
-          answer,
-          ts,
-        }));
-        const committed = thread.exchanges.some(
-          (exchange) =>
-            exchange.question === normalized &&
-            (expectedAnswer === undefined || exchange.answer === expectedAnswer) &&
-            !knownExchanges.has(JSON.stringify([exchange.question, exchange.answer, exchange.ts])),
-        );
-        return committed ? "committed" : "missing";
-      } catch {
-        return "unavailable";
-      }
-    };
     try {
-      const result = await ask(key, normalized, () => {
-        if (this.submissionTokens.get(key) !== token || !isCurrent()) {
-          return;
-        }
-        thread.phase = "answering";
-        thread.revision += 1;
-        this.notify();
-      });
+      const result = await ask(key, normalized);
       if (this.submissionTokens.get(key) !== token) {
-        return;
-      }
-      if (!isCurrent()) {
-        const reconciliation = await reconcileStale(result.answer);
-        if (reconciliation === "committed" || reconciliation === "superseded") {
-          return;
-        }
-        thread.failedQuestion = normalized;
-        thread.hint = "unavailable";
-        thread.retryable = false;
         return;
       }
       thread.exchanges = [
@@ -227,16 +170,6 @@ export class ChatSessionCompanionThreads {
       ].slice(-MAX_COMPANION_EXCHANGES);
     } catch (error) {
       if (this.submissionTokens.get(key) !== token) {
-        return;
-      }
-      if (!isCurrent()) {
-        const reconciliation = await reconcileStale();
-        if (reconciliation === "committed" || reconciliation === "superseded") {
-          return;
-        }
-        thread.failedQuestion = normalized;
-        thread.hint = reconciliation === "missing" ? "history-unavailable" : "unavailable";
-        thread.retryable = reconciliation === "missing";
         return;
       }
       thread.failedQuestion = normalized;
@@ -253,12 +186,11 @@ export class ChatSessionCompanionThreads {
                 : reason === "utility-model-unavailable"
                   ? "model-unavailable"
                   : "unavailable";
-      thread.retryable = errorIsRetryable(error);
+      thread.retryable = errorIsRetryable(error) || reason === null;
     } finally {
       if (this.submissionTokens.get(key) === token) {
         this.submissionTokens.delete(key);
         thread.pendingQuestion = null;
-        thread.phase = null;
         thread.revision += 1;
         this.notify();
       }
@@ -295,12 +227,11 @@ export function requestSessionCompanionAnswer(
   client: Pick<GatewayBrowserClient, "request">,
   sessionKey: string,
   question: string,
-  onPrepared: () => void,
 ): Promise<SessionsCompanionAskResult> {
   return client.request<SessionsCompanionAskResult>(
     "sessions.companion.ask",
     { sessionKey, question },
-    { expectFinal: true, onAccepted: onPrepared },
+    { timeoutMs: COMPANION_ASK_TIMEOUT_MS },
   );
 }
 

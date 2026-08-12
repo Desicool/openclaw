@@ -32,6 +32,25 @@ function createScope(prefix: string) {
 }
 
 describe("session companion context", () => {
+  it("distinguishes a missing session from an empty selected transcript", async () => {
+    const missing = createScope("companion-context-missing");
+    await expect(defaultSessionCompanionContextReader.read(missing)).resolves.toEqual({
+      kind: "missing",
+    });
+
+    const empty = createScope("companion-context-empty");
+    await upsertSessionEntryCore(empty, { sessionId: empty.sessionId, updatedAt: 1 });
+    const result = await defaultSessionCompanionContextReader.read(empty);
+    expect(result).toEqual({
+      kind: "ready",
+      context: {
+        empty: true,
+        messages: [],
+        sessionId: empty.sessionId,
+      },
+    });
+  });
+
   it("reads a bounded active SQLite tail without decoding old transcript rows", async () => {
     const scope = createScope("companion-context-tail");
     await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
@@ -176,7 +195,7 @@ describe("session companion context", () => {
     });
   });
 
-  it("preserves the latest compaction summary and retained context without resurrecting history", async () => {
+  it("keeps transcript-visible messages across compaction", async () => {
     const scope = createScope("companion-context-compaction");
     await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
     await persistSessionTranscriptTurn(scope, {
@@ -226,17 +245,14 @@ describe("session companion context", () => {
       return;
     }
     expect(result.context.messages.map((message) => [message.role, message.text])).toEqual([
-      ["summary", "older context was compacted"],
+      ["user", "discarded context"],
       ["user", "retained context"],
       ["assistant", "recent answer"],
       ["user", "visible current question"],
     ]);
-    expect(result.context.messages.some((message) => message.text === "discarded context")).toBe(
-      false,
-    );
   });
 
-  it("returns unavailable without materializing an oversized compaction boundary", async () => {
+  it("ignores oversized non-message compaction details", async () => {
     const scope = createScope("companion-context-oversized-boundary");
     await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
     await persistSessionTranscriptTurn(scope, {
@@ -261,7 +277,12 @@ describe("session companion context", () => {
     });
 
     await expect(defaultSessionCompanionContextReader.read(scope)).resolves.toEqual({
-      kind: "unavailable",
+      kind: "ready",
+      context: {
+        empty: false,
+        messages: [{ role: "user", text: "retained context", ts: 1 }],
+        sessionId: scope.sessionId,
+      },
     });
   });
 
