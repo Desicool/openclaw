@@ -520,6 +520,7 @@ export function createMockReplyOperation(options?: { abortSignal?: AbortSignal }
       markGlobalLaneWaitEnded: vi.fn(),
       updateSessionId: updateSessionIdMock,
       updateSessionKey: vi.fn(),
+      bindToolAuthorityFingerprint: vi.fn(),
       attachBackend: vi.fn(),
       detachBackend: vi.fn(),
       freezeAbort: freezeAbortMock,

@@ -29,6 +29,8 @@ import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 export type EmbeddedAgentQueueHandle = {
   kind?: "embedded";
   runId?: string;
+  /** Exact authority of the concrete provider/model attempt behind this handle. */
+  toolAuthorityFingerprint?: string;
   queueMessage: (
     text: string,
     options?: EmbeddedAgentQueueMessageOptions,

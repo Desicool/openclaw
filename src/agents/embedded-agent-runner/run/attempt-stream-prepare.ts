@@ -426,6 +426,9 @@ export function prepareEmbeddedAttemptStream(input: {
   const queueHandle: AttemptStreamQueueHandle = {
     kind: "embedded",
     runId: attempt.runId,
+    ...(attempt.toolAuthorityFingerprint
+      ? { toolAuthorityFingerprint: attempt.toolAuthorityFingerprint }
+      : {}),
     queueMessage,
     messageInjection: {
       isAvailable: () =>

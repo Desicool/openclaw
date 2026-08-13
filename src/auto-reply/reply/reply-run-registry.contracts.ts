@@ -19,6 +19,8 @@ export type ReplyBackendQueueMessageOptions = {
   steeringMode?: "all";
   /** True when this queue item came from the channel's current user turn. */
   isInboundUserMessage?: boolean;
+  /** Exact tool authority resolved for an inbound user turn before steering. */
+  toolAuthorityFingerprint?: string;
   debounceMs?: number;
   /** Ordered current-turn images to inject with the steering text. */
   images?: ImageContent[];
@@ -56,6 +58,8 @@ export type ReplyBackendMessageInjection = {
 export type ReplyBackendHandle = {
   readonly kind: ReplyBackendKind;
   readonly runId?: string;
+  /** Exact authority of this concrete backend attempt, after fallback selection. */
+  readonly toolAuthorityFingerprint?: string;
   readonly sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   readonly taskSuggestionDeliveryMode?: TaskSuggestionDeliveryMode;
   /** True only when queueMessage preserves images supplied in its options. */
@@ -113,6 +117,7 @@ export type ReplyMessageInjectionAttempt = {
 };
 
 type ReplyBackendQueueMessageMismatch =
+  | "tool_authority_mismatch"
   | "image_input_unsupported"
   | "source_reply_delivery_mode_mismatch"
   | "task_suggestion_delivery_mode_mismatch";
@@ -167,6 +172,8 @@ export type ReplyOperation = {
    * Final delivery reads it because the original dispatch context cannot change.
    */
   readonly acceptedSteeredInboundAudio: boolean;
+  /** Immutable tool authority accepted by the active backend for steered user turns. */
+  readonly toolAuthorityFingerprint?: string;
   readonly phase: ReplyOperationPhase;
   readonly result: ReplyOperationResult | null;
   /** Set when a stale-watchdog expiry forced this operation's run_stalled result. */
@@ -196,6 +203,8 @@ export type ReplyOperation = {
   /** Mark this operation as an in-flight terminal-session recovery. */
   markTerminalRecovery(): void;
   markAcceptedSteeredInboundAudio(): void;
+  /** Bind provisional request authority before a concrete backend attempt attaches. */
+  bindToolAuthorityFingerprint(fingerprint: string): void;
   updateSessionId(nextSessionId: string): void;
   /**
    * Move this queued operation to another session key's run slot. Native command

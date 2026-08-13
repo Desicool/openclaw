@@ -66,18 +66,24 @@ const CODEX_DELEGATION_DISABLED_THREAD_CONFIG: JsonObject = {
 const CODEX_RING_ZERO_THREAD_CONFIG: JsonObject = {
   ...CODEX_DELEGATION_DISABLED_THREAD_CONFIG,
   "features.apps": false,
+  "features.chronicle": false,
   "features.current_time_reminder": false,
   "features.deferred_executor": false,
-  "features.enable_fanout": false,
   "features.goals": false,
   "features.hooks": false,
   "features.image_generation": false,
   "features.memories": false,
   "features.plugins": false,
+  "features.skill_search": false,
+  "features.shell_tool": false,
   "features.standalone_web_search": false,
   "features.token_budget": false,
+  "features.unified_exec": false,
+  "features.view_image": false,
   "orchestrator.mcp.enabled": false,
   "orchestrator.skills.enabled": false,
+  "skills.bundled.enabled": false,
+  "skills.include_instructions": false,
   "tools.experimental_request_user_input.enabled": false,
   "tools.update_plan.enabled": false,
   hooks: {
@@ -99,11 +105,11 @@ const CODEX_RING_ZERO_THREAD_CONFIG: JsonObject = {
 
 const CODEX_RING_ZERO_RESTRICTED_FEATURES = new Set([
   "apps",
+  "chronicle",
   "code_mode",
   "code_mode_only",
   "current_time_reminder",
   "deferred_executor",
-  "enable_fanout",
   "goals",
   "hooks",
   "image_generation",
@@ -111,8 +117,21 @@ const CODEX_RING_ZERO_RESTRICTED_FEATURES = new Set([
   "multi_agent",
   "multi_agent_v2",
   "plugins",
+  "skill_search",
+  "shell_tool",
   "standalone_web_search",
   "token_budget",
+  "unified_exec",
+  "view_image",
+]);
+
+const CODEX_RING_ZERO_RESTRICTED_FEATURE_ALIASES = new Map<string, string>([
+  ["connectors", "apps"],
+  ["imagegenext", "image_generation"],
+  ["collab", "multi_agent"],
+  ["memory_tool", "memories"],
+  ["telepathy", "chronicle"],
+  ["codex_hooks", "hooks"],
 ]);
 
 const CODEX_RING_ZERO_OVERRIDABLE_LAYER_TYPES = new Set([
@@ -547,7 +566,8 @@ export async function assertCodexRestrictedToolSurfaceHasNoManagedHooks(
       if (typeof enabled !== "boolean") {
         throw new Error("Codex configRequirements/read returned invalid feature requirements");
       }
-      if (enabled && CODEX_RING_ZERO_RESTRICTED_FEATURES.has(feature)) {
+      const canonicalFeature = CODEX_RING_ZERO_RESTRICTED_FEATURE_ALIASES.get(feature) ?? feature;
+      if (enabled && CODEX_RING_ZERO_RESTRICTED_FEATURES.has(canonicalFeature)) {
         throw new Error(
           `Codex restricted tool surface cannot override required feature ${feature}`,
         );

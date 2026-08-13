@@ -46,6 +46,7 @@ import {
 } from "./reply-run-registry.js";
 import { testing as replyRunTesting } from "./reply-run-registry.test-support.js";
 import { bindReplyOperationTyping } from "./reply-run-typing.js";
+import { resolveFollowupRunToolAuthorityFingerprint } from "./reply-tool-authority.js";
 import { consumeReplyUsageState } from "./reply-usage-state.js";
 import { buildChannelSourceTurnId, setChannelSourceTurnId } from "./source-turn-id.js";
 import { createMockTypingController } from "./test-helpers.js";
@@ -354,6 +355,7 @@ function createMinimalRun(params?: {
   sessionCtx?: Partial<TemplateContext>;
   sourceTurnId?: string;
   runOverrides?: Partial<FollowupRun["run"]>;
+  bindActiveAuthority?: boolean;
 }) {
   const typing = createMockTypingController();
   const opts = params?.opts;
@@ -408,6 +410,12 @@ function createMinimalRun(params?: {
       ...params?.runOverrides,
     },
   } as unknown as FollowupRun;
+  const activeOperation = replyRunRegistry.get(sessionKey);
+  if (activeOperation && params?.bindActiveAuthority !== false) {
+    activeOperation.bindToolAuthorityFingerprint(
+      resolveFollowupRunToolAuthorityFingerprint(followupRun),
+    );
+  }
 
   return {
     followupRun,
@@ -524,6 +532,34 @@ function requireBuiltChannelSourceTurnId(
 }
 
 describe("runReplyAgent active steering", () => {
+  it("queues instead of steering when the incoming turn has different tool authority", async () => {
+    const active = createReplyOperation({
+      sessionKey: "main",
+      sessionId: "session",
+      resetTriggered: false,
+    });
+    active.bindToolAuthorityFingerprint("different-authority");
+    active.setPhase("running");
+    const { run } = createMinimalRun({
+      isActive: true,
+      shouldSteer: true,
+      resolvedQueueMode: "steer",
+      bindActiveAuthority: false,
+      runOverrides: {
+        runtimePluginToolGrant: {
+          pluginId: "workboard",
+          toolNames: ["workboard_complete"],
+        },
+      },
+    });
+
+    await expect(run()).resolves.toBeUndefined();
+
+    expect(state.queueEmbeddedAgentMessageMock).not.toHaveBeenCalled();
+    expect(vi.mocked(enqueueFollowupRun)).toHaveBeenCalledOnce();
+    active.complete();
+  });
+
   it("keeps the continuing Telegram task's typing alive after an accepted steer", async () => {
     state.queueEmbeddedAgentMessageMock.mockReturnValueOnce(true);
     const active = createReplyOperation({

@@ -75,6 +75,7 @@ type EmbeddedAgentQueueFailureReason =
   | "not_streaming"
   | "stale_run"
   | "compacting"
+  | "tool_authority_mismatch"
   | "image_input_unsupported"
   | "source_reply_delivery_mode_mismatch"
   | "task_suggestion_delivery_mode_mismatch"
@@ -561,7 +562,11 @@ function prepareEmbeddedAgentQueueMessage(
       outcome: createQueueFailureOutcome(sessionId, "transcript_commit_wait_unsupported"),
     };
   }
-  const deliveryModeMismatch = resolveReplyBackendQueueMessageMismatch(handle, options);
+  const deliveryModeMismatch = resolveReplyBackendQueueMessageMismatch(
+    handle,
+    options,
+    resolveActiveReplyOperationForSessionId(sessionId),
+  );
   if (deliveryModeMismatch) {
     diag.debug(`queue message failed: sessionId=${sessionId} reason=${deliveryModeMismatch}`);
     return {

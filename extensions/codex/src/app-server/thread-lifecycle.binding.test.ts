@@ -1276,6 +1276,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
       dynamicTools: [messageTool],
       config: {
         "features.apps": true,
+        "features.chronicle": true,
         "features.current_time_reminder": true,
         "features.deferred_executor": true,
         "features.hooks": true,
@@ -1283,8 +1284,12 @@ describe("Codex app-server thread lifecycle bindings", () => {
         "features.multi_agent": true,
         "features.multi_agent_v2": true,
         "features.plugins": true,
+        "features.skill_search": true,
+        "features.shell_tool": true,
         "features.standalone_web_search": true,
         "features.token_budget": true,
+        "features.unified_exec": true,
+        "features.view_image": true,
         "orchestrator.mcp.enabled": true,
         "tools.experimental_request_user_input.enabled": true,
         "tools.update_plan.enabled": true,
@@ -1424,6 +1429,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
 
     expect(request.config).toMatchObject({
       "features.apps": false,
+      "features.chronicle": false,
       "features.current_time_reminder": false,
       "features.deferred_executor": false,
       "features.hooks": false,
@@ -1432,10 +1438,16 @@ describe("Codex app-server thread lifecycle bindings", () => {
       "features.multi_agent": false,
       "features.multi_agent_v2": false,
       "features.plugins": false,
+      "features.skill_search": false,
+      "features.shell_tool": false,
       "features.standalone_web_search": false,
       "features.token_budget": false,
+      "features.unified_exec": false,
+      "features.view_image": false,
       "orchestrator.mcp.enabled": false,
       "orchestrator.skills.enabled": false,
+      "skills.bundled.enabled": false,
+      "skills.include_instructions": false,
       "tools.experimental_request_user_input.enabled": false,
       "tools.update_plan.enabled": false,
       mcp_servers: { inherited: { enabled: false } },
@@ -1688,6 +1700,38 @@ describe("Codex app-server thread lifecycle bindings", () => {
       "configRequirements/read",
     ]);
   });
+
+  it.each(["shell_tool", "unified_exec", "view_image", "skill_search", "codex_hooks"])(
+    "fails closed when requirements pin native registry %s on",
+    async (feature) => {
+      const sessionFile = path.join(tempDir, "session.jsonl");
+      const workspaceDir = path.join(tempDir, "workspace");
+      const params = createParams(sessionFile, workspaceDir);
+      params.toolsAllow = ["openclaw"];
+      const request = vi.fn(async (method: string) => {
+        if (method === "config/read") {
+          return { config: {}, layers: [] };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: { featureRequirements: { [feature]: true } } };
+        }
+        throw new Error(`unexpected method: ${method}`);
+      });
+
+      await expect(
+        startOrResumeThread({
+          client: { request } as never,
+          params,
+          cwd: workspaceDir,
+          dynamicTools: [createNamedDynamicTool("openclaw")],
+          appServer: createThreadLifecycleAppServerOptions(),
+          nativeCodeModeEnabled: false,
+          userMcpServersEnabled: false,
+          hostSystemAgentActive: true,
+        }),
+      ).rejects.toThrow(`cannot override required feature ${feature}`);
+    },
+  );
 
   it.each([
     { name: "a newly raced server", attestation: { data: [{ name: "raced" }] } },

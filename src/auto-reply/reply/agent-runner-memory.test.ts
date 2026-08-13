@@ -95,6 +95,7 @@ function createReplyOperation(): TestReplyOperation {
     setPhase: vi.fn<ReplyOperation["setPhase"]>(),
     updateSessionId: vi.fn<ReplyOperation["updateSessionId"]>(),
     updateSessionKey: vi.fn<ReplyOperation["updateSessionKey"]>(),
+    bindToolAuthorityFingerprint: vi.fn(),
     attachBackend: vi.fn(),
     detachBackend: vi.fn(),
     freezeAbort: vi.fn(),

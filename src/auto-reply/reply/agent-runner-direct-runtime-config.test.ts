@@ -148,6 +148,7 @@ function createReplyOperation(): TestReplyOperation {
     }),
     updateSessionKey: vi.fn(),
     hasOwnedSessionId: vi.fn(() => false),
+    bindToolAuthorityFingerprint: vi.fn(),
     attachBackend: vi.fn(),
     detachBackend: vi.fn(),
     retainFailureUntilComplete: vi.fn(),

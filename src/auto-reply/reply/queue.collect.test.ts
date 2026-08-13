@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
+import { attachToolAllowlistIntersection } from "../../agents/tool-policy.js";
 import {
   loadTranscriptEvents,
   replaceSessionEntry,
@@ -2100,6 +2101,75 @@ describe("followup queue collect routing", () => {
     expect(calls[0]?.prompt).not.toContain("second");
     expect(calls[1]?.prompt).toContain("second");
     expect(calls[1]?.prompt).not.toContain("first");
+  });
+
+  it("splits collect batches when queued authority facts change", async () => {
+    const key = `test-collect-queued-authority-split-${Date.now()}`;
+    const { calls, done, runFollowup } = createDrainRecorder(3);
+    const settings: QueueSettings = { mode: "collect", debounceMs: 0 };
+    const route = { originatingChannel: "slack" as const, originatingTo: "channel:A" };
+    const pluginGrant = createRun({ prompt: "plugin grant", ...route });
+    pluginGrant.run.runtimePluginToolGrant = {
+      pluginId: "workboard",
+      toolNames: ["workboard_complete"],
+    };
+    const scheduled = createRun({ prompt: "scheduled authority", ...route });
+    scheduled.run.scheduledToolPolicy = { version: 1, mode: "trusted" };
+    const handoff = createRun({ prompt: "trusted handoff", ...route });
+    handoff.run.trustedInternalHandoff = {
+      kind: "subagent-completion",
+      sourceSessionKey: "agent:child",
+      targetSessionKey: "agent:parent",
+      targetSessionId: "session-1",
+      provider: "openai",
+      model: "gpt-5.6-luna",
+    };
+
+    enqueueFollowupRun(key, pluginGrant, settings);
+    enqueueFollowupRun(key, scheduled, settings);
+    enqueueFollowupRun(key, handoff, settings);
+    scheduleFollowupDrain(key, runFollowup);
+    await done.promise;
+
+    expect(calls.map((call) => call.prompt)).toEqual([
+      expect.stringContaining("plugin grant"),
+      expect.stringContaining("scheduled authority"),
+      expect.stringContaining("trusted handoff"),
+    ]);
+    expect(calls[0]?.run.runtimePluginToolGrant).toEqual(pluginGrant.run.runtimePluginToolGrant);
+    expect(calls[1]?.run.scheduledToolPolicy).toEqual(scheduled.run.scheduledToolPolicy);
+    expect(calls[2]?.run.trustedInternalHandoff).toEqual(handoff.run.trustedInternalHandoff);
+  });
+
+  it("keys collect batches by turn allowlists, intersections, disablement, and roles", () => {
+    const createAuthorityRun = () =>
+      createRun({
+        prompt: "authority",
+        originatingChannel: "slack",
+        originatingTo: "channel:A",
+      });
+    const baseline = createAuthorityRun();
+    const toolsAllow = createAuthorityRun();
+    toolsAllow.toolsAllow = ["exec"];
+    const disabled = createAuthorityRun();
+    disabled.disableTools = true;
+    const roles = createAuthorityRun();
+    roles.run.memberRoleIds = ["operator"];
+    const firstIntersection = createAuthorityRun();
+    firstIntersection.toolsAllow = attachToolAllowlistIntersection(["exec"], [["exec"]]);
+    const secondIntersection = createAuthorityRun();
+    secondIntersection.toolsAllow = attachToolAllowlistIntersection(
+      ["exec"],
+      [["exec"], ["message"]],
+    );
+
+    const baselineKey = resolveFollowupDeliveryContextKey(baseline);
+    expect(resolveFollowupDeliveryContextKey(toolsAllow)).not.toBe(baselineKey);
+    expect(resolveFollowupDeliveryContextKey(disabled)).not.toBe(baselineKey);
+    expect(resolveFollowupDeliveryContextKey(roles)).not.toBe(baselineKey);
+    expect(resolveFollowupDeliveryContextKey(firstIntersection)).not.toBe(
+      resolveFollowupDeliveryContextKey(secondIntersection),
+    );
   });
 
   it("keeps one collect batch when authorization context matches", async () => {
