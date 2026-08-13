@@ -302,7 +302,7 @@ export async function runReplyAgent(
     }
     // The queue must stay dormant while the active owner can still collect
     // messages. Registering after enqueue closes the owner-clear race.
-    const queuedOperationOwner = replyRunRegistry.get(queueKey);
+    const queuedOperationOwner = replyRunRegistry.get(queueKey) ?? activeReplyOperation;
     if (queuedOperationOwner) {
       scheduleFollowupDrainAfterReplyOperationClear({
         operation: queuedOperationOwner,
