@@ -4363,13 +4363,6 @@ describe("runCli exit behavior", () => {
     expect(flushExitAfterOneShotOutputMock).not.toHaveBeenCalled();
   });
 
-  it("requests a deferred one-shot exit after direct root --version output", async () => {
-    await runCli(["node", "openclaw", "--version"]);
-
-    expect(requestExitAfterOneShotOutputMock).toHaveBeenCalledOnce();
-    expect(flushExitAfterOneShotOutputMock).not.toHaveBeenCalled();
-  });
-
   it("loads the real primary command before rendering command help", async () => {
     const program = {
       commands: [{ name: () => "doctor" }],

@@ -22,7 +22,6 @@ import { assertSupportedRuntime } from "../infra/runtime-guard.js";
 import { tryProcessCwd } from "../infra/safe-cwd.js";
 import { resolveCliArgvInvocation } from "./argv-invocation.js";
 import {
-  isRootVersionInvocation,
   normalizeGeneratedHelpCommandArgv,
   normalizeRootHelpTargetArgv,
   normalizeRootLogLevelArgv,
@@ -1496,21 +1495,6 @@ async function runCliWithPreparedOutputMode(
     }
 
     let parseArgv = normalizeGeneratedHelpCommandArgv(normalizedArgv);
-
-    // Root --version: output version and exit without creating startup progress.  The
-    // legacy direct entry (dist/index.js --version) reaches progress creation before
-    // the help handler exits  the earlier we check the less terminal noise.
-    if (isRootVersionInvocation(parseArgv)) {
-      const [{ resolveCommitHash }, { VERSION }] = await Promise.all([
-        import("../infra/git-commit.js"),
-        import("../version.js"),
-      ]);
-      const commit = resolveCommitHash({ moduleUrl: import.meta.url });
-      console.log(commit ? `OpenClaw ${VERSION} (${commit})` : `OpenClaw ${VERSION}`);
-      requestExitAfterOneShotOutput();
-      return;
-    }
-
     const suppressStartupProgress = hasJsonOutputFlag(parseArgv);
     const { createCliProgress } = await loadProgressModule();
     const startupProgress = createCliProgress({
