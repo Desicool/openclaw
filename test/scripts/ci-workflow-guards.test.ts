@@ -175,7 +175,7 @@ function runCiManifestFixture(options: {
   bundledPlanner: boolean;
   changedPlannerImportFails?: boolean;
   changedPaths?: string[] | null;
-  eventName?: "pull_request" | "workflow_dispatch";
+  eventName?: "pull_request" | "push" | "workflow_dispatch";
   historicalCompatibility?: boolean;
   iosCapabilities?: boolean;
   iosBuildCapability?: boolean;
@@ -207,9 +207,10 @@ function runCiManifestFixture(options: {
             runner: "ubuntu-24.04",
             shardName: "legacy-node-plan",
           }];
-          export const createNodeTestShardBundles = () => [{
+          export const createNodeTestShardBundles = (options = {}) => [{
             checkName: "bundled-node-plan",
             configs: ["test/vitest/bundled.config.ts"],
+            env: { OPENCLAW_CI_TEST_COMPACT_MODE: options.compactMode ?? "full" },
             requiresDist: false,
             runner: "ubuntu-24.04",
             shardName: "bundled-node-plan",
@@ -2596,7 +2597,25 @@ NODE
       "github.event_name == 'pull_request'",
     );
     expect(workflow.jobs["checks-fast-core"].strategy["max-parallel"]).toBe(12);
-    expect(workflow.jobs["checks-node-core-test-nondist-shard"].strategy["max-parallel"]).toBe(28);
+    const nodeMaxParallel =
+      workflow.jobs["checks-node-core-test-nondist-shard"].strategy["max-parallel"];
+    expect(nodeMaxParallel).toBe("${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 48 || 28 }}");
+    expect(
+      evaluateWorkflowExpression(nodeMaxParallel, {
+        eventName: "push",
+        repository: "openclaw/openclaw",
+        runnerBackend: "blacksmith",
+        runAttempt: 1,
+      }),
+    ).toBe(28);
+    expect(
+      evaluateWorkflowExpression(nodeMaxParallel, {
+        eventName: "push",
+        repository: "openclaw/openclaw",
+        runnerBackend: "github",
+        runAttempt: 1,
+      }),
+    ).toBe(48);
     expect(workflow.jobs["checks-fast-plugin-contracts-shard"].strategy["max-parallel"]).toBe(12);
     expect(workflow.jobs["checks-fast-channel-contracts-shard"].strategy["max-parallel"]).toBe(12);
     expect(workflow.jobs["check-shard"].strategy["max-parallel"]).toBe(12);
@@ -3115,6 +3134,7 @@ NODE
       "build-artifacts",
       "check-additional-shard",
       "check-docs",
+      "check-lint-hosted-core-shard",
       "check-shard",
       "checks-fast-channel-contracts-shard",
       "checks-fast-core",
@@ -5111,16 +5131,36 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
 
   it("keeps type-aware oxlint within hosted fork-runner resources", () => {
     const workflow = readCiWorkflow();
+    const manifestStep = workflow.jobs.preflight.steps.find(
+      (step: WorkflowStep) => step.name === "Build CI manifest",
+    );
     const checkShardRun = workflow.jobs["check-shard"].steps.find(
       (step: WorkflowStep) => step.name === "Run check shard",
     ).run;
+    const hostedCoreLint = workflow.jobs["check-lint-hosted-core-shard"];
 
-    expect(checkShardRun).toContain('if [ "$(nproc)" -lt 8 ]; then');
+    expect(manifestStep.env.OPENCLAW_CI_RUNNER_BACKEND).toBe(
+      "${{ vars.OPENCLAW_CI_RUNNER_BACKEND }}",
+    );
+    expect(manifestStep.run).toContain("runnerBackend: process.env.OPENCLAW_CI_RUNNER_BACKEND");
+    expect(checkShardRun).toContain('if [ "$RUNNER_BACKEND" = "github" ]; then');
+    expect(checkShardRun).toContain("lint_args=(--only=extensions --only=scripts --threads=1)");
+    expect(checkShardRun).toContain('elif [ "$(nproc)" -lt 8 ]; then');
     expect(checkShardRun).toContain("lint_args=(--split-core --threads=1)");
     expect(checkShardRun).toContain('pnpm lint "${lint_args[@]}"');
     expect(checkShardRun).toContain(
       'node --import tsx scripts/run-oxlint-shards.mts "${lint_args[@]}"',
     );
+    expect(hostedCoreLint.if).toContain("vars.OPENCLAW_CI_RUNNER_BACKEND == 'github'");
+    expect(hostedCoreLint.strategy).toEqual({
+      "fail-fast": false,
+      "max-parallel": 3,
+      matrix: { stripe: [1, 2, 3] },
+    });
+    expect(
+      hostedCoreLint.steps.find((step: WorkflowStep) => step.name === "Run hosted core lint stripe")
+        .run,
+    ).toContain("--only=core --split-core --core-stripe=${{ matrix.stripe }}/3 --threads=1");
   });
 
   it("runs the suppression-baseline max-lines ratchet against the exact tested tree", () => {
@@ -5355,7 +5395,27 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     ).toContainEqual(
       expect.objectContaining({
         check_name: "bundled-node-plan",
+        env: { OPENCLAW_CI_TEST_COMPACT_MODE: "full" },
         shard_name: "bundled-node-plan",
+      }),
+    );
+
+    const push = runCiManifestFixture({
+      bundledPlanner: true,
+      eventName: "push",
+    });
+    expect(push.status, push.output).toBe(0);
+    expect(
+      JSON.parse(
+        expectDefined(
+          push.outputs.checks_node_core_nondist_matrix,
+          "push node core nondist matrix output",
+        ),
+      ).include,
+    ).toContainEqual(
+      expect.objectContaining({
+        check_name: "bundled-node-plan",
+        env: { OPENCLAW_CI_TEST_COMPACT_MODE: "push" },
       }),
     );
 
@@ -5410,7 +5470,10 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       ).include,
     ).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ check_name: "bundled-node-plan" }),
+        expect.objectContaining({
+          check_name: "bundled-node-plan",
+          env: { OPENCLAW_CI_TEST_COMPACT_MODE: "pull-request" },
+        }),
         expect.objectContaining({ check_name: "changed-extension-fallback-plan" }),
       ]),
     );
@@ -6291,6 +6354,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       "checks-node-compat",
       "checks-node-core-test-nondist-shard",
       "check-shard",
+      "check-lint-hosted-core-shard",
       "check-additional-shard",
       "check-docs",
       "skills-python",
