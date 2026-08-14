@@ -199,6 +199,8 @@ export function resolveFollowupDeliveryContextKey(run: FollowupRun): string {
     resolveFollowupAuthorizationKey(execution),
     run.turnAdoptionLifecycle?.ownerKey ?? "",
     normalizeOptionalString(execution.runtimePolicySessionKey ?? execution.sessionKey) ?? "",
+    execution.provider,
+    execution.model,
     execution.messageProvider ?? "",
     JSON.stringify([...new Set(execution.clientCaps ?? [])].toSorted()),
     stableStringify(execution.toolBindings ?? null),

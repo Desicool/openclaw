@@ -980,11 +980,7 @@ describe("followup queue collect routing", () => {
       2,
     );
 
-    for (const [prompt, model] of [
-      ["direct A", "model-a"],
-      ["direct B", "model-b"],
-      ["direct C", "model-c"],
-    ] as const) {
+    for (const prompt of ["direct A", "direct B", "direct C"] as const) {
       const source = createRun({
         prompt,
         originatingChannel: "slack",
@@ -997,7 +993,7 @@ describe("followup queue collect routing", () => {
           ...source,
           run: {
             ...source.run,
-            model,
+            model: "model-c",
           },
         },
         settings,
@@ -2141,6 +2137,34 @@ describe("followup queue collect routing", () => {
     expect(calls[2]?.run.trustedInternalHandoff).toEqual(handoff.run.trustedInternalHandoff);
   });
 
+  it("drains different provider and model routes under their own run snapshots", async () => {
+    const key = `test-collect-route-authority-split-${Date.now()}`;
+    const { calls, done, runFollowup } = createDrainRecorder(3);
+    const settings: QueueSettings = { mode: "collect", debounceMs: 0 };
+    const route = { originatingChannel: "slack" as const, originatingTo: "channel:A" };
+    const first = createRun({ prompt: "first route", ...route });
+    first.run.provider = "openai";
+    first.run.model = "gpt-primary";
+    const second = createRun({ prompt: "second route", ...route });
+    second.run.provider = "openai";
+    second.run.model = "gpt-fallback";
+    const third = createRun({ prompt: "third route", ...route });
+    third.run.provider = "anthropic";
+    third.run.model = "gpt-fallback";
+
+    enqueueFollowupRun(key, first, settings);
+    enqueueFollowupRun(key, second, settings);
+    enqueueFollowupRun(key, third, settings);
+    scheduleFollowupDrain(key, runFollowup);
+    await done.promise;
+
+    expect(calls.map((call) => [call.prompt, call.run.provider, call.run.model])).toEqual([
+      [expect.stringContaining("first route"), "openai", "gpt-primary"],
+      [expect.stringContaining("second route"), "openai", "gpt-fallback"],
+      [expect.stringContaining("third route"), "anthropic", "gpt-fallback"],
+    ]);
+  });
+
   it("keys collect batches by turn allowlists, intersections, disablement, and roles", () => {
     const createAuthorityRun = () =>
       createRun({
@@ -2355,7 +2379,7 @@ describe("followup queue collect routing", () => {
           provider: "openai",
           model: "gpt-5.4",
           senderId: "user-1",
-          senderName: "Guest",
+          senderName: "First Name",
           senderIsOwner: false,
         },
       },
@@ -2367,10 +2391,10 @@ describe("followup queue collect routing", () => {
         ...second,
         run: {
           ...second.run,
-          provider: "anthropic",
-          model: "sonnet-4.6",
+          provider: "openai",
+          model: "gpt-5.4",
           senderId: "user-1",
-          senderName: "Guest",
+          senderName: "Newest Name",
           senderIsOwner: false,
         },
       },
@@ -2380,8 +2404,9 @@ describe("followup queue collect routing", () => {
     await drainRecordedQueue(key, runFollowup, done);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.run.provider).toBe("anthropic");
-    expect(calls[0]?.run.model).toBe("sonnet-4.6");
+    expect(calls[0]?.run.provider).toBe("openai");
+    expect(calls[0]?.run.model).toBe("gpt-5.4");
+    expect(calls[0]?.run.senderName).toBe("Newest Name");
   });
 
   it("delivers summary-only collect work under its source route", async () => {
