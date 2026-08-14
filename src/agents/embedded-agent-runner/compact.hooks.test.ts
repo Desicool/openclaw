@@ -13,6 +13,7 @@ import type { PluginManifestRecord } from "../../plugins/manifest-registry.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import {
   acquireAgentRunPreparedModelRuntimeMock,
+  attemptServerEndpointCompactionMock,
   getCurrentPluginMetadataSnapshotMock,
   applyExtraParamsToAgentMock,
   applyAgentCompactionSettingsFromConfigMock,
@@ -108,7 +109,7 @@ function mockPendingContextEngineCompaction() {
       ok: true,
       compacted: true,
       reason: undefined,
-      result: { summary: "engine-summary", tokensAfter: 50 },
+      result: { summary: "engine-summary", tokensBefore: 120, tokensAfter: 50 },
     };
   });
   return pending;
@@ -330,6 +331,105 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
       details: { ok: true },
     });
     resetCompactSessionStateMocks();
+  });
+
+  it("returns a summaryless xAI manual endpoint result", async () => {
+    mockResolvedModel();
+    attemptServerEndpointCompactionMock.mockResolvedValueOnce({
+      item: { type: "compaction", encrypted_content: "opaque" },
+      usage: { input_tokens: 1_000, output_tokens: 200 },
+    });
+
+    const result = await compactEmbeddedAgentSessionDirect(
+      wrappedCompactionArgs({
+        provider: "xai",
+        model: "grok-4.5",
+        config: {
+          models: {
+            providers: {
+              xai: {
+                api: "openai-responses",
+                baseUrl: "https://api.x.ai/v1",
+                models: [],
+              },
+            },
+          },
+        },
+        trigger: "manual",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      compacted: true,
+      compactionKind: "server-endpoint",
+      result: { tokensBefore: 1_000, tokensAfter: 200 },
+    });
+    expect(result.result).not.toHaveProperty("summary");
+    expect(attemptServerEndpointCompactionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamFn: expect.any(Function),
+        requestOptions: expect.objectContaining({ apiKey: "test" }),
+      }),
+    );
+    expect(sessionManualCompactionMock).not.toHaveBeenCalled();
+  });
+
+  it("never calls the compact endpoint during overflow recovery", async () => {
+    mockResolvedModel();
+
+    const result = await compactEmbeddedAgentSessionDirect(
+      wrappedCompactionArgs({
+        provider: "xai",
+        model: "grok-4.5",
+        config: {
+          models: {
+            providers: {
+              xai: {
+                api: "openai-responses",
+                baseUrl: "https://api.x.ai/v1",
+                models: [],
+              },
+            },
+          },
+        },
+        trigger: "overflow",
+      }),
+    );
+
+    expect(result.compacted).toBe(true);
+    expect(attemptServerEndpointCompactionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: "overflow" }),
+    );
+    expect(sessionAutomaticCompactionMock).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to client compaction when the endpoint fails", async () => {
+    mockResolvedModel();
+    attemptServerEndpointCompactionMock.mockResolvedValueOnce(undefined);
+
+    const result = await compactEmbeddedAgentSessionDirect(
+      wrappedCompactionArgs({
+        provider: "xai",
+        model: "grok-4.5",
+        config: {
+          models: {
+            providers: {
+              xai: {
+                api: "openai-responses",
+                baseUrl: "https://api.x.ai/v1",
+                models: [],
+              },
+            },
+          },
+        },
+        trigger: "manual",
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: true, compacted: true });
+    expect(result.compactionKind).toBeUndefined();
+    expect(sessionManualCompactionMock).toHaveBeenCalledOnce();
   });
 
   it("fails closed before generic compaction for a model-locked native session", async () => {
@@ -2474,7 +2574,7 @@ describe("compactEmbeddedAgentSession hooks (ownsCompaction engine)", () => {
       ok: true,
       compacted: true,
       reason: undefined,
-      result: { summary: "engine-summary", tokensAfter: 50 },
+      result: { summary: "engine-summary", tokensBefore: 120, tokensAfter: 50 },
     });
     mockResolvedModel();
     mockQueuedRouteAwareModel();
@@ -2664,6 +2764,31 @@ describe("compactEmbeddedAgentSession hooks (ownsCompaction engine)", () => {
 
     expect(result.compactionKind).toBe("native-harness");
     expect(contextEngineCompactMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves a summaryless server-endpoint result through the legacy engine delegate", async () => {
+    resolveContextEngineMock.mockResolvedValue({
+      info: { ownsCompaction: false },
+      compact: contextEngineCompactMock,
+    });
+    contextEngineCompactMock.mockResolvedValueOnce({
+      ok: true,
+      compacted: true,
+      result: {
+        firstKeptEntryId: "assistant-entry",
+        tokensBefore: 1_000,
+        tokensAfter: 200,
+        details: { compactionKind: "server-endpoint" },
+      },
+    });
+
+    const result = await compactEmbeddedAgentSession(
+      wrappedCompactionArgs({ provider: "xai", model: "grok-4.5" }),
+    );
+
+    expect(result.compactionKind).toBe("server-endpoint");
+    expect(result.result).toMatchObject({ kind: "server-endpoint", tokensAfter: 200 });
+    expect(result.result).not.toHaveProperty("summary");
   });
 
   it("binds context-engine compaction runtime LLM to the session agent", async () => {

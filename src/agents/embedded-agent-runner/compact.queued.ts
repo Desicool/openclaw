@@ -835,15 +835,22 @@ async function compactResolvedContextEngine(
           normalizeOptionalAgentRuntimeId(preparedHarnessRuntime) === "codex"
             ? "codexNativeCompaction"
             : "nativeHarnessCompaction";
+        const serverEndpointCompaction =
+          (result.result?.details as { compactionKind?: unknown } | undefined)?.compactionKind ===
+            "server-endpoint" && typeof result.result?.tokensAfter === "number";
         return {
           ok: result.ok,
           compacted: result.compacted,
-          compactionKind: "context-engine",
+          compactionKind: serverEndpointCompaction ? "server-endpoint" : "context-engine",
           reason: result.reason,
           result: result.result
             ? {
-                summary: result.result.summary ?? "",
-                firstKeptEntryId: result.result.firstKeptEntryId ?? "",
+                ...(serverEndpointCompaction
+                  ? { kind: "server-endpoint" as const }
+                  : {
+                      summary: result.result.summary ?? "",
+                      firstKeptEntryId: result.result.firstKeptEntryId ?? "",
+                    }),
                 tokensBefore: result.result.tokensBefore,
                 tokensAfter: result.result.tokensAfter,
                 details: mergeSecondaryNativeHarnessCompactionDetails({
