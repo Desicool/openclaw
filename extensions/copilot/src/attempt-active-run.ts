@@ -94,6 +94,7 @@ export function registerCopilotActiveRun(params: {
   const activeRunHandle = {
     kind: "embedded" as const,
     runId: params.input.runId,
+    toolAuthorityFingerprint: params.input.toolAuthorityFingerprint,
     queueMessage,
     messageInjection: {
       isAvailable: () => params.canAcceptSteering() && !params.isSettled() && !params.isAborted(),
