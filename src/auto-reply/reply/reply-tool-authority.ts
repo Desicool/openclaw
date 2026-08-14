@@ -54,6 +54,8 @@ export function resolveFollowupRunToolAuthorityFingerprint(
   return createHash("sha256")
     .update(
       stableStringify({
+        provider,
+        model,
         policy: capabilityProfile.policy,
         toolsAllow: run.toolsAllow,
         toolsAllowIntersection: run.toolsAllow
