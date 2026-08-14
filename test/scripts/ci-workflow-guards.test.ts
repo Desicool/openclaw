@@ -2664,7 +2664,7 @@ NODE
     expect(workflow.jobs["checks-fast-core"].strategy["max-parallel"]).toBe(12);
     const nodeMaxParallel =
       workflow.jobs["checks-node-core-test-nondist-shard"].strategy["max-parallel"];
-    expect(nodeMaxParallel).toBe("${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 48 || 28 }}");
+    expect(nodeMaxParallel).toBe("${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 64 || 28 }}");
     expect(
       evaluateWorkflowExpression(nodeMaxParallel, {
         eventName: "push",
@@ -2680,7 +2680,7 @@ NODE
         runnerBackend: "github",
         runAttempt: 1,
       }),
-    ).toBe(48);
+    ).toBe(64);
     expect(workflow.jobs["checks-fast-plugin-contracts-shard"].strategy["max-parallel"]).toBe(12);
     expect(workflow.jobs["checks-fast-channel-contracts-shard"].strategy["max-parallel"]).toBe(12);
     expect(workflow.jobs["check-shard"].strategy["max-parallel"]).toBe(12);
