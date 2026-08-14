@@ -18345,6 +18345,40 @@ public struct DeviceTokenRotateParams: Codable, Sendable {
     }
 }
 
+public struct DeviceTokenRotateResult: Codable, Sendable {
+    public let deviceid: String
+    public let role: String
+    public let token: String?
+    public let scopes: [String]
+    public let rotatedatms: Int
+    public let tokendelivery: String?
+
+    public init(
+        deviceid: String,
+        role: String,
+        token: String? = nil,
+        scopes: [String],
+        rotatedatms: Int,
+        tokendelivery: String? = nil)
+    {
+        self.deviceid = deviceid
+        self.role = role
+        self.token = token
+        self.scopes = scopes
+        self.rotatedatms = rotatedatms
+        self.tokendelivery = tokendelivery
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case deviceid = "deviceId"
+        case role
+        case token
+        case scopes
+        case rotatedatms = "rotatedAtMs"
+        case tokendelivery = "tokenDelivery"
+    }
+}
+
 public struct DeviceTokenRevokeParams: Codable, Sendable {
     public let deviceid: String
     public let role: String

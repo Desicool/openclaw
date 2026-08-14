@@ -608,6 +608,11 @@ export const en: TranslationMap = {
         "Copy this token now and store it securely. It is shown once and cannot be recovered.",
       rotateAcknowledge: "I saved this token",
       rotateDismissHint: "This dialog stays open until you confirm the token is saved.",
+      rotateWithheldTitle: "Token rotated · {device}",
+      rotateWithheldNext:
+        "It will reconnect with the new token automatically — nothing else to do.",
+      rotateWithheldException: "If it doesn't reconnect on its own, pair it again.",
+      rotateWithheldNote: "For security, the new token is only revealed on the device itself.",
       gateway: "gateway",
       unpaired: "unpaired",
       unknownClient: "unknown client",
