@@ -568,13 +568,15 @@ describe("runReplyAgent active steering", () => {
     });
     provided.bindToolAuthorityFingerprint("different-authority");
     provided.setPhase("running");
-    const { run } = createMinimalRun({
+    const { followupRun, run } = createMinimalRun({
       isActive: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       replyOperation: provided,
       bindActiveAuthority: false,
     });
+    const image = { type: "image" as const, data: "queued", mimeType: "image/png" };
+    followupRun.images = [image];
 
     await expect(run()).resolves.toBeUndefined();
 
@@ -582,6 +584,10 @@ describe("runReplyAgent active steering", () => {
     expect(vi.mocked(scheduleFollowupDrain)).not.toHaveBeenCalled();
     provided.complete();
     expect(vi.mocked(scheduleFollowupDrain)).toHaveBeenCalledOnce();
+    await requireScheduledFollowupRunner()(followupRun);
+    expect(mockCallArgs(state.runEmbeddedAgentMock, "queued image drain")[0]).toMatchObject({
+      images: [image],
+    });
   });
 
   it("keeps the continuing Telegram task's typing alive after an accepted steer", async () => {

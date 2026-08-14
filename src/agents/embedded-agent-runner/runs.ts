@@ -475,6 +475,47 @@ export async function queueEmbeddedAgentMessageWithOutcomeAsync(
 ): Promise<EmbeddedAgentQueueMessageOutcome> {
   const prepared = prepareEmbeddedAgentQueueMessage(sessionId, options);
   if (prepared.kind === "complete") {
+    if (
+      !prepared.outcome.queued &&
+      (prepared.outcome.reason === "tool_authority_mismatch" ||
+        prepared.outcome.reason === "image_input_unsupported") &&
+      options?.isInboundUserMessage === true &&
+      options.images?.length
+    ) {
+      try {
+        await ACTIVE_EMBEDDED_RUNS.get(sessionId)?.cancelPendingUserInput?.("image-reply");
+      } catch (err) {
+        diag.warn(
+          `failed to cancel pending user input before queued image fallback: sessionId=${sessionId} err=${formatErrorMessage(err)}`,
+        );
+      }
+    }
+    if (
+      !prepared.outcome.queued &&
+      prepared.outcome.reason === "tool_authority_mismatch" &&
+      options?.isInboundUserMessage === true &&
+      !options.images?.length
+    ) {
+      const claimPendingUserInputAnswer =
+        ACTIVE_EMBEDDED_RUNS.get(sessionId)?.claimPendingUserInputAnswer;
+      if (claimPendingUserInputAnswer) {
+        try {
+          if (await claimPendingUserInputAnswer(text, options)) {
+            options.onQueueAccepted?.(true);
+            logActiveRunMessageAccepted(sessionId);
+            return {
+              queued: true,
+              sessionId,
+              target: "embedded_run",
+              gatewayHealth: "live",
+              enqueuedAtMs: Date.now(),
+            };
+          }
+        } catch (err) {
+          return createQueueFailureOutcome(sessionId, "runtime_rejected", formatErrorMessage(err));
+        }
+      }
+    }
     return prepared.outcome;
   }
   const enqueuedAtMs = Date.now();
