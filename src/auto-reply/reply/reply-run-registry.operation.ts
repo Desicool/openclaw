@@ -95,6 +95,7 @@ export function createReplyOperation(params: {
   let terminalRecovery = false;
   let acceptedSteeredInboundAudio = false;
   let toolAuthorityFingerprint: string | undefined;
+  let toolAuthorityRoute: { provider: string; model: string } | undefined;
   const ownerSettlement = createDeferredCore();
   let ownerSettled = false;
   const settleOwner = () => {
@@ -241,6 +242,9 @@ export function createReplyOperation(params: {
     get toolAuthorityFingerprint() {
       return toolAuthorityFingerprint;
     },
+    get toolAuthorityRoute() {
+      return toolAuthorityRoute;
+    },
     get phase() {
       return phase;
     },
@@ -333,6 +337,14 @@ export function createReplyOperation(params: {
         throw new Error("Reply operation cannot change tool authority after admission");
       }
       toolAuthorityFingerprint = normalized;
+    },
+    bindToolAuthorityRoute(route) {
+      const provider = normalizeOptionalString(route.provider);
+      const model = normalizeOptionalString(route.model);
+      if (!provider || !model) {
+        throw new Error("Reply operation tool authority route is required");
+      }
+      toolAuthorityRoute = { provider, model };
     },
     updateSessionId(nextSessionId) {
       if (result) {

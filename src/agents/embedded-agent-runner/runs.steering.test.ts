@@ -393,6 +393,7 @@ describe("embedded-agent active-run steering", () => {
     const options = {
       isInboundUserMessage: true,
       onQueueAccepted: vi.fn(),
+      pendingInputAuthorityFingerprint: "fallback-authority",
       toolAuthorityFingerprint: "default-authority",
     } as const;
     const outcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
@@ -408,38 +409,89 @@ describe("embedded-agent active-run steering", () => {
   });
 
   it.each([
-    { label: "no pending question", claimed: false, images: undefined },
     {
-      label: "image input",
+      label: "a proven route-only mismatch without a pending question",
+      claimed: false,
+      images: undefined,
+      pendingInputAuthorityFingerprint: "fallback-authority",
+      expectedClaimCalls: 1,
+      expectedCancelCalls: 0,
+    },
+    {
+      label: "unproven plain text",
+      claimed: true,
+      images: undefined,
+      pendingInputAuthorityFingerprint: undefined,
+      expectedClaimCalls: 0,
+      expectedCancelCalls: 0,
+    },
+    {
+      label: "unproven image input",
       claimed: true,
       images: [{ type: "image" as const, data: "png", mimeType: "image/png" as const }],
+      pendingInputAuthorityFingerprint: undefined,
+      expectedClaimCalls: 0,
+      expectedCancelCalls: 0,
     },
-  ])("preserves authority mismatch for $label", async ({ claimed, images }) => {
-    const claimPendingUserInputAnswer = vi.fn(async () => claimed);
+  ])(
+    "preserves authority mismatch for $label",
+    async ({
+      claimed,
+      images,
+      pendingInputAuthorityFingerprint,
+      expectedClaimCalls,
+      expectedCancelCalls,
+    }) => {
+      const claimPendingUserInputAnswer = vi.fn(async () => claimed);
+      const cancelPendingUserInput = vi.fn(async () => true);
+      const queueMessage = vi.fn(async () => {});
+      setActiveEmbeddedRun("session-pending-question-rejected", {
+        ...createEmbeddedRunHandle(),
+        toolAuthorityFingerprint: "fallback-authority",
+        claimPendingUserInputAnswer,
+        cancelPendingUserInput,
+        queueMessage,
+      });
+
+      const outcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
+        "session-pending-question-rejected",
+        "continue",
+        {
+          isInboundUserMessage: true,
+          pendingInputAuthorityFingerprint,
+          toolAuthorityFingerprint: "default-authority",
+          images,
+        },
+      );
+
+      expect(outcome).toMatchObject({ queued: false, reason: "tool_authority_mismatch" });
+      expect(claimPendingUserInputAnswer).toHaveBeenCalledTimes(expectedClaimCalls);
+      expect(cancelPendingUserInput).toHaveBeenCalledTimes(expectedCancelCalls);
+      expect(queueMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it("cancels pending input for a proven route-only image mismatch", async () => {
     const cancelPendingUserInput = vi.fn(async () => true);
-    const queueMessage = vi.fn(async () => {});
-    setActiveEmbeddedRun("session-pending-question-rejected", {
+    setActiveEmbeddedRun("session-route-image", {
       ...createEmbeddedRunHandle(),
       toolAuthorityFingerprint: "fallback-authority",
-      claimPendingUserInputAnswer,
       cancelPendingUserInput,
-      queueMessage,
     });
 
     const outcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
-      "session-pending-question-rejected",
-      "continue",
+      "session-route-image",
+      "inspect",
       {
         isInboundUserMessage: true,
+        pendingInputAuthorityFingerprint: "fallback-authority",
         toolAuthorityFingerprint: "default-authority",
-        images,
+        images: [{ type: "image", data: "png", mimeType: "image/png" }],
       },
     );
 
     expect(outcome).toMatchObject({ queued: false, reason: "tool_authority_mismatch" });
-    expect(claimPendingUserInputAnswer).toHaveBeenCalledTimes(images ? 0 : 1);
-    expect(cancelPendingUserInput).toHaveBeenCalledTimes(images ? 1 : 0);
-    expect(queueMessage).not.toHaveBeenCalled();
+    expect(cancelPendingUserInput).toHaveBeenCalledWith("image-reply");
   });
 
   it("cancels pending input before rejecting an unsupported queued image", async () => {

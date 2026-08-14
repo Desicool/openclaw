@@ -196,6 +196,8 @@ export async function runEmbeddedFallbackCandidate(params: {
     }),
   });
   params.onLifecycleBackstop(lifecycleBackstop);
+  const toolAuthorityRoute = { provider: embeddedRunProvider, model: params.model };
+  turn.replyOperation?.bindToolAuthorityRoute(toolAuthorityRoute);
   try {
     // Profiler milestone. Exposes pre-dispatch delay without normal-path logging.
     params.timing.logMilestoneIfSlow({
@@ -258,10 +260,10 @@ export async function runEmbeddedFallbackCandidate(params: {
           turn.opts?.shouldSuppressToolErrorWarnings ?? turn.opts?.suppressToolErrorWarnings,
         toolsAllow: turn.opts?.toolsAllow,
         disableTools: turn.opts?.disableTools,
-        toolAuthorityFingerprint: resolveFollowupRunToolAuthorityFingerprint(turn.followupRun, {
-          provider: embeddedRunProvider,
-          model: params.model,
-        }),
+        toolAuthorityFingerprint: resolveFollowupRunToolAuthorityFingerprint(
+          turn.followupRun,
+          toolAuthorityRoute,
+        ),
         enableHeartbeatTool: turn.opts?.enableHeartbeatTool,
         forceHeartbeatTool: turn.opts?.forceHeartbeatTool,
         bootstrapContextMode: turn.opts?.bootstrapContextMode,

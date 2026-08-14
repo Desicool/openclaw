@@ -21,6 +21,8 @@ export type ReplyBackendQueueMessageOptions = {
   isInboundUserMessage?: boolean;
   /** Exact tool authority resolved for an inbound user turn before steering. */
   toolAuthorityFingerprint?: string;
+  /** Internal proof that a mismatched route recomputes to the active run's full authority. */
+  pendingInputAuthorityFingerprint?: string;
   debounceMs?: number;
   /** Ordered current-turn images to inject with the steering text. */
   images?: ImageContent[];
@@ -39,6 +41,11 @@ export type ReplyBackendQueueMessageOptions = {
   /** Prepared channel turn to merge only at transcript persistence. */
   userTurnTranscriptRecorder?: UserTurnTranscriptRecorder;
 };
+
+type ReplyToolAuthorityRoute = Readonly<{
+  provider: string;
+  model: string;
+}>;
 
 export type ReplyBackendQueueMessageResult = {
   /** Acceptance was irreversible, but the harness could not prove transcript commitment. */
@@ -174,6 +181,8 @@ export type ReplyOperation = {
   readonly acceptedSteeredInboundAudio: boolean;
   /** Immutable tool authority accepted by the active backend for steered user turns. */
   readonly toolAuthorityFingerprint?: string;
+  /** Concrete provider/model route currently selected for this operation. */
+  readonly toolAuthorityRoute?: ReplyToolAuthorityRoute;
   readonly phase: ReplyOperationPhase;
   readonly result: ReplyOperationResult | null;
   /** Set when a stale-watchdog expiry forced this operation's run_stalled result. */
@@ -205,6 +214,8 @@ export type ReplyOperation = {
   markAcceptedSteeredInboundAudio(): void;
   /** Bind provisional request authority before a concrete backend attempt attaches. */
   bindToolAuthorityFingerprint(fingerprint: string): void;
+  /** Record the concrete candidate route; fallback attempts may replace it. */
+  bindToolAuthorityRoute(route: ReplyToolAuthorityRoute): void;
   updateSessionId(nextSessionId: string): void;
   /**
    * Move this queued operation to another session key's run slot. Native command

@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
   abortActiveReplyRuns,
   abortReplyRunBySessionId,
@@ -475,12 +476,23 @@ export async function queueEmbeddedAgentMessageWithOutcomeAsync(
 ): Promise<EmbeddedAgentQueueMessageOutcome> {
   const prepared = prepareEmbeddedAgentQueueMessage(sessionId, options);
   if (prepared.kind === "complete") {
+    const activeToolAuthorityFingerprint = normalizeOptionalString(
+      ACTIVE_EMBEDDED_RUNS.get(sessionId)?.toolAuthorityFingerprint,
+    );
+    const pendingInputAuthorityProven = Boolean(
+      activeToolAuthorityFingerprint &&
+      (normalizeOptionalString(options?.toolAuthorityFingerprint) ===
+        activeToolAuthorityFingerprint ||
+        normalizeOptionalString(options?.pendingInputAuthorityFingerprint) ===
+          activeToolAuthorityFingerprint),
+    );
     if (
       !prepared.outcome.queued &&
       (prepared.outcome.reason === "tool_authority_mismatch" ||
         prepared.outcome.reason === "image_input_unsupported") &&
       options?.isInboundUserMessage === true &&
-      options.images?.length
+      options.images?.length &&
+      pendingInputAuthorityProven
     ) {
       try {
         await ACTIVE_EMBEDDED_RUNS.get(sessionId)?.cancelPendingUserInput?.("image-reply");
@@ -494,7 +506,8 @@ export async function queueEmbeddedAgentMessageWithOutcomeAsync(
       !prepared.outcome.queued &&
       prepared.outcome.reason === "tool_authority_mismatch" &&
       options?.isInboundUserMessage === true &&
-      !options.images?.length
+      !options.images?.length &&
+      pendingInputAuthorityProven
     ) {
       const claimPendingUserInputAnswer =
         ACTIVE_EMBEDDED_RUNS.get(sessionId)?.claimPendingUserInputAnswer;

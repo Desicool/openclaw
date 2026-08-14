@@ -532,31 +532,74 @@ function requireBuiltChannelSourceTurnId(
 }
 
 describe("runReplyAgent active steering", () => {
-  it("queues instead of steering when the incoming turn has different tool authority", async () => {
+  it("queues instead of steering when privilege facts differ on the active route", async () => {
+    const activeRoute = { provider: "openai", model: "gpt-fallback" };
+    const { followupRun, run } = createMinimalRun({
+      isActive: true,
+      shouldSteer: true,
+      resolvedQueueMode: "steer",
+      bindActiveAuthority: false,
+    });
     const active = createReplyOperation({
       sessionKey: "main",
       sessionId: "session",
       resetTriggered: false,
     });
-    active.bindToolAuthorityFingerprint("different-authority");
-    active.setPhase("running");
-    const { run } = createMinimalRun({
-      isActive: true,
-      shouldSteer: true,
-      resolvedQueueMode: "steer",
-      bindActiveAuthority: false,
-      runOverrides: {
-        runtimePluginToolGrant: {
-          pluginId: "workboard",
-          toolNames: ["workboard_complete"],
+    active.bindToolAuthorityRoute(activeRoute);
+    active.bindToolAuthorityFingerprint(
+      resolveFollowupRunToolAuthorityFingerprint(
+        {
+          ...followupRun,
+          run: {
+            ...followupRun.run,
+            runtimePluginToolGrant: {
+              pluginId: "workboard",
+              toolNames: ["workboard_complete"],
+            },
+          },
         },
-      },
-    });
+        activeRoute,
+      ),
+    );
+    active.setPhase("running");
 
     await expect(run()).resolves.toBeUndefined();
 
     expect(state.queueEmbeddedAgentMessageMock).not.toHaveBeenCalled();
     expect(vi.mocked(enqueueFollowupRun)).toHaveBeenCalledOnce();
+    active.complete();
+  });
+
+  it("offers a route-only mismatch to the pending-input owner", async () => {
+    state.queueEmbeddedAgentMessageMock.mockReturnValueOnce(true);
+    const activeRoute = { provider: "openai", model: "gpt-fallback" };
+    const { followupRun, run } = createMinimalRun({
+      isActive: true,
+      shouldSteer: true,
+      resolvedQueueMode: "steer",
+      bindActiveAuthority: false,
+    });
+    const active = createReplyOperation({
+      sessionKey: "main",
+      sessionId: "session",
+      resetTriggered: false,
+    });
+    active.bindToolAuthorityRoute(activeRoute);
+    active.bindToolAuthorityFingerprint(
+      resolveFollowupRunToolAuthorityFingerprint(followupRun, activeRoute),
+    );
+    active.setPhase("running");
+
+    await expect(run()).resolves.toBeUndefined();
+
+    expect(state.queueEmbeddedAgentMessageMock).toHaveBeenCalledWith(
+      "session",
+      "hello",
+      expect.objectContaining({
+        pendingInputAuthorityFingerprint: active.toolAuthorityFingerprint,
+      }),
+    );
+    expect(vi.mocked(enqueueFollowupRun)).not.toHaveBeenCalled();
     active.complete();
   });
 

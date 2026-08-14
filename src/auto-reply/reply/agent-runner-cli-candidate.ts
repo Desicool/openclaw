@@ -179,6 +179,8 @@ export async function runCliFallbackCandidate(params: {
   const bridgeCliDurableCommentary =
     Boolean(params.presentation.blockReplyHandler) &&
     (turn.blockStreamingEnabled || turn.opts?.commentaryPayloadsEnabled === true);
+  const toolAuthorityRoute = { provider: params.provider, model: params.model };
+  turn.replyOperation?.bindToolAuthorityRoute(toolAuthorityRoute);
   const result = await params.timing.measure("cli_run", () =>
     withLocalSessionPlacementTurnAdmission(
       {
@@ -438,10 +440,10 @@ export async function runCliFallbackCandidate(params: {
             approvalReviewerDeviceId: turn.followupRun.run.approvalReviewerDeviceId,
             toolsAllow: turn.opts?.toolsAllow,
             disableTools: turn.opts?.disableTools,
-            toolAuthorityFingerprint: resolveFollowupRunToolAuthorityFingerprint(turn.followupRun, {
-              provider: params.provider,
-              model: params.model,
-            }),
+            toolAuthorityFingerprint: resolveFollowupRunToolAuthorityFingerprint(
+              turn.followupRun,
+              toolAuthorityRoute,
+            ),
             abortSignal: params.runAbortSignal,
             onExecutionPhase: params.signalExecutionPhaseForTyping,
             replyOperation: turn.replyOperation,

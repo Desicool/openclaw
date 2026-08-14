@@ -126,6 +126,20 @@ describe("reply run registry", () => {
     );
   });
 
+  it("tracks the concrete authority route across fallback candidates", () => {
+    const operation = createTestReplyOperation({ sessionId: "session-route" });
+
+    operation.bindToolAuthorityRoute({ provider: "openai", model: "gpt-primary" });
+    expect(operation.toolAuthorityRoute).toEqual({ provider: "openai", model: "gpt-primary" });
+
+    operation.bindToolAuthorityRoute({ provider: "anthropic", model: "claude-fallback" });
+    expect(operation.toolAuthorityRoute).toEqual({
+      provider: "anthropic",
+      model: "claude-fallback",
+    });
+    operation.complete();
+  });
+
   afterEach(() => {
     testing.resetReplyRunRegistry();
     resetCommandQueueStateForTest();

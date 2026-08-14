@@ -521,6 +521,7 @@ export function createMockReplyOperation(options?: { abortSignal?: AbortSignal }
       updateSessionId: updateSessionIdMock,
       updateSessionKey: vi.fn(),
       bindToolAuthorityFingerprint: vi.fn(),
+      bindToolAuthorityRoute: vi.fn(),
       attachBackend: vi.fn(),
       detachBackend: vi.fn(),
       freezeAbort: freezeAbortMock,

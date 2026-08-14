@@ -138,11 +138,22 @@ export async function runReplyAgent(
   const activeReplyOperation = sessionKey
     ? (replyRunRegistry.get(sessionKey) ?? providedReplyOperation)
     : providedReplyOperation;
-  const shouldQueueAuthorityMismatch =
-    effectiveShouldSteer &&
-    isActive &&
+  const activeToolAuthorityFingerprint = activeReplyOperation?.toolAuthorityFingerprint;
+  const incomingAuthorityAtActiveRoute = activeReplyOperation?.toolAuthorityRoute
+    ? resolveFollowupRunToolAuthorityFingerprint(
+        followupRun,
+        activeReplyOperation.toolAuthorityRoute,
+      )
+    : undefined;
+  const hasAuthorityMismatch =
     activeReplyOperation !== undefined &&
-    activeReplyOperation?.toolAuthorityFingerprint !== incomingToolAuthorityFingerprint;
+    activeToolAuthorityFingerprint !== incomingToolAuthorityFingerprint;
+  const hasRouteOnlyAuthorityMismatch =
+    hasAuthorityMismatch &&
+    activeToolAuthorityFingerprint !== undefined &&
+    incomingAuthorityAtActiveRoute === activeToolAuthorityFingerprint;
+  const shouldQueueAuthorityMismatch =
+    effectiveShouldSteer && isActive && hasAuthorityMismatch && !hasRouteOnlyAuthorityMismatch;
   if (shouldQueueAuthorityMismatch) {
     logVerbose(
       `queue: active session ${activeReplyOperation?.sessionId ?? followupRun.run.sessionId} has different or unknown tool authority; queuing instead of steering`,
@@ -261,6 +272,9 @@ export async function runReplyAgent(
       typing,
       typingSignals,
       toolAuthorityFingerprint: incomingToolAuthorityFingerprint,
+      pendingInputAuthorityFingerprint: hasRouteOnlyAuthorityMismatch
+        ? activeToolAuthorityFingerprint
+        : undefined,
     });
     return undefined;
   }
