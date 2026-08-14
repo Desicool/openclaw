@@ -1429,8 +1429,14 @@ describe("Codex app-server thread lifecycle bindings", () => {
 
     expect(request.config).toMatchObject({
       "features.apps": false,
+      "features.artifact": false,
+      "features.browser_use": false,
+      "features.browser_use_external": false,
+      "features.browser_use_full_cdp_access": false,
       "features.chronicle": false,
+      "features.computer_use": false,
       "features.current_time_reminder": false,
+      "features.default_mode_request_user_input": false,
       "features.deferred_executor": false,
       "features.hooks": false,
       "features.image_generation": false,
@@ -1438,12 +1444,16 @@ describe("Codex app-server thread lifecycle bindings", () => {
       "features.multi_agent": false,
       "features.multi_agent_v2": false,
       "features.plugins": false,
+      "features.request_permissions_tool": false,
       "features.skill_search": false,
       "features.shell_tool": false,
       "features.standalone_web_search": false,
       "features.token_budget": false,
       "features.unified_exec": false,
       "features.view_image": false,
+      "features.web_search_cached": false,
+      "features.web_search_request": false,
+      "features.workspace_dependencies": false,
       "orchestrator.mcp.enabled": false,
       "orchestrator.skills.enabled": false,
       "skills.bundled.enabled": false,
@@ -1701,37 +1711,65 @@ describe("Codex app-server thread lifecycle bindings", () => {
     ]);
   });
 
-  it.each(["shell_tool", "unified_exec", "view_image", "skill_search", "codex_hooks"])(
-    "fails closed when requirements pin native registry %s on",
-    async (feature) => {
-      const sessionFile = path.join(tempDir, "session.jsonl");
-      const workspaceDir = path.join(tempDir, "workspace");
-      const params = createParams(sessionFile, workspaceDir);
-      params.toolsAllow = ["openclaw"];
-      const request = vi.fn(async (method: string) => {
-        if (method === "config/read") {
-          return { config: {}, layers: [] };
-        }
-        if (method === "configRequirements/read") {
-          return { requirements: { featureRequirements: { [feature]: true } } };
-        }
-        throw new Error(`unexpected method: ${method}`);
-      });
+  it.each([
+    "apps",
+    "artifact",
+    "browser_use",
+    "browser_use_external",
+    "browser_use_full_cdp_access",
+    "chronicle",
+    "code_mode",
+    "code_mode_only",
+    "computer_use",
+    "current_time_reminder",
+    "default_mode_request_user_input",
+    "deferred_executor",
+    "goals",
+    "hooks",
+    "image_generation",
+    "memories",
+    "multi_agent",
+    "multi_agent_v2",
+    "plugins",
+    "request_permissions_tool",
+    "skill_search",
+    "shell_tool",
+    "standalone_web_search",
+    "token_budget",
+    "unified_exec",
+    "view_image",
+    "web_search_cached",
+    "web_search_request",
+    "workspace_dependencies",
+    "codex_hooks",
+  ])("fails closed when requirements pin native registry %s on", async (feature) => {
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const params = createParams(sessionFile, workspaceDir);
+    params.toolsAllow = ["openclaw"];
+    const request = vi.fn(async (method: string) => {
+      if (method === "config/read") {
+        return { config: {}, layers: [] };
+      }
+      if (method === "configRequirements/read") {
+        return { requirements: { featureRequirements: { [feature]: true } } };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
 
-      await expect(
-        startOrResumeThread({
-          client: { request } as never,
-          params,
-          cwd: workspaceDir,
-          dynamicTools: [createNamedDynamicTool("openclaw")],
-          appServer: createThreadLifecycleAppServerOptions(),
-          nativeCodeModeEnabled: false,
-          userMcpServersEnabled: false,
-          hostSystemAgentActive: true,
-        }),
-      ).rejects.toThrow(`cannot override required feature ${feature}`);
-    },
-  );
+    await expect(
+      startOrResumeThread({
+        client: { request } as never,
+        params,
+        cwd: workspaceDir,
+        dynamicTools: [createNamedDynamicTool("openclaw")],
+        appServer: createThreadLifecycleAppServerOptions(),
+        nativeCodeModeEnabled: false,
+        userMcpServersEnabled: false,
+        hostSystemAgentActive: true,
+      }),
+    ).rejects.toThrow(`cannot override required feature ${feature}`);
+  });
 
   it.each([
     { name: "a newly raced server", attestation: { data: [{ name: "raced" }] } },
