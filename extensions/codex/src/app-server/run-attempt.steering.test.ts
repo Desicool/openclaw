@@ -90,6 +90,7 @@ function createSteeringParams() {
   params.sessionId = sessionId;
   params.sessionKey = `agent:main:${sessionId}`;
   params.runId = `run-${sessionId}`;
+  params.toolAuthorityFingerprint = `authority-${sessionId}`;
   return params;
 }
 
@@ -166,6 +167,7 @@ describe("runCodexAppServerAttempt steering", () => {
     await waitAndQueueActiveRunMessage(params.sessionId, "steer this active turn", {
       debounceMs: 0,
       isInboundUserMessage: true,
+      toolAuthorityFingerprint: params.toolAuthorityFingerprint,
       taskSuggestionDeliveryMode: "gateway",
       waitForTranscriptCommit: true,
       onQueueAccepted,
@@ -599,6 +601,7 @@ describe("runCodexAppServerAttempt steering", () => {
     await waitAndQueueActiveRunMessage(params.sessionId, "2", {
       isInboundUserMessage: true,
       onQueueAccepted: onQuestionAccepted,
+      toolAuthorityFingerprint: params.toolAuthorityFingerprint,
     });
     await expect(response).resolves.toEqual({
       answers: { mode: { answers: ["Deep"] } },

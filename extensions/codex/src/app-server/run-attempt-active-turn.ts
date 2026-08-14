@@ -212,6 +212,7 @@ export async function activateCodexAttemptTurn(
   const handle = {
     kind: "embedded" as const,
     runId: params.runId,
+    toolAuthorityFingerprint: params.toolAuthorityFingerprint,
     queueMessage,
     messageInjection: {
       isAvailable: () =>
