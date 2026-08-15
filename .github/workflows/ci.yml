@@ -2715,7 +2715,7 @@ jobs:
             echo "[skip] target does not support core test-type stripes"
             exit 0
           fi
-          node scripts/run-tsgo-core-test-shards.mjs --stripe "${{ matrix.stripe }}/3"
+          node scripts/run-tsgo-core-test-shards.mjs --stripe "${{ matrix.stripe }}/3" --concurrency 2
 
   check-additional-shard:
     permissions:
