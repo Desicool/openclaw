@@ -418,12 +418,19 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      # Push/PR preflight is dependency-free: the manifest planner closure and
+      # the protocol coverage script import only node builtins and relative
+      # files, and Node strips their types natively. Only manual dispatches
+      # (which may check out frozen targets with older planner syntax) still
+      # install and run through tsx.
       - name: Setup manifest pnpm
+        if: github.event_name == 'workflow_dispatch'
         uses: ./.github/actions/setup-pnpm-store-cache
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install manifest dependencies
+        if: github.event_name == 'workflow_dispatch'
         run: pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
 
       - name: Build CI manifest
@@ -455,7 +462,11 @@ jobs:
           OPENCLAW_CI_EVENT_NAME: ${{ github.event_name }}
           OPENCLAW_CI_RUNNER_BACKEND: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND }}
         run: |
-          node --import tsx --input-type=module <<'EOF'
+          manifest_node_args=()
+          if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            manifest_node_args+=(--import tsx)
+          fi
+          node "${manifest_node_args[@]}" --input-type=module <<'EOF'
           import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
           const eventName = process.env.OPENCLAW_CI_EVENT_NAME ?? "";
@@ -914,7 +925,14 @@ jobs:
 
       - name: Check mobile protocol event coverage
         if: steps.manifest.outputs.run_protocol_event_coverage == 'true'
-        run: node scripts/check-protocol-event-coverage.mjs
+        run: |
+          # Dispatches may target frozen checkouts whose script needs the tsx
+          # shim; push/PR checkouts run the dependency-free .mts natively.
+          if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            node scripts/check-protocol-event-coverage.mjs
+          else
+            node scripts/check-protocol-event-coverage.mts
+          fi
 
       # Publish one immutable semantic dependency archive before same-repo
       # Blacksmith jobs fan out. The GitHub backend uses the pnpm-store cache.

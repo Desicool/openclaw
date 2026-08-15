@@ -5602,7 +5602,10 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       (step: WorkflowStep) => step.name === "Run check shard",
     ).run;
 
-    expect(coverageStep.run).toBe("node scripts/check-protocol-event-coverage.mjs");
+    // Push/PR preflight is dependency-free and runs the .mts natively;
+    // dispatches (frozen targets) keep the tsx shim path.
+    expect(coverageStep.run).toContain("node scripts/check-protocol-event-coverage.mts");
+    expect(coverageStep.run).toContain("node scripts/check-protocol-event-coverage.mjs");
     expect(coverageStep.if).toBe("steps.manifest.outputs.run_protocol_event_coverage == 'true'");
     expect(checkShardRun).not.toContain("check:protocol-coverage");
   });
