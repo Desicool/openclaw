@@ -1340,7 +1340,6 @@ jobs:
       # keeps them off this job's serial critical path. The step is
       # unconditional because the verifiers always run; each check self-gates.
       - name: Run built artifact checks
-        id: built_artifact_checks
         env:
           PARALLEL_GATEWAY_WATCH: ${{ runner.environment != 'github-hosted' && 'true' || 'false' }}
           PARALLEL_BUILT_VERIFIERS: ${{ runner.environment != 'github-hosted' && 'true' || 'false' }}
@@ -1480,10 +1479,6 @@ jobs:
           if [[ -f .artifacts/startup-memory/summary.md ]]; then
             cat .artifacts/startup-memory/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
-
-          for name in channels core-support-boundary gateway-watch tui-pty; do
-            echo "${name}-result=${results[$name]}" >> "$GITHUB_OUTPUT"
-          done
 
           failures=0
           if [ "$startup_assets" = "failure" ]; then
