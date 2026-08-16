@@ -26,7 +26,10 @@ import {
   type WorkerInferenceStore,
   type WorkerInferenceTurnInput,
 } from "./inference-store.js";
-import type { WorkerSessionTurnClaim } from "./placement-record.js";
+import {
+  serializeWorkerSessionTurnClaim,
+  type WorkerSessionTurnClaim,
+} from "./placement-record.js";
 
 const DEFAULT_REQUEST_MAX_BYTES = WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES;
 // One active turn plus one provider that ignored abort. This prevents repeated
@@ -75,6 +78,7 @@ type WorkerInferenceCancelApplicationResult =
   | { ok: false; reason: WorkerInferenceErrorReason };
 
 type ActiveInference = {
+  claimKey: string;
   identity: WorkerConnectionIdentity;
   request: WorkerInferenceStartParams;
   requestHash: string;
@@ -88,10 +92,6 @@ type ActiveInference = {
   settled: boolean;
   abortReason?: WorkerInferenceErrorReason;
 };
-
-function activeKey(identity: WorkerConnectionIdentity): string {
-  return `${identity.sessionId}\0${identity.claimId}\0${identity.placementGeneration}`;
-}
 
 function trySend(
   sink: WorkerInferenceSink,
@@ -191,41 +191,20 @@ function matchesIdentity(
   identity: WorkerConnectionIdentity,
   request: WorkerInferenceStartParams | WorkerInferenceCancelParams,
 ): WorkerInferenceErrorReason | null {
-  if (identity.sessionId !== request.sessionId) {
+  const claim = identity.turnClaim;
+  if (
+    !claim ||
+    identity.sessionId !== request.sessionId ||
+    identity.runId !== request.runId ||
+    claim.sessionId !== request.sessionId ||
+    claim.runId !== request.runId
+  ) {
     return "session-not-attached";
   }
   if (identity.ownerEpoch !== request.runEpoch) {
     return "epoch-mismatch";
   }
   return null;
-}
-
-function sameTurn(
-  active: ActiveInference,
-  identity: WorkerConnectionIdentity,
-  request: WorkerInferenceStartParams | WorkerInferenceCancelParams,
-): boolean {
-  return (
-    active.identity.environmentId === identity.environmentId &&
-    active.request.sessionId === request.sessionId &&
-    active.request.runEpoch === request.runEpoch &&
-    active.request.runId === request.runId &&
-    active.request.turnId === request.turnId &&
-    active.identity.claimId === identity.claimId &&
-    active.identity.placementGeneration === identity.placementGeneration
-  );
-}
-
-function matchesClaim(identity: WorkerConnectionIdentity, claim: WorkerSessionTurnClaim): boolean {
-  return (
-    claim.owner.kind === "worker" &&
-    identity.sessionId === claim.sessionId &&
-    identity.environmentId === claim.owner.environmentId &&
-    identity.ownerEpoch === claim.owner.ownerEpoch &&
-    identity.runId === claim.runId &&
-    identity.claimId === claim.claimId &&
-    identity.placementGeneration === claim.placementGeneration
-  );
 }
 
 export function createWorkerInferenceManager(options: {
@@ -253,8 +232,7 @@ export function createWorkerInferenceManager(options: {
     if (bindingError) {
       return bindingError;
     }
-    const key = activeKey(entry.identity);
-    if (active.get(key) !== entry) {
+    if (active.get(entry.claimKey) !== entry) {
       return "cancelled";
     }
     return null;
@@ -303,9 +281,8 @@ export function createWorkerInferenceManager(options: {
       return false;
     }
     entry.settled = true;
-    const key = activeKey(entry.identity);
-    if (active.get(key) === entry) {
-      active.delete(key);
+    if (active.get(entry.claimKey) === entry) {
+      active.delete(entry.claimKey);
       sendTerminal(entry, outcome);
     }
     return true;
@@ -325,16 +302,14 @@ export function createWorkerInferenceManager(options: {
       storedOutcome = store.complete({ ...entry.storeInput, outcome });
     } catch {
       entry.settled = true;
-      const key = activeKey(entry.identity);
-      if (active.get(key) === entry) {
-        active.delete(key);
+      if (active.get(entry.claimKey) === entry) {
+        active.delete(entry.claimKey);
       }
       return;
     }
     entry.settled = true;
-    const key = activeKey(entry.identity);
-    if (active.get(key) === entry) {
-      active.delete(key);
+    if (active.get(entry.claimKey) === entry) {
+      active.delete(entry.claimKey);
       sendTerminal(entry, storedOutcome);
     }
   };
@@ -431,14 +406,13 @@ export function createWorkerInferenceManager(options: {
       return { ok: false, reason: "invalid-context" };
     }
     const serialized = stableStringify(params.request);
-    const hash = createHash("sha256")
-      .update(`${params.identity.claimId}\0${params.identity.placementGeneration}\0${serialized}`)
-      .digest("hex");
-    const key = activeKey(params.identity);
-    const existing = active.get(key);
+    const claim = params.identity.turnClaim!;
+    const claimKey = serializeWorkerSessionTurnClaim(claim);
+    const hash = createHash("sha256").update(`${claimKey}\0${serialized}`).digest("hex");
+    const existing = active.get(claimKey);
     if (existing) {
       if (
-        sameTurn(existing, params.identity, params.request) &&
+        existing.request.turnId === params.request.turnId &&
         existing.requestHash === hash &&
         !existing.settled
       ) {
@@ -549,6 +523,7 @@ export function createWorkerInferenceManager(options: {
       }
     }
     const entry: ActiveInference = {
+      claimKey,
       identity: params.identity,
       request: params.request,
       requestHash: hash,
@@ -561,7 +536,7 @@ export function createWorkerInferenceManager(options: {
       launched: false,
       settled: false,
     };
-    active.set(key, entry);
+    active.set(claimKey, entry);
     return {
       ok: true,
       result: { status: "accepted" },
@@ -582,8 +557,9 @@ export function createWorkerInferenceManager(options: {
     if (revalidationError) {
       return { ok: false, reason: revalidationError };
     }
-    const entry = active.get(activeKey(params.identity));
-    if (entry && sameTurn(entry, params.identity, params.request)) {
+    const claimKey = serializeWorkerSessionTurnClaim(params.identity.turnClaim!);
+    const entry = active.get(claimKey);
+    if (entry?.request.turnId === params.request.turnId) {
       if (!settleAbort(entry, "cancelled")) {
         return { ok: false, reason: "provider-error" };
       }
@@ -627,7 +603,8 @@ export function createWorkerInferenceManager(options: {
   };
 
   const cancelClaim = (claim: WorkerSessionTurnClaim): void => {
-    cancelWhere((entry) => matchesClaim(entry.identity, claim), "session-not-attached");
+    const claimKey = serializeWorkerSessionTurnClaim(claim);
+    cancelWhere((entry) => entry.claimKey === claimKey, "session-not-attached");
   };
 
   const cancelSession = (sessionId: string, runId?: string): string[] => {

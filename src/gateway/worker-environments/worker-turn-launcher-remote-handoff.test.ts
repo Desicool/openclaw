@@ -182,12 +182,7 @@ describe("worker turn launcher remote handoff", () => {
           }),
         );
         createWorkerSessionPlacementGate(placements).updateAckCursors({
-          sessionId: SESSION_ID,
-          environmentId: ENVIRONMENT_ID,
-          ownerEpoch: OWNER_EPOCH,
-          runId: "run-worker-turn",
-          claimId: request.claimId,
-          placementGeneration: request.placementGeneration,
+          claim: request.turnClaim,
           transcriptSeq: 2,
           liveSeq: 1,
         });
@@ -422,12 +417,7 @@ describe("worker turn launcher remote handoff", () => {
           }),
         );
         createWorkerSessionPlacementGate(placements).updateAckCursors({
-          sessionId: SESSION_ID,
-          environmentId: ENVIRONMENT_ID,
-          ownerEpoch: OWNER_EPOCH,
-          runId: "run-persisted-user",
-          claimId: request.claimId,
-          placementGeneration: request.placementGeneration,
+          claim: request.turnClaim,
           transcriptSeq: 2,
           liveSeq: 1,
         });

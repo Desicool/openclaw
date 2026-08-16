@@ -196,17 +196,10 @@ describe("staged worker placement result recovery", () => {
       current: "worker\n",
     });
     placementStore.authorizeWorkerTurnTools(claim, ["sessions_send"]);
-    const binding = {
-      sessionId: claim.sessionId,
-      environmentId: active.environmentId,
-      ownerEpoch: active.activeOwnerEpoch,
-      runId: claim.runId,
-      claimId: claim.claimId,
-      placementGeneration: claim.placementGeneration,
-    };
+    const binding = claim;
     expect(
       placementStore.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "running-session-operation-call",
         requestDigest: "running-session-operation-digest",

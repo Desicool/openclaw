@@ -231,7 +231,6 @@ export function createAgentHarnessHostCapabilities(params: {
     await withGatewayToolCallerIdentity(callerIdentity, run);
   const runBeforeToolCallWithAssertion = async (
     assertCurrent: () => void,
-    callerBinding: "foreground" | "recovery",
     {
       nativeOperation,
       approvalMode,
@@ -247,18 +246,16 @@ export function createAgentHarnessHostCapabilities(params: {
     const actionHookContext = actionCwd
       ? Object.freeze({ ...hookContext, cwd: actionCwd })
       : hookContext;
-    const runPolicy = async () =>
-      await runBeforeToolCallHook({
-        ...request,
-        approvalMode: hostApprovalMode,
-        ctx: actionHookContext,
-      });
-    const result = callerBinding === "foreground" ? await withCaller(runPolicy) : await runPolicy();
+    const result = await runBeforeToolCallHook({
+      ...request,
+      approvalMode: hostApprovalMode,
+      ctx: actionHookContext,
+    });
     assertCurrent();
     return result;
   };
   const runBeforeToolCall: AgentHarnessHostCapabilities["runBeforeToolCall"] = async (request) =>
-    await runBeforeToolCallWithAssertion(assertActive, "foreground", request);
+    await withCaller(async () => await runBeforeToolCallWithAssertion(assertActive, request));
   retainedBeforeToolCallRunners.set(runBeforeToolCall, () => {
     const recovery = retainAdmittedRunBeforeToolCallRecovery(attempt.admittedRunContext);
     if (!recovery) {
@@ -277,7 +274,7 @@ export function createAgentHarnessHostCapabilities(params: {
       assertActive: assertRecoveryActive,
       release: recovery.release,
       runBeforeToolCall: async (request) =>
-        await runBeforeToolCallWithAssertion(assertRecoveryActive, "recovery", request),
+        await runBeforeToolCallWithAssertion(assertRecoveryActive, request),
     });
   });
 

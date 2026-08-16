@@ -979,18 +979,11 @@ describe("worker placement dispatch", () => {
         ownerEpoch: harness.attached.ownerEpoch,
       },
     });
-    const binding = {
-      sessionId: claim.sessionId,
-      environmentId: harness.attached.environmentId,
-      ownerEpoch: harness.attached.ownerEpoch,
-      runId: claim.runId,
-      claimId: claim.claimId,
-      placementGeneration: claim.placementGeneration,
-    };
+    const binding = claim;
     placementStore.authorizeWorkerTurnTools(claim, ["sessions_send"]);
     expect(
       placementStore.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "call-owner-mismatch",
         requestDigest: "digest-owner-mismatch",

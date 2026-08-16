@@ -140,15 +140,6 @@ describe("worker environment service", () => {
 
     await expect(workerService.admitWorker(admission)).resolves.toMatchObject({ ok: true });
     await expect(workerService.admitWorker(admission)).resolves.toMatchObject({ ok: true });
-    expect(placementStore.validateWorkerTurn).toHaveBeenLastCalledWith({
-      sessionId,
-      environmentId,
-      ownerEpoch: identity.ownerEpoch,
-      runId: "run-1",
-      claimId: identity.claimId,
-      placementGeneration: identity.placementGeneration,
-    });
-    expect(placementStore.validateWorkerTurn).toHaveBeenCalledTimes(2);
     expect(workerService.validateWorkerConnection(identity)).toBeNull();
 
     const warmEnvironmentId = "worker-placement-warm";
@@ -159,7 +150,6 @@ describe("worker environment service", () => {
       throw new Error("warm worker admission failed");
     }
     expect(workerService.validateWorkerConnection(warmAdmission.identity)).toBeNull();
-    expect(placementStore.validateWorkerTurn).toHaveBeenCalledTimes(3);
 
     placementStore.validateWorkerTurn.mockReturnValue(false);
     await expect(
@@ -204,12 +194,7 @@ describe("worker environment service", () => {
     const preRestartService = support.createService(support.createProvider(), {
       placementStore: createWorkerSessionPlacementGate(store),
     });
-    const recoveryCredential = await preRestartService.acquireTurnCredential({
-      environmentId,
-      ownerEpoch: environmentIdentity.ownerEpoch,
-      sessionId,
-      claim,
-    });
+    const recoveryCredential = await preRestartService.acquireTurnCredential(claim);
     await preRestartService.stop();
     store.handoffWorkspaceResultRecovery(claim);
 
@@ -233,8 +218,7 @@ describe("worker environment service", () => {
     const identity = {
       ...environmentIdentity,
       runId: claim.runId,
-      claimId: claim.claimId,
-      placementGeneration: claim.placementGeneration,
+      turnClaim: claim,
     };
     const admission = {
       environmentId,
@@ -252,7 +236,11 @@ describe("worker environment service", () => {
       ok: false,
       reason: "placement-mismatch",
     });
+    expect(workerService.acknowledgeCredentialDelivery(recoveryCredential)).toBe(false);
     expect(workerService.validateWorkerConnection(identity)).toBe("placement-mismatch");
+    await expect(
+      workerService.commitTranscript(identity, support.transcriptRequest(identity, "stale")),
+    ).resolves.toEqual({ ok: false, closeReason: "placement-mismatch" });
     await expect(
       workerService.pushLiveEvent(identity, support.assistantEvent(identity, "stale")),
     ).resolves.toEqual({ ok: false, closeReason: "placement-mismatch" });
@@ -284,12 +272,7 @@ describe("worker environment service", () => {
     });
     const gate = createWorkerSessionPlacementGate(store);
     const workerService = support.createService(support.createProvider(), { placementStore: gate });
-    const firstCredential = await workerService.acquireTurnCredential({
-      environmentId,
-      ownerEpoch: environmentIdentity.ownerEpoch,
-      sessionId,
-      claim: first,
-    });
+    const firstCredential = await workerService.acquireTurnCredential(first);
     const admission = {
       environmentId,
       credential: firstCredential.credential,
@@ -318,7 +301,7 @@ describe("worker environment service", () => {
       workerService.admitWorker({ ...admission, runId: "run-unknown" }),
     ).resolves.toEqual({ ok: false, reason: "placement-mismatch" });
     const firstAdmission = await workerService.admitWorker(admission);
-    expect(firstAdmission).toMatchObject({ ok: true, identity: { claimId: first.claimId } });
+    expect(firstAdmission).toMatchObject({ ok: true, identity: { turnClaim: first } });
     store.releaseTurn(first);
     const placement = store.get(sessionId)!;
     const second = store.claimTurn({
@@ -342,20 +325,12 @@ describe("worker environment service", () => {
       "placement-mismatch",
     );
 
-    const secondCredential = await workerService.acquireTurnCredential({
-      environmentId,
-      ownerEpoch: environmentIdentity.ownerEpoch,
-      sessionId,
-      claim: second,
-    });
+    const secondCredential = await workerService.acquireTurnCredential(second);
     expect(workerService.acknowledgeCredentialDelivery(secondCredential)).toBe(true);
     const secondAdmission = { ...admission, credential: secondCredential.credential };
     await expect(workerService.admitWorker(secondAdmission)).resolves.toMatchObject({
       ok: true,
-      identity: {
-        claimId: second.claimId,
-        placementGeneration: second.placementGeneration,
-      },
+      identity: { turnClaim: second },
     });
     await expect(workerService.admitWorker(secondAdmission)).resolves.toMatchObject({ ok: true });
   });
@@ -385,12 +360,7 @@ describe("worker environment service", () => {
       workerCredentialTtlMs: 20,
     });
     const admitClaim = async (claim: WorkerSessionTurnClaim) => {
-      const credential = await workerService.acquireTurnCredential({
-        environmentId,
-        ownerEpoch: environmentIdentity.ownerEpoch,
-        sessionId,
-        claim,
-      });
+      const credential = await workerService.acquireTurnCredential(claim);
       const admitted = await workerService.admitWorker({
         environmentId,
         credential: credential.credential,
@@ -489,7 +459,7 @@ describe("worker environment service", () => {
         liveEvents,
       },
     );
-    const binding = support.placementBinding(identity);
+    const claim = identity.turnClaim!;
 
     await expect(
       workerService.commitTranscript(
@@ -498,7 +468,7 @@ describe("worker environment service", () => {
       ),
     ).resolves.toMatchObject({ ok: true });
     expect(placementStore.updateAckCursors).toHaveBeenCalledWith({
-      ...binding,
+      claim,
       transcriptSeq: 7,
     });
 
@@ -514,7 +484,7 @@ describe("worker environment service", () => {
       ),
     ).resolves.toEqual({ ok: true, result: { ackedSeq: 2 } });
     expect(placementStore.updateAckCursors).toHaveBeenLastCalledWith({
-      ...binding,
+      claim,
       liveSeq: 2,
     });
   });
@@ -540,7 +510,7 @@ describe("worker environment service", () => {
       result: { ackedSeq: 1 },
     });
     expect(placementStore.updateAckCursors).toHaveBeenLastCalledWith({
-      ...support.placementBinding(identity),
+      claim: identity.turnClaim,
       liveSeq: 1,
     });
   });
@@ -593,7 +563,7 @@ describe("worker environment service", () => {
       reason: "stale-base-leaf",
     });
     expect(placementStore.updateAckCursors).toHaveBeenCalledWith({
-      ...support.placementBinding(identity),
+      claim: identity.turnClaim,
       transcriptSeq: 11,
     });
 
@@ -627,7 +597,7 @@ describe("worker environment service", () => {
     ).resolves.toEqual({ ok: true, result: { ackedSeq: 2 } });
     expect(placementStore.updateAckCursors).toHaveBeenCalledOnce();
     expect(placementStore.updateAckCursors).toHaveBeenCalledWith({
-      ...support.placementBinding(identity),
+      claim: identity.turnClaim,
       liveSeq: 2,
     });
     await expect(
@@ -677,13 +647,13 @@ describe("worker environment service", () => {
     expect(placementStore.updateAckCursors.mock.calls).toEqual([
       [
         {
-          ...support.placementBinding(identity),
+          claim: identity.turnClaim,
           transcriptSeq: 1,
         },
       ],
       [
         {
-          ...support.placementBinding(identity),
+          claim: identity.turnClaim,
           liveSeq: 1,
         },
       ],

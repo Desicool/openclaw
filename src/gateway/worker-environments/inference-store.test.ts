@@ -24,6 +24,7 @@ import {
   type WorkerInferenceExecutor,
   type WorkerInferenceSink,
 } from "./inference.js";
+import { serializeWorkerSessionTurnClaim } from "./placement-record.js";
 import { createWorkerEnvironmentStore } from "./store.js";
 
 const ENVIRONMENT_ID = "environment-inference-store";
@@ -42,8 +43,13 @@ const IDENTITY: WorkerConnectionIdentity = {
   bundleHash: ["fixture", "bundle", "digest"].join("-"),
   sessionId: REQUEST.sessionId,
   runId: REQUEST.runId,
-  claimId: "claim-store",
-  placementGeneration: 4,
+  turnClaim: {
+    sessionId: REQUEST.sessionId,
+    claimId: "claim-store",
+    runId: REQUEST.runId,
+    placementGeneration: 4,
+    owner: { kind: "worker", environmentId: ENVIRONMENT_ID, ownerEpoch: REQUEST.runEpoch },
+  },
   ownerEpoch: REQUEST.runEpoch,
   rpcSetVersion: 1,
   protocolFeatures: ["worker-inference-v1"],
@@ -59,11 +65,11 @@ function hashRequest(
   identity: WorkerConnectionIdentity,
   request: WorkerInferenceStartParams,
 ): string {
-  const authority = JSON.stringify([identity.claimId, identity.placementGeneration]);
+  if (!identity.turnClaim) {
+    throw new Error("inference fixture requires a turn claim");
+  }
   return createHash("sha256")
-    .update(authority)
-    .update("\0")
-    .update(stableStringify(request))
+    .update(`${serializeWorkerSessionTurnClaim(identity.turnClaim)}\0${stableStringify(request)}`)
     .digest("hex");
 }
 

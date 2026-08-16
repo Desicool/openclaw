@@ -346,6 +346,23 @@ describe("agent harness host capability", () => {
     retained.release();
   });
 
+  it("fences a retained native policy lease after lifecycle rotation", async () => {
+    const { attempt } = await admittedAttempt("run-retained-policy-lifecycle");
+    const host = createAgentHarnessHostCapabilities({ attempt, pluginId: "codex" });
+    const retained = retainBeforeToolCallForNativeHookRelay(host.capabilities.runBeforeToolCall);
+    if (!retained) {
+      throw new Error("expected retained native policy lease");
+    }
+    expect(closeAdmittedRunDelegatedAuthority(attempt.admittedRunContext)).toBe(true);
+
+    rotateAgentRunRegistryLifecycleGeneration();
+
+    await expect(
+      retained.runBeforeToolCall({ toolName: "exec", params: { command: "true" } }),
+    ).rejects.toThrow("no longer active");
+    retained.release();
+  });
+
   it.each([
     {
       name: "lexical host closure",

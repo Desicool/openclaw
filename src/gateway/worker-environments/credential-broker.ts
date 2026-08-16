@@ -14,7 +14,6 @@ import {
   WORKER_CREDENTIAL_TTL_MS,
   type MintedWorkerCredential,
   type WorkerCredentialBinding,
-  type WorkerCredentialDeliveryClaim,
 } from "./credential.js";
 import type { WorkerLiveEventReceiver } from "./live-events.js";
 import type { WorkerSessionTurnClaim } from "./placement-record.js";
@@ -158,16 +157,21 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
   const ensurePendingCredential = (record: WorkerEnvironmentRecord, sessionId: string | null) => {
     const credential = store.getCredential(record.environmentId);
     const pending = pendingCredentials.get(record.environmentId);
+    const turnClaim =
+      sessionId === null
+        ? undefined
+        : options.placementStore?.readWorkerTurnClaim({
+            sessionId,
+            environmentId: record.environmentId,
+            ownerEpoch: record.ownerEpoch,
+          });
     const credentialHasDurableTurn =
       credential?.deliveredAtMs !== null &&
       credential?.ownerEpoch === record.ownerEpoch &&
       credential.sessionId === sessionId &&
       sessionId !== null &&
-      options.placementStore?.hasWorkerTurn({
-        sessionId,
-        environmentId: record.environmentId,
-        ownerEpoch: record.ownerEpoch,
-      }) === true;
+      turnClaim !== undefined &&
+      options.placementStore?.validateWorkerTurn(turnClaim) === true;
     const credentialIsCurrent =
       credential?.ownerEpoch === record.ownerEpoch &&
       credential.sessionId === sessionId &&
@@ -328,29 +332,24 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
     return { checkedAtMs, credentialHash, grant };
   };
 
-  const validateTurnClaim = (
-    binding: WorkerCredentialBinding,
-    claim: WorkerSessionTurnClaim,
-  ): boolean =>
-    claim.owner.kind === "worker" &&
-    claim.sessionId === binding.sessionId &&
-    claim.owner.environmentId === binding.environmentId &&
-    claim.owner.ownerEpoch === binding.ownerEpoch &&
-    options.placementStore?.validateWorkerTurn({
-      sessionId: claim.sessionId,
+  const bindingForClaim = (claim: WorkerSessionTurnClaim) => {
+    if (claim.owner.kind !== "worker") {
+      throw serviceError("invalid_state", "Worker turn credential claim is not worker-owned");
+    }
+    return {
       environmentId: claim.owner.environmentId,
       ownerEpoch: claim.owner.ownerEpoch,
-      runId: claim.runId,
-      claimId: claim.claimId,
-      placementGeneration: claim.placementGeneration,
-    }) === true;
+      sessionId: claim.sessionId,
+    };
+  };
 
-  const acquireTurnCredential = (
-    binding: WorkerCredentialBinding & { sessionId: string; claim: WorkerSessionTurnClaim },
-  ) =>
-    withLock(binding.environmentId, async () => {
-      const { claim } = binding;
-      if (!validateTurnClaim(binding, claim)) {
+  const validateTurnClaim = (claim: WorkerSessionTurnClaim): boolean =>
+    claim.owner.kind === "worker" && options.placementStore?.validateWorkerTurn(claim) === true;
+
+  const acquireTurnCredential = (claim: WorkerSessionTurnClaim) => {
+    const binding = bindingForClaim(claim);
+    return withLock(binding.environmentId, async () => {
+      if (!validateTurnClaim(claim)) {
         throw serviceError("invalid_state", "Worker turn credential claim is not authoritative");
       }
       const pending = readPendingCredential(binding, claim)?.grant;
@@ -382,23 +381,24 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
       }
       return grant;
     });
+  };
 
-  const acknowledgeCredentialDelivery = (claim: WorkerCredentialDeliveryClaim): boolean => {
-    if (claim.turnClaim && !validateTurnClaim(claim, claim.turnClaim)) {
+  const acknowledgeCredentialDelivery = (grant: MintedWorkerCredential): boolean => {
+    if (grant.turnClaim && !validateTurnClaim(grant.turnClaim)) {
       return false;
     }
-    const pending = readPendingCredential(claim, claim.turnClaim);
-    if (!pending || pending.grant.deliveryId !== claim.deliveryId) {
+    const pending = readPendingCredential(grant, grant.turnClaim);
+    if (!pending || pending.grant.deliveryId !== grant.deliveryId) {
       return false;
     }
     store.markCredentialDelivered({
-      environmentId: claim.environmentId,
-      ownerEpoch: claim.ownerEpoch,
-      sessionId: claim.sessionId,
+      environmentId: grant.environmentId,
+      ownerEpoch: grant.ownerEpoch,
+      sessionId: grant.sessionId,
       credentialHash: pending.credentialHash,
       deliveredAtMs: pending.checkedAtMs,
     });
-    pendingCredentials.delete(claim.environmentId);
+    pendingCredentials.delete(grant.environmentId);
     return true;
   };
 
@@ -409,12 +409,7 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
     clear: () => pendingCredentials.clear(),
     clearEnvironment: (environmentId: string) => pendingCredentials.delete(environmentId),
     commitReady,
-    credentialExpiry,
-    credentialMaterial,
     ensurePendingCredential,
-    grantFrom,
-    readPendingCredential,
-    stageCredential,
     takeMintedCredential: (binding: WorkerCredentialBinding) =>
       readPendingCredential(binding)?.grant,
   };

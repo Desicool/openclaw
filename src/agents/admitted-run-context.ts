@@ -42,31 +42,16 @@ export type PreparedAgentRunAdmission = Readonly<{
 type DelegatedAuthorityLease = {
   authority: AgentRunDelegatedAuthority;
   foregroundClosed: boolean;
-  nativeHookRecoveryRetained: boolean;
 };
 
 const delegatedAuthorityLeases = new WeakMap<AdmittedRunContext, DelegatedAuthorityLease>();
 const activeNativeHookRecoveryLeases = new Map<string, DelegatedAuthorityLease>();
 
-function bindAdmittedRunDelegatedAuthority(
-  context: AdmittedRunContext,
-): AgentRunDelegatedAuthority {
+function bindAdmittedRunDelegatedAuthority(context: AdmittedRunContext): void {
+  activeNativeHookRecoveryLeases.delete(context.operationalRunInstance.runId);
   const authority = claimAgentRunDelegatedAuthority(context.operationalRunInstance);
-  const lease = {
-    authority,
-    foregroundClosed: false,
-    nativeHookRecoveryRetained: false,
-  };
-  activeNativeHookRecoveryLeases.set(context.operationalRunInstance.runId, lease);
+  const lease = { authority, foregroundClosed: false };
   delegatedAuthorityLeases.set(context, lease);
-  return authority;
-}
-
-function releaseNativeHookRecoveryLease(lease: DelegatedAuthorityLease): void {
-  const runId = lease.authority.operationalRunInstance.runId;
-  if (activeNativeHookRecoveryLeases.get(runId) === lease) {
-    activeNativeHookRecoveryLeases.delete(runId);
-  }
 }
 
 /** Reads the immutable outer-run authority without reviving a closed claim. */
@@ -87,9 +72,6 @@ export function closeAdmittedRunDelegatedAuthority(context: AdmittedRunContext):
   }
   lease.foregroundClosed = true;
   releaseAgentRunDelegatedAuthority(lease.authority);
-  if (!lease.nativeHookRecoveryRetained) {
-    releaseNativeHookRecoveryLease(lease);
-  }
   return true;
 }
 
@@ -107,18 +89,14 @@ export function retainAdmittedRunBeforeToolCallRecovery(
   if (
     !lease ||
     lease.foregroundClosed ||
-    lease.nativeHookRecoveryRetained ||
-    activeNativeHookRecoveryLeases.get(runId) !== lease ||
+    activeNativeHookRecoveryLeases.has(runId) ||
     !validateAgentRunDelegatedAuthority(lease.authority)
   ) {
     return undefined;
   }
-  lease.nativeHookRecoveryRetained = true;
-  let released = false;
+  activeNativeHookRecoveryLeases.set(runId, lease);
   const assertActive = () => {
     if (
-      released ||
-      !lease.nativeHookRecoveryRetained ||
       getAgentRunLifecycleGeneration() !== lease.authority.lifecycleGeneration ||
       activeNativeHookRecoveryLeases.get(runId) !== lease
     ) {
@@ -128,13 +106,8 @@ export function retainAdmittedRunBeforeToolCallRecovery(
   return Object.freeze({
     assertActive,
     release: () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      lease.nativeHookRecoveryRetained = false;
-      if (lease.foregroundClosed) {
-        releaseNativeHookRecoveryLease(lease);
+      if (activeNativeHookRecoveryLeases.get(runId) === lease) {
+        activeNativeHookRecoveryLeases.delete(runId);
       }
     },
   });

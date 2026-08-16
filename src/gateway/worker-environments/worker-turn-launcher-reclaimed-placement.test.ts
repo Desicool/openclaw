@@ -99,12 +99,7 @@ describe("worker turn launcher reclaimed placement", () => {
           }),
         );
         createWorkerSessionPlacementGate(placements).updateAckCursors({
-          sessionId: SESSION_ID,
-          environmentId: ENVIRONMENT_ID,
-          ownerEpoch: OWNER_EPOCH,
-          runId,
-          claimId: request.claimId,
-          placementGeneration: request.placementGeneration,
+          claim: request.turnClaim,
           transcriptSeq: 2,
           liveSeq: 1,
         });

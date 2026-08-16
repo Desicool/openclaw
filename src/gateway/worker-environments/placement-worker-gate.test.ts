@@ -87,27 +87,8 @@ describe("worker session placement gate", () => {
   }
 
   function bindingFor(claim: ReturnType<typeof preclaim>) {
-    return {
-      sessionId: claim.sessionId,
-      environmentId: ENVIRONMENT_ID,
-      ownerEpoch: OWNER_EPOCH,
-      runId: claim.runId,
-      claimId: claim.claimId,
-      placementGeneration: claim.placementGeneration,
-    };
+    return claim;
   }
-
-  it("accepts only the exact gateway-preclaimed worker run", () => {
-    const runId = "run-worker-gate";
-    const claim = preclaim(runId);
-    const gate = createWorkerSessionPlacementGate(store);
-    const binding = bindingFor(claim);
-
-    expect(gate.hasWorkerTurn(binding)).toBe(true);
-    expect(gate.validateWorkerTurn(binding)).toBe(true);
-    expect(gate.validateWorkerTurn({ ...binding, runId: "run-competing" })).toBe(false);
-    expect(gate.validateWorkerTurn({ ...binding, ownerEpoch: OWNER_EPOCH + 1 })).toBe(false);
-  });
 
   it("rejects restart-inherited claims while preserving workspace recovery authority", () => {
     const claim = preclaim("run-inherited-worker");
@@ -118,18 +99,20 @@ describe("worker session placement gate", () => {
     const gate = createWorkerSessionPlacementGate(restartedStore, {
       rejectExistingWorkerClaims: true,
     });
-    const binding = bindingFor(claim);
+    const binding = {
+      sessionId: claim.sessionId,
+      environmentId: ENVIRONMENT_ID,
+      ownerEpoch: OWNER_EPOCH,
+    };
 
     expect(restartedStore.validateTurnClaim(claim)).toBe(true);
     expect(restartedStore.listPendingWorkspaceResults()).toMatchObject([
       { sessionId: claim.sessionId, claimId: claim.claimId },
     ]);
-    expect(gate.validateWorkerTurn(binding)).toBe(false);
+    expect(gate.validateWorkerTurn(claim)).toBe(false);
     expect(gate.readWorkerTurnClaim(binding)).toEqual(claim);
-    expect(gate.isWorkerTurnToolAuthorized(binding, "sessions_send")).toBe(false);
-    expect(() => gate.updateAckCursors({ ...binding, transcriptSeq: 2 })).toThrow(
-      "stale worker turn",
-    );
+    expect(gate.isWorkerTurnToolAuthorized(claim, "sessions_send")).toBe(false);
+    expect(() => gate.updateAckCursors({ claim, transcriptSeq: 2 })).toThrow("stale worker turn");
   });
 
   it("does not classify a same-id claim from a different run as inherited", () => {
@@ -137,7 +120,7 @@ describe("worker session placement gate", () => {
     const gate = createWorkerSessionPlacementGate(store, {
       rejectExistingWorkerClaims: true,
     });
-    expect(gate.validateWorkerTurn(bindingFor(first))).toBe(false);
+    expect(gate.validateWorkerTurn(first)).toBe(false);
     store.releaseTurn(first);
     const placement = store.get(SESSION.sessionId)!;
     const second = store.claimTurn({
@@ -149,7 +132,7 @@ describe("worker session placement gate", () => {
       owner: { kind: "worker", environmentId: ENVIRONMENT_ID, ownerEpoch: OWNER_EPOCH },
     });
 
-    expect(gate.validateWorkerTurn(bindingFor(second))).toBe(true);
+    expect(gate.validateWorkerTurn(second)).toBe(true);
   });
 
   it("fences a replaced exact claim when the durable run id is reused", () => {
@@ -174,7 +157,7 @@ describe("worker session placement gate", () => {
     expect(gate.validateWorkerTurn(secondBinding)).toBe(true);
     expect(gate.isWorkerTurnToolAuthorized(firstBinding, "sessions_send")).toBe(false);
     expect(gate.isWorkerTurnToolAuthorized(secondBinding, "sessions_send")).toBe(true);
-    expect(() => gate.updateAckCursors({ ...firstBinding, transcriptSeq: 3 })).toThrow(
+    expect(() => gate.updateAckCursors({ claim: firstBinding, transcriptSeq: 3 })).toThrow(
       "stale worker turn",
     );
   });
@@ -185,9 +168,9 @@ describe("worker session placement gate", () => {
     const gate = createWorkerSessionPlacementGate(store);
     const binding = bindingFor(claim);
 
-    gate.updateAckCursors({ ...binding, transcriptSeq: 4 });
+    gate.updateAckCursors({ claim: binding, transcriptSeq: 4 });
     expect(store.listPendingWorkspaceResults()).toEqual([]);
-    gate.updateAckCursors({ ...binding, liveSeq: 9 });
+    gate.updateAckCursors({ claim: binding, liveSeq: 9 });
     expect(store.get(SESSION.sessionId)).toMatchObject({
       generation: claim.placementGeneration,
       lastTranscriptAckCursor: 4,
@@ -219,7 +202,7 @@ describe("worker session placement gate", () => {
     const binding = bindingFor(claim);
 
     expect(gate.validateWorkerTurn(binding)).toBe(true);
-    gate.updateAckCursors({ ...binding, transcriptSeq: 5 });
+    gate.updateAckCursors({ claim: binding, transcriptSeq: 5 });
     expect(store.get(SESSION.sessionId)?.lastTranscriptAckCursor).toBe(5);
     store.releaseTurn(claim);
     expect(gate.validateWorkerTurn(binding)).toBe(false);
@@ -234,29 +217,28 @@ describe("worker session placement gate", () => {
     expect(store.isWorkerTurnToolAuthorized(binding, "sessions_send")).toBe(false);
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-spawn",
         requestDigest: "digest-one",
       }),
     ).toMatchObject({
       kind: "execute",
-      claimId: claim.claimId,
       operationSeed: expect.any(String),
     });
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-spawn",
         requestDigest: "digest-one",
       }),
-    ).toEqual({ kind: "in-progress", claimId: claim.claimId });
+    ).toEqual({ kind: "in-progress" });
     const closing = store.closeWorkerTurnToolState(claim);
     expect(store.isWorkerTurnToolAuthorized(binding, "sessions_spawn")).toBe(false);
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-after-close",
         requestDigest: "digest-after-close",
@@ -290,7 +272,7 @@ describe("worker session placement gate", () => {
     store.authorizeWorkerTurnTools(claim, ["sessions_send"]);
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "call-reconcile-send",
         requestDigest: "digest-reconcile-send",
@@ -348,7 +330,7 @@ describe("worker session placement gate", () => {
     for (let index = 0; index < MAX_RUNNING_WORKER_SESSION_TOOL_OPERATIONS; index += 1) {
       expect(
         store.beginWorkerSessionToolOperation({
-          binding,
+          claim: binding,
           toolName: "sessions_send",
           toolCallId: `capacity-call-${index}`,
           requestDigest: `capacity-digest-${index}`,
@@ -359,7 +341,7 @@ describe("worker session placement gate", () => {
     const reconnectedStore = createWorkerSessionPlacementStore({ database });
     expect(
       reconnectedStore.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "capacity-overflow",
         requestDigest: "capacity-overflow-digest",
@@ -367,7 +349,7 @@ describe("worker session placement gate", () => {
     ).toEqual({ kind: "capacity" });
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "capacity-call-0",
         requestDigest: "capacity-digest-0",
@@ -381,7 +363,7 @@ describe("worker session placement gate", () => {
     store.authorizeWorkerTurnTools(claim, ["sessions_spawn", "sessions_send"]);
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-before-restart",
         requestDigest: "digest-before-restart",
@@ -391,7 +373,7 @@ describe("worker session placement gate", () => {
     const restarted = createWorkerSessionPlacementStore({ database });
     expect(
       restarted.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-before-restart",
         requestDigest: "digest-before-restart",
@@ -399,7 +381,7 @@ describe("worker session placement gate", () => {
     ).toEqual({ kind: "unknown" });
     expect(
       restarted.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-before-restart",
         requestDigest: "changed-digest",
@@ -417,7 +399,7 @@ describe("worker session placement gate", () => {
     ).toBe(true);
     expect(
       restarted.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_spawn",
         toolCallId: "call-before-restart",
         requestDigest: "digest-before-restart",
@@ -432,7 +414,7 @@ describe("worker session placement gate", () => {
     store.authorizeWorkerTurnTools(claim, ["sessions_send"]);
     expect(
       store.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "call-before-crash",
         requestDigest: "digest-before-crash",
@@ -443,7 +425,7 @@ describe("worker session placement gate", () => {
     expect(restarted.recoverWorkerSessionToolOperationsAfterRestart()).toBe(1);
     expect(
       restarted.beginWorkerSessionToolOperation({
-        binding,
+        claim: binding,
         toolName: "sessions_send",
         toolCallId: "call-before-crash",
         requestDigest: "digest-before-crash",

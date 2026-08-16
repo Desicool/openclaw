@@ -1,3 +1,5 @@
+import type { WorkerSessionTurnClaim } from "./placement-record.js";
+
 /** Hash-only worker identity retained after admission. */
 export type WorkerConnectionIdentity = {
   environmentId: string;
@@ -5,8 +7,7 @@ export type WorkerConnectionIdentity = {
   bundleHash: string;
   sessionId: string | null;
   runId: string | null;
-  claimId: string | null;
-  placementGeneration: number | null;
+  turnClaim: WorkerSessionTurnClaim | null;
   ownerEpoch: number;
   rpcSetVersion: number;
   protocolFeatures: string[];

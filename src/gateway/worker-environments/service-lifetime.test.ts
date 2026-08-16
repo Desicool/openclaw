@@ -91,9 +91,7 @@ describe("worker environment service", () => {
     const liveEvents = support.createLiveEvents();
     const unsubscribeTurnClaimClosed = vi.fn();
     const placementStore = {
-      hasWorkerTurn: vi.fn(() => false),
       readWorkerTurnClaim: vi.fn(),
-      resolveWorkerTurn: vi.fn(),
       validateWorkerTurn: vi.fn(() => false),
       isWorkerTurnToolAuthorized: vi.fn(() => false),
       updateAckCursors: vi.fn(),

@@ -144,8 +144,7 @@ describe("worker session tool topology", () => {
       bundleHash: "a".repeat(64),
       sessionId: SOURCE.sessionId,
       runId: sourceClaim.runId,
-      claimId: sourceClaim.claimId,
-      placementGeneration: sourceClaim.placementGeneration,
+      turnClaim: sourceClaim,
       ownerEpoch: SOURCE.ownerEpoch,
       rpcSetVersion: 1,
       protocolFeatures: ["worker-session-tools-v1"],
@@ -507,8 +506,7 @@ describe("worker session tool topology", () => {
       environmentId: CHILD.environmentId,
       sessionId: CHILD.sessionId,
       runId: childClaim.runId,
-      claimId: childClaim.claimId,
-      placementGeneration: childClaim.placementGeneration,
+      turnClaim: childClaim,
       ownerEpoch: CHILD.ownerEpoch,
     };
     let spawnedGrandchildKey: string | undefined;
@@ -578,6 +576,7 @@ describe("worker session tool topology", () => {
         environmentId: GRANDCHILD.environmentId,
         sessionId: GRANDCHILD.sessionId,
         runId: grandchildClaim.runId,
+        turnClaim: grandchildClaim,
         ownerEpoch: GRANDCHILD.ownerEpoch,
       },
       toolName: "sessions_send",

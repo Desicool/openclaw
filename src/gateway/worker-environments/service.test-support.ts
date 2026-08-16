@@ -349,8 +349,13 @@ export function seedAttachedIdentity(
     bundleHash: credential.bundleHash,
     sessionId,
     runId: "run-1",
-    claimId: "claim-run-1",
-    placementGeneration: 1,
+    turnClaim: {
+      sessionId,
+      claimId: "claim-run-1",
+      runId: "run-1",
+      placementGeneration: 1,
+      owner: { kind: "worker", environmentId, ownerEpoch: attached.ownerEpoch },
+    },
     ownerEpoch: attached.ownerEpoch,
     rpcSetVersion: credential.rpcSetVersion,
     protocolFeatures: [...attached.bootstrapReceipt.protocolFeatures],
@@ -438,34 +443,13 @@ export function sequencedLiveEvents(ackedSeq = (seq: number) => seq) {
   return { apply, liveEvents: createLiveEvents({ apply }) };
 }
 
-export function placementBinding(identity: WorkerConnectionIdentity) {
-  return {
-    sessionId: identity.sessionId ?? "session-missing",
-    environmentId: identity.environmentId,
-    ownerEpoch: identity.ownerEpoch,
-    runId: identity.runId ?? "run-missing",
-    claimId: identity.claimId ?? "claim-missing",
-    placementGeneration: identity.placementGeneration ?? 0,
-  };
-}
-
 export function placementHarness(
   environmentId: string,
   sessionId: string,
   serviceOptions: Parameters<typeof createService>[1] = {},
 ) {
   const identity = seedAttachedIdentity(environmentId, sessionId);
-  const claim = {
-    sessionId,
-    claimId: identity.claimId!,
-    runId: identity.runId!,
-    placementGeneration: identity.placementGeneration!,
-    owner: {
-      kind: "worker" as const,
-      environmentId,
-      ownerEpoch: identity.ownerEpoch,
-    },
-  };
+  const claim = identity.turnClaim!;
   const credentialHash = hashWorkerCredential(
     [CREDENTIAL, environmentId, sessionId].join("-"),
     claim,
@@ -477,9 +461,7 @@ export function placementHarness(
     .run(credentialHash, environmentId);
   identity.credentialHash = credentialHash;
   const placementStore = {
-    hasWorkerTurn: vi.fn(() => true),
     readWorkerTurnClaim: vi.fn(() => claim),
-    resolveWorkerTurn: vi.fn(() => claim),
     validateWorkerTurn: vi.fn(() => true),
     isWorkerTurnToolAuthorized: vi.fn(() => true),
     updateAckCursors: vi.fn(),

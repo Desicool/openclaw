@@ -110,8 +110,17 @@ describe("worker tunnel manager", () => {
     await expect(
       handle.launchTurn({
         plan,
-        claimId: "claim-1",
-        placementGeneration: 1,
+        turnClaim: {
+          sessionId: plan.admission.sessionId,
+          claimId: "claim-1",
+          runId: plan.assignment.runId,
+          placementGeneration: 1,
+          owner: {
+            kind: "worker",
+            environmentId: plan.admission.environmentId,
+            ownerEpoch: plan.admission.ownerEpoch,
+          },
+        },
         timeoutMs: 123,
         onDispatchReady,
       }),
