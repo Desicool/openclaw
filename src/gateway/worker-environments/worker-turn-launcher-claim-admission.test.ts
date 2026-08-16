@@ -245,11 +245,17 @@ describe("worker turn launcher claim admission", () => {
         timestamp: 31,
       }),
     );
+    const activeClaim = placements.get(SESSION_ID)?.turnClaim;
+    if (activeClaim?.owner !== "worker") {
+      throw new Error("expected active worker claim");
+    }
     createWorkerSessionPlacementGate(placements).updateAckCursors({
       sessionId: SESSION_ID,
       environmentId: ENVIRONMENT_ID,
       ownerEpoch: OWNER_EPOCH,
       runId: "run-overlap",
+      claimId: activeClaim.claimId,
+      placementGeneration: activeClaim.generation,
       transcriptSeq: 2,
       liveSeq: 1,
     });
@@ -332,6 +338,8 @@ describe("worker turn launcher claim admission", () => {
               environmentId: ENVIRONMENT_ID,
               ownerEpoch: OWNER_EPOCH,
               runId: "run-model-failed",
+              claimId: request.claimId,
+              placementGeneration: request.placementGeneration,
               transcriptSeq: 2,
               liveSeq: 1,
             });
@@ -361,6 +369,8 @@ describe("worker turn launcher claim admission", () => {
             environmentId: ENVIRONMENT_ID,
             ownerEpoch: OWNER_EPOCH,
             runId: "run-model-recovered",
+            claimId: request.claimId,
+            placementGeneration: request.placementGeneration,
             transcriptSeq: 2,
             liveSeq: 1,
           });

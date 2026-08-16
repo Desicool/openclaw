@@ -15,6 +15,8 @@ type WorkerTurnToolBinding = {
   environmentId: string;
   ownerEpoch: number;
   runId: string;
+  claimId: string;
+  placementGeneration: number;
 };
 
 type WorkerSessionToolOperationStart =
@@ -218,7 +220,9 @@ export function createPlacementSessionToolOperationOps(runtime: PlacementStoreRu
       current.environmentId !== binding.environmentId ||
       current.activeOwnerEpoch !== binding.ownerEpoch ||
       persisted?.owner !== "worker" ||
+      persisted.claimId !== binding.claimId ||
       persisted.runId !== binding.runId ||
+      persisted.generation !== binding.placementGeneration ||
       persisted.ownerEpoch !== binding.ownerEpoch
     ) {
       return undefined;

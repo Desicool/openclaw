@@ -5,6 +5,8 @@ export type WorkerConnectionIdentity = {
   bundleHash: string;
   sessionId: string | null;
   runId: string | null;
+  claimId: string | null;
+  placementGeneration: number | null;
   ownerEpoch: number;
   rpcSetVersion: number;
   protocolFeatures: string[];

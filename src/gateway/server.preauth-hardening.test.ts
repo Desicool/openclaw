@@ -255,6 +255,8 @@ describe("gateway pre-auth hardening", () => {
           bundleHash: "a".repeat(64),
           sessionId: null,
           runId: null,
+          claimId: null,
+          placementGeneration: null,
           ownerEpoch: 1,
           rpcSetVersion: 1,
           protocolFeatures: [],

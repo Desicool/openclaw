@@ -984,6 +984,8 @@ describe("worker placement dispatch", () => {
       environmentId: harness.attached.environmentId,
       ownerEpoch: harness.attached.ownerEpoch,
       runId: claim.runId,
+      claimId: claim.claimId,
+      placementGeneration: claim.placementGeneration,
     };
     placementStore.authorizeWorkerTurnTools(claim, ["sessions_send"]);
     expect(

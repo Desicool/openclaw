@@ -56,6 +56,8 @@ describe("worker turn launcher terminal results", () => {
           environmentId: ENVIRONMENT_ID,
           ownerEpoch: OWNER_EPOCH,
           runId: "run-reconcile-tunnel-loss",
+          claimId: request.claimId,
+          placementGeneration: request.placementGeneration,
           transcriptSeq: 2,
           liveSeq: 1,
         });
@@ -191,6 +193,8 @@ describe("worker turn launcher terminal results", () => {
             environmentId: ENVIRONMENT_ID,
             ownerEpoch: OWNER_EPOCH,
             runId: "run-worker-usage",
+            claimId: request.claimId,
+            placementGeneration: request.placementGeneration,
             transcriptSeq: 2,
             liveSeq: 1,
           });

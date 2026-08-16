@@ -86,6 +86,8 @@ const identity: WorkerConnectionIdentity = {
   bundleHash: "bundle-hash-runtime-test",
   sessionId: SESSION_ID,
   runId: "run-runtime-test",
+  claimId: "claim-runtime-test",
+  placementGeneration: 4,
   ownerEpoch: 3,
   rpcSetVersion: 1,
   protocolFeatures: ["worker-inference-v1"],

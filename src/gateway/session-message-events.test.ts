@@ -2514,6 +2514,8 @@ describe("session.message websocket events", () => {
       bundleHash: "f".repeat(64),
       sessionId,
       runId: "run-fanout",
+      claimId: "claim-fanout",
+      placementGeneration: 4,
       ownerEpoch: 4,
       rpcSetVersion: 1,
       protocolFeatures: ["worker-live-event-v1", "worker-transcript-commit-v1"],

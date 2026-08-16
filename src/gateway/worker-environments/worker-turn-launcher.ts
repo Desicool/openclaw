@@ -186,6 +186,7 @@ async function executeWorkerTurn(params: {
     environmentId: placement.environmentId,
     ownerEpoch: placement.activeOwnerEpoch,
     sessionId: placement.sessionId,
+    claim: params.turnClaim,
   });
   const tunnel = await waitForTurnOperation({
     operation: params.environments.startTunnel({
@@ -285,7 +286,8 @@ async function executeWorkerTurn(params: {
   };
   const processPromise = tunnel.launchTurn({
     plan,
-    placementGeneration: placement.generation,
+    claimId: params.turnClaim.claimId,
+    placementGeneration: params.turnClaim.placementGeneration,
     timeoutMs: turn.timeoutMs,
     signal: turn.abortSignal
       ? AbortSignal.any([turn.abortSignal, handoffAbort.signal])

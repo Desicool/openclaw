@@ -172,7 +172,7 @@ describe("node worker tunnel manager", () => {
     const handle = await manager.start(startRequest());
 
     await expect(
-      handle.launchTurn({ plan: plan(), placementGeneration: 4 }),
+      handle.launchTurn({ plan: plan(), claimId: "claim-1", placementGeneration: 4 }),
     ).resolves.toMatchObject({
       code: 1,
       killed: true,
@@ -557,7 +557,12 @@ describe("node worker tunnel manager", () => {
       workspaceTransfer: workspaceTransfer(),
     });
     const first = await manager.start(startRequest());
-    const launched = first.launchTurn({ plan: plan(), placementGeneration: 4, timeoutMs: 5_000 });
+    const launched = first.launchTurn({
+      plan: plan(),
+      claimId: "claim-1",
+      placementGeneration: 4,
+      timeoutMs: 5_000,
+    });
     await vi.waitFor(() => expect(launchNodeWorker).toHaveBeenCalledOnce());
     record.ownerEpoch = 3;
     const replacement = manager.start({ ...startRequest(), ownerEpoch: 3 });
@@ -616,6 +621,7 @@ describe("node worker tunnel manager", () => {
     const handle = await manager.start(startRequest());
     const launched = handle.launchTurn({
       plan: plan(),
+      claimId: "claim-1",
       placementGeneration: 4,
       timeoutMs: 5_000,
       onDispatchReady,

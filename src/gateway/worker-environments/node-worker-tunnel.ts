@@ -26,6 +26,7 @@ import {
   recordNodeSyncPath,
 } from "./node-worker-workspace-fallback.js";
 import type { NodeWorkspaceTransferService } from "./node-workspace-transfer-service.js";
+import type { WorkerPlacementTurnBinding } from "./placement-worker-gate.js";
 import type { WorkerEnvironmentRecord } from "./store.js";
 import type {
   WorkerTunnelHandle,
@@ -95,12 +96,7 @@ type NodeWorkerTunnelManagerOptions = {
   getEnvironment: (environmentId: string) => WorkerEnvironmentRecord | undefined;
   getTransport: () => NodeWorkerSupervisorTransport | undefined;
   launchNodeWorker: NodeWorkerLaunch;
-  validateWorkerTurn: (binding: {
-    environmentId: string;
-    ownerEpoch: number;
-    sessionId: string;
-    runId: string;
-  }) => boolean;
+  validateWorkerTurn: (binding: WorkerPlacementTurnBinding) => boolean;
   workspaceTransfer: NodeWorkspaceTransferService;
 };
 
@@ -524,6 +520,8 @@ export function createNodeWorkerTunnelManager(options: NodeWorkerTunnelManagerOp
             ownerEpoch: entry.ownerEpoch,
             sessionId: plan.admission.sessionId,
             runId: plan.assignment.runId,
+            claimId: request.claimId,
+            placementGeneration: request.placementGeneration,
           });
         const operation = options.launchNodeWorker({
           deviceId: entry.deviceId,

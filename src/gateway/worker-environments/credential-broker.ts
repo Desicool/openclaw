@@ -10,12 +10,14 @@ import {
 import type { WorkerInstallationArtifact } from "./bundle.js";
 import {
   createWorkerCredentialMaterial,
+  hashWorkerCredential,
   WORKER_CREDENTIAL_TTL_MS,
   type MintedWorkerCredential,
   type WorkerCredentialBinding,
   type WorkerCredentialDeliveryClaim,
 } from "./credential.js";
 import type { WorkerLiveEventReceiver } from "./live-events.js";
+import type { WorkerSessionTurnClaim } from "./placement-record.js";
 import type { WorkerSessionPlacementGate } from "./placement-worker-gate.js";
 import type { WorkerEnvironmentState } from "./state.js";
 import {
@@ -72,11 +74,13 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
     return expiresAtMs;
   };
 
-  const credentialMaterial = () => createWorkerCredentialMaterial(options.generateWorkerCredential);
+  const credentialMaterial = (claim?: WorkerSessionTurnClaim) =>
+    createWorkerCredentialMaterial(options.generateWorkerCredential, claim);
 
   const grantFrom = (params: {
     credential: string;
     record: ReturnType<WorkerEnvironmentStore["getCredential"]>;
+    claim?: WorkerSessionTurnClaim;
   }): MintedWorkerCredential => {
     const record = params.record;
     if (!record) {
@@ -91,17 +95,19 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
       rpcSetVersion: record.rpcSetVersion,
       ownerEpoch: record.ownerEpoch,
       expiresAtMs: record.expiresAtMs,
+      ...(params.claim ? { turnClaim: params.claim } : {}),
     };
   };
 
   const mintCredentialLocked = (
     request: WorkerCredentialBinding,
+    claim?: WorkerSessionTurnClaim,
   ): { credentialHash: string; grant: MintedWorkerCredential } => {
     const previous = store.getCredential(request.environmentId);
     if (previous) {
       inference.cancelEnvironment(request.environmentId);
     }
-    const material = credentialMaterial();
+    const material = credentialMaterial(claim);
     const credential = {
       environmentId: request.environmentId,
       expectedOwnerEpoch: request.ownerEpoch,
@@ -113,7 +119,7 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
     const record = store.renewCredential(credential);
     return {
       credentialHash: material.credentialHash,
-      grant: grantFrom({ credential: material.credential, record }),
+      grant: grantFrom({ credential: material.credential, record, claim }),
     };
   };
 
@@ -283,7 +289,10 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
     });
   };
 
-  const readPendingCredential = (binding: WorkerCredentialBinding) => {
+  const readPendingCredential = (
+    binding: WorkerCredentialBinding,
+    claim?: WorkerSessionTurnClaim,
+  ) => {
     const stopping = options.isStopping();
     if (stopping) {
       return undefined;
@@ -310,16 +319,41 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
       credential.ownerEpoch !== binding.ownerEpoch ||
       credential.sessionId !== binding.sessionId ||
       credential.deliveredAtMs !== null ||
-      credential.expiresAtMs <= checkedAtMs
+      credential.expiresAtMs <= checkedAtMs ||
+      (grant.turnClaim === undefined) !== (claim === undefined) ||
+      (claim !== undefined && hashWorkerCredential(grant.credential, claim) !== credentialHash)
     ) {
       return undefined;
     }
     return { checkedAtMs, credentialHash, grant };
   };
 
-  const acquireTurnCredential = (binding: WorkerCredentialBinding & { sessionId: string }) =>
+  const validateTurnClaim = (
+    binding: WorkerCredentialBinding,
+    claim: WorkerSessionTurnClaim,
+  ): boolean =>
+    claim.owner.kind === "worker" &&
+    claim.sessionId === binding.sessionId &&
+    claim.owner.environmentId === binding.environmentId &&
+    claim.owner.ownerEpoch === binding.ownerEpoch &&
+    options.placementStore?.validateWorkerTurn({
+      sessionId: claim.sessionId,
+      environmentId: claim.owner.environmentId,
+      ownerEpoch: claim.owner.ownerEpoch,
+      runId: claim.runId,
+      claimId: claim.claimId,
+      placementGeneration: claim.placementGeneration,
+    }) === true;
+
+  const acquireTurnCredential = (
+    binding: WorkerCredentialBinding & { sessionId: string; claim: WorkerSessionTurnClaim },
+  ) =>
     withLock(binding.environmentId, async () => {
-      const pending = readPendingCredential(binding)?.grant;
+      const { claim } = binding;
+      if (!validateTurnClaim(binding, claim)) {
+        throw serviceError("invalid_state", "Worker turn credential claim is not authoritative");
+      }
+      const pending = readPendingCredential(binding, claim)?.grant;
       if (pending) {
         return pending;
       }
@@ -334,7 +368,7 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
         throw serviceError("invalid_state", "Worker session credential owner is not attached");
       }
       const previous = store.getCredential(binding.environmentId);
-      const minted = mintCredentialLocked(binding);
+      const minted = mintCredentialLocked(binding, claim);
       const grant = stageCredential(minted.grant);
       if (previous?.sessionId === binding.sessionId) {
         options.liveEvents?.rotateCredential({
@@ -350,12 +384,17 @@ export function createWorkerCredentialBroker(options: WorkerCredentialBrokerOpti
     });
 
   const acknowledgeCredentialDelivery = (claim: WorkerCredentialDeliveryClaim): boolean => {
-    const pending = readPendingCredential(claim);
+    if (claim.turnClaim && !validateTurnClaim(claim, claim.turnClaim)) {
+      return false;
+    }
+    const pending = readPendingCredential(claim, claim.turnClaim);
     if (!pending || pending.grant.deliveryId !== claim.deliveryId) {
       return false;
     }
     store.markCredentialDelivered({
-      ...claim,
+      environmentId: claim.environmentId,
+      ownerEpoch: claim.ownerEpoch,
+      sessionId: claim.sessionId,
       credentialHash: pending.credentialHash,
       deliveredAtMs: pending.checkedAtMs,
     });

@@ -201,6 +201,8 @@ describe("staged worker placement result recovery", () => {
       environmentId: active.environmentId,
       ownerEpoch: active.activeOwnerEpoch,
       runId: claim.runId,
+      claimId: claim.claimId,
+      placementGeneration: claim.placementGeneration,
     };
     expect(
       placementStore.beginWorkerSessionToolOperation({

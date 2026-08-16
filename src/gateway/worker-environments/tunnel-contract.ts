@@ -100,6 +100,7 @@ export type WorkerWorkspaceQuiescence = {
 
 type WorkerTurnLaunchRequest = {
   plan: WorkerLaunchPlan;
+  claimId: string;
   placementGeneration: number;
   timeoutMs?: number;
   signal?: AbortSignal;

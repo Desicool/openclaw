@@ -31,7 +31,19 @@ describe("worker environment service", () => {
       now: () => support.testState.nowMs,
     });
     const liveEvents = support.createLiveEvents();
-    const workerService = support.createService(support.createProvider(), { liveEvents });
+    const placementStore = {
+      hasWorkerTurn: vi.fn(() => true),
+      readWorkerTurnClaim: vi.fn(),
+      resolveWorkerTurn: vi.fn(),
+      validateWorkerTurn: vi.fn(() => true),
+      isWorkerTurnToolAuthorized: vi.fn(() => true),
+      updateAckCursors: vi.fn(),
+      registerTurnClaimClosedHandler: vi.fn(() => () => {}),
+    };
+    const workerService = support.createService(support.createProvider(), {
+      liveEvents,
+      placementStore,
+    });
     const event = { ...support.LIVE_EVENT, runEpoch: newer.ownerEpoch };
     await expect(workerService.pushLiveEvent(older, event)).resolves.toEqual({
       ok: false,

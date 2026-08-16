@@ -181,6 +181,8 @@ describe("worker placement terminal persistence", () => {
       environmentId: active.environmentId,
       ownerEpoch: active.activeOwnerEpoch,
       runId: claim.runId,
+      claimId: claim.claimId,
+      placementGeneration: claim.placementGeneration,
     };
     store.authorizeWorkerTurnTools(claim, ["sessions_send"]);
     expect(

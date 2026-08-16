@@ -103,6 +103,8 @@ describe("worker turn launcher reclaimed placement", () => {
           environmentId: ENVIRONMENT_ID,
           ownerEpoch: OWNER_EPOCH,
           runId,
+          claimId: request.claimId,
+          placementGeneration: request.placementGeneration,
           transcriptSeq: 2,
           liveSeq: 1,
         });

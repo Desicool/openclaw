@@ -26,6 +26,7 @@ import {
   type WorkerInferenceStore,
   type WorkerInferenceTurnInput,
 } from "./inference-store.js";
+import type { WorkerSessionTurnClaim } from "./placement-record.js";
 
 const DEFAULT_REQUEST_MAX_BYTES = WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES;
 // One active turn plus one provider that ignored abort. This prevents repeated
@@ -85,12 +86,11 @@ type ActiveInference = {
   streamedBytes: number;
   launched: boolean;
   settled: boolean;
-  credentialExpiryTimer?: ReturnType<typeof setTimeout>;
   abortReason?: WorkerInferenceErrorReason;
 };
 
-function activeKey(sessionId: string, runId: string): string {
-  return JSON.stringify([sessionId, runId]);
+function activeKey(identity: WorkerConnectionIdentity): string {
+  return `${identity.sessionId}\0${identity.claimId}\0${identity.placementGeneration}`;
 }
 
 function trySend(
@@ -210,7 +210,21 @@ function sameTurn(
     active.request.sessionId === request.sessionId &&
     active.request.runEpoch === request.runEpoch &&
     active.request.runId === request.runId &&
-    active.request.turnId === request.turnId
+    active.request.turnId === request.turnId &&
+    active.identity.claimId === identity.claimId &&
+    active.identity.placementGeneration === identity.placementGeneration
+  );
+}
+
+function matchesClaim(identity: WorkerConnectionIdentity, claim: WorkerSessionTurnClaim): boolean {
+  return (
+    claim.owner.kind === "worker" &&
+    identity.sessionId === claim.sessionId &&
+    identity.environmentId === claim.owner.environmentId &&
+    identity.ownerEpoch === claim.owner.ownerEpoch &&
+    identity.runId === claim.runId &&
+    identity.claimId === claim.claimId &&
+    identity.placementGeneration === claim.placementGeneration
   );
 }
 
@@ -221,12 +235,10 @@ export function createWorkerInferenceManager(options: {
   requestMaxBytes?: number;
   streamMaxBytes?: number;
   stopDrainMs?: number;
-  now?: () => number;
 }) {
   const store = options.store ?? createWorkerInferenceStore();
   const requestMaxBytes = options.requestMaxBytes ?? DEFAULT_REQUEST_MAX_BYTES;
   const streamMaxBytes = options.streamMaxBytes ?? WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES;
-  const now = options.now ?? Date.now;
   const active = new Map<string, ActiveInference>();
   const operations = new Map<Promise<void>, string>();
   const drainingSessionIds = new Set<string>();
@@ -237,14 +249,11 @@ export function createWorkerInferenceManager(options: {
     if (entry.abortReason) {
       return entry.abortReason;
     }
-    if (now() >= entry.identity.credentialExpiresAtMs) {
-      return "session-not-attached";
-    }
     const bindingError = matchesIdentity(entry.identity, entry.request);
     if (bindingError) {
       return bindingError;
     }
-    const key = activeKey(entry.request.sessionId, entry.request.runId);
+    const key = activeKey(entry.identity);
     if (active.get(key) !== entry) {
       return "cancelled";
     }
@@ -284,8 +293,6 @@ export function createWorkerInferenceManager(options: {
       return true;
     }
     abortEntry(entry, reason);
-    clearTimeout(entry.credentialExpiryTimer);
-    delete entry.credentialExpiryTimer;
     let outcome: WorkerInferenceTerminalOutcome;
     try {
       outcome = store.complete({
@@ -296,7 +303,7 @@ export function createWorkerInferenceManager(options: {
       return false;
     }
     entry.settled = true;
-    const key = activeKey(entry.request.sessionId, entry.request.runId);
+    const key = activeKey(entry.identity);
     if (active.get(key) === entry) {
       active.delete(key);
       sendTerminal(entry, outcome);
@@ -308,8 +315,6 @@ export function createWorkerInferenceManager(options: {
     if (entry.settled) {
       return;
     }
-    clearTimeout(entry.credentialExpiryTimer);
-    delete entry.credentialExpiryTimer;
     const fence = durableFence(entry);
     const outcome = normalizeTerminalOutcome(
       entry,
@@ -320,14 +325,14 @@ export function createWorkerInferenceManager(options: {
       storedOutcome = store.complete({ ...entry.storeInput, outcome });
     } catch {
       entry.settled = true;
-      const key = activeKey(entry.request.sessionId, entry.request.runId);
+      const key = activeKey(entry.identity);
       if (active.get(key) === entry) {
         active.delete(key);
       }
       return;
     }
     entry.settled = true;
-    const key = activeKey(entry.request.sessionId, entry.request.runId);
+    const key = activeKey(entry.identity);
     if (active.get(key) === entry) {
       active.delete(key);
       sendTerminal(entry, storedOutcome);
@@ -348,7 +353,7 @@ export function createWorkerInferenceManager(options: {
         request: entry.request,
         signal: entry.controller.signal,
         emit: (event) => {
-          const fence = processFence(entry);
+          const fence = durableFence(entry);
           if (fence) {
             abortEntry(entry, fence);
             return;
@@ -378,7 +383,7 @@ export function createWorkerInferenceManager(options: {
           entry.streamedBytes += frameBytes;
           entry.seq = nextSeq;
         },
-        isCurrent: () => processFence(entry) === null,
+        isCurrent: () => durableFence(entry) === null,
         ...(config ? { config } : {}),
       });
     } catch {
@@ -392,19 +397,6 @@ export function createWorkerInferenceManager(options: {
       return;
     }
     entry.launched = true;
-    const scheduleExpiry = () => {
-      const expiresInMs = entry.identity.credentialExpiresAtMs - now();
-      if (expiresInMs <= 0) {
-        settleAbort(entry, "session-not-attached");
-        return;
-      }
-      entry.credentialExpiryTimer = setTimeout(
-        scheduleExpiry,
-        Math.min(expiresInMs, 2_147_483_647),
-      );
-      entry.credentialExpiryTimer.unref?.();
-    };
-    scheduleExpiry();
     const operation = runWithGatewayIndependentRootWorkContinuation(() =>
       executeEntry(entry),
     ).catch(() => {
@@ -439,8 +431,10 @@ export function createWorkerInferenceManager(options: {
       return { ok: false, reason: "invalid-context" };
     }
     const serialized = stableStringify(params.request);
-    const hash = createHash("sha256").update(serialized).digest("hex");
-    const key = activeKey(params.request.sessionId, params.request.runId);
+    const hash = createHash("sha256")
+      .update(`${params.identity.claimId}\0${params.identity.placementGeneration}\0${serialized}`)
+      .digest("hex");
+    const key = activeKey(params.identity);
     const existing = active.get(key);
     if (existing) {
       if (
@@ -588,7 +582,7 @@ export function createWorkerInferenceManager(options: {
     if (revalidationError) {
       return { ok: false, reason: revalidationError };
     }
-    const entry = active.get(activeKey(params.request.sessionId, params.request.runId));
+    const entry = active.get(activeKey(params.identity));
     if (entry && sameTurn(entry, params.identity, params.request)) {
       if (!settleAbort(entry, "cancelled")) {
         return { ok: false, reason: "provider-error" };
@@ -630,6 +624,10 @@ export function createWorkerInferenceManager(options: {
     reason: WorkerInferenceErrorReason = "session-not-attached",
   ): void => {
     cancelWhere((entry) => entry.identity.environmentId === environmentId, reason);
+  };
+
+  const cancelClaim = (claim: WorkerSessionTurnClaim): void => {
+    cancelWhere((entry) => matchesClaim(entry.identity, claim), "session-not-attached");
   };
 
   const cancelSession = (sessionId: string, runId?: string): string[] => {
@@ -723,6 +721,7 @@ export function createWorkerInferenceManager(options: {
     start,
     cancel,
     cancelEnvironment,
+    cancelClaim,
     cancelSession,
     hasSession,
     resolveSessionIdForRunId,

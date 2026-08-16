@@ -13,6 +13,8 @@ export type WorkerSessionToolSource = {
     environmentId: string;
     ownerEpoch: number;
     runId: string;
+    claimId: string;
+    placementGeneration: number;
   };
   entry: NonNullable<ReturnType<typeof loadGatewaySessionEntryReadOnly>["entry"]>;
 };
@@ -39,7 +41,12 @@ export function resolveWorkerSessionToolSource(params: {
   placements: WorkerSessionPlacementStore;
 }): WorkerSessionToolSource {
   const identity = params.identity;
-  if (!identity.sessionId || !identity.runId) {
+  if (
+    !identity.sessionId ||
+    !identity.runId ||
+    !identity.claimId ||
+    identity.placementGeneration === null
+  ) {
     throw new Error("Worker session operation requires an active source turn");
   }
   const placement = params.placements.get(identity.sessionId);
@@ -49,7 +56,9 @@ export function resolveWorkerSessionToolSource(params: {
     placement.environmentId !== identity.environmentId ||
     placement.activeOwnerEpoch !== identity.ownerEpoch ||
     placement.turnClaim?.owner !== "worker" ||
+    placement.turnClaim.claimId !== identity.claimId ||
     placement.turnClaim.runId !== identity.runId ||
+    placement.turnClaim.generation !== identity.placementGeneration ||
     placement.turnClaim.ownerEpoch !== identity.ownerEpoch
   ) {
     throw new Error("Worker source session placement changed");
@@ -75,6 +84,8 @@ export function resolveWorkerSessionToolSource(params: {
       environmentId: identity.environmentId,
       ownerEpoch: identity.ownerEpoch,
       runId: identity.runId,
+      claimId: identity.claimId,
+      placementGeneration: identity.placementGeneration,
     },
     entry: loaded.entry,
   };

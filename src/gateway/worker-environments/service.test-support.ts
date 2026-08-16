@@ -160,6 +160,7 @@ export function createService(
       | "applyTranscriptCommit"
       | "bootstrapCallTimeoutMs"
       | "executeInference"
+      | "executeSessionTool"
       | "providerCallTimeoutMs"
       | "resolveSshIdentity"
       | "ensureNodeWorkerBundle"
@@ -348,6 +349,8 @@ export function seedAttachedIdentity(
     bundleHash: credential.bundleHash,
     sessionId,
     runId: "run-1",
+    claimId: "claim-run-1",
+    placementGeneration: 1,
     ownerEpoch: attached.ownerEpoch,
     rpcSetVersion: credential.rpcSetVersion,
     protocolFeatures: [...attached.bootstrapReceipt.protocolFeatures],
@@ -441,6 +444,8 @@ export function placementBinding(identity: WorkerConnectionIdentity) {
     environmentId: identity.environmentId,
     ownerEpoch: identity.ownerEpoch,
     runId: identity.runId ?? "run-missing",
+    claimId: identity.claimId ?? "claim-missing",
+    placementGeneration: identity.placementGeneration ?? 0,
   };
 }
 
@@ -450,11 +455,35 @@ export function placementHarness(
   serviceOptions: Parameters<typeof createService>[1] = {},
 ) {
   const identity = seedAttachedIdentity(environmentId, sessionId);
+  const claim = {
+    sessionId,
+    claimId: identity.claimId!,
+    runId: identity.runId!,
+    placementGeneration: identity.placementGeneration!,
+    owner: {
+      kind: "worker" as const,
+      environmentId,
+      ownerEpoch: identity.ownerEpoch,
+    },
+  };
+  const credentialHash = hashWorkerCredential(
+    [CREDENTIAL, environmentId, sessionId].join("-"),
+    claim,
+  );
+  testState.stateDb.db
+    .prepare(
+      "UPDATE worker_environment_credentials SET credential_hash = ? WHERE environment_id = ?",
+    )
+    .run(credentialHash, environmentId);
+  identity.credentialHash = credentialHash;
   const placementStore = {
     hasWorkerTurn: vi.fn(() => true),
+    readWorkerTurnClaim: vi.fn(() => claim),
+    resolveWorkerTurn: vi.fn(() => claim),
     validateWorkerTurn: vi.fn(() => true),
     isWorkerTurnToolAuthorized: vi.fn(() => true),
     updateAckCursors: vi.fn(),
+    registerTurnClaimClosedHandler: vi.fn(() => () => {}),
   };
   const workerService = createService(createProvider(), { ...serviceOptions, placementStore });
   return { identity, placementStore, workerService };

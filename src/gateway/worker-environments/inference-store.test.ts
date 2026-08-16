@@ -42,6 +42,8 @@ const IDENTITY: WorkerConnectionIdentity = {
   bundleHash: ["fixture", "bundle", "digest"].join("-"),
   sessionId: REQUEST.sessionId,
   runId: REQUEST.runId,
+  claimId: "claim-store",
+  placementGeneration: 4,
   ownerEpoch: REQUEST.runEpoch,
   rpcSetVersion: 1,
   protocolFeatures: ["worker-inference-v1"],
@@ -53,8 +55,16 @@ const PROVIDER_ERROR: WorkerInferenceTerminalOutcome = {
   message: "Provider request failed",
 };
 
-function hashRequest(request: WorkerInferenceStartParams): string {
-  return createHash("sha256").update(stableStringify(request)).digest("hex");
+function hashRequest(
+  identity: WorkerConnectionIdentity,
+  request: WorkerInferenceStartParams,
+): string {
+  const authority = JSON.stringify([identity.claimId, identity.placementGeneration]);
+  return createHash("sha256")
+    .update(authority)
+    .update("\0")
+    .update(stableStringify(request))
+    .digest("hex");
 }
 
 const BASE_INPUT: WorkerInferenceTurnInput = {
@@ -63,7 +73,7 @@ const BASE_INPUT: WorkerInferenceTurnInput = {
   runEpoch: REQUEST.runEpoch,
   runId: REQUEST.runId,
   turnId: REQUEST.turnId,
-  requestHash: hashRequest(REQUEST),
+  requestHash: hashRequest(IDENTITY, REQUEST),
 };
 
 function createSink() {
@@ -129,7 +139,6 @@ describe("worker inference SQLite store", () => {
     const manager = createWorkerInferenceManager({
       execute,
       store: managerStore,
-      now: () => nowMs,
     });
     const { frames, sink } = createSink();
     const result = manager.start({ identity: IDENTITY, request: REQUEST, sink });

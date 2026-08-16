@@ -186,6 +186,8 @@ describe("worker turn launcher remote handoff", () => {
           environmentId: ENVIRONMENT_ID,
           ownerEpoch: OWNER_EPOCH,
           runId: "run-worker-turn",
+          claimId: request.claimId,
+          placementGeneration: request.placementGeneration,
           transcriptSeq: 2,
           liveSeq: 1,
         });
@@ -424,6 +426,8 @@ describe("worker turn launcher remote handoff", () => {
           environmentId: ENVIRONMENT_ID,
           ownerEpoch: OWNER_EPOCH,
           runId: "run-persisted-user",
+          claimId: request.claimId,
+          placementGeneration: request.placementGeneration,
           transcriptSeq: 2,
           liveSeq: 1,
         });

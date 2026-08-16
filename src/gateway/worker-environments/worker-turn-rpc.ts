@@ -127,7 +127,12 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
   const placementBinding = (
     identity: WorkerConnectionIdentity,
   ): WorkerPlacementTurnBinding | undefined => {
-    if (!identity.sessionId || !identity.runId) {
+    if (
+      !identity.sessionId ||
+      !identity.runId ||
+      !identity.claimId ||
+      identity.placementGeneration === null
+    ) {
       return undefined;
     }
     return {
@@ -135,6 +140,8 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
       environmentId: identity.environmentId,
       ownerEpoch: identity.ownerEpoch,
       runId: identity.runId,
+      claimId: identity.claimId,
+      placementGeneration: identity.placementGeneration,
     };
   };
 
@@ -145,6 +152,39 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
     return placement ? { ...placement, credentialHash: identity.credentialHash } : undefined;
   };
 
+  const admitWorkerAt = (
+    admission: WorkerConnectParams["admission"],
+    expectedBuild: ExpectedWorkerBuild,
+    nowMs: number,
+  ) => {
+    const claim =
+      admission.sessionId !== null
+        ? options.placementStore?.readWorkerTurnClaim({
+            sessionId: admission.sessionId,
+            environmentId: admission.environmentId,
+            ownerEpoch: admission.ownerEpoch,
+          })
+        : undefined;
+    const admitted = admitWorkerConnection({
+      store,
+      admission,
+      expectedBuild,
+      nowMs,
+      ...(claim ? { turnClaim: claim } : {}),
+      allowExpiredCredential: true,
+    });
+    if (!admitted.ok || admission.sessionId === null || admission.runId === null) {
+      return admitted;
+    }
+    const operational = options.placementStore?.resolveWorkerTurn({
+      sessionId: admission.sessionId,
+      environmentId: admission.environmentId,
+      ownerEpoch: admission.ownerEpoch,
+      runId: admission.runId,
+    });
+    return operational ? admitted : ({ ok: false, reason: "placement-mismatch" } as const);
+  };
+
   const matchesTurnBinding = (
     left: WorkerProcessTurnBinding,
     right: WorkerProcessTurnBinding,
@@ -153,6 +193,8 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
     left.environmentId === right.environmentId &&
     left.ownerEpoch === right.ownerEpoch &&
     left.runId === right.runId &&
+    left.claimId === right.claimId &&
+    left.placementGeneration === right.placementGeneration &&
     safeEqualSecret(left.credentialHash, right.credentialHash);
 
   const recordAckCursor = (
@@ -186,11 +228,11 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
   const validateWorkerPlacement = (
     identity: WorkerConnectionIdentity,
   ): { durableClaim: boolean; valid: boolean } => {
-    if (!options.placementStore) {
-      return { durableClaim: false, valid: true };
-    }
     if (identity.sessionId === null && identity.runId === null) {
       return { durableClaim: false, valid: true };
+    }
+    if (!options.placementStore) {
+      return { durableClaim: false, valid: false };
     }
     const binding = placementBinding(identity);
     const valid = binding ? options.placementStore.validateWorkerTurn(binding) : false;
@@ -504,13 +546,7 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
         return { ok: false, reason: "environment-unavailable" } as const;
       }
       const preflightAtMs = now();
-      const preflight = admitWorkerConnection({
-        store,
-        admission,
-        expectedBuild: admission.handshake,
-        nowMs: preflightAtMs,
-        allowExpiredCredential: true,
-      });
+      const preflight = admitWorkerAt(admission, admission.handshake, preflightAtMs);
       if (!preflight.ok) {
         return preflight;
       }
@@ -530,13 +566,7 @@ export function createWorkerTurnRpc(options: WorkerTurnRpcOptions) {
         return { ok: false, reason: "environment-unavailable" } as const;
       }
       const admittedAtMs = now();
-      const admitted = admitWorkerConnection({
-        store,
-        admission,
-        expectedBuild,
-        nowMs: admittedAtMs,
-        allowExpiredCredential: true,
-      });
+      const admitted = admitWorkerAt(admission, expectedBuild, admittedAtMs);
       if (!admitted.ok) {
         return admitted;
       }

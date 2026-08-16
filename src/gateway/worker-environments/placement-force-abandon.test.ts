@@ -49,6 +49,8 @@ describe("forced worker environment abandonment", () => {
       environmentId,
       ownerEpoch: 2,
       runId: claim.runId,
+      claimId: claim.claimId,
+      placementGeneration: claim.placementGeneration,
     };
     store.authorizeWorkerTurnTools(claim, ["sessions_send"]);
     expect(

@@ -47,6 +47,8 @@ const IDENTITY: WorkerConnectionIdentity = {
   bundleHash: "b",
   sessionId: REQUEST.sessionId,
   runId: REQUEST.runId,
+  claimId: "claim-r",
+  placementGeneration: 4,
   ownerEpoch: REQUEST.runEpoch,
   rpcSetVersion: 1,
   protocolFeatures: ["worker-inference-v1"],
@@ -130,7 +132,7 @@ function accept(manager: Manager, overrides: StartOverrides = {}, launch = true)
 }
 
 function makeManager(execute: WorkerInferenceExecutor, store = createMemoryStore()) {
-  return createWorkerInferenceManager({ execute, store, now: () => 0 });
+  return createWorkerInferenceManager({ execute, store });
 }
 
 describe("worker inference manager", () => {
@@ -193,6 +195,64 @@ describe("worker inference manager", () => {
     accept(instance, { request: { ...REQUEST, runId: "new-run", turnId: "new-turn" } });
     await waitForFast(() => expect(signals).toHaveLength(2));
     expect(instance.cancelSession(REQUEST.sessionId, "new-run")).toEqual(["new-run"]);
+    expect(signals[1]?.aborted).toBe(true);
+    await instance.stop();
+  });
+
+  it("keeps a live exact claim past credential expiry and cancels only that claim", async () => {
+    const signals: AbortSignal[] = [];
+    const pending = [
+      createDeferred<WorkerInferenceTerminalOutcome>(),
+      createDeferred<WorkerInferenceTerminalOutcome>(),
+    ];
+    const instance = makeManager(({ signal }) => {
+      signals.push(signal);
+      const execution = pending[signals.length - 1];
+      if (!execution) {
+        throw new Error("unexpected inference execution");
+      }
+      signal.addEventListener("abort", () => execution.resolve(ERROR), { once: true });
+      return execution.promise;
+    });
+    const firstIdentity = { ...IDENTITY, credentialExpiresAtMs: 0 };
+    accept(instance, { identity: firstIdentity });
+    await waitForFast(() => expect(signals).toHaveLength(1));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    expect(signals[0]?.aborted).toBe(false);
+
+    const firstClaim = {
+      sessionId: REQUEST.sessionId,
+      claimId: firstIdentity.claimId!,
+      runId: REQUEST.runId,
+      placementGeneration: firstIdentity.placementGeneration!,
+      owner: {
+        kind: "worker" as const,
+        environmentId: firstIdentity.environmentId,
+        ownerEpoch: firstIdentity.ownerEpoch,
+      },
+    };
+    instance.cancelClaim(firstClaim);
+    expect(signals[0]?.aborted).toBe(true);
+
+    const secondIdentity = {
+      ...IDENTITY,
+      claimId: "claim-replacement",
+      placementGeneration: IDENTITY.placementGeneration! + 1,
+    };
+    accept(instance, {
+      identity: secondIdentity,
+      request: { ...REQUEST, turnId: "turn-replacement" },
+    });
+    await waitForFast(() => expect(signals).toHaveLength(2));
+    instance.cancelClaim(firstClaim);
+    expect(signals[1]?.aborted).toBe(false);
+    instance.cancelClaim({
+      ...firstClaim,
+      claimId: secondIdentity.claimId,
+      placementGeneration: secondIdentity.placementGeneration,
+    });
     expect(signals[1]?.aborted).toBe(true);
     await instance.stop();
   });
@@ -262,7 +322,6 @@ describe("worker inference manager", () => {
         return pending.promise;
       },
       store,
-      now: () => 0,
       streamMaxBytes: 2_048,
     });
     const sink = createSink();
