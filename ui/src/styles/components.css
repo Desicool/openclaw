@@ -2291,7 +2291,7 @@ openclaw-chat-session-rail {
 
   /* No pane can hold a column at this width, so the companion takes the whole
      surface rather than hovering over part of it. */
-  .chat-session-rail--expanded {
+  .chat-session-rail--expanded:not(.chat-session-rail--embedded) {
     position: fixed;
     z-index: 35;
     inset: 0;
