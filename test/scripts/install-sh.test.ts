@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   writeNpmBeforePolicyFixture,
   writeNpmFreshnessConflictFixture,
+  writeNpmInstallRetryFixture,
 } from "./install-npm-fixtures.js";
 
 const SCRIPT_PATH = "scripts/install.sh";
@@ -1341,6 +1342,222 @@ NODE
     expect(result.stdout).toContain("status=1");
     expect(result.stdout).toContain("npm installs do not support OpenClaw GitHub source targets");
     expect(result.stdout).toContain("--install-method git --version main");
+  });
+
+  it("links the executable package launcher when dist/entry.js is not executable", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-bin-link-"));
+    const bin = join(tmp, "bin");
+    const packageDir = join(tmp, "lib", "node_modules", "openclaw");
+    mkdirSync(join(packageDir, "dist"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(packageDir, "dist", "entry.js"), "export {};\n");
+    writeFileSync(
+      join(packageDir, "openclaw.mjs"),
+      '#!/usr/bin/env node\nprocess.stdout.write("OpenClaw fixture\\n");\n',
+    );
+    chmodSync(join(packageDir, "openclaw.mjs"), 0o755);
+
+    try {
+      const result = runInstallShell(
+        [
+          "set -euo pipefail",
+          `source ${JSON.stringify(SCRIPT_PATH)}`,
+          `npm() { [[ "$1" == "root" ]] && printf '%s\\n' ${JSON.stringify(join(tmp, "lib", "node_modules"))}; }`,
+          `npm_global_bin_dir() { printf '%s\\n' ${JSON.stringify(bin)}; }`,
+          "ensure_openclaw_bin_link",
+          `${JSON.stringify(join(bin, "openclaw"))} --version`,
+        ].join("\n"),
+      );
+
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(result.stdout).toContain("OpenClaw fixture");
+    } finally {
+      rmSync(tmp, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects an installed package whose executable launcher is missing", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-missing-bin-"));
+    const bin = join(tmp, "bin");
+    const packageDir = join(tmp, "lib", "node_modules", "openclaw");
+    mkdirSync(join(packageDir, "dist"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(packageDir, "dist", "entry.js"), "#!/usr/bin/env node\n");
+    chmodSync(join(packageDir, "dist", "entry.js"), 0o755);
+
+    try {
+      const result = runInstallShell(
+        [
+          "set -euo pipefail",
+          `source ${JSON.stringify(SCRIPT_PATH)}`,
+          `npm() { [[ "$1" == "root" ]] && printf '%s\\n' ${JSON.stringify(join(tmp, "lib", "node_modules"))}; }`,
+          `npm_global_bin_dir() { printf '%s\\n' ${JSON.stringify(bin)}; }`,
+          "ensure_openclaw_bin_link",
+        ].join("\n"),
+      );
+
+      expect(result.status).toBe(1);
+      expect(existsSync(join(bin, "openclaw"))).toBe(false);
+    } finally {
+      rmSync(tmp, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects an installed package whose launcher fails version validation", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-invalid-bin-"));
+    const bin = join(tmp, "bin");
+    const packageDir = join(tmp, "lib", "node_modules", "openclaw");
+    mkdirSync(packageDir, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(packageDir, "openclaw.mjs"), "#!/bin/sh\nexit 7\n");
+    chmodSync(join(packageDir, "openclaw.mjs"), 0o755);
+
+    try {
+      const result = runInstallShell(
+        [
+          "set -euo pipefail",
+          `source ${JSON.stringify(SCRIPT_PATH)}`,
+          `npm() { [[ "$1" == "root" ]] && printf '%s\\n' ${JSON.stringify(join(tmp, "lib", "node_modules"))}; }`,
+          `npm_global_bin_dir() { printf '%s\\n' ${JSON.stringify(bin)}; }`,
+          "ensure_openclaw_bin_link",
+        ].join("\n"),
+      );
+
+      expect(result.status).toBe(7);
+    } finally {
+      rmSync(tmp, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    { requested: "latest", outcome: "success", error: "", calls: 1, status: 0 },
+    {
+      requested: "beta",
+      outcome: "transient",
+      error: "ECONNRESET socket hang up",
+      calls: 2,
+      status: 0,
+    },
+    {
+      requested: "next",
+      outcome: "transient",
+      error: "ECONNRESET socket hang up",
+      calls: 2,
+      status: 0,
+    },
+    {
+      requested: "2026.8.1",
+      outcome: "transient",
+      error: "ECONNRESET socket hang up",
+      calls: 2,
+      status: 0,
+    },
+    {
+      requested: "latest",
+      outcome: "persistent",
+      error: "EACCES permission denied",
+      calls: 2,
+      status: 1,
+    },
+    {
+      requested: "beta",
+      outcome: "persistent",
+      error: "ENOSPC no space left",
+      calls: 2,
+      status: 1,
+    },
+  ])(
+    "keeps openclaw@$requested immutable across $outcome npm installs",
+    ({ requested, outcome, error, calls: expectedCalls, status: expectedStatus }) => {
+      const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-npm-retry-"));
+      const bin = join(tmp, "bin");
+      const calls = join(tmp, "calls");
+      const npmRoot = join(tmp, "lib", "node_modules");
+      mkdirSync(bin, { recursive: true });
+      writeNpmInstallRetryFixture(join(bin, "npm"));
+
+      try {
+        const result = runInstallShell(
+          [
+            "set -euo pipefail",
+            `source ${JSON.stringify(SCRIPT_PATH)}`,
+            `PATH=${JSON.stringify(`${bin}:/usr/bin:/bin`)}`,
+            `OPENCLAW_VERSION=${requested}`,
+            "USE_BETA=0",
+            "NPM_LOGLEVEL=error",
+            "NPM_SILENT_FLAG=",
+            `npm_global_bin_dir() { printf '%s\\n' ${JSON.stringify(bin)}; }`,
+            "set +e",
+            "install_openclaw",
+            "status=$?",
+            "exit $status",
+          ].join("\n"),
+          {
+            NPM_FAKE_CALLS: calls,
+            NPM_FAKE_ERROR: error,
+            NPM_FAKE_OUTCOME: outcome,
+            NPM_FAKE_PACKAGE_DIR: join(npmRoot, "openclaw"),
+            NPM_FAKE_ROOT: npmRoot,
+          },
+        );
+
+        expect(result.status).toBe(expectedStatus);
+        expect(readFileSync(calls, "utf8").trim().split("\n")).toEqual(
+          Array.from({ length: expectedCalls }, () => `openclaw@${requested}`),
+        );
+        if (expectedStatus !== 0) {
+          expect(`${result.stdout}\n${result.stderr}`).toContain(`${error} (attempt 2)`);
+        }
+        if (requested !== "next") {
+          expect(`${result.stdout}\n${result.stderr}`).not.toContain("openclaw@next");
+        }
+      } finally {
+        rmSync(tmp, { force: true, recursive: true });
+      }
+    },
+  );
+
+  it("fails after retrying the exact npm spec when npm exits zero without installing OpenClaw", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-npm-empty-success-"));
+    const bin = join(tmp, "bin");
+    const calls = join(tmp, "calls");
+    const npmRoot = join(tmp, "lib", "node_modules");
+    mkdirSync(bin, { recursive: true });
+    writeNpmInstallRetryFixture(join(bin, "npm"));
+
+    try {
+      const result = runInstallShell(
+        [
+          "set -euo pipefail",
+          `source ${JSON.stringify(SCRIPT_PATH)}`,
+          `PATH=${JSON.stringify(`${bin}:/usr/bin:/bin`)}`,
+          "OPENCLAW_VERSION=latest",
+          "USE_BETA=0",
+          "NPM_LOGLEVEL=error",
+          "NPM_SILENT_FLAG=",
+          `npm_global_bin_dir() { printf '%s\\n' ${JSON.stringify(bin)}; }`,
+          "install_openclaw",
+        ].join("\n"),
+        {
+          NPM_FAKE_CALLS: calls,
+          NPM_FAKE_ERROR: "",
+          NPM_FAKE_OUTCOME: "success",
+          NPM_FAKE_ROOT: npmRoot,
+        },
+      );
+
+      expect(result.status).toBe(1);
+      expect(readFileSync(calls, "utf8").trim().split("\n")).toEqual([
+        "openclaw@latest",
+        "openclaw@latest",
+      ]);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(
+        "npm install did not produce a usable OpenClaw package",
+      );
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain("openclaw@next");
+    } finally {
+      rmSync(tmp, { force: true, recursive: true });
+    }
   });
 
   it("does not emit before args when npmrc min-release-age computes a before cutoff", () => {

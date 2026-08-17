@@ -2169,7 +2169,8 @@ fix_npm_permissions() {
 ensure_openclaw_bin_link() {
     local npm_root=""
     npm_root="$(npm root -g 2>/dev/null || true)"
-    if [[ -z "$npm_root" || ! -d "$npm_root/openclaw" ]]; then
+    local launcher="${npm_root}/openclaw/openclaw.mjs"
+    if [[ -z "$npm_root" || ! -x "$launcher" ]]; then
         return 1
     fi
     local npm_bin=""
@@ -2179,10 +2180,10 @@ ensure_openclaw_bin_link() {
     fi
     mkdir -p "$npm_bin"
     if [[ ! -x "${npm_bin}/openclaw" ]]; then
-        ln -sf "$npm_root/openclaw/dist/entry.js" "${npm_bin}/openclaw"
+        ln -sf "$launcher" "${npm_bin}/openclaw"
         ui_info "Created openclaw bin link at ${npm_bin}/openclaw"
     fi
-    return 0
+    "${npm_bin}/openclaw" --version >/dev/null 2>&1
 }
 
 # Check for existing OpenClaw installation
@@ -3040,21 +3041,14 @@ install_openclaw() {
     local install_spec=""
     install_spec="$(resolve_package_install_spec "${package_name}" "${OPENCLAW_VERSION}")"
 
-    if ! install_openclaw_npm "${install_spec}"; then
-        ui_warn "npm install failed; retrying"
+    if ! install_openclaw_npm "${install_spec}" || ! ensure_openclaw_bin_link; then
+        ui_warn "npm install did not produce a usable OpenClaw package; retrying"
         cleanup_npm_openclaw_paths
-        install_openclaw_npm "${install_spec}"
-    fi
-
-    if [[ "${OPENCLAW_VERSION}" == "latest" && "${package_name}" == "openclaw" ]]; then
-        if ! resolve_openclaw_bin &> /dev/null; then
-            ui_warn "npm install openclaw@latest failed; retrying openclaw@next"
-            cleanup_npm_openclaw_paths
-            install_openclaw_npm "openclaw@next"
+        if ! install_openclaw_npm "${install_spec}" || ! ensure_openclaw_bin_link; then
+            ui_error "npm install did not produce a usable OpenClaw package"
+            return 1
         fi
     fi
-
-    ensure_openclaw_bin_link || true
 
     ui_success "OpenClaw installed"
 }
