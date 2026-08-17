@@ -38,7 +38,6 @@ const hoisted = vi.hoisted(() => {
     installReceipt: null,
   }));
   const scheduleGatewayUpdateCheck = vi.fn(() => () => {});
-  const startGatewayTailscaleExposure = vi.fn(async () => null);
   const logGatewayStartup = vi.fn();
   const scheduleSubagentRegistrySweep = vi.fn();
   const markStartupOrphanedMainSessionsForRecovery = vi.fn(async () => ({
@@ -102,7 +101,6 @@ const hoisted = vi.hoisted(() => {
     triggerInternalHook,
     initializeGatewayUpdateStatus,
     scheduleGatewayUpdateCheck,
-    startGatewayTailscaleExposure,
     logGatewayStartup,
     scheduleSubagentRegistrySweep,
     markStartupOrphanedMainSessionsForRecovery,
@@ -263,10 +261,6 @@ vi.mock("../agents/auth-profiles.js", async () => {
 
 vi.mock("../agents/tools/transcripts-tool.js", () => ({
   createTranscriptsAutoStartService: hoisted.createTranscriptsAutoStartService,
-}));
-
-vi.mock("./server-tailscale.js", () => ({
-  startGatewayTailscaleExposure: hoisted.startGatewayTailscaleExposure,
 }));
 
 const {
@@ -484,7 +478,6 @@ describe("startGatewayPostAttachRuntime", () => {
     hoisted.triggerInternalHook.mockClear();
     hoisted.initializeGatewayUpdateStatus.mockClear();
     hoisted.scheduleGatewayUpdateCheck.mockClear();
-    hoisted.startGatewayTailscaleExposure.mockClear();
     hoisted.logGatewayStartup.mockClear();
     hoisted.scheduleSubagentRegistrySweep.mockClear();
     hoisted.markStartupOrphanedMainSessionsForRecovery.mockReset();
@@ -920,44 +913,6 @@ describe("startGatewayPostAttachRuntime", () => {
 
     releaseSidecars?.();
     await waitForGatewayTestState(() => expect(sidecarsCompleted).toBe(true));
-  });
-
-  it("observes deferred startup logging failure while tailscale startup is pending", async () => {
-    const startupError = new Error("startup logging failed");
-    const unhandledRejections: unknown[] = [];
-    const onUnhandledRejection = (reason: unknown) => unhandledRejections.push(reason);
-    let releaseTailscale: (() => void) | undefined;
-    const tailscaleStartup = new Promise<null>((resolve) => {
-      releaseTailscale = () => resolve(null);
-    });
-    const logGatewayStartup = vi.fn().mockRejectedValue(startupError);
-    process.on("unhandledRejection", onUnhandledRejection);
-
-    try {
-      const runtimePromise = startGatewayPostAttachRuntime(
-        createPostAttachParams({ sidecarStartup: "defer" }),
-        createPostAttachRuntimeDeps({
-          logGatewayStartup,
-          startGatewayTailscaleExposure: vi.fn(() => tailscaleStartup),
-        }),
-      );
-
-      await waitForGatewayTestState(() => {
-        expect(releaseTailscale).toBeTypeOf("function");
-        expect(logGatewayStartup).toHaveBeenCalledOnce();
-      });
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(unhandledRejections).toEqual([]);
-
-      releaseTailscale?.();
-      const runtime = await runtimePromise;
-      await expect(runtime.startupSettled).rejects.toBe(startupError);
-    } finally {
-      releaseTailscale?.();
-      process.off("unhandledRejection", onUnhandledRejection);
-    }
   });
 
   it("retains a sidecar whose cleanup fails after startup logging rejects", async () => {
@@ -3502,7 +3457,6 @@ function createPostAttachRuntimeDeps(
     scheduleGatewayUpdateCheck: hoisted.scheduleGatewayUpdateCheck,
     startGatewaySidecars: vi.fn(async () => ({ pluginServices: null, postReadySidecars: [] })),
     warmSystemCa: vi.fn(async () => {}),
-    startGatewayTailscaleExposure: hoisted.startGatewayTailscaleExposure,
     loadSubagentRegistrySweep: vi.fn(async () => hoisted.scheduleSubagentRegistrySweep),
     ...overrides,
   };
@@ -3521,15 +3475,7 @@ function createPostAttachParams(overrides: Partial<PostAttachParams> = {}): Post
     isNixMode: false,
     broadcastToConnIds: vi.fn(),
     getClientConnIds: () => new Set(),
-    tailscaleMode: "off",
-    resetOnExit: false,
-    preserveFunnel: false,
     controlUiBasePath: "/",
-    logTailscale: {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
     gatewayPluginConfigAtStart: { hooks: { internal: { enabled: false } } } as never,
     activationSourceConfig: { hooks: { internal: { enabled: false } } } as never,
     pluginManifestRecords: [],
