@@ -220,8 +220,8 @@ export function createOpenClawTools(
     spawnWorkspaceDir?: string;
     /** Current runtime directory used as the default project for follow-up suggestions. */
     cwd?: string;
-    /** Callback invoked when sessions_yield tool is called. */
     onYield?: (message: string, acknowledgment?: string) => Promise<void> | void;
+    claimYieldCompletion?: () => boolean | Promise<boolean>;
     /** Allow plugin tools for this tool set to late-bind the gateway subagent. */
     allowGatewaySubagentBinding?: boolean;
   } & SpawnedToolContext &
@@ -445,12 +445,11 @@ export function createOpenClawTools(
       allowlist: explicitFactoryAllowlist,
       denylist: explicitFactoryDenylist,
     });
-  const effectiveCallGateway = embedded ? createEmbeddedCallGateway() : callAgentToolGatewayRequest;
   const sessionLookupToolOptions = {
     agentSessionKey: options?.agentSessionKey,
     sandboxed: options?.sandboxed,
     config: resolvedConfig,
-    callGateway: effectiveCallGateway,
+    callGateway: embedded ? createEmbeddedCallGateway() : callAgentToolGatewayRequest,
     sessionLinkBase: resolveControlUiSessionLinkBase(resolvedConfig),
   };
   const progressCardTool = shouldIncludeProgressCardToolForOpenClawTools({
@@ -461,11 +460,6 @@ export function createOpenClawTools(
         agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,
       })
     : null;
-  const includeAskUserTool = shouldIncludeAskUserToolForOpenClawTools({
-    config: resolvedConfig,
-    agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,
-    pluginToolDenylist: options?.pluginToolDenylist,
-  });
   const transcriptsTool = resolveTranscriptsTool(resolvedConfig, sessionAgentId, options);
   const tools: AnyAgentTool[] = [
     createDashboardTool({
@@ -603,7 +597,11 @@ export function createOpenClawTools(
         ]),
     ...collectPresentOpenClawTools([progressCardTool]),
     ...swarmToolGroups.structuredOutput,
-    ...(includeAskUserTool
+    ...(shouldIncludeAskUserToolForOpenClawTools({
+      config: resolvedConfig,
+      agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,
+      pluginToolDenylist: options?.pluginToolDenylist,
+    })
       ? [
           createAskUserTool({
             agentId: sessionAgentId,
@@ -686,10 +684,11 @@ export function createOpenClawTools(
     ...swarmToolGroups.agentsWait,
     createSessionsYieldTool({
       sessionId: options?.sessionId,
-      onBeforeYield: createRequesterYieldCallback({
+      claimYield: createRequesterYieldCallback({
         requesterSessionKey: trimmedRunSessionKey || options?.agentSessionKey,
         requesterAgentId: sessionAgentId,
         requesterTurnRunId: options?.runId,
+        claimYieldCompletion: options?.claimYieldCompletion,
       }),
       onYield: options?.onYield,
     }),
