@@ -953,6 +953,7 @@ export const en: TranslationMap = {
     owners: "Owners",
     allOwners: "All owners",
     involvingMe: "Involving me",
+    ownerYou: "{name} (You)",
     withParticipant: "with {name}",
     withMoreParticipants: "+{count} more",
     assignToMe: "Assign to me",
