@@ -62,7 +62,6 @@ export type SessionListOptions = {
   boardFace?: "chat" | "dashboard";
   activeMinutes?: number;
   search?: string;
-  creatorId?: string;
   ownerId?: string;
   involvingMe?: boolean;
   offset?: number;
@@ -173,7 +172,7 @@ export type SessionCapability = {
     listener: (snapshot: SessionListSnapshot) => void,
   ) => () => void;
   refreshList: (options?: SessionRefreshOptions) => Promise<void>;
-  setCreatorFilter: (creatorId: string | null) => Promise<void>;
+  setOwnerFilter: (ownerId: string | null) => Promise<void>;
   setInvolvingMeFilter: (enabled: boolean) => Promise<void>;
   reconcile: (
     row: GatewaySessionRow | undefined,
