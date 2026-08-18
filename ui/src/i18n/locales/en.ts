@@ -1111,6 +1111,7 @@ export const en: TranslationMap = {
     forkSession: "Fork",
     forkFromLastCompleted: "Fork from last completed message",
     forkedSession: "Forked session",
+    copySessionId: "Copy session ID",
     openPullRequest: "Open PR",
     openInEditorMenu: "Open in",
     archiveSession: "Archive session",
