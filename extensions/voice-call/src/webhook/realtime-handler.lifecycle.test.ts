@@ -38,6 +38,12 @@ function createRealtimeConfig(): VoiceCallRealtimeConfig {
   };
 }
 
+const noOpStreamDisconnectLifecycle = {
+  connect: () => {},
+  disconnect: () => {},
+  retire: () => {},
+};
+
 function createBridge(
   close: () => void,
   overrides: Partial<RealtimeVoiceBridge> = {},
@@ -82,6 +88,7 @@ function createCarrierLifecycleHarness(
   options: {
     initialMessage?: string;
     resolveCallRegistration?: ConstructorParameters<typeof RealtimeCallHandler>[3];
+    streamDisconnectLifecycle?: ConstructorParameters<typeof RealtimeCallHandler>[5];
   } = {},
 ) {
   const realtimeProvider = makeRealtimeProvider(createBridgeForCall);
@@ -109,6 +116,7 @@ function createCarrierLifecycleHarness(
     { name: "twilio", hangupCall } as unknown as VoiceCallProvider,
     options.resolveCallRegistration ?? makeCallRegistrationResolver(realtimeProvider),
     "/voice/webhook",
+    options.streamDisconnectLifecycle ?? noOpStreamDisconnectLifecycle,
   );
   return { call, handler, hangupCall, processEvent };
 }
@@ -569,6 +577,7 @@ describe("RealtimeCallHandler lifecycle", () => {
       } as unknown as VoiceCallProvider,
       makeCallRegistrationResolver(makeRealtimeProvider(createBridgeForCall)),
       "/voice/webhook",
+      noOpStreamDisconnectLifecycle,
     );
     const { streamUrl } = handler.issueStreamSession();
     const server = await startUpgradeWsServer({
@@ -678,6 +687,7 @@ describe("RealtimeCallHandler lifecycle", () => {
       } as unknown as VoiceCallProvider,
       makeCallRegistrationResolver(makeRealtimeProvider(createBridgeForCall)),
       "/voice/webhook",
+      noOpStreamDisconnectLifecycle,
     );
     const { streamUrl } = handler.issueStreamSession();
     const server = await startUpgradeWsServer({
@@ -765,6 +775,7 @@ describe("RealtimeCallHandler lifecycle", () => {
       } as unknown as VoiceCallProvider,
       makeCallRegistrationResolver(makeRealtimeProvider(createBridgeForCall)),
       "/voice/webhook",
+      noOpStreamDisconnectLifecycle,
     );
     const consult = vi.fn(async () => ({ text: "This should not run." }));
     handler.registerToolHandler("openclaw_agent_consult", consult);
@@ -880,6 +891,7 @@ describe("RealtimeCallHandler lifecycle", () => {
       } as unknown as VoiceCallProvider,
       makeCallRegistrationResolver(makeRealtimeProvider(createBridgeForCall)),
       "/voice/webhook",
+      noOpStreamDisconnectLifecycle,
     );
     handler.registerToolHandler("openclaw_agent_consult", async (_args, _callId, context) => {
       consultSignal = context.abortSignal;
