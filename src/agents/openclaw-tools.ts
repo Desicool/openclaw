@@ -12,6 +12,7 @@ import { selectApplicableRuntimeConfig } from "../config/config.js";
 import { resolveControlUiSessionLinkBase } from "../config/control-ui-link-base.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isEmbeddedMode } from "../infra/embedded-mode.js";
+import { resolveWidgetPresenters } from "../plugins/widget-presenters.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.js";
 import { getActiveRuntimeWebToolsMetadataFromState } from "../secrets/runtime-web-tools-state.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
@@ -254,9 +255,7 @@ export function createOpenClawTools(
       ? undefined
       : resolveAgentWorkspaceDir(resolvedConfig, sessionAgentId);
   const workspaceDir = resolveWorkspaceRoot(options?.workspaceDir ?? inferredWorkspaceDir);
-  const spawnWorkspaceDir = resolveWorkspaceRoot(
-    options?.spawnWorkspaceDir ?? options?.workspaceDir ?? inferredWorkspaceDir,
-  );
+  const spawnWorkspaceDir = resolveWorkspaceRoot(options?.spawnWorkspaceDir ?? workspaceDir);
   options?.recordToolPrepStage?.("openclaw-tools:session-workspace");
   const deliveryContext = normalizeDeliveryContext({
     channel: options?.agentChannel,
@@ -543,6 +542,7 @@ export function createOpenClawTools(
             agentId: sessionAgentId,
             agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,
             inlineHostEnabled: isCoreCanvasHostEnabled(resolvedConfig),
+            presenters: resolveWidgetPresenters().map((registration) => registration.presenter),
           }),
         ]),
     ...collectPresentOpenClawTools([heartbeatTool]),
