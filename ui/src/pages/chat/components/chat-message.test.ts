@@ -938,11 +938,10 @@ describe("grouped chat rendering", () => {
       HTMLAnchorElement,
     );
     expect(disclosure.classList.contains("is-expanded")).toBe(false);
-    expect(collapsedText.textContent?.trim()).toBe(`${collapsedLines.join("\n")}…`);
-    expect(collapsedText.textContent).not.toContain(expandedTail);
+    expect(collapsedText.textContent).toContain(expandedTail);
     expect(collapsedFileLink.dataset.filePath).toBe("AGENTS.md");
     expect(collapsedFileLink.dataset.fileLine).toBe("188");
-    expect(toggle.textContent?.trim()).toBe("Show more");
+    expect(toggle.getAttribute("aria-label")).toBe("Show more");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     toggle.click();
@@ -970,11 +969,11 @@ describe("grouped chat rendering", () => {
     expect(expandedText.textContent).toContain(expandedTail);
     expect(expandedFileLink.dataset.filePath).toBe("AGENTS.md");
     expect(expandedFileLink.dataset.fileLine).toBe("188");
-    expect(collapseToggle.textContent?.trim()).toBe("Show less");
+    expect(collapseToggle.getAttribute("aria-label")).toBe("Show less");
     expect(collapseToggle.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("does not split a surrogate pair at the collapsed character limit", () => {
+  it("collapses a long single-line user message without truncating its DOM", () => {
     const container = document.createElement("div");
     const markdownContent = `${"a".repeat(699)}😀`;
 
@@ -985,9 +984,9 @@ describe("grouped chat rendering", () => {
       { onToggleUserMessageExpanded: vi.fn() },
     );
 
-    expect(expectElement(container, ".chat-text", HTMLDivElement).textContent?.trim()).toBe(
-      `${"a".repeat(699)}…`,
-    );
+    const disclosure = expectElement(container, ".chat-message-disclosure", HTMLDivElement);
+    expect(disclosure.querySelector(".chat-message-disclosure__toggle")).not.toBeNull();
+    expect(expectElement(disclosure, ".chat-text", HTMLDivElement).textContent).toContain("😀");
   });
 
   it("does not add prompt disclosure controls to short user or assistant messages", () => {
@@ -1000,7 +999,10 @@ describe("grouped chat rendering", () => {
       "user",
       { onToggleUserMessageExpanded },
     );
-    expect(container.querySelector(".chat-message-disclosure")).toBeNull();
+    expect(container.querySelector(".chat-message-disclosure")).not.toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>(".chat-message-disclosure__toggle")?.hidden,
+    ).toBe(true);
 
     renderAssistantMessage(
       container,
