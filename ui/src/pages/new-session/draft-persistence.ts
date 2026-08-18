@@ -71,6 +71,7 @@ export class NewSessionDraftPersistence {
     if (currentOwner === nextOwner) {
       return;
     }
+    const routeKey = this.routeKey;
     this.persistNow();
     this.restoreGeneration += 1;
     this.restoredIdentity = "";
@@ -79,6 +80,10 @@ export class NewSessionDraftPersistence {
     this.recoveryScope = recoveryScope;
     if (currentOwner && !preserveCurrent) {
       this.apply("", [], true);
+    }
+    // The route may win the startup race; activate it as soon as its owner exists.
+    if (!preserveCurrent) {
+      this.activateRoute(routeKey);
     }
   }
 
@@ -100,7 +105,7 @@ export class NewSessionDraftPersistence {
   }
 
   selectRoute(routeKey: string) {
-    if (!this.gatewayOwner || !this.recoveryScope || !routeKey) {
+    if (!routeKey) {
       return;
     }
     if (this.routeKey !== routeKey) {
