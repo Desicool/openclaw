@@ -189,6 +189,8 @@ export const en: TranslationMap = {
     ariaLabel: "Session progress",
     title: "Progress",
     noteLabel: "Progress note",
+    dismiss: "Dismiss progress card",
+    dismissFailed: "Could not dismiss the progress card. Try again.",
     widgetLabel: "Session progress",
     widgetLoading: "Loading session progress…",
     widgetEmpty: "No progress card yet",
