@@ -10,6 +10,7 @@ import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runti
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { parse as parseSemver } from "semver";
 import { resolveCodexAppServerRuntimeOptions, type CodexAppServerStartOptions } from "./config.js";
+import { createCodexElicitationResponse } from "./elicitation-response.js";
 import {
   type CodexAppServerRequestMethod,
   type CodexAppServerRequestParams,
@@ -296,6 +297,10 @@ export class CodexAppServerClient {
       },
       capabilities: {
         experimentalApi: true,
+        extensions: {
+          "openai/standard-form-input": {},
+          "openai/form": {},
+        },
       },
     } satisfies CodexInitializeParams);
     this.serverVersion = assertSupportedCodexAppServerVersion(response);
@@ -963,9 +968,9 @@ function defaultServerRequestResponse(
     };
   }
   if (request.method === "mcpServer/elicitation/request") {
-    return {
-      action: "decline",
-    };
+    return createCodexElicitationResponse("decline", null, {
+      message: "OpenClaw has no interactive handler for this elicitation.",
+    });
   }
   return {};
 }
