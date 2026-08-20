@@ -3144,6 +3144,7 @@ public struct MessageActionParams: Codable, Sendable {
     public let channel: String
     public let action: String
     public let params: [String: AnyCodable]
+    public let reply: AnyCodable?
     public let accountid: String?
     public let requesteraccountid: String?
     public let requestersenderid: String?
@@ -3160,6 +3161,7 @@ public struct MessageActionParams: Codable, Sendable {
         channel: String,
         action: String,
         params: [String: AnyCodable],
+        reply: AnyCodable? = nil,
         accountid: String? = nil,
         requesteraccountid: String? = nil,
         requestersenderid: String? = nil,
@@ -3175,6 +3177,7 @@ public struct MessageActionParams: Codable, Sendable {
         self.channel = channel
         self.action = action
         self.params = params
+        self.reply = reply
         self.accountid = accountid
         self.requesteraccountid = requesteraccountid
         self.requestersenderid = requestersenderid
@@ -3192,6 +3195,7 @@ public struct MessageActionParams: Codable, Sendable {
         case channel
         case action
         case params
+        case reply
         case accountid = "accountId"
         case requesteraccountid = "requesterAccountId"
         case requestersenderid = "requesterSenderId"
