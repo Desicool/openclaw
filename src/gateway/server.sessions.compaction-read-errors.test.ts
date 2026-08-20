@@ -15,6 +15,11 @@ import {
   setupGatewaySessionsTestHarness,
 } from "./test/server-sessions.test-helpers.js";
 
+vi.hoisted(() => {
+  // Earlier Gateway suites may have already loaded the unmocked accessor graph.
+  vi.resetModules();
+});
+
 type LoadTranscriptEvents =
   (typeof import("../config/sessions/session-accessor.sqlite-read.js"))["loadTranscriptEvents"];
 
