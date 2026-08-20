@@ -307,6 +307,7 @@ describe("subagent registry lifecycle error grace", () => {
       requesterTurnRunId,
       childSessionKey: `agent:main:subagent:${childSuffix}`,
       requesterSessionKey: MAIN_REQUESTER_SESSION_KEY,
+      requesterAgentId: "main",
       requesterDisplayKey: MAIN_REQUESTER_DISPLAY_KEY,
       task,
       cleanup: "keep",
