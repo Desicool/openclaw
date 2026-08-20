@@ -1581,10 +1581,13 @@ describe("runSetupWizard", () => {
     ]);
     runSetupMigrationImport.mockRejectedValueOnce(error);
     const setupChoices: Array<"import" | "quickstart"> = ["import", "quickstart"];
-    const setupPrompts: WizardSelectParams<unknown>[] = [];
     const select = vi.fn(async (params: WizardSelectParams<unknown>) => {
       if (params.message === "Setup mode") {
-        setupPrompts.push(params);
+        expect(params.options).toEqual([
+          expect.objectContaining({ value: "quickstart", label: "QuickStart (recommended)" }),
+          expect.objectContaining({ value: "advanced", label: "Manual setup" }),
+          expect.objectContaining({ value: "import", label: "Import from another agent" }),
+        ]);
         return setupChoices.shift();
       }
       return "__skip__";
@@ -1608,16 +1611,44 @@ describe("runSetupWizard", () => {
     );
 
     expect(select.mock.calls.filter(([params]) => params.message === "Setup mode")).toHaveLength(2);
-    expect(setupPrompts[0]?.options).toEqual([
-      expect.objectContaining({ value: "quickstart", label: "QuickStart (recommended)" }),
-      expect.objectContaining({ value: "advanced", label: "Manual setup" }),
-      expect.objectContaining({ value: "import", label: "Import from another agent" }),
-    ]);
     expect(runSetupMigrationImport).toHaveBeenCalledOnce();
     expect(prompter.note).toHaveBeenCalledWith(
       expect.stringContaining(detail),
       "Existing config detected",
     );
+    expect(finalizeSetupWizard).toHaveBeenCalledOnce();
+  });
+
+  it("returns from the migration picker without restarting setup", async () => {
+    const workspaceDir = await makeCaseDir("import-back-");
+    listSetupMigrationOptions.mockResolvedValueOnce([
+      { providerId: "hermes", label: "Import from Hermes" },
+    ]);
+    runSetupMigrationImport.mockResolvedValueOnce({ kind: "back" });
+    const setupChoices: Array<"import" | "quickstart"> = ["import", "quickstart"];
+    const select = vi.fn(async ({ message }: WizardSelectParams<unknown>) =>
+      message === "Setup mode" ? setupChoices.shift() : "__skip__",
+    );
+
+    await runSetupWizard(
+      {
+        acceptRisk: true,
+        authChoice: "skip",
+        installDaemon: false,
+        skipChannels: true,
+        skipSkills: true,
+        skipSearch: true,
+        skipHealth: true,
+        skipUi: true,
+        workspace: workspaceDir,
+      },
+      createRuntime(),
+      buildWizardPrompter({ select: select as unknown as WizardPrompter["select"] }),
+    );
+
+    expect(select.mock.calls.filter(([params]) => params.message === "Setup mode")).toHaveLength(2);
+    expect(detectSetupMigrationSources).toHaveBeenCalledOnce();
+    expect(runSetupMigrationImport).toHaveBeenCalledOnce();
     expect(finalizeSetupWizard).toHaveBeenCalledOnce();
   });
 
