@@ -277,6 +277,10 @@ suite.define(() => {
         result: "process complete",
         toolCallId: "callProcess",
       });
+      const workingRowKey = await page
+        .locator("[data-virtual-row-key^='stream-run:']")
+        .last()
+        .getAttribute("data-virtual-row-key");
       const finalText = Array.from(
         { length: 18 },
         (_, index) =>
@@ -302,6 +306,7 @@ suite.define(() => {
         "xpath=ancestor::div[contains(@class, 'chat-virtual-row')]",
       );
       await streamingRow.waitFor();
+      expect(await streamingRow.getAttribute("data-virtual-row-key")).not.toBe(workingRowKey);
       const steerBubble = page.locator(".chat-group.user", { hasText: steerText }).last();
       const [steerBounds, streamingBounds] = await Promise.all([
         steerBubble.boundingBox(),
