@@ -315,15 +315,16 @@ suite.define(() => {
       expect(steerBounds).not.toBeNull();
       expect(streamingBounds).not.toBeNull();
       expect(streamingBounds!.y).toBeGreaterThanOrEqual(steerBounds!.y + steerBounds!.height - 1);
+      const durableFinalMessage = {
+        role: "assistant",
+        content: [{ text: finalText, type: "text" }],
+        __openclaw: { id: "ui4-final", seq: 5 },
+      };
       await gateway.emitGatewayEvent("session.message", {
-        activeRunIds: [],
+        activeRunIds: [runId],
         clientRunId: runId,
-        hasActiveRun: false,
-        message: {
-          role: "assistant",
-          content: [{ text: finalText, type: "text" }],
-          __openclaw: { id: "ui4-final", seq: 5 },
-        },
+        hasActiveRun: true,
+        message: durableFinalMessage,
         messageId: "ui4-final",
         messageSeq: 5,
         runId,
@@ -344,13 +345,10 @@ suite.define(() => {
             requestAnimationFrame(wait);
           }),
       );
+      await streamingBubble.waitFor({ state: "detached" });
       expect(
-        await page
-          .locator(
-            "[data-virtual-row-key^='stream-run:'] .chat-group.assistant:not(.chat-group--working)",
-          )
-          .count(),
-      ).toBe(0);
+        await page.locator(".chat-thread-inner").getByText(finalText, { exact: true }).count(),
+      ).toBe(1);
       const overlaps = await page.locator(".chat-thread").evaluate((thread) => {
         const rows = Array.from(thread.querySelectorAll<HTMLElement>(".chat-virtual-row"))
           .map((row) => {
@@ -371,6 +369,25 @@ suite.define(() => {
         });
       });
       expect(overlaps).toEqual([]);
+      await gateway.emitGatewayEvent("session.message", {
+        activeRunIds: [],
+        clientRunId: runId,
+        hasActiveRun: false,
+        message: durableFinalMessage,
+        messageId: "ui4-final",
+        messageSeq: 5,
+        runId,
+        sessionKey: "main",
+      });
+      await expect
+        .poll(() =>
+          page
+            .locator(
+              "[data-virtual-row-key^='stream-run:'] .chat-group.assistant:not(.chat-group--working)",
+            )
+            .count(),
+        )
+        .toBe(0);
       await gateway.emitChatFinal({ runId, text: finalText });
       await expect
         .poll(() =>

@@ -18,7 +18,10 @@ import {
   persistedSteerTargetRunId,
   rolloverChatStream,
 } from "./stream-causal-boundary.ts";
-import { maybeResetToolStream } from "./stream-reconciliation.ts";
+import {
+  assistantMessageReplacesCurrentStream,
+  maybeResetToolStreamRun,
+} from "./stream-reconciliation.ts";
 import { prunePersistedAssistantStreamSegments } from "./stream-segment-pruning.ts";
 
 type SessionMessageApplySource =
@@ -137,10 +140,17 @@ export function applySessionMessagePayload(
   );
   if (incoming.role === "assistant" && projection.messages.includes(message)) {
     prunePersistedAssistantStreamSegments(state, message);
-    if (assistantOwnerRunId && runActive === false) {
-      state.chatStream = null;
-      state.chatStreamStartedAt = null;
-      maybeResetToolStream(state);
+    if (assistantOwnerRunId) {
+      if (
+        runActive === false ||
+        (state.chatStream !== null && assistantMessageReplacesCurrentStream(state, message))
+      ) {
+        state.chatStream = null;
+        state.chatStreamStartedAt = null;
+      }
+      if (runActive === false) {
+        maybeResetToolStreamRun(state, assistantOwnerRunId);
+      }
     }
   }
   const steerTargetRunId = persistedSteerTargetRunId(message);
