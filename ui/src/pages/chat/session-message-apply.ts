@@ -13,6 +13,7 @@ import {
   reduceChatSessionProjection,
 } from "./history-merge.ts";
 import { persistedSteerTargetRunId, rolloverChatStream } from "./stream-causal-boundary.ts";
+import { maybeResetToolStream } from "./stream-reconciliation.ts";
 import { prunePersistedAssistantStreamSegments } from "./stream-segment-pruning.ts";
 
 type SessionMessageApplySource =
@@ -132,6 +133,11 @@ export function applySessionMessagePayload(
   );
   if (incoming.role === "assistant" && projection.messages.includes(message)) {
     prunePersistedAssistantStreamSegments(state, message);
+    if (assistantOwnerRunId && runActive === false) {
+      state.chatStream = null;
+      state.chatStreamStartedAt = null;
+      maybeResetToolStream(state);
+    }
   }
   const steerTargetRunId = persistedSteerTargetRunId(message);
   const currentRunId = state.chatRunId;

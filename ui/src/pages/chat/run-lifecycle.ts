@@ -606,6 +606,7 @@ export function reconcileChatRunFromSessionRow(
     sessionKeys: [row.key],
     clearLocalRun: true,
     clearChatStream: true,
+    clearToolStream: true,
     publishRunStatus: options.publishRunStatus,
   });
   return true;

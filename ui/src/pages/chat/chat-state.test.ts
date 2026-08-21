@@ -175,6 +175,59 @@ describe("canonical session message recovery", () => {
     expect(renderedTranscript(state)).toEqual([{ role: "assistant", text }]);
   });
 
+  it("retires the complete transient projection when the durable terminal arrives", () => {
+    const runId = "active-run";
+    const finalText = "The durable terminal reply.";
+    const toolMessage = { role: "assistant", runId, toolCallId: "tool-1" };
+    const { state } = createSessionEventState({
+      connected: false,
+      chatMessages: [],
+      chatRunId: runId,
+      chatStream: finalText,
+      chatStreamStartedAt: 1,
+      chatStreamSegments: [{ text: "Commentary", ts: 1, runId, itemId: "commentary-1" }],
+      chatToolMessages: [toolMessage],
+      toolStreamById: new Map([
+        [
+          "tool-1",
+          {
+            message: toolMessage,
+            name: "exec",
+            receivedAt: 1,
+            runId,
+            startedAt: 1,
+            toolCallId: "tool-1",
+          },
+        ],
+      ]),
+      toolStreamOrder: ["tool-1"],
+    });
+
+    applySessionMessagePayload(
+      state,
+      {
+        sessionKey: state.sessionKey,
+        runId,
+        messageId: "terminal-message",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: finalText }],
+          timestamp: 2,
+        },
+      },
+      false,
+      { kind: "live", activeRunId: runId },
+    );
+
+    expect(renderedTranscript(state)).toEqual([{ role: "assistant", text: finalText }]);
+    expect(state.chatStream).toBeNull();
+    expect(state.chatStreamSegments).toEqual([]);
+    expect(state.chatToolMessages).toEqual([]);
+    expect(state.toolStreamById).toEqual(new Map());
+    expect(state.toolStreamOrder).toEqual([]);
+  });
+
   it("keeps cumulative assistant output split across an authoritative steer", () => {
     const activeRunId = "active-run";
     const steerRunId = "steer-request";
