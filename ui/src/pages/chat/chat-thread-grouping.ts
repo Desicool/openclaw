@@ -15,7 +15,7 @@ import {
   chatItemStartsUserTurn,
   safeNormalizeMessage,
 } from "./chat-turn-boundary.ts";
-import { persistedSteerTargetRunId } from "./stream-causal-boundary.ts";
+import { indexTurnContinuations } from "./stream-causal-boundary.ts";
 
 export function isKeyedAssistantStreamFallbackMessage(message: unknown): boolean {
   const record = asRecord(message);
@@ -554,18 +554,17 @@ function isFinalReplyGroup(item: TurnRenderItem): boolean {
   return item.kind === "group" && !item.isStreaming && assistantGroupCanOwnActiveRunStatus(item);
 }
 
-function turnStartsWithSteer(turn: TurnRenderItem[]): boolean {
+function turnUserMessages(turn: TurnRenderItem[]): unknown[] {
   const boundary = turn[0];
   if (!boundary || boundary.kind === "stream-run") {
-    return false;
+    return [];
   }
   if (boundary.kind === "group") {
-    return (
-      boundary.role.toLowerCase() === "user" &&
-      boundary.messages.some(({ message }) => persistedSteerTargetRunId(message) !== null)
-    );
+    return boundary.role.toLowerCase() === "user"
+      ? boundary.messages.map(({ message }) => message)
+      : [];
   }
-  return boundary.kind === "message" && persistedSteerTargetRunId(boundary.message) !== null;
+  return boundary.kind === "message" && chatItemStartsUserTurn(boundary) ? [boundary.message] : [];
 }
 
 /**
@@ -605,11 +604,12 @@ export function collapseCompletedTurnWork(
     turns.push(currentTurn);
   }
 
-  const continuesIntoSteer = turns.map((_, turnIndex) =>
-    turnStartsWithSteer(turns[turnIndex + 1] ?? []),
+  const { continuationTurnIndexes, precedingContinuationTurnIndexes } = indexTurnContinuations(
+    turns,
+    turnUserMessages,
   );
   const finalReplyIndexes = turns.map((turn, turnIndex) => {
-    if (continuesIntoSteer[turnIndex]) {
+    if (continuationTurnIndexes.has(turnIndex)) {
       return -1;
     }
     for (let index = turn.length - 1; index >= 0; index -= 1) {
@@ -624,14 +624,22 @@ export function collapseCompletedTurnWork(
     index >= 0 ? (turns[turnIndex]?.[index] as MessageGroup) : undefined,
   );
   for (let turnIndex = turns.length - 2; turnIndex >= 0; turnIndex -= 1) {
-    if (!terminalReplies[turnIndex] && continuesIntoSteer[turnIndex]) {
-      terminalReplies[turnIndex] = terminalReplies[turnIndex + 1];
+    const continuationTurnIndex = continuationTurnIndexes.get(turnIndex);
+    if (!terminalReplies[turnIndex] && continuationTurnIndex !== undefined) {
+      terminalReplies[turnIndex] = terminalReplies[continuationTurnIndex];
     }
   }
-  let activeRunStartIndex = turns.length - 1;
+  const liveTurnIndexes = new Set<number>();
   if (opts.runWorking) {
-    while (activeRunStartIndex > 0 && turnStartsWithSteer(turns[activeRunStartIndex] ?? [])) {
-      activeRunStartIndex -= 1;
+    let liveTurnIndex = turns.length - 1;
+    liveTurnIndexes.add(liveTurnIndex);
+    for (;;) {
+      const precedingTurnIndex = precedingContinuationTurnIndexes.get(liveTurnIndex);
+      if (precedingTurnIndex === undefined) {
+        break;
+      }
+      liveTurnIndex = precedingTurnIndex;
+      liveTurnIndexes.add(liveTurnIndex);
     }
   }
 
@@ -641,7 +649,7 @@ export function collapseCompletedTurnWork(
     // While the run works, the trailing turn also stays expanded so activity
     // is watchable until the terminal rebuild collapses it.
     const isLive =
-      (opts.runWorking && turnIndex >= activeRunStartIndex) ||
+      liveTurnIndexes.has(turnIndex) ||
       turn.some(
         (item) => item.kind === "stream-run" || (item.kind === "group" && item.isStreaming),
       );
@@ -683,12 +691,14 @@ export function collapseCompletedTurnWork(
     const startTimestamp = boundaryTimestamp == null ? firstGroup.timestamp : boundaryTimestamp;
     const endTimestamp = terminalReply.timestamp;
     const durationMs = endTimestamp > startTimestamp ? endTimestamp - startTimestamp : null;
-    const nextBoundary = turns[turnIndex + 1]?.[0];
+    const continuationBoundary = turns[continuationTurnIndexes.get(turnIndex) ?? -1]?.[0];
     result.push(...turn.slice(0, segmentStart));
     result.push({
       kind: "work-group",
       // The final reply survives older-history prepends; the first work row does not.
-      key: `work:${finalReplyIndex >= 0 || !nextBoundary ? terminalReply.key : nextBoundary.key}`,
+      key: `work:${
+        finalReplyIndex >= 0 || !continuationBoundary ? terminalReply.key : continuationBoundary.key
+      }`,
       groups,
       durationMs,
     });
