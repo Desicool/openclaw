@@ -28,15 +28,13 @@ describe("persistCodexContextCompactionActivity", () => {
         messageId: "activity-message",
       });
     const params = {
-      run: {
-        runId: "run-1",
-        workspaceDir: "/workspace",
-        sessionTarget: {
-          agentId: "main",
-          sessionId: "session-1",
-          sessionKey: "agent:main:dashboard:session-1",
-          storePath: "/state/openclaw-agent.sqlite",
-        },
+      runId: "run-1",
+      cwd: "/workspace",
+      sessionTarget: {
+        agentId: "main",
+        sessionId: "session-1",
+        sessionKey: "agent:main:dashboard:session-1",
+        storePath: "/state/openclaw-agent.sqlite",
       },
       threadId: "thread-1",
       turnId: "turn-1",

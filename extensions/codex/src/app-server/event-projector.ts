@@ -522,7 +522,10 @@ export class CodexAppServerEventProjector {
         },
       });
       await persistCodexContextCompactionActivity({
-        run: this.params,
+        sessionTarget: this.params.sessionTarget,
+        config: this.params.config,
+        cwd: this.params.workspaceDir,
+        runId: this.params.runId,
         threadId: this.threadId,
         turnId: this.turnId,
         itemId,

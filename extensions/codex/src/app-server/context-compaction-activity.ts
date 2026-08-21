@@ -11,13 +11,16 @@ import {
 const CONTEXT_COMPACTION_CUSTOM_TYPE = "openclaw.context-compaction";
 
 export async function persistCodexContextCompactionActivity(params: {
-  run: EmbeddedRunAttemptParams;
+  sessionTarget?: EmbeddedRunAttemptParams["sessionTarget"];
+  config?: EmbeddedRunAttemptParams["config"];
+  cwd?: string;
+  runId?: string;
   threadId: string;
   turnId: string;
   itemId: string;
   timestamp: number;
 }): Promise<void> {
-  const target = params.run.sessionTarget;
+  const target = params.sessionTarget;
   if (!target?.sessionId || !target.sessionKey || !target.storePath) {
     return;
   }
@@ -34,7 +37,7 @@ export async function persistCodexContextCompactionActivity(params: {
       threadId: params.threadId,
       turnId: params.turnId,
       itemId: params.itemId,
-      runId: params.run.runId,
+      ...(params.runId ? { runId: params.runId } : {}),
     },
     timestamp: params.timestamp,
     idempotencyKey: activityId,
@@ -45,8 +48,8 @@ export async function persistCodexContextCompactionActivity(params: {
       sessionId: target.sessionId,
       sessionKey: target.sessionKey,
       storePath: target.storePath,
-      config: params.run.config,
-      cwd: params.run.workspaceDir,
+      config: params.config,
+      cwd: params.cwd,
       eventId: activityId,
       message,
     });
@@ -61,7 +64,7 @@ export async function persistCodexContextCompactionActivity(params: {
       update: {
         message: appended.message,
         messageId: appended.messageId,
-        runId: params.run.runId,
+        ...(params.runId ? { runId: params.runId } : {}),
       },
     });
   } catch (error) {
