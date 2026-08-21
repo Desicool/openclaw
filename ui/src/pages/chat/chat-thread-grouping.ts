@@ -542,6 +542,10 @@ export function assistantGroupCanOwnActiveRunStatus(group: MessageGroup): boolea
   return (
     group.role.toLowerCase() === "assistant" &&
     !assistantGroupIsForwardedBoundary(group) &&
+    !group.messages.every(
+      ({ message }) =>
+        asRecord(asRecord(message)?.["__openclaw"])?.runtimeActivityKind === "context_compaction",
+    ) &&
     groupHasVisibleReplyContent(group)
   );
 }
