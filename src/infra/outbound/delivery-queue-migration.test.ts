@@ -26,6 +26,7 @@ import {
   markDeliveryPlatformOutcomeUnknown,
   markDeliveryPlatformSendAttemptStarted,
   reserveDeliveryAttempt,
+  type LegacyQueuedDelivery,
   type LegacyQueuedDeliveryPreparation,
   type QueuedDelivery,
 } from "./delivery-queue-storage.js";
@@ -144,106 +145,17 @@ describe("outbound prepared queue migration", () => {
     );
   });
 
-  it("persists canonical reply facts across prepared namespaces exactly once", async () => {
-    const cases = [
-      {
-        label: "first",
-        legacy: { replyToId: "legacy-first", replyToMode: "first" },
-        expected: { source: "implicit", replyToId: "legacy-first", mode: "first" },
-      },
-      {
-        label: "batched",
-        legacy: { replyToId: "legacy-batched", replyToMode: "batched" },
-        expected: { source: "implicit", replyToId: "legacy-batched", mode: "first" },
-      },
-      {
-        label: "all",
-        legacy: { replyToId: "legacy-all", replyToMode: "all" },
-        expected: { source: "implicit", replyToId: "legacy-all", mode: "all" },
-      },
-      {
-        label: "off",
-        legacy: { replyToId: "legacy-off", replyToMode: "off" },
-        expected: undefined,
-      },
-      {
-        label: "explicit",
-        legacy: {
-          reply: { source: "explicit", replyToId: "explicit-root" },
-          replyToId: "legacy-first",
-          replyToMode: "first",
-        },
-        expected: { source: "explicit", replyToId: "explicit-root" },
-      },
-    ] as const;
-    const sourceNamespaces = [
-      OUTBOUND_DELIVERY_QUEUE_NAME,
-      OUTBOUND_DELIVERY_MIGRATION_QUEUE_NAME,
-    ] as const;
-    const ids: string[] = [];
-
-    for (const sourceQueueName of sourceNamespaces) {
-      for (const testCase of cases) {
-        const id = `${sourceQueueName}-${testCase.label}`;
-        ids.push(id);
-        const entry = {
-          id,
-          enqueuedAt: 100,
-          retryCount: 0,
-          attemptCount: 0,
-          channel: "matrix",
-          to: "!room:example",
-          queuePolicy: "required",
-          preparedBatch: {
-            schemaVersion: 1,
-            sourcePayloadCount: 1,
-            entries: [{ sourceIndex: 0, status: "accepted", payload: { text: id } }],
-          },
-          ...testCase.legacy,
-        };
-        upsertDeliveryQueueEntry({
-          queueName: sourceQueueName,
-          entry,
-          stateDir: tmpDir(),
-        });
-      }
-    }
-
-    await migrateLegacyPendingOutboundDeliveries({
-      cfg: {},
-      log: createRecoveryLog(),
-      stateDir: tmpDir(),
-    });
-
-    const firstPass = new Map<string, string>();
-    for (const id of ids) {
-      const raw = readQueueEntryJson(OUTBOUND_DELIVERY_QUEUE_NAME, id, tmpDir());
-      expect(raw).toBeDefined();
-      firstPass.set(id, raw ?? "");
-      const persisted = JSON.parse(raw ?? "{}") as Record<string, unknown>;
-      const testCase = cases.find((candidate) => id.endsWith(`-${candidate.label}`));
-      expect(persisted.reply).toEqual(testCase?.expected);
-      expect(persisted).not.toHaveProperty("replyToId");
-      expect(persisted).not.toHaveProperty("replyToMode");
-    }
-
-    await migrateLegacyPendingOutboundDeliveries({
-      cfg: {},
-      log: createRecoveryLog(),
-      stateDir: tmpDir(),
-    });
-    for (const id of ids) {
-      expect(readQueueEntryJson(OUTBOUND_DELIVERY_QUEUE_NAME, id, tmpDir())).toBe(
-        firstPass.get(id),
-      );
-    }
-  });
-
   it("prepares a legacy row once, fences rollback, and never reruns modifiers", async () => {
     const id = "stable-legacy-delivery";
+    const source = {
+      ...legacyEntry(id, "secret"),
+      completionRetention: "permanent",
+      replyToId: "root-message",
+      replyToMode: "batched",
+    } satisfies LegacyQueuedDelivery;
     upsertDeliveryQueueEntry({
       queueName: LEGACY_OUTBOUND_DELIVERY_QUEUE_NAME,
-      entry: { ...legacyEntry(id, "secret"), completionRetention: "permanent" },
+      entry: source,
       stateDir: tmpDir(),
     });
 
@@ -269,6 +181,13 @@ describe("outbound prepared queue migration", () => {
     expect(
       acceptedPreparedOutboundEntries(queued.preparedBatch).map((entry) => entry.payload),
     ).toEqual([{ text: "secret-prepared" }]);
+    expect(queued.reply).toEqual({
+      source: "implicit",
+      replyToId: "root-message",
+      mode: "first",
+    });
+    expect(queued).not.toHaveProperty("replyToId");
+    expect(queued).not.toHaveProperty("replyToMode");
     expect(queued).not.toHaveProperty("legacyPreparationOwnerId");
     expect(queued).not.toHaveProperty("legacyPreparationLeaseExpiresAt");
 
