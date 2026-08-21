@@ -13,6 +13,11 @@ on:
         required: false
         default: ""
         type: string
+      trusted_workflow_json:
+        description: Trusted release tooling identity JSON
+        required: false
+        default: ""
+        type: string
       target_context_ref:
         description: Optional canonical release branch or tag context for an exact-SHA target
         required: false
@@ -160,7 +165,7 @@ env:
   # Read retries and one-shot dispatch recovery share this classifier; dispatch POSTs never retry.
   GH_TRANSIENT_SERVER_OR_NETWORK_PATTERN: "HTTP 5[0-9][0-9]|Server Error|invalid character .* looking for beginning of value|error connecting to|context deadline exceeded|connection reset by peer|connection refused|TLS handshake timeout|i/o timeout|network is unreachable|(^|[^A-Za-z0-9_])EOF([^A-Za-z0-9_]|$)|ETIMEDOUT|ECONNRESET|EAI_AGAIN"
   NODE_VERSION: "24.16.0"
-  RELEASE_ISOLATION_TOOLING_CONTRACT: "1"
+  RELEASE_ISOLATION_TOOLING_CONTRACT: "2"
 
 jobs:
   resolve_target:
@@ -169,6 +174,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+      trusted_workflow_json: ${{ steps.tooling_identity.outputs.json }}
       live_suite_filter: ${{ steps.filters.outputs.live_suite_filter }}
       cross_os_suite_filter: ${{ steps.filters.outputs.cross_os_suite_filter }}
     steps:
@@ -180,6 +186,28 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           submodules: false
+
+      - name: Resolve trusted workflow identity
+        id: tooling_identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_IDENTITY_JSON: ${{ inputs.trusted_workflow_json }}
+          WORKFLOW_CONTRACT: ${{ env.RELEASE_ISOLATION_TOOLING_CONTRACT }}
+          WORKFLOW_FULL_REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.ref_name }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          identity="$(
+            node workflow/scripts/release-tooling-identity.mjs resolve \
+              --repository "$GITHUB_REPOSITORY" \
+              --workflow-contract "$WORKFLOW_CONTRACT" \
+              --workflow-ref "$WORKFLOW_REF" \
+              --workflow-full-ref "$WORKFLOW_FULL_REF" \
+              --workflow-sha "$WORKFLOW_SHA" \
+              --requested-identity-json "$REQUESTED_IDENTITY_JSON"
+          )"
+          echo "json=${identity}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve target SHA
         id: resolve
@@ -457,6 +485,7 @@ jobs:
           SKIP_PACKAGE_TELEGRAM_E2E: ${{ inputs.skip_package_telegram_e2e }}
           ALLOW_UNRELEASED_CHANGELOG: ${{ inputs.allow_unreleased_changelog || (inputs.target_context_ref == '' && (inputs.ref == 'main' || inputs.ref == 'refs/heads/main')) }}
           PLUGIN_PRERELEASE_NODE_EXCLUDE_PATTERNS_JSON: ${{ inputs.plugin_prerelease_node_exclude_patterns_json }}
+          TRUSTED_WORKFLOW_JSON: ${{ needs.resolve_target.outputs.trusted_workflow_json }}
         run: |
           set -euo pipefail
           # Lane-selection inputs must match the prior run's manifest exactly;
@@ -492,10 +521,17 @@ jobs:
               allowUnreleasedChangelog: $allowUnreleasedChangelog,
               pluginPrereleaseNodeExcludePatternsJson: $pluginPrereleaseNodeExcludePatternsJson
             }')"
+          trusted_workflow_json="${TRUSTED_WORKFLOW_JSON}"
+          trusted_workflow_ref="$(jq -er '.ref | select(type == "string" and length > 0)' <<< "$trusted_workflow_json")"
+          trusted_workflow_full_ref="$(jq -er '.fullRef | select(type == "string" and length > 0)' <<< "$trusted_workflow_json")"
+          trusted_workflow_sha="$(jq -er '.sha | select(type == "string" and test("^[0-9a-f]{40}$"))' <<< "$trusted_workflow_json")"
           bash workflow/scripts/github/find-reusable-release-validation.sh \
             --target-sha "$TARGET_SHA" \
             --workflow-sha "$GITHUB_SHA" \
             --workflow-ref "$WORKFLOW_REF" \
+            --trusted-workflow-ref "$trusted_workflow_ref" \
+            --trusted-workflow-full-ref "$trusted_workflow_full_ref" \
+            --trusted-workflow-sha "$trusted_workflow_sha" \
             --release-profile "$RELEASE_PROFILE" \
             --run-release-soak "$RUN_RELEASE_SOAK" \
             --inputs-json "$inputs_json" \
