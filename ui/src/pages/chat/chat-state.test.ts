@@ -24,7 +24,7 @@ import {
 } from "./chat-state-refresh.ts";
 import { resolveChatAvatarUrl, selectedChatSessionRow } from "./chat-state-route.ts";
 import { buildChatItems } from "./chat-thread-build.ts";
-import { getChatSessionProjection } from "./history-merge.ts";
+import { getChatSessionProjection, reduceChatSessionProjection } from "./history-merge.ts";
 import { scheduleControlUiAfterPaint } from "./performance.ts";
 import { applySessionMessagePayload } from "./session-message-apply.ts";
 
@@ -269,6 +269,16 @@ describe("canonical session message recovery", () => {
     ]);
     expect(state.chatRunId).toBe(activeRunId);
     expect(state.chatQueue).toEqual([]);
+    reduceChatSessionProjection(state, {
+      type: "sendPending",
+      runId: steerRunId,
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "Steer prompt" }],
+        timestamp: 50,
+        __openclaw: { idempotencyKey: `${steerRunId}:user` },
+      },
+    });
     state.chatRunId = steerRunId;
 
     const steerEvent = {
@@ -296,6 +306,7 @@ describe("canonical session message recovery", () => {
     handlePageGatewayEvent(state, steerEvent);
     expect(state.chatRunId).toBe(activeRunId);
     const segmentsAfterRequestBoundary = state.chatStreamSegments;
+    expect(segmentsAfterRequestBoundary.at(-1)?.boundaryRunId).toBe(steerRunId);
     expect(state.chatStreamSegments).toBe(segmentsAfterRequestBoundary);
     expect(
       state.chatMessages.filter((message) => extractText(message) === "Steer prompt"),

@@ -294,6 +294,22 @@ suite.define(() => {
         sessionKey: "main",
         state: "delta",
       });
+      const streamingBubble = page.locator(".chat-bubble.streaming", {
+        hasText: "Terminal response paragraph 1.",
+      });
+      await streamingBubble.waitFor();
+      const streamingRow = streamingBubble.locator(
+        "xpath=ancestor::div[contains(@class, 'chat-virtual-row')]",
+      );
+      await streamingRow.waitFor();
+      const steerBubble = page.locator(".chat-group.user", { hasText: steerText }).last();
+      const [steerBounds, streamingBounds] = await Promise.all([
+        steerBubble.boundingBox(),
+        streamingBubble.boundingBox(),
+      ]);
+      expect(steerBounds).not.toBeNull();
+      expect(streamingBounds).not.toBeNull();
+      expect(streamingBounds!.y).toBeGreaterThanOrEqual(steerBounds!.y + steerBounds!.height - 1);
       await gateway.emitGatewayEvent("session.message", {
         activeRunIds: [],
         clientRunId: runId,
