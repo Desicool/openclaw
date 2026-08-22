@@ -219,7 +219,7 @@ export async function runCodeModeScriptHeadless(params: {
     const swarmEnabled = false;
     const codeModeRunId = `cm_headless_${randomUUID()}`;
     const runtime = new ToolSearchRuntime(params.ctx, toToolSearchConfig(config), {
-      validateInput: true,
+      prepareInput: true,
     });
     const bridgeDispatch = createCodeModeBridgeDispatchState();
     const namespaceCatalog = runtime.namespaceEntries();
