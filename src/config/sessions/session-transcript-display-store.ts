@@ -31,12 +31,14 @@ import {
   SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE,
   validateOpenClawAgentDisplayRowSchema,
 } from "../../state/openclaw-agent-display-row-schema.js";
+import { EMPTY_SESSION_TRANSCRIPT_SOURCE_INDEXED_SEQ } from "./session-transcript-source-generation.js";
 
 type SessionTranscriptDisplayState = {
   generation: string;
   indexedSeq: number;
   needsRebuild: boolean;
   rowCount: number;
+  sourceGeneration: string | null;
   updatedAt: number;
 };
 type DisplayRowDatabase = Omit<
@@ -72,7 +74,14 @@ export function readSessionTranscriptDisplayState(
     db,
     getDisplayKysely(db)
       .selectFrom(SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE)
-      .select(["generation", "indexed_seq", "needs_rebuild", "row_count", "updated_at"])
+      .select([
+        "generation",
+        "indexed_seq",
+        "needs_rebuild",
+        "row_count",
+        "source_generation",
+        "updated_at",
+      ])
       .where("session_id", "=", sessionId),
   );
   return row
@@ -81,6 +90,7 @@ export function readSessionTranscriptDisplayState(
         indexedSeq: row.indexed_seq,
         needsRebuild: row.needs_rebuild !== 0,
         rowCount: row.row_count,
+        sourceGeneration: row.source_generation,
         updatedAt: row.updated_at,
       }
     : undefined;
@@ -101,6 +111,7 @@ export function writeDisplayState(
         needs_rebuild: state.needsRebuild ? 1 : 0,
         row_count: state.rowCount,
         session_id: sessionId,
+        source_generation: state.sourceGeneration,
         updated_at: state.updatedAt,
       })
       .onConflict((conflict) =>
@@ -109,6 +120,7 @@ export function writeDisplayState(
           indexed_seq: state.indexedSeq,
           needs_rebuild: state.needsRebuild ? 1 : 0,
           row_count: state.rowCount,
+          source_generation: state.sourceGeneration,
           updated_at: state.updatedAt,
         }),
       ),
@@ -125,9 +137,10 @@ export function invalidateSessionTranscriptDisplayInTransaction(
   const generation = createDisplayGeneration();
   writeDisplayState(db, sessionId, {
     generation,
-    indexedSeq: state?.indexedSeq ?? -1,
+    indexedSeq: state?.indexedSeq ?? EMPTY_SESSION_TRANSCRIPT_SOURCE_INDEXED_SEQ,
     needsRebuild: true,
     rowCount: state?.rowCount ?? 0,
+    sourceGeneration: null,
     updatedAt: Date.now(),
   });
   return generation;
@@ -546,11 +559,15 @@ function createDatabaseDisplayEffects(
 /** Extends one ready display generation after active-path eligibility is already proven. */
 export function appendEligibleSessionTranscriptDisplayRowInTransaction(
   db: DatabaseSync,
-  params: { event: unknown; seq: number; sessionId: string },
+  params: { event: unknown; seq: number; sessionId: string; sourceGeneration: string },
 ): boolean {
   ensureOpenClawAgentDisplayRowSchema(db);
   const state = readSessionTranscriptDisplayState(db, params.sessionId);
   if (state?.needsRebuild) {
+    return true;
+  }
+  if (state && state.sourceGeneration !== params.sourceGeneration) {
+    invalidateSessionTranscriptDisplayInTransaction(db, params.sessionId);
     return true;
   }
   if (state && params.seq !== state.indexedSeq + 1) {
@@ -569,6 +586,7 @@ export function appendEligibleSessionTranscriptDisplayRowInTransaction(
       indexedSeq: params.seq - 1,
       needsRebuild: false,
       rowCount: 0,
+      sourceGeneration: params.sourceGeneration,
       updatedAt: Date.now(),
     });
   }
@@ -606,6 +624,7 @@ export function appendEligibleSessionTranscriptDisplayRowInTransaction(
     indexedSeq: params.seq,
     needsRebuild: false,
     rowCount: effects.rowCount(),
+    sourceGeneration: params.sourceGeneration,
     updatedAt: Date.now(),
   });
   return false;

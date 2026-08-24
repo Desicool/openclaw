@@ -959,11 +959,15 @@ describe("SQLite active transcript event projection", () => {
           `
             INSERT INTO session_transcript_index_state
               (session_id, indexed_seq, leaf_event_id, needs_rebuild,
-               active_event_count, active_message_count, updated_at)
-            VALUES (?, 100000, 'm100000', 0, 100000, 100000, 100000)
+               active_event_count, active_message_count, source_generation, updated_at)
+            VALUES (
+              ?, 100000, 'm100000', 0, 100000, 100000,
+              (SELECT generation FROM transcript_rewrite_watermarks WHERE session_id = ?),
+              100000
+            )
           `,
         )
-        .run(scope.sessionId);
+        .run(scope.sessionId, scope.sessionId);
       database.db.exec("COMMIT;");
     } catch (error) {
       database.db.exec("ROLLBACK;");

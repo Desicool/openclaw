@@ -376,6 +376,7 @@ export interface SessionTranscriptDisplayState {
   needs_rebuild: Generated<number>;
   row_count: number;
   session_id: string;
+  source_generation: string | null;
   updated_at: number;
 }
 
@@ -424,6 +425,7 @@ export interface SessionTranscriptIndexState {
   leaf_event_id: string | null;
   needs_rebuild: Generated<number>;
   session_id: string;
+  source_generation: string | null;
   updated_at: number;
 }
 

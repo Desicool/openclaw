@@ -24,11 +24,12 @@ import {
   projectionRow as row,
   readDisplayRowIdentities,
   readDisplaySnapshot,
+  readRequiredSourceGeneration,
   serializeDisplayTables,
 } from "./session-transcript-display.test-support.js";
-import type { SessionTranscriptProjectionSourceRow } from "./session-transcript-projection-rebuild.js";
 import { reconcileSessionTranscriptDisplayProjection } from "./session-transcript-reconcile.js";
 
+type SessionTranscriptProjectionSourceRow = ReturnType<typeof row>;
 const SESSION_ID = "projection-session";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -97,6 +98,7 @@ describe("canonical session transcript projection", () => {
             event,
             seq,
             sessionId,
+            sourceGeneration: readRequiredSourceGeneration(database.db, sessionId),
           });
         },
         { agentId: scope.agentId, env },

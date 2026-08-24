@@ -61,6 +61,7 @@ import {
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 import {
   collectSqliteSchemaShape,
+  createSqliteSchemaShapeFromSql,
   normalizeSqliteSchemaShapeSql,
   replaceNamedIndexesWithNoncanonicalIndexes,
 } from "./sqlite-schema-shape.test-support.js";
@@ -77,17 +78,6 @@ let v13WorkerAgentDatabaseTemplatePath: string | undefined;
 
 function createTempStateDir(): string {
   return makeTempDir(agentDbTempDirs, "openclaw-agent-db-");
-}
-
-function createCurrentAgentRuntimeSchemaShape() {
-  const { DatabaseSync } = requireNodeSqlite();
-  const database = new DatabaseSync(":memory:");
-  try {
-    database.exec(AGENT_BASE_SCHEMA_SQL);
-    return collectSqliteSchemaShape(database);
-  } finally {
-    database.close();
-  }
 }
 
 function ensureSharedStateDatabaseTemplate(): string {
@@ -1284,7 +1274,9 @@ describe("openclaw agent database", () => {
       env: { OPENCLAW_STATE_DIR: stateDir },
     });
 
-    expect(collectSqliteSchemaShape(database.db)).toEqual(createCurrentAgentRuntimeSchemaShape());
+    expect(collectSqliteSchemaShape(database.db)).toEqual(
+      createSqliteSchemaShapeFromSql(AGENT_BASE_SCHEMA_SQL),
+    );
     expect(
       database.db
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'state_leases'")
@@ -1578,7 +1570,7 @@ describe("openclaw agent database", () => {
     ).toEqual({ schema_version: OPENCLAW_AGENT_SCHEMA_VERSION });
   });
 
-  it("backfills one generation per existing transcript when upgrading v12", () => {
+  it("backfills one generation per existing transcript window when upgrading v12", () => {
     const stateDir = createTempStateDir();
     const env = { OPENCLAW_STATE_DIR: stateDir };
     const databasePath = materializeV13WorkerAgentDatabase(stateDir);
@@ -1605,9 +1597,13 @@ describe("openclaw agent database", () => {
       )
       .all() as Array<{ generation: string; session_id: string }>;
 
-    expect(generations).toHaveLength(1);
-    expect(generations[0]?.session_id).toBe("with-transcript");
-    expect(generations[0]?.generation).toMatch(/^[0-9a-f]{32}$/);
+    expect(generations.map((row) => row.session_id)).toEqual([
+      "with-transcript",
+      "without-transcript",
+    ]);
+    for (const row of generations) {
+      expect(row.generation).toMatch(/^[0-9a-f]{32}$/);
+    }
     expect(
       migrated.db
         .prepare("SELECT strict FROM pragma_table_list WHERE name = ?")
@@ -3433,7 +3429,9 @@ describe("openclaw agent database", () => {
     const stateDir = createTempStateDir();
     const env = { OPENCLAW_STATE_DIR: stateDir };
     const databasePath = materializeCurrentWorkerAgentDatabase(stateDir);
-    const canonicalShape = normalizeSqliteSchemaShapeSql(createCurrentAgentRuntimeSchemaShape());
+    const canonicalShape = normalizeSqliteSchemaShapeSql(
+      createSqliteSchemaShapeFromSql(AGENT_BASE_SCHEMA_SQL),
+    );
 
     const { DatabaseSync } = requireNodeSqlite();
     const drifted = new DatabaseSync(databasePath);
@@ -3512,7 +3510,7 @@ describe("openclaw agent database", () => {
 
     const repaired = migrateAndOpenLegacyAgentDatabaseForTest({ agentId: "worker-1", env });
     expect(normalizeSqliteSchemaShapeSql(collectSqliteSchemaShape(repaired.db))).toEqual(
-      normalizeSqliteSchemaShapeSql(createCurrentAgentRuntimeSchemaShape()),
+      normalizeSqliteSchemaShapeSql(createSqliteSchemaShapeFromSql(AGENT_BASE_SCHEMA_SQL)),
     );
     expect(
       repaired.db
@@ -4362,6 +4360,30 @@ describe("openclaw agent database", () => {
 
     expect(() => openOpenClawAgentDatabase({ agentId: "worker-1", env })).toThrow(
       /integrity_check failed.*missing from index unsafe_index_records_value/iu,
+    );
+  });
+
+  it("rejects a newer user version after a validated handle is physically reopened", () => {
+    const stateDir = createTempStateDir();
+    const env = { OPENCLAW_STATE_DIR: stateDir };
+    const databasePath = openOpenClawAgentDatabase({ agentId: "worker-1", env }).path;
+    expect(closeOpenClawAgentDatabaseByPath(databasePath)).toBe(true);
+
+    const { DatabaseSync } = requireNodeSqlite();
+    const future = new DatabaseSync(databasePath);
+    try {
+      future.exec(`PRAGMA user_version = ${OPENCLAW_AGENT_SCHEMA_VERSION + 1};`);
+    } finally {
+      future.close();
+    }
+
+    expect(() => openOpenClawAgentDatabase({ agentId: "worker-1", env })).toThrow(
+      expect.objectContaining({
+        name: "SqliteSchemaVersionError",
+        message: expect.stringContaining(
+          `newer schema version ${OPENCLAW_AGENT_SCHEMA_VERSION + 1}`,
+        ),
+      }),
     );
   });
 

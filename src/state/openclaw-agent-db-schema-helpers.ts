@@ -23,7 +23,10 @@ import {
   ensureOpenClawAgentBoardSchemaInTransaction,
 } from "./openclaw-agent-board-schema.js";
 import { CONTEXT_ENGINE_TURN_OUTBOX_TABLE } from "./openclaw-agent-context-engine-turn-outbox-schema.js";
-import { FIRST_USE_ADDITIVE_AGENT_COLUMN_DEFINITIONS } from "./openclaw-agent-db-additive-columns.js";
+import {
+  FIRST_USE_ADDITIVE_AGENT_COLUMN_DEFINITIONS,
+  TRANSCRIPT_PROJECTION_SOURCE_COLUMN_DEFINITIONS,
+} from "./openclaw-agent-db-additive-columns.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import { OpenClawAgentDatabaseMediaMigrationRequiredError } from "./openclaw-agent-db-migration-required.js";
 import {
@@ -89,6 +92,9 @@ const AGENT_SCHEMA_COMPATIBILITY = {
     "session_participants.actor_source",
     "standing_intents.creator_sender",
     ...FIRST_USE_ADDITIVE_AGENT_COLUMN_DEFINITIONS.map(
+      ({ columnName, tableName }) => `${tableName}.${columnName}`,
+    ),
+    ...TRANSCRIPT_PROJECTION_SOURCE_COLUMN_DEFINITIONS.map(
       ({ columnName, tableName }) => `${tableName}.${columnName}`,
     ),
   ],

@@ -1,10 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Generated } from "kysely";
-import {
-  executeSqliteQuerySync,
-  executeSqliteQueryTakeFirstSync,
-  getNodeSqliteKysely,
-} from "../../infra/kysely-sync.js";
+import { executeSqliteQuerySync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
 import type {
   PreparedSessionTranscriptDisplayCarry,
@@ -30,6 +26,11 @@ import {
   writeDisplayReducerCarry,
   writeDisplayState,
 } from "./session-transcript-display-store.js";
+import {
+  EMPTY_SESSION_TRANSCRIPT_SOURCE_INDEXED_SEQ,
+  readSessionTranscriptSourceGenerationInTransaction,
+  sessionTranscriptSourceGenerationMatchesInTransaction,
+} from "./session-transcript-source-generation.js";
 
 const SESSION_TRANSCRIPT_DISPLAY_PAGE_MAX_ROWS = 200;
 // Node's SQLite builds default to 32,766 variables per statement. Leave room for
@@ -82,26 +83,33 @@ export function claimSessionTranscriptDisplayInTransaction(
   params: {
     claimId: number;
     generation: string;
+    previousGeneration: string | null;
     sessionId: string;
   },
 ): boolean {
   const state = readSessionTranscriptDisplayState(db, params.sessionId);
   if (!state) {
+    if (params.previousGeneration !== null) {
+      return false;
+    }
     writeDisplayState(db, params.sessionId, {
       generation: params.generation,
-      indexedSeq: -1,
+      indexedSeq: EMPTY_SESSION_TRANSCRIPT_SOURCE_INDEXED_SEQ,
       needsRebuild: true,
       rowCount: 0,
+      sourceGeneration: null,
       updatedAt: params.claimId,
     });
     return true;
   }
-  if (state.generation !== params.generation) {
+  if (state.generation !== params.previousGeneration) {
     return false;
   }
   writeDisplayState(db, params.sessionId, {
     ...state,
+    generation: params.generation,
     needsRebuild: true,
+    sourceGeneration: null,
     updatedAt: params.claimId,
   });
   return true;
@@ -109,13 +117,39 @@ export function claimSessionTranscriptDisplayInTransaction(
 
 function displayClaimIsOwned(
   db: DatabaseSync,
-  params: { claimId: number; generation: string; sessionId: string },
+  params: {
+    claimId: number;
+    generation: string;
+    sessionId: string;
+    sourceGeneration: string;
+    sourceIndexedSeq: number;
+  },
 ): boolean {
   const state = readSessionTranscriptDisplayState(db, params.sessionId);
   return Boolean(
     state?.needsRebuild &&
     state.generation === params.generation &&
-    state.updatedAt === params.claimId,
+    state.updatedAt === params.claimId &&
+    sessionTranscriptSourceGenerationMatchesInTransaction(db, params.sessionId, {
+      generation: params.sourceGeneration,
+      indexedSeq: params.sourceIndexedSeq,
+    }),
+  );
+}
+
+export function abandonSessionTranscriptDisplayClaimInTransaction(
+  db: DatabaseSync,
+  params: { claimId: number; generation: string; sessionId: string },
+): void {
+  executeSqliteQuerySync(
+    db,
+    getDisplayKysely(db)
+      .updateTable(SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE)
+      .set({ source_generation: null, updated_at: Date.now() })
+      .where("session_id", "=", params.sessionId)
+      .where("generation", "=", params.generation)
+      .where("needs_rebuild", "!=", 0)
+      .where("updated_at", "=", params.claimId),
   );
 }
 
@@ -126,6 +160,8 @@ export function deleteSessionTranscriptDisplayChunkInTransaction(
     generation: string;
     maxRows: number;
     sessionId: string;
+    sourceGeneration: string;
+    sourceIndexedSeq: number;
   },
 ): DisplayDeleteChunkResult {
   if (!displayClaimIsOwned(db, params)) {
@@ -164,6 +200,8 @@ export function appendSessionTranscriptDisplayChunkInTransaction(
     generation: string;
     rows: readonly PreparedSessionTranscriptDisplayRow[];
     sessionId: string;
+    sourceGeneration: string;
+    sourceIndexedSeq: number;
   },
 ): boolean {
   if (!displayClaimIsOwned(db, params)) {
@@ -235,6 +273,7 @@ export function finalizeSessionTranscriptDisplayInTransaction(
     carry: readonly PreparedSessionTranscriptDisplayCarry[];
     rowCount: number;
     sessionId: string;
+    sourceGeneration: string;
     sourceIndexedSeq: number;
   },
 ): boolean {
@@ -250,6 +289,7 @@ export function finalizeSessionTranscriptDisplayInTransaction(
         indexed_seq: params.sourceIndexedSeq,
         needs_rebuild: 0,
         row_count: params.rowCount,
+        source_generation: params.sourceGeneration,
         updated_at: Date.now(),
       })
       .where("session_id", "=", params.sessionId)
@@ -257,7 +297,10 @@ export function finalizeSessionTranscriptDisplayInTransaction(
       .where("needs_rebuild", "!=", 0)
       .where("updated_at", "=", params.claimId),
   );
-  return result.numAffectedRows === 1n;
+  if (result.numAffectedRows !== 1n) {
+    return false;
+  }
+  return true;
 }
 
 function normalizeDisplayPageLimit(limit: number): number {
@@ -273,21 +316,16 @@ function readSessionTranscriptDisplayRowsSnapshot(
   params: SessionTranscriptDisplayReadParams,
 ): SessionTranscriptDisplayReadResult {
   const state = readSessionTranscriptDisplayState(db, sessionId);
-  const latest = executeSqliteQueryTakeFirstSync(
-    db,
-    getDisplayKysely(db)
-      .selectFrom("transcript_events")
-      .select("seq")
-      .where("session_id", "=", sessionId)
-      .orderBy("seq", "desc")
-      .limit(1),
-  );
-  const latestSeq = latest?.seq ?? -1;
+  const source = state
+    ? readSessionTranscriptSourceGenerationInTransaction(db, sessionId)
+    : undefined;
   if (
+    !source ||
     !state ||
     state.generation !== params.expectedGeneration ||
     state.needsRebuild ||
-    state.indexedSeq !== latestSeq
+    state.indexedSeq !== source.indexedSeq ||
+    state.sourceGeneration !== source.generation
   ) {
     return { generation: state?.generation ?? null, kind: "reset" };
   }

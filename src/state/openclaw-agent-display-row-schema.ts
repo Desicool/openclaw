@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { assertSqliteSchemaContains } from "../infra/sqlite-schema-contract.js";
 import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
 import { OPENCLAW_AGENT_SCHEMA_SQL } from "./openclaw-agent-schema.js";
+import { ensureOpenClawAgentTranscriptProjectionSourceColumns } from "./openclaw-agent-transcript-projection-source-schema.js";
 
 export const SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE = "session_transcript_display_state";
 export const SESSION_TRANSCRIPT_DISPLAY_ROWS_TABLE = "session_transcript_display_rows";
@@ -12,15 +13,21 @@ export const SESSION_TRANSCRIPT_DISPLAY_CARRY_TABLE = "session_transcript_displa
 
 const DISPLAY_ROW_SCHEMA_START = `CREATE TABLE IF NOT EXISTS ${SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE} (`;
 const DISPLAY_SEMANTICS_SCHEMA_START = `CREATE TABLE IF NOT EXISTS ${SESSION_TRANSCRIPT_DISPLAY_ROW_SOURCES_TABLE} (`;
-const DISPLAY_ROW_SCHEMA_END =
+const TRANSCRIPT_FTS_SCHEMA_START =
   "CREATE VIRTUAL TABLE IF NOT EXISTS session_transcript_fts USING fts5(";
 const SQLITE_TABLE_EXISTS_SQL = "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?";
 const ENSURED_DATABASES = new WeakSet<DatabaseSync>();
 const ABSENT_DATABASES = new WeakSet<DatabaseSync>();
 const FOUNDATION_ONLY_DATABASES = new WeakSet<DatabaseSync>();
-const DISPLAY_SCHEMA_COMPATIBILITY = { allowCompatibleAdditiveColumns: true } as const;
+const DISPLAY_ROW_SCHEMA_COMPATIBILITY = {
+  allowCompatibleAdditiveColumns: true,
+  allowedMissingColumns: [`${SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE}.source_generation`],
+};
 
-function splitDisplayRowSchema(sql: string): {
+function splitDisplayRowSchema(
+  sql: string,
+  endMarker = TRANSCRIPT_FTS_SCHEMA_START,
+): {
   displayFoundation: string;
   displayRows: string;
   displaySemantics: string;
@@ -28,7 +35,7 @@ function splitDisplayRowSchema(sql: string): {
 } {
   const start = sql.indexOf(DISPLAY_ROW_SCHEMA_START);
   const semanticsStart = sql.indexOf(DISPLAY_SEMANTICS_SCHEMA_START, start);
-  const end = sql.indexOf(DISPLAY_ROW_SCHEMA_END, start);
+  const end = sql.indexOf(endMarker, start);
   if (start === -1 || semanticsStart === -1 || end === -1) {
     throw new Error("OpenClaw agent display-row schema markers are missing.");
   }
@@ -45,7 +52,8 @@ const displayRowSchema = splitDisplayRowSchema(OPENCLAW_AGENT_SCHEMA_SQL);
 const AGENT_DISPLAY_ROW_SCHEMA_SQL = displayRowSchema.displayRows;
 const AGENT_DISPLAY_ROW_FOUNDATION_SCHEMA_SQL = displayRowSchema.displayFoundation;
 const AGENT_DISPLAY_ROW_SEMANTICS_SCHEMA_SQL = displayRowSchema.displaySemantics;
-export const AGENT_BASE_SCHEMA_SQL = displayRowSchema.withoutDisplayRows;
+export const AGENT_BASE_SCHEMA_SQL =
+  splitDisplayRowSchema(OPENCLAW_AGENT_SCHEMA_SQL).withoutDisplayRows;
 
 function hasDisplayRowTable(db: DatabaseSync, tableName: string): boolean {
   return Boolean(
@@ -63,7 +71,15 @@ export function validateOpenClawAgentDisplayRowSchema(db: DatabaseSync): boolean
   }
   const statePresent = hasDisplayRowTable(db, SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE);
   const rowsPresent = hasDisplayRowTable(db, SESSION_TRANSCRIPT_DISPLAY_ROWS_TABLE);
-  if (!statePresent && !rowsPresent) {
+  const semanticTables = [
+    SESSION_TRANSCRIPT_DISPLAY_ROW_SOURCES_TABLE,
+    SESSION_TRANSCRIPT_DISPLAY_CANVAS_TABLE,
+    SESSION_TRANSCRIPT_DISPLAY_CARRY_TABLE,
+  ];
+  const presentSemanticTables = semanticTables.filter((tableName) =>
+    hasDisplayRowTable(db, tableName),
+  );
+  if (!statePresent && !rowsPresent && presentSemanticTables.length === 0) {
     ABSENT_DATABASES.add(db);
     return false;
   }
@@ -74,15 +90,7 @@ export function validateOpenClawAgentDisplayRowSchema(db: DatabaseSync): boolean
     db,
     "OpenClaw agent display-row foundation schema",
     AGENT_DISPLAY_ROW_FOUNDATION_SCHEMA_SQL,
-    DISPLAY_SCHEMA_COMPATIBILITY,
-  );
-  const semanticTables = [
-    SESSION_TRANSCRIPT_DISPLAY_ROW_SOURCES_TABLE,
-    SESSION_TRANSCRIPT_DISPLAY_CANVAS_TABLE,
-    SESSION_TRANSCRIPT_DISPLAY_CARRY_TABLE,
-  ];
-  const presentSemanticTables = semanticTables.filter((tableName) =>
-    hasDisplayRowTable(db, tableName),
+    DISPLAY_ROW_SCHEMA_COMPATIBILITY,
   );
   if (presentSemanticTables.length === 0) {
     FOUNDATION_ONLY_DATABASES.add(db);
@@ -95,7 +103,7 @@ export function validateOpenClawAgentDisplayRowSchema(db: DatabaseSync): boolean
     db,
     "OpenClaw agent display-row schema",
     AGENT_DISPLAY_ROW_SCHEMA_SQL,
-    DISPLAY_SCHEMA_COMPATIBILITY,
+    DISPLAY_ROW_SCHEMA_COMPATIBILITY,
   );
   ENSURED_DATABASES.add(db);
   return true;
@@ -140,6 +148,13 @@ export function ensureOpenClawAgentDisplayRowSchema(db: DatabaseSync): void {
     }
     ABSENT_DATABASES.delete(db);
     FOUNDATION_ONLY_DATABASES.delete(db);
+    assertSqliteSchemaContains(
+      db,
+      "OpenClaw agent display-row schema",
+      AGENT_DISPLAY_ROW_SCHEMA_SQL,
+      DISPLAY_ROW_SCHEMA_COMPATIBILITY,
+    );
+    ensureOpenClawAgentTranscriptProjectionSourceColumns(db);
     assertSqliteSchemaContains(
       db,
       "OpenClaw agent display-row schema",

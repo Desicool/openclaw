@@ -3,7 +3,9 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { assertSqliteSchemaContains } from "../infra/sqlite-schema-contract.js";
+import { assertOpenClawAgentSchemaContains } from "./openclaw-agent-db-schema-helpers.js";
 import {
+  closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "./openclaw-agent-db.js";
@@ -15,8 +17,10 @@ import {
   SESSION_TRANSCRIPT_DISPLAY_ROWS_TABLE,
   SESSION_TRANSCRIPT_DISPLAY_ROW_SOURCES_TABLE,
   SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE,
+  validateOpenClawAgentDisplayRowSchema,
 } from "./openclaw-agent-display-row-schema.js";
 import { OPENCLAW_AGENT_SCHEMA_SQL } from "./openclaw-agent-schema.js";
+import { ensureOpenClawAgentTranscriptProjectionSourceColumns } from "./openclaw-agent-transcript-projection-source-schema.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -292,10 +296,17 @@ describe("agent display-row schema", () => {
     ensureOpenClawAgentDisplayRowSchema(database.db);
     insertDisplayOwnerRows(database.db);
     insertDisplayStateAndRow(database.db);
-    database.db.exec(`
-      ALTER TABLE session_transcript_index_state ADD COLUMN source_generation TEXT;
-      ALTER TABLE session_transcript_display_state ADD COLUMN source_generation TEXT;
-    `);
+    for (const tableName of [
+      "session_transcript_index_state",
+      SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE,
+    ]) {
+      const present = database.db
+        .prepare(`SELECT 1 FROM pragma_table_info('${tableName}') WHERE name = 'source_generation'`)
+        .get();
+      if (!present) {
+        database.db.exec(`ALTER TABLE ${tableName} ADD COLUMN source_generation TEXT;`);
+      }
+    }
     closeOpenClawAgentDatabasesForTest();
 
     expect(() => {
@@ -396,5 +407,150 @@ describe("agent display-row schema", () => {
     } finally {
       database.close();
     }
+  });
+});
+
+describe("agent transcript projection source columns", () => {
+  const priorSchema = OPENCLAW_AGENT_SCHEMA_SQL.replaceAll("  source_generation TEXT,\n", "");
+
+  it("accepts and lazily upgrades the prior same-version shape", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(priorSchema);
+      database.exec(`
+        INSERT INTO session_nodes
+          (session_key, current_session_id, entry_json, entry_valid, updated_at)
+        VALUES ('agent:main:upgrade', 'session-upgrade', '{}', -1, 1);
+        INSERT INTO session_windows
+          (session_id, session_key, session_scope, created_at, updated_at)
+        VALUES ('session-upgrade', 'agent:main:upgrade', 'conversation', 1, 1);
+        INSERT INTO transcript_rewrite_watermarks (session_id, generation, updated_at)
+        VALUES ('session-upgrade', 'source-generation', 1);
+        INSERT INTO transcript_events (session_id, seq, event_json, created_at)
+        VALUES ('session-upgrade', 0, '{"type":"session","id":"session-upgrade"}', 1);
+        INSERT INTO session_transcript_index_state
+          (session_id, indexed_seq, needs_rebuild, active_event_count, active_message_count, updated_at)
+        VALUES ('session-upgrade', 0, 0, 1, 0, 1);
+        INSERT INTO session_transcript_display_state
+          (session_id, generation, indexed_seq, row_count, needs_rebuild, updated_at)
+        VALUES ('session-upgrade', 'display-generation', 0, 1, 0, 1);
+      `);
+      expect(() =>
+        assertOpenClawAgentSchemaContains(
+          database,
+          "previous agent schema",
+          OPENCLAW_AGENT_SCHEMA_SQL,
+        ),
+      ).not.toThrow();
+      expect(validateOpenClawAgentDisplayRowSchema(database)).toBe(true);
+
+      ensureOpenClawAgentTranscriptProjectionSourceColumns(database);
+
+      expect(
+        database
+          .prepare(
+            `SELECT name FROM pragma_table_info('session_transcript_index_state')
+             WHERE name = 'source_generation'`,
+          )
+          .get(),
+      ).toEqual({ name: "source_generation" });
+      expect(
+        database
+          .prepare(
+            `SELECT name FROM pragma_table_info('session_transcript_display_state')
+             WHERE name = 'source_generation'`,
+          )
+          .get(),
+      ).toEqual({ name: "source_generation" });
+      expect(
+        database
+          .prepare(
+            `SELECT
+               active.source_generation AS active_source_generation,
+               display.source_generation AS display_source_generation
+             FROM session_transcript_index_state AS active
+             JOIN session_transcript_display_state AS display
+               ON display.session_id = active.session_id
+             WHERE active.session_id = 'session-upgrade'`,
+          )
+          .get(),
+      ).toEqual({
+        active_source_generation: "source-generation",
+        display_source_generation: "source-generation",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("retries a lazy upgrade rolled back by its owner", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(priorSchema);
+      database.exec("BEGIN IMMEDIATE;");
+      ensureOpenClawAgentTranscriptProjectionSourceColumns(database);
+      database.exec("ROLLBACK;");
+      ensureOpenClawAgentTranscriptProjectionSourceColumns(database);
+
+      expect(
+        database
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM pragma_table_info('session_transcript_index_state')
+             WHERE name = 'source_generation'`,
+          )
+          .get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("drops the retired candidate binding table on the next process open", () => {
+    const stateDir = tempDirs.make("openclaw-retired-projection-binding-");
+    const options = { agentId: "main", env: { OPENCLAW_STATE_DIR: stateDir } };
+    const initial = openOpenClawAgentDatabase(options);
+    initial.db.exec(
+      "CREATE TABLE session_transcript_projection_bindings (session_id TEXT) STRICT;",
+    );
+    closeOpenClawAgentDatabasesForTest();
+
+    const reopened = openOpenClawAgentDatabase(options);
+    expect(tableExists(reopened.db, "session_transcript_projection_bindings")).toBe(false);
+  });
+});
+
+describe("agent display-row physical reopen", () => {
+  it.each([
+    {
+      damage: `DROP TABLE ${SESSION_TRANSCRIPT_DISPLAY_ROWS_TABLE};`,
+      name: "partial display foundation",
+    },
+    {
+      damage: `
+        DROP TABLE ${SESSION_TRANSCRIPT_DISPLAY_ROWS_TABLE};
+        DROP TABLE ${SESSION_TRANSCRIPT_DISPLAY_STATE_TABLE};
+      `,
+      name: "orphaned display semantics",
+    },
+    {
+      damage: `DROP TABLE ${SESSION_TRANSCRIPT_DISPLAY_CANVAS_TABLE};`,
+      name: "partial display semantics",
+    },
+  ])("rejects a $name after physical reopen", ({ damage }) => {
+    const stateDir = tempDirs.make("openclaw-display-row-reopen-");
+    const options = { agentId: "main", env: { OPENCLAW_STATE_DIR: stateDir } };
+    const initial = openOpenClawAgentDatabase(options);
+    const databasePath = initial.path;
+    ensureOpenClawAgentDisplayRowSchema(initial.db);
+    expect(closeOpenClawAgentDatabaseByPath(databasePath)).toBe(true);
+
+    const damaged = new DatabaseSync(databasePath);
+    damaged.exec(damage);
+    damaged.close();
+
+    expect(() => openOpenClawAgentDatabase(options)).toThrow(
+      /display-row (?:semantics )?schema is partially present/u,
+    );
   });
 });
