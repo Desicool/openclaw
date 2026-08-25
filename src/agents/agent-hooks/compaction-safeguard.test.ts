@@ -8,10 +8,11 @@ import { createAssistantMessageEventStream, type Model } from "openclaw/plugin-s
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { CompactionProvider } from "../../plugins/compaction-provider.js";
 import {
-  clearCompactionProviders,
-  registerCompactionProvider,
-} from "../../plugins/compaction-provider.js";
+  requireActivePluginRegistry,
+  resetPluginRuntimeStateForTest,
+} from "../../plugins/runtime.js";
 import * as compactionModule from "../compaction.js";
 import { buildEmbeddedExtensionFactories } from "../embedded-agent-runner/extensions.js";
 import { castAgentMessage } from "../test-helpers/agent-message-fixtures.js";
@@ -136,8 +137,12 @@ beforeEach(() => {
 
 afterEach(() => {
   testing.setSummarizeInStagesForTest();
-  clearCompactionProviders();
+  resetPluginRuntimeStateForTest();
 });
+
+function installCompactionProviderForTest(provider: CompactionProvider): void {
+  requireActivePluginRegistry().compactionProviders.push({ provider });
+}
 
 function stubSessionManager(): ExtensionContext["sessionManager"] {
   const stub: ExtensionContext["sessionManager"] = {
@@ -2897,7 +2902,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
       name: "AbortError",
     });
     const failingProviderSummarize = vi.fn().mockRejectedValue(providerAbortErr);
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "disconnecting-provider",
       label: "Disconnecting Provider",
       summarize: failingProviderSummarize,
@@ -2944,7 +2949,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
       name: "AbortError",
     });
     const failingProviderSummarize = vi.fn().mockRejectedValue(providerAbortErr);
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "aborted-provider",
       label: "Aborted Provider",
       summarize: failingProviderSummarize,
@@ -2988,7 +2993,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
   it("passes compaction instructions to providers and preserves suffix context", async () => {
     mockSummarizeInStages.mockReset();
     const providerSummarize = vi.fn().mockResolvedValue("provider summary body");
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "test-provider",
       label: "Test Provider",
       summarize: providerSummarize,
@@ -3063,7 +3068,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
   it("preserves an above-half provider body byte-for-byte when the joined artifact fits", async () => {
     const providerBody = `BODY-START${"b".repeat(4_480)}BODY-MIDDLE${"b".repeat(4_480)}BODY-END`;
     const providerSummarize = vi.fn().mockResolvedValue(providerBody);
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "within-budget-provider",
       label: "Within Budget Provider",
       summarize: providerSummarize,
@@ -3102,7 +3107,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
   it("emits one redacted provider warning when the preserved-turn producer truncates", async () => {
     const sensitiveSentinel = "preserved-secret-never-log";
     const providerSummarize = vi.fn().mockResolvedValue("provider summary body");
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "preserved-overflow-provider",
       label: "Preserved Overflow Provider",
       summarize: providerSummarize,
@@ -3147,7 +3152,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
     const sensitiveSentinel = "credential-sentinel-never-log";
     const providerBody = `BODY-START${"b".repeat(3_400)}BODY-MIDDLE${"b".repeat(3_400)}BODY-END`;
     const providerSummarize = vi.fn().mockResolvedValue(providerBody);
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "overflow-provider",
       label: "Overflow Provider",
       summarize: providerSummarize,
@@ -3201,7 +3206,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
   it("starts a finally trimmed raw split-turn suffix at a complete message boundary", async () => {
     const providerBody = `BODY-START${"b".repeat(6_760)}BODY-END`;
     const providerSummarize = vi.fn().mockResolvedValue(providerBody);
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "boundary-provider",
       label: "Boundary Provider",
       summarize: providerSummarize,
@@ -3248,7 +3253,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
 
   it("finally trims a raw tool interaction only at its atomic boundary", async () => {
     const providerSummarize = vi.fn().mockResolvedValue(`BODY-START${"b".repeat(9_000)}BODY-END`);
-    registerCompactionProvider({
+    installCompactionProviderForTest({
       id: "tool-boundary-provider",
       label: "Tool Boundary Provider",
       summarize: providerSummarize,
