@@ -4139,7 +4139,6 @@ ui/src/pages/chat/chat-state-route.ts	1
 ui/src/pages/chat/chat-thread-build.ts	2
 ui/src/pages/chat/chat-thread-grouping.ts	2
 ui/src/pages/chat/chat-thread-items.ts	4
-ui/src/pages/chat/components/chat-attachments.ts	2
 ui/src/pages/chat/components/chat-audio-player.ts	1
 ui/src/pages/chat/components/chat-composer-plus-menu.ts	1
 ui/src/pages/chat/components/chat-composer-slash-menu.ts	1
@@ -4164,7 +4163,7 @@ ui/src/pages/chat/components/chat-session-sharing.ts	1
 ui/src/pages/chat/components/chat-session-workspace.ts	1
 ui/src/pages/chat/components/chat-sidebar-editor-menu.ts	2
 ui/src/pages/chat/components/chat-sidebar-region.runtime.ts	2
-ui/src/pages/chat/components/chat-swarm-progress.ts	3
+ui/src/pages/chat/components/chat-swarm-progress.ts	2
 ui/src/pages/chat/components/chat-task-suggestions.ts	1
 ui/src/pages/chat/components/chat-thread-interactions.ts	7
 ui/src/pages/chat/components/chat-tool-cards.ts	2
