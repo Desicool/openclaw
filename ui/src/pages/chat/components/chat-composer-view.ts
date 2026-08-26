@@ -266,6 +266,7 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
           activeSession?.status,
           activeSession?.startedAt,
           activeSession?.endedAt,
+          props.progressCardHasActiveRun,
         )}
       </div>`
     : nothing;
