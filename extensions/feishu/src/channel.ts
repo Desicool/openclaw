@@ -1460,12 +1460,11 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 replyToMessageId,
                 replyInThread,
               });
-            } else if (mediaUrl) {
-              result = await sendMedia!({
+            } else {
+              const outboundContext = {
                 cfg: ctx.cfg,
                 to,
                 text: text ?? "",
-                mediaUrl,
                 accountId: ctx.accountId ?? undefined,
                 ...(ctx.mediaAccess ? { mediaAccess: ctx.mediaAccess } : {}),
                 mediaLocalRoots: ctx.mediaLocalRoots,
@@ -1473,24 +1472,22 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 ...(replyInThread
                   ? { threadId: replyToMessageId }
                   : { replyToId: replyToMessageId }),
-                ...(audioAsVoice === true ? { audioAsVoice: true } : {}),
-                // The direct send action must not report `ok:true` when the
-                // requested attachment cannot be delivered; propagate the
-                // upload failure so the agent sees a visible error instead of
-                // a text-only fallback receipt (issue #112244). Scoped to
-                // `send` only — thread-reply keeps its existing fallback-text
-                // behavior for compatibility.
-                ...(ctx.action === "send" ? { propagateMediaUploadFailure: true } : {}),
-              });
-            } else {
-              result = await runtime.sendMessageFeishu({
-                cfg: ctx.cfg,
-                to,
-                text: text!,
-                accountId: ctx.accountId ?? undefined,
-                replyToMessageId,
-                replyInThread,
-              });
+              };
+              if (mediaUrl) {
+                result = await sendMedia!({
+                  ...outboundContext,
+                  mediaUrl,
+                  ...(audioAsVoice === true ? { audioAsVoice: true } : {}),
+                  // Direct sends surface upload failures; thread replies retain
+                  // their existing attachment fallback behavior.
+                  ...(ctx.action === "send" ? { propagateMediaUploadFailure: true } : {}),
+                });
+              } else {
+                const { target, ...delivery } = await (
+                  await resolveFeishuTextSender()
+                )(outboundContext);
+                result = { ...delivery, chatId: target?.id };
+              }
             }
             return jsonActionResult({
               ok: true,
