@@ -1409,6 +1409,7 @@
                   "tools/music-generation",
                   "tools/pdf",
                   "tools/reactions",
+                  "tools/secrets",
                   "tools/thinking",
                   "tools/tokenjuice",
                   "tools/tool-search",
