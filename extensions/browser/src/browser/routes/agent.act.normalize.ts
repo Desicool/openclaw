@@ -25,6 +25,14 @@ import {
 } from "./route-numeric.js";
 import { toBoolean, toStringArray, toStringOrEmpty } from "./utils.js";
 
+const KEY_ALIASES = new Map([
+  ["esc", "Escape"],
+  ["return", "Enter"],
+  ["del", "Delete"],
+  ["ctrl", "Control"],
+  ["cmd", "Meta"],
+]);
+
 function countBatchActions(actions: BrowserActRequest[]): number {
   let count = 0;
   for (const action of actions) {
@@ -224,7 +232,11 @@ export function normalizeActRequest(
       };
     }
     case "press": {
-      const key = toStringOrEmpty(body.key);
+      // Empty chord segments represent a literal plus key and must survive normalization.
+      const key = toStringOrEmpty(body.key)
+        .split("+")
+        .map((part) => KEY_ALIASES.get(part.toLowerCase()) ?? part)
+        .join("+");
       if (!key) {
         throw new Error("press requires key");
       }
