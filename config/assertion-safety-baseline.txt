@@ -465,7 +465,7 @@ extensions/feishu/src/bot-sender-name.ts	2
 extensions/feishu/src/bot.ts	9
 extensions/feishu/src/card-action.ts	1
 extensions/feishu/src/card-interaction.ts	1
-extensions/feishu/src/channel.ts	9
+extensions/feishu/src/channel.ts	7
 extensions/feishu/src/chat.ts	2
 extensions/feishu/src/client.ts	4
 extensions/feishu/src/comment-handler.ts	2
