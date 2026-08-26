@@ -37,6 +37,7 @@ import {
 import { runCronCommandJob } from "../cron/command-runner.js";
 import { resolveCronStoredDeliveryContext } from "../cron/delivery-context.js";
 import { resolveCronDeliveryPlan, sendCronAnnouncePayloadStrict } from "../cron/delivery.js";
+import { reconcileHeartbeatMonitorJobs } from "../cron/heartbeat-monitor.js";
 import { runCronIsolatedAgentTurn } from "../cron/isolated-agent.js";
 import { retryTransientDirectCronDelivery } from "../cron/isolated-agent/delivery-dispatch-policy.js";
 import { resolveCronJobBoundSessionKeys } from "../cron/job-session-bindings.js";
@@ -103,7 +104,6 @@ import {
   runWithScheduledGatewayContext,
 } from "./scheduled-run-gateway-context.js";
 import type { GatewayCronServiceContract } from "./server-cron-contract.js";
-import { reconcileHeartbeatMonitorJobs } from "./server-cron-heartbeat-jobs.js";
 import {
   dispatchGatewayCronFinishedNotifications,
   sendGatewayCronWebhook,
