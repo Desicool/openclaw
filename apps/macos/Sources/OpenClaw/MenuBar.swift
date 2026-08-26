@@ -236,13 +236,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             title: "Open Dashboard",
             systemImage: "gauge",
             action: #selector(self.openDashboardFromDockMenu(_:))))
-        let canvasTitle = AppStateStore.shared.canvasPanelVisible ? "Close Canvas" : "Open Canvas"
-        let canvasItem = self.dockMenuItem(
-            title: canvasTitle,
-            systemImage: "rectangle.inset.filled.on.rectangle",
-            action: #selector(self.toggleCanvasFromDockMenu(_:)))
-        canvasItem.isEnabled = AppStateStore.shared.canvasEnabled
-        menu.addItem(canvasItem)
         menu.addItem(.separator())
         menu.addItem(self.dockMenuItem(
             title: "Settings…",
@@ -261,11 +254,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func openDashboardFromDockMenu(_: Any?) {
         self.openDashboardAction()
-    }
-
-    @objc
-    private func toggleCanvasFromDockMenu(_: Any?) {
-        AppNavigationActions.toggleCanvas()
     }
 
     @objc
