@@ -130,7 +130,6 @@ export type GatewayCronState = {
   // the proxy silently omit reconcileHeartbeatJobs, turning every
   // restart-heartbeat reload into a permanent no-op until gateway restart.
   reconcileExitWatchers: () => Promise<void>;
-  stopExitWatchers: () => void;
   reconcileStreamWatchers: () => Promise<void>;
   stopStreamWatchers: () => Promise<void>;
   reconcileHeartbeatJobs: (cfg?: OpenClawConfig) => Promise<void>;
@@ -1627,7 +1626,6 @@ export function buildGatewayCronService(params: {
       },
     }),
     reconcileExitWatchers,
-    stopExitWatchers,
     reconcileStreamWatchers,
     stopStreamWatchers,
     reconcileHeartbeatJobs,
