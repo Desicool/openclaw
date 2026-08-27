@@ -557,7 +557,7 @@ class CloudWorkersPage extends OpenClawLightDomElement {
       ${renderSettingsPageHeader({
         title: titleForRoute("cloud-workers"),
         subtitle: html`${t("cloudWorkersPage.intro")}
-        ${renderDocsLink(CLOUD_WORKERS_DOCS_URL, t("cloudWorkersPage.documentation"))}`,
+        ${renderDocsLink(CLOUD_WORKERS_DOCS_URL, t("common.learnMore"))}`,
       })}
       ${renderSettingsWorkspace(body)}
     `;

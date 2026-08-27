@@ -1524,7 +1524,6 @@ export const en: TranslationMap = {
   configForm: {
     redactedPlaceholder: "[redacted - click reveal to view]",
     sectionHelp: "Help for {section}",
-    readGuide: "Read the guide",
     showAdvanced: "Show advanced",
     advancedHidden: "{count} advanced setting hidden",
     advancedHiddenPlural: "{count} advanced settings hidden",
@@ -2608,7 +2607,6 @@ export const en: TranslationMap = {
   },
   cloudWorkersPage: {
     intro: "Run agent sessions on ephemeral cloud machines instead of this gateway.",
-    documentation: "Cloud worker documentation",
     sectionTitle: "Profiles",
     sectionDescription: "Each profile defines how its provider provisions and retires a worker.",
     empty: "No cloud worker profiles are configured.",
@@ -3016,7 +3014,6 @@ export const en: TranslationMap = {
   },
   mcpPage: {
     intro: "Connect and manage MCP servers that provide tools to OpenClaw.",
-    connectorsLink: "Discover one-click connectors on the Plugins page.",
     servers: "Servers",
     oauth: "OAuth",
     filtered: "Filtered",

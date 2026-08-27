@@ -865,6 +865,7 @@ describe("config form renderer", () => {
       container.querySelector<HTMLAnchorElement>(".settings-section__help-popover a"),
       "section guide link",
     );
+    expect(link.textContent?.trim()).toBe("Learn more");
     const popover = expectElement(link.closest("wa-popover"), "section help popover");
     expect(button.getAttribute("aria-controls")).toBe(popover.id);
     expect(link.getAttribute("href")).toBe("https://docs.openclaw.ai/gateway/configuration");
