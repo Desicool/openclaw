@@ -173,7 +173,7 @@ export function getTranscriptState(paneId: string): ChatThreadState {
   return state;
 }
 
-function dismissThreadPortals(paneId?: string, owner?: ParentNode): void {
+export function dismissThreadPortals(paneId?: string, owner?: ParentNode): void {
   removeReplyContextMenu(paneId);
   if (owner) {
     dismissConfirmedActionPopovers(owner);
