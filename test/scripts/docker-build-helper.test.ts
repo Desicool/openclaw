@@ -4759,6 +4759,29 @@ source "$ROOT_DIR/scripts/lib/docker-e2e-logs.sh"
       '-v "$harness_root/test/e2e/qa-lab:/app/test/e2e/qa-lab:ro"',
       '-v "$harness_root/test/helpers:/app/test/helpers:ro"',
     ]);
+
+    const script = repoRootShell`
+export DOCKER_E2E_HARNESS_ROOT_DIR=/trusted-harness
+source "$ROOT_DIR/scripts/lib/docker-e2e-package.sh"
+docker_e2e_harness_mount_args
+for ((index = 1; index < \${#DOCKER_E2E_HARNESS_ARGS[@]}; index += 2)); do
+  printf "%s\\n" "\${DOCKER_E2E_HARNESS_ARGS[$index]}"
+done
+`;
+    const mounts = execFileSync("bash", ["-lc", script], { encoding: "utf8" }).trim().split("\n");
+
+    expect(mounts).toEqual([
+      "/trusted-harness/scripts/e2e:/app/scripts/e2e:ro",
+      "/trusted-harness/scripts/lib:/app/scripts/lib:ro",
+      "/trusted-harness/packages/gateway-client/src:/app/packages/gateway-client/src:ro",
+      "/trusted-harness/packages/normalization-core/package.json:/app/packages/normalization-core/package.json:ro",
+      "/trusted-harness/packages/normalization-core/src:/app/packages/normalization-core/src:ro",
+      "/trusted-harness/tsconfig.json:/app/tsconfig.json:ro",
+      "/trusted-harness/test/e2e/qa-lab:/app/test/e2e/qa-lab:ro",
+      "/trusted-harness/test/helpers:/app/test/helpers:ro",
+      "/trusted-harness/scripts/prepublish-plugin-registry-artifact.mjs:/app/scripts/prepublish-plugin-registry-artifact.mjs:ro",
+      "/trusted-harness/scripts/windows-cmd-helpers.mjs:/app/scripts/windows-cmd-helpers.mjs:ro",
+    ]);
   });
 
   it("preserves pnpm lookup paths for scheduled Docker child lanes", () => {
