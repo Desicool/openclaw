@@ -45,7 +45,7 @@ import type {
   ApplicationTheme,
   ApplicationThemeServerSelection,
 } from "./context.ts";
-import { applyControlUiAccent } from "./control-ui-presentation.ts";
+import { applyControlUiAccent, syncControlUiSystemChrome } from "./control-ui-presentation.ts";
 import { syncCustomThemeStyleTag } from "./custom-theme.ts";
 import { createScopeUpgradeCapability } from "./device-scope-upgrade.ts";
 import { createApplicationGateway } from "./gateway-store.ts";
@@ -96,13 +96,7 @@ function applyThemePresentation(settings: ReturnType<typeof loadSettings>): void
   syncThemeFontStylesheet(settings.theme);
   syncCustomThemeStyleTag(settings.customTheme);
   applyControlUiAccent(settings.accent);
-  const background = getComputedStyle(root).getPropertyValue("--bg").trim();
-  if (background) {
-    for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
-      meta.content = background;
-      meta.removeAttribute("media");
-    }
-  }
+  syncControlUiSystemChrome();
 }
 
 function createApplicationTheme(
@@ -111,6 +105,7 @@ function createApplicationTheme(
   let settings = initialSettings;
   let serverSelection: ApplicationThemeServerSelection | null = null;
   let systemThemeCleanup: (() => void) | undefined;
+  let chromeBreakpointCleanup: (() => void) | undefined;
   const listeners = new Set<() => void>();
 
   let presentationGeneration = 0;
@@ -152,6 +147,20 @@ function createApplicationTheme(
       systemThemeCleanup = () => mediaQuery.removeListener(onChange);
     }
   };
+
+  if (typeof globalThis.matchMedia === "function") {
+    const mediaQuery = globalThis.matchMedia(
+      "(max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape)",
+    );
+    const onChange = () => syncControlUiSystemChrome();
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", onChange);
+      chromeBreakpointCleanup = () => mediaQuery.removeEventListener("change", onChange);
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(onChange);
+      chromeBreakpointCleanup = () => mediaQuery.removeListener(onChange);
+    }
+  }
 
   syncSystemThemeListener();
   publish();
@@ -201,6 +210,7 @@ function createApplicationTheme(
     dispose() {
       presentationGeneration += 1;
       detachSystemThemeListener();
+      chromeBreakpointCleanup?.();
       listeners.clear();
     },
   };
