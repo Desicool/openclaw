@@ -24,7 +24,6 @@ import {
 import type { EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import { fnv1aUtf16 } from "../../../lib/fnv1a.ts";
 import type { UiSessionDefaultsHost } from "../../../lib/sessions/session-key.ts";
-import type { ChatRunStartupStatus } from "../chat-run-startup.ts";
 import { resetChatThreadState } from "../chat-thread.ts";
 import type { LinkFaviconFetcher } from "../link-favicon-loader.ts";
 import type { RealtimeTalkConversationEntry } from "../realtime-talk-conversation.ts";
@@ -84,7 +83,7 @@ export type ChatThreadProps = {
   persistCommentary?: boolean;
   runActive?: boolean;
   runWorking?: boolean;
-  startupStatus?: ChatRunStartupStatus | null;
+  startupLabel?: string;
   waitingApproval?: boolean;
   questionPrompts?: readonly QuestionPrompt[];
   sessions: SessionsListResult | null;
