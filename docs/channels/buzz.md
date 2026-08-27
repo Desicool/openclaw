@@ -400,6 +400,16 @@ directory, but automation should use `buzz:<ROOM_UUID>` to avoid ambiguity.
 For manual configuration, `groupAllowFrom` entries must use the 64-character
 hexadecimal form.
 
+### Reply prefix
+
+Set `channels.buzz.responsePrefix` to prefix automatic agent replies, for
+example `"[Support]"`. Use `"auto"` for the routed agent's identity name,
+`"[{model}]"` for its selected model, or `""` to disable an inherited global
+prefix. Explicit `message` tool and CLI text sends also apply literal and
+identity prefixes; see [shared prefix behavior](/concepts/messages#prefixes-threading-and-replies)
+for model-dependent templates. Buzz uses one account per Gateway, so there is
+no nested `accounts` override.
+
 ### Bot key storage
 
 The default guided path reuses the current bot identity or generates a private
