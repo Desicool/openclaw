@@ -4987,13 +4987,9 @@ export const en: TranslationMap = {
       json: "JSON",
     },
     cacheStatus: {
-      warning: "Usage cache is rebuilding in the background. Displayed totals may be stale.",
-      title: "{status}: {pending} pending, {stale} stale, {cached} cached",
-      status: {
-        refreshing: "refreshing",
-        stale: "stale",
-        partial: "partial",
-      },
+      warning: "Usage data may be incomplete. Checking for updated totals automatically.",
+      paused:
+        "Usage data may be incomplete. Automatic checks paused; select Refresh to check again.",
     },
     empty: {
       title: "Start with a date range",

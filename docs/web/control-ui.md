@@ -374,6 +374,7 @@ select it to open the owning Approvals page.
     - Session-derived token and estimated-cost analysis stays separate from provider billing.
     - Provider cards call `usage.status` and show live plan names, quota windows, balances, spend, and budgets reported by configured provider plugins.
     - A provider usage failure does not block the session/cost dashboard; unavailable provider cards show their own error state.
+    - Incomplete session/cost totals stay readable while the visible, focused page checks for updates. Automatic checks are bounded; if they pause, select **Refresh** to check again.
 
   </Accordion>
   <Accordion title="Debug, logs, update">
