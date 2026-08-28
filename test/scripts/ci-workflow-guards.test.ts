@@ -6648,8 +6648,9 @@ exit 1
 
     const absentFramework = runBuildFixture("absent", "fail");
     expect(absentFramework.status).toBe(1);
-    expect(absentFramework.calls.filter((call) => call.startsWith("build "))).toHaveLength(1);
-    expect(absentFramework.calls.filter((call) => call.startsWith("package "))).toHaveLength(0);
+    expect(absentFramework.calls).toEqual([
+      "build --package-path apps/macos --product OpenClaw --configuration release",
+    ]);
 
     const recovered = runBuildFixture("incomplete", "recover");
     expect(recovered.status).toBe(0);
@@ -6668,14 +6669,23 @@ exit 1
     expect(secondFailure.calls.filter((call) => call.startsWith("package "))).toHaveLength(1);
   });
 
-  it("preserves the first macOS Swift test failure", () => {
+  it("uses native macOS Swift tests and preserves the first failure", () => {
     const workflow = readCiWorkflow();
     const macosSwift = workflow.jobs["macos-swift"];
     const testStep = macosSwift.steps.find((step: WorkflowStep) => step.name === "Swift test");
     const renderStep = macosSwift.steps.find(
       (step: WorkflowStep) => step.name === "Render isolated macOS health fixtures",
     );
+    const buildCache = macosSwift.steps.find(
+      (step: WorkflowStep) => step.id === "swift-build-cache",
+    );
+    const nativeCachePrefix =
+      "${{ runner.os }}-swift-build-v4-native-tests-${{ steps.swift-toolchain.outputs.key }}-";
 
+    expect(buildCache.with).toMatchObject({
+      key: expect.stringContaining(nativeCachePrefix),
+      "restore-keys": `${nativeCachePrefix}\n`,
+    });
     expect(macosSwift.env.SWIFT_TEST_EXECUTION).toBe(
       "${{ (github.event_name == 'workflow_dispatch' || github.run_attempt > 1) && 'serial' || 'parallel' }}",
     );
@@ -6723,10 +6733,10 @@ test_count="$(grep -c '^test ' "$SWIFT_CALLS")"
       const calls = readFileSync(callsPath, "utf8").trim().split("\n");
       expect(result.status).toBe(buildExitCode || 1);
       expect(calls).toEqual([
-        "build --package-path apps/macos --build-tests --enable-code-coverage",
+        "build --package-path apps/macos --build-system native --enable-code-coverage --build-tests",
         ...(buildExitCode === 0
           ? [
-              `test --package-path apps/macos --enable-code-coverage --skip-build --${
+              `test --package-path apps/macos --build-system native --enable-code-coverage --skip-build --${
                 execution === "parallel" ? "parallel" : "no-parallel"
               }`,
             ]
