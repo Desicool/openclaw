@@ -983,27 +983,40 @@ describe("grouped chat rendering", () => {
     });
   });
 
-  it("collapses long user messages and toggles their disclosure state", () => {
+  it("collapses long image-bearing user messages and toggles their disclosure state", () => {
     const container = document.createElement("div");
     const collapsedLines = ["Inspect AGENTS.md:188 first.", "a".repeat(1_201)];
     const expandedTail = "Full prompt tail after the disclosure boundary.";
     const markdownContent = [...collapsedLines, expandedTail].join("\n");
+    const message = createUserMessage(
+      [
+        { type: "text", text: markdownContent },
+        createMediaBlock({
+          url: "data:image/png;base64,cG5n",
+          alt: "Sent image",
+          width: 640,
+          height: 640,
+        }),
+      ],
+      { timestamp: 1001 },
+    );
     const onToggleUserMessageExpanded = vi.fn();
     markdownRenderMock
       .mockImplementationOnce(renderMarkdownHtml)
       .mockImplementationOnce(renderMarkdownHtml);
 
-    renderGroupedMessage(
-      container,
-      createUserMessage(markdownContent, { timestamp: 1001 }),
-      "user",
-      {
-        isUserMessageExpanded: () => false,
-        onToggleUserMessageExpanded,
-      },
-    );
+    renderGroupedMessage(container, message, "user", {
+      isUserMessageExpanded: () => false,
+      onToggleUserMessageExpanded,
+    });
 
     const disclosure = expectElement(container, ".chat-message-disclosure", HTMLDivElement);
+    expect(
+      expectElement(container, ".chat-bubble", HTMLDivElement).classList.contains(
+        "chat-bubble--with-images",
+      ),
+    ).toBe(true);
+    expect(container.querySelector(".chat-message-image")).not.toBeNull();
     const toggle = expectElement(disclosure, ".chat-message-disclosure__toggle", HTMLButtonElement);
     const collapsedText = expectElement(disclosure, ".chat-text", HTMLDivElement);
     const collapsedFileLink = expectElement(
@@ -1021,15 +1034,10 @@ describe("grouped chat rendering", () => {
     toggle.click();
     expect(onToggleUserMessageExpanded).toHaveBeenCalledWith("user-message:user-message");
 
-    renderGroupedMessage(
-      container,
-      createUserMessage(markdownContent, { timestamp: 1001 }),
-      "user",
-      {
-        isUserMessageExpanded: () => true,
-        onToggleUserMessageExpanded,
-      },
-    );
+    renderGroupedMessage(container, message, "user", {
+      isUserMessageExpanded: () => true,
+      onToggleUserMessageExpanded,
+    });
 
     const expandedDisclosure = expectElement(container, ".chat-message-disclosure", HTMLDivElement);
     const collapseToggle = expectElement(
@@ -4997,8 +5005,11 @@ describe("grouped chat rendering", () => {
     expect(fetchMock).toHaveBeenCalledWith(thumbnailUrl, expect.anything());
 
     const imageActions = container.querySelectorAll<HTMLButtonElement>(".chat-image-action");
-    expect(imageActions).toHaveLength(3);
-    imageActions[1]?.click();
+    expect([...imageActions].map((action) => action.getAttribute("aria-label"))).toEqual([
+      "Download image",
+      "Copy image",
+    ]);
+    imageActions[0]?.click();
     await vi.waitFor(() => expect(click).toHaveBeenCalledOnce());
     expect(clickedDownloads[0]).toBe("Ticketed image.png");
 
