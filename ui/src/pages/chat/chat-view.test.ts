@@ -1748,6 +1748,110 @@ describe("chat transcript rendering", () => {
     );
   });
 
+  it("announces named attachment failures in ordinary and completed-run assistant rows", () => {
+    const transcript = createTestTranscript();
+    const container = document.createElement("div");
+    const existing = {
+      testVirtualRow: true,
+      testVirtualKey: "assistant-existing",
+      testVirtualRole: "assistant",
+      role: "assistant",
+      content: "Existing answer",
+    };
+    const renderMessages = (messages: unknown[]) =>
+      renderChatInto(container, { transcript, messages });
+
+    renderMessages([existing]);
+    const attachmentOnly = {
+      testVirtualRow: true,
+      testVirtualKey: "assistant-missing-attachment",
+      testVirtualRole: "assistant",
+      role: "assistant",
+      content: [
+        {
+          type: "attachment_error",
+          attachment: { code: "file-not-found", kind: "document", label: "missing.pdf" },
+        },
+      ],
+    };
+    renderMessages([existing, attachmentOnly]);
+    expect(container.querySelector(".chat-transcript-announcement")?.textContent).toBe(
+      "missing.pdf: Not sent. File not found. Check the path and try again.",
+    );
+
+    const mixed = {
+      testVirtualRow: true,
+      testVirtualKey: "assistant-mixed-attachments",
+      testVirtualRole: "assistant",
+      role: "assistant",
+      content: [
+        { type: "text", text: "Partial result" },
+        {
+          type: "attachment_error",
+          attachment: {
+            code: "unsupported-format",
+            kind: "document",
+            label: "settings.toml",
+          },
+        },
+      ],
+    };
+    renderMessages([existing, attachmentOnly, mixed]);
+    expect(container.querySelector(".chat-transcript-announcement")?.textContent).toBe(
+      "Partial result settings.toml: Not sent. Rejected by the local attachment allowlist. Send a supported file type.",
+    );
+
+    const runBoundary = {
+      kind: "group" as const,
+      key: "group:user:attachment-run",
+      role: "user" as const,
+      messages: [
+        {
+          key: "user:attachment-run",
+          message: {
+            role: "user",
+            content: "Send the attachment",
+            __openclaw: {
+              id: "user:attachment-run",
+              idempotencyKey: "attachment-run:user",
+            },
+          },
+        },
+      ],
+      timestamp: 1,
+      isStreaming: false,
+    };
+    const completedFailure = {
+      kind: "group" as const,
+      key: "group:assistant:attachment-run",
+      role: "assistant" as const,
+      messages: [
+        {
+          key: "assistant:attachment-run",
+          message: {
+            role: "assistant",
+            content: attachmentOnly.content,
+            runId: "attachment-run",
+          },
+        },
+      ],
+      timestamp: 2,
+      isStreaming: false,
+      runId: "attachment-run",
+    };
+    vi.mocked(chatThread.buildCachedChatItems).mockReturnValue([
+      runBoundary,
+      completedFailure,
+    ] as ReturnType<typeof chatThread.buildCachedChatItems>);
+    renderChatInto(container, {
+      transcript,
+      messages: [runBoundary, completedFailure],
+    });
+    expect(container.querySelector(".chat-transcript-announcement")?.textContent).toBe(
+      "missing.pdf: Not sent. File not found. Check the path and try again.",
+    );
+  });
+
   it("announces a run preamble and its later terminal answer separately", () => {
     const transcript = createTestTranscript();
     const container = document.createElement("div");
