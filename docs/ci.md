@@ -809,6 +809,48 @@ report public networking with no Tailscale state before uploading any script.
 Owned AWS/Hetzner capacity also remains the fallback for Blacksmith outages,
 quota issues, or explicit owned-capacity testing.
 
+For an explicitly authorized admin-only PR landing fallback, set
+`OPENCLAW_PR_GATES_REMOTE=crabbox-aws` before `scripts/pr prepare-gates`.
+The mode does not replace the default hosted aggregate gate. After the exact
+prep head is pushed, the trusted wrapper downloads
+checksum-verified Crabbox v0.46, runs sanitized brokered AWS with `umask 022`,
+the canonical untrusted bootstrap, `pnpm build`, `pnpm check`, and a
+fail-closed PR-derived test plan. The existing changed-test owner evaluates
+every executable changed path independently and must resolve each one to
+concrete matched test files; broad fallback, skipped paths, config targets,
+deleted executable paths, and partial plans are refused. Explicit docs and
+`AGENTS.md`/`CLAUDE.md` instruction surfaces may produce a zero-test plan.
+The exact base SHA, head SHA, and deterministic plan digest are bound into the
+broker command and published check summary. The AWS lease uses a 90-minute
+idle timeout and 240-minute TTL before dispatching the protected-main
+`pr-crabbox-gate-publisher.yml` workflow. That workflow accepts an open draft
+because proof runs during prepare-push, then rereads the live same-repository
+PR and the exact active organization-admin membership object using the repo-native
+GitHub App token with `Members(read)` (the repository-scoped workflow token is
+not treated as org authority), validates the authenticated immutable broker
+run, ordered complete events, canonical command and bootstrap upload hash, and
+publishes the distinct `openclaw/crabbox-gate` only for the exact proven
+base/head/plan binding.
+Retained broker logs are validated when non-empty but are optional because
+released Crabbox v0.46 can report zero retained log bytes after a successful
+run. The local `.local/gates.env` provider/run/lease/URL fields are recovery
+metadata, not publication authority.
+
+The fallback never replaces or republishes `openclaw/ci-gate`. Native merge
+verification still rejects draft PRs and permits the server ruleset bypass only
+when the Crabbox check is
+completed successfully by GitHub Actions on the prepared SHA, the authenticated
+actor is still an active organization admin, and the sole unsatisfied required
+check is the normal CI gate with a recognized hosted-runner infrastructure
+failure represented by GitHub-owned job metadata with no executed workflow
+steps and no assigned `runner_name`. Job logs are never authority because PR
+code controls their text. Missing or mismatched checks, cancellation,
+action-required or stale conclusions, an assigned runner, any failed or executed
+workflow step, unknown runner backends, pending contexts, and additional
+required-check failures remain blocking. Only workflow `startup_failure` or an
+unacquired zero-step hosted job with `failure`/`timed_out` qualifies. The pinned
+squash merge still uses the exact prepared head.
+
 Agents do not pre-warm for anticipated work. Acquire a Testbox lazily when the
 first environment-sensitive command is ready, reuse the returned `tbx_...` id
 for later remote commands, sync the current checkout on every run, and stop it
