@@ -1538,7 +1538,6 @@ export const en: TranslationMap = {
     structuredSecretFile: "Structured value (SecretRef) - edit the config file directly",
     defaultValue: "Default: {value}",
     usingDefault: "Using default: {value}",
-    resetToDefault: "Reset to default",
     select: "Select...",
     enumOn: "On",
     enumOff: "Off",
