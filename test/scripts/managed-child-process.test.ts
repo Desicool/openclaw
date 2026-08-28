@@ -1,6 +1,7 @@
 // Managed Child Process tests cover managed child process script behavior.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
@@ -768,10 +769,14 @@ ${publishReadyPidScript(2)}
     expect(isProcessAlive(childPid)).toBe(false);
   });
 
-  posixIt.each(["timeout", "sibling failure"])(
+  posixIt.concurrent.for(["timeout", "sibling failure"])(
     "fails closed within the cleanup budget when an escaped child holds output after $0",
-    async (mode) => {
-      const dir = createTempDir("openclaw-managed-held-output-");
+    { timeout: 25_000 },
+    async (mode, { expect }) => {
+      // Concurrent rows own their roots; the shared afterEach can run while a sibling is alive.
+      const dir = fs.mkdtempSync(
+        path.join(fs.realpathSync(os.tmpdir()), "openclaw-managed-held-output-"),
+      );
       const pidPath = path.join(dir, "escaped.pid");
       const parentPidPath = path.join(dir, "parent.pid");
       const failPath = path.join(dir, "fail");
@@ -853,10 +858,13 @@ require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(le
           process.kill(escapedPid, "SIGKILL");
           await waitForDead(escapedPid, 2_000);
         }
-        if (child?.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        if (child?.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+          await waitForDead(expectProcessPid(child.pid), 2_000);
+        }
+        fs.rmSync(dir, { recursive: true, force: true });
       }
     },
-    25_000,
   );
 
   posixIt("waits through transient indeterminate process-group state", async () => {
