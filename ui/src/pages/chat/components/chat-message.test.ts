@@ -4226,9 +4226,22 @@ describe("grouped chat rendering", () => {
       );
 
     renderMessage();
-    expect(
-      container.querySelector(".chat-assistant-attachment-card__status-meta")?.textContent?.trim(),
-    ).toBe("Checking...");
+    const checkingCard = container.querySelector(
+      '.chat-assistant-attachment-card--checking[aria-busy="true"]',
+    );
+    const skeleton = checkingCard?.querySelector(
+      ".chat-assistant-attachment-card__status-meta.skeleton",
+    );
+    const actionSkeleton = checkingCard?.querySelector(
+      ".chat-assistant-attachment-card__action-skeleton.skeleton",
+    );
+    const actionReservation = checkingCard?.querySelector(
+      ".chat-assistant-attachment-card__actions--loading",
+    );
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
+    expect(skeleton?.textContent?.trim()).toBe("");
+    expect(actionSkeleton?.getAttribute("aria-hidden")).toBe("true");
+    expect(actionReservation?.getAttribute("aria-hidden")).toBe("true");
     await flushAssistantAttachmentAvailabilityChecks();
 
     const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source).replaceAll("%20", "+")}&meta=1`;
@@ -4237,6 +4250,7 @@ describe("grouped chat rendering", () => {
     expect(
       container.querySelector<HTMLImageElement>(".chat-message-image")?.getAttribute("src"),
     ).toBe(expectedMetaUrl.replace("&meta=1", "&mediaTicket=ticket-local"));
+    expect(container.querySelector(".chat-assistant-attachment-card__action-skeleton")).toBeNull();
   });
 
   it("stops checking when local assistant attachment metadata fetch stalls", async () => {
@@ -4275,9 +4289,18 @@ describe("grouped chat rendering", () => {
       );
 
     rerender();
-    expect(
-      container.querySelector(".chat-assistant-attachment-card__status-meta")?.textContent?.trim(),
-    ).toBe("Checking...");
+    const checkingCard = container.querySelector(
+      '.chat-assistant-attachment-card--checking[aria-busy="true"]',
+    );
+    const skeleton = checkingCard?.querySelector(
+      ".chat-assistant-attachment-card__status-meta.skeleton",
+    );
+    const actionSkeleton = checkingCard?.querySelector(
+      ".chat-assistant-attachment-card__action-skeleton.skeleton",
+    );
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
+    expect(skeleton?.textContent?.trim()).toBe("");
+    expect(actionSkeleton?.getAttribute("aria-hidden")).toBe("true");
 
     const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source)}&meta=1`;
     const [, fetchInit] = requireFetchCallForUrl(fetchMock, expectedMetaUrl);
@@ -4289,6 +4312,7 @@ describe("grouped chat rendering", () => {
     expect(
       container.querySelector(".chat-assistant-attachment-card__status-meta")?.textContent,
     ).toContain("Unavailable");
+    expect(container.querySelector(".chat-assistant-attachment-card__action-skeleton")).toBeNull();
   });
 
   it("refreshes local assistant media tickets before expiry without another render", async () => {
