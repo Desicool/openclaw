@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { validateFullReleaseCandidateBinding } from "./full-release-candidate-contract.mjs";
 import {
   classifyReleaseGhTransportError,
   compareReleaseJobsByName,
@@ -681,6 +682,33 @@ export function validateParentManifest(value, expected) {
   if (!["beta", "stable", "full"].includes(releaseProfile)) {
     throw new Error("release validation manifest release profile is invalid");
   }
+  const candidateBinding =
+    value.candidateBinding === undefined || value.candidateBinding === null
+      ? null
+      : validateFullReleaseCandidateBinding(value.candidateBinding);
+  if (
+    candidateBinding !== null &&
+    (candidateBinding.request.targetSha !== targetSha ||
+      candidateBinding.request.toolingSha !== workflowSha ||
+      candidateBinding.request.releaseProfile !== releaseProfile ||
+      (expected.repository !== undefined &&
+        candidateBinding.request.repository !== expected.repository))
+  ) {
+    throw new Error("release validation manifest candidate binding is invalid");
+  }
+  if (
+    Object.hasOwn(expected, "candidateBinding") &&
+    JSON.stringify(canonicalJson(candidateBinding)) !==
+      JSON.stringify(
+        canonicalJson(
+          expected.candidateBinding === null
+            ? null
+            : validateFullReleaseCandidateBinding(expected.candidateBinding),
+        ),
+      )
+  ) {
+    throw new Error("release validation manifest candidate differs from the immutable plan");
+  }
   const runReleaseSoak = String(value.runReleaseSoak ?? "");
   if (!["true", "false"].includes(runReleaseSoak)) {
     throw new Error("release validation manifest release soak value is invalid");
@@ -744,6 +772,7 @@ export function validateParentManifest(value, expected) {
     };
   }
   return {
+    candidateBinding,
     childEvidence,
     childRunIds,
     controls,
@@ -1983,7 +2012,9 @@ export function validateReleaseRunEvidence(
   if (executionPlan?.attemptEvidenceVersion !== undefined) {
     if (
       rootEvidence.manifestJson.executionPlanSha256 !== executionPlan.sha256 ||
-      Number(rootEvidence.manifestJson.sourceParentRunAttempt) !== executionPlan.parentRunAttempt
+      Number(rootEvidence.manifestJson.sourceParentRunAttempt) !== executionPlan.parentRunAttempt ||
+      JSON.stringify(canonicalJson(rootEvidence.manifest.candidateBinding)) !==
+        JSON.stringify(canonicalJson(executionPlan.candidate))
     ) {
       throw new Error("release validation manifest differs from its immutable execution plan");
     }
