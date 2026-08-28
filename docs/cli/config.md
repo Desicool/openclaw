@@ -114,10 +114,21 @@ machine-output spelling and keeps stdout reserved for the schema document.
 
 Validates the current config against the active schema without starting the gateway. It also checks provider/source compatibility for every registry-declared SecretRef, including disabled plugin or channel configuration. This strict command can report an inactive mismatch that does not block normal Gateway startup, where SecretRef resolution remains limited to effectively active surfaces.
 
+After schema validation, it checks every configured manual exec provider's command path using the same non-executing trust checks as startup: file presence, symlinks, trusted directories, permissions, ownership, and Windows ACL availability. `config set`, `config patch`, and `config unset` apply these checks only to providers changed or referenced by the operation, including during dry runs. Replacing the `secrets` or `secrets.providers` collection checks every remaining provider. An unrelated inactive provider does not block targeted repairs or removal of that provider.
+
+Path validation does not execute providers or verify their output. Passing it does not guarantee successful secret resolution; exec dry runs require `--allow-exec` to test that separately.
+
 ```bash
 openclaw config validate
 openclaw config validate --json
 ```
+
+<Note>
+The exec-provider checks inspect the filesystem of the host where the CLI
+runs. Run `config validate` on the gateway host itself (or on a host with
+matching command paths, ownership, and ACLs). Paths and permissions can change
+after validation; startup checks them again before execution.
+</Note>
 
 <Note>
 If validation is already failing, start with `openclaw configure` or `openclaw doctor --fix`. `openclaw chat` does not bypass the invalid-config guard.
@@ -364,7 +375,7 @@ openclaw config set channels.discord.token \
     - Builder mode: runs SecretRef resolvability checks for changed refs/providers.
     - JSON mode (`--strict-json`, `--json`, or batch mode): runs schema validation plus SecretRef resolvability checks.
     - Policy validation runs against the full post-change config, so parent-object writes (for example setting `hooks` as an object) cannot bypass unsupported-surface validation.
-    - Exec SecretRef checks are skipped by default to avoid command side effects; pass `--allow-exec` to opt in (this may execute provider commands). `--allow-exec` is dry-run only and errors without `--dry-run`.
+    - Exec command-path trust checks run without executing providers. Exec SecretRef resolvability checks are skipped by default to avoid command side effects; pass `--allow-exec` to opt in (this may execute provider commands). `--allow-exec` is dry-run only and errors without `--dry-run`.
 
   </Accordion>
   <Accordion title="--dry-run --json fields">
