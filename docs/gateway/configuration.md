@@ -556,6 +556,10 @@ Most fields hot-apply without downtime; some hot-applied sections restart just t
 subsystem (channel, cron, heartbeat, health monitor) rather than the whole Gateway. In
 `hybrid` mode, Gateway-restart-required changes are handled automatically.
 
+By default, changing `agents.defaults.mediaMaxMb` restarts channel runtimes so their inherited
+attachment limits take effect together. Automatic reloads preserve manually
+stopped accounts; use an explicit channel start to resume those accounts.
+
 | Category            | Fields                                                                  | Gateway restart needed?      |
 | ------------------- | ----------------------------------------------------------------------- | ---------------------------- |
 | Channels            | `channels.*`, `web` (WhatsApp) - all built-in and plugin channels       | No (restarts that channel)   |

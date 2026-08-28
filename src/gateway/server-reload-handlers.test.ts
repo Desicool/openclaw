@@ -2462,7 +2462,7 @@ describe("gateway hot reload superseded tail recovery", () => {
     await reloadA;
 
     expect(stopChannel).toHaveBeenCalledWith("discord", undefined, { manual: false });
-    expect(startChannel).toHaveBeenCalledWith("discord");
+    expect(startChannel).toHaveBeenCalledWith("discord", undefined, { preserveManualStop: true });
     expect(requestRecoveryRestart).not.toHaveBeenCalled();
   });
 
@@ -3281,7 +3281,7 @@ describe("gateway restart deferral preflight", () => {
     }
 
     expect(stopChannel).toHaveBeenCalledWith("discord", undefined, { manual: false });
-    expect(startChannel).toHaveBeenCalledWith("discord");
+    expect(startChannel).toHaveBeenCalledWith("discord", undefined, { preserveManualStop: true });
     expect(runtimePublished).toBe(true);
     expect(setState).toHaveBeenCalledTimes(1);
   });
@@ -3325,7 +3325,7 @@ describe("gateway restart deferral preflight", () => {
     }
 
     expect(stopChannel).toHaveBeenCalledWith("telegram", undefined, { manual: false });
-    expect(startChannel).toHaveBeenCalledWith("telegram");
+    expect(startChannel).toHaveBeenCalledWith("telegram", undefined, { preserveManualStop: true });
     expect(logReload.warn).toHaveBeenCalledWith(
       expect.stringContaining("channel reload timeout after"),
     );
@@ -5325,7 +5325,7 @@ describe("gateway plugin hot reload handlers", () => {
     expect(runtimeEnv.env[envKey]).toBeUndefined();
     expect(targetEnv[envKey]).toBeUndefined();
     expect(stopChannel).toHaveBeenCalledWith("discord", undefined, { manual: false });
-    expect(startChannel).toHaveBeenCalledWith("discord");
+    expect(startChannel).toHaveBeenCalledWith("discord", undefined, { preserveManualStop: true });
   });
 
   it("skips channel work when the candidate env adds a skip flag", async () => {
@@ -6158,8 +6158,8 @@ describe("gateway plugin hot reload handlers", () => {
     expect(logChannels.error).toHaveBeenCalledWith(
       "failed to stop discord channel before plugin reload: stop failed",
     );
-    expect(startChannel).toHaveBeenCalledWith("telegram");
-    expect(startChannel).toHaveBeenCalledWith("discord");
+    expect(startChannel).toHaveBeenCalledWith("telegram", undefined, { preserveManualStop: true });
+    expect(startChannel).toHaveBeenCalledWith("discord", undefined, { preserveManualStop: true });
     expect(startRootCounts).toEqual([1, 1]);
     expect(pruneInactiveChannelAccountState).not.toHaveBeenCalled();
     expect(setState).not.toHaveBeenCalled();
@@ -6854,7 +6854,9 @@ describe("deferred channel reload abort generation", () => {
       await expect(reloadPromise).resolves.toBe("applied");
 
       expect(channels.stop).toHaveBeenCalledWith("whatsapp", undefined, { manual: false });
-      expect(channels.start).toHaveBeenCalledWith("whatsapp");
+      expect(channels.start).toHaveBeenCalledWith("whatsapp", undefined, {
+        preserveManualStop: true,
+      });
     } finally {
       vi.useRealTimers();
       hoisted.activeTaskBlockers.length = 0;

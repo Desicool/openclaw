@@ -3358,7 +3358,6 @@ src/media-understanding/runtime.ts	2
 src/media-understanding/shared.ts	2
 src/media/audio-transcode.ts	1
 src/media/bounded-read-file.ts	2
-src/media/configured-max-bytes.ts	3
 src/media/fetch.ts	2
 src/media/input-files.ts	1
 src/media/local-media-access.ts	1

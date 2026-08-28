@@ -14,10 +14,9 @@ function startGatewayChannelFromActiveRegistry(
   accountId?: string,
 ): Promise<void> {
   return withPluginRuntimeRegistryScope(requireActivePluginChannelRegistry(), () =>
+    // Reload and rollback replace snapshots, not the operator's stopped intent.
     runOutsideGatewayRootWorkAdmission(() =>
-      accountId === undefined
-        ? params.startChannel(channel)
-        : params.startChannel(channel, accountId),
+      params.startChannel(channel, accountId, { preserveManualStop: true }),
     ),
   );
 }
