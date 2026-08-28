@@ -449,8 +449,25 @@ export function renderAssistantAttachments(
     const playbackAuthToken = localSource ? (authToken ?? null) : null;
     const safeAttachmentUrl =
       attachment.kind === "audio" || attachment.kind === "video"
-        ? safeMediaAttachmentHref(attachmentUrl ?? "")
+        ? safeMediaAttachmentHref(attachmentUrl ?? "", attachment.kind)
         : safeAttachmentHref(attachmentUrl ?? "");
+    const openVideoOverlay =
+      attachment.kind === "video" && onOpenImage && safeAttachmentUrl
+        ? (src: string) => {
+            const requestVersion = onRequestOpenImage?.();
+            const overlayItem = {
+              kind: "video" as const,
+              src,
+              originalSrc: safeAttachmentUrl,
+              title: attachment.label,
+            };
+            if (requestVersion === undefined) {
+              onOpenImage(overlayItem);
+            } else {
+              onOpenImage(overlayItem, requestVersion);
+            }
+          }
+        : undefined;
     const hasLiveSidebarSource =
       localSource ||
       (isManagedOutgoingMediaSource(attachment.url) &&
@@ -631,7 +648,8 @@ export function renderAssistantAttachments(
         .sizeBytes=${sizeBytes}
         .mediaWidth=${mediaWidth}
         .mediaHeight=${mediaHeight}
-        .onExpand=${openAttachmentSidebar}
+        .onExpand=${openVideoOverlay}
+        .onFallbackExpand=${openAttachmentSidebar}
         .onMediaLoaded=${onAssistantAttachmentLoaded}
       ></openclaw-chat-video-player>`;
     }
