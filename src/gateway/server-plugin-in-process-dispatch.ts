@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentWaitParams } from "../../packages/gateway-protocol/src/index.js";
 import type { SubagentCompletionToolHandoffRegistration } from "../agents/subagents/announce/subagent-announce-handoff.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import type { PluginSubagentRequesterContext } from "../plugins/runtime/subagent-requester-context.js";
 import type { RuntimePluginToolGrant } from "../plugins/runtime/tool-grant.js";
@@ -70,6 +71,7 @@ type DispatchGatewayMethodInProcessOptions = {
   internalDeliveryMediaUrls?: string[];
   internalDeliverySuppressText?: boolean;
   nodeInvokeStream?: GatewayNodeInvokeStream;
+  nodeInvokeApprovalSessionKey?: string;
   onAccepted?: (payload: unknown) => void;
   onSignalAbort?: () => Promise<void> | void;
   operatorRoleActor?: GatewayOperatorRoleActor;
@@ -151,6 +153,18 @@ function resolveInProcessGatewayDispatch(
     typeof options?.pluginRuntimeOwnerId === "string" && options.pluginRuntimeOwnerId.trim()
       ? options.pluginRuntimeOwnerId.trim()
       : undefined;
+  const pluginRecord = pluginRuntimeOwnerId
+    ? getActivePluginRegistry()?.plugins.find((entry) => entry.id === pluginRuntimeOwnerId)
+    : undefined;
+  const nodeInvokeApprovalSessionKey =
+    method === "node.invoke" &&
+    scope?.pluginId?.trim() === pluginRuntimeOwnerId &&
+    (scope?.pluginOrigin === "bundled" ||
+      scope?.pluginTrustedOfficialInstall === true ||
+      pluginRecord?.origin === "bundled" ||
+      pluginRecord?.trustedOfficialInstall === true)
+      ? options?.nodeInvokeApprovalSessionKey
+      : undefined;
   if (
     options?.nodeInvokeStream &&
     (method !== "node.invoke" || !pluginRuntimeOwnerId || options.forceSyntheticClient !== true)
@@ -184,6 +198,7 @@ function resolveInProcessGatewayDispatch(
     internalDeliveryMediaUrls: options?.internalDeliveryMediaUrls,
     internalDeliverySuppressText: options?.internalDeliverySuppressText,
     ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
+    ...(nodeInvokeApprovalSessionKey ? { nodeInvokeApprovalSessionKey } : {}),
     ...(options?.pluginSubagentRequester
       ? { pluginSubagentRequester: options.pluginSubagentRequester }
       : {}),
