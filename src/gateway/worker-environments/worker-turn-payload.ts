@@ -154,6 +154,7 @@ export async function prepareWorkerAgentRuntimeIdentity(
     params.placements,
     params.turnClaim,
     admittedRunContext.operationalRunInstance,
+    params.turn.prepareAssistantTranscriptMessage,
   );
   return {
     operationalRunInstance: admittedRunContext.operationalRunInstance,

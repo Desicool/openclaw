@@ -74,6 +74,8 @@ Docs: https://docs.openclaw.ai
 
 - **xAI startup:** keep voice capability metadata and plugin-version reads off the full agent runtime import path so the first Grok request does not stall during provider loading.
 
+- **WebChat attachments:** keep managed `MEDIA:` directives out of the first assistant transcript event while attachments are prepared, preserving raw transcript references, user text, and attachment failure warnings.
+
 - **Control UI tool progress:** keep error-shaped partial output running until the tool returns its result, with consistent status in collapsed rows, expanded cards, and side-panel details.
 
 - MCP Apps: let standalone operations finish across catalog refreshes within per-request server budgets, propagate App cancellation without cancelling shared catalog work, and reload restored history views without replaying interrupted operations. Thanks @tzy-17. (#119388)
