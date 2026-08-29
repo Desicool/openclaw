@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { stableStringify } from "@openclaw/normalization-core";
 import {
+  type FastMode,
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
@@ -149,7 +150,7 @@ export function resolveSessionCreateModelSelection(
   };
 }
 
-async function existingModelSelectionWouldChange(params: {
+async function existingSessionSelectionWouldChange(params: {
   agentId: string;
   cfg: OpenClawConfig;
   catalogModel?: string;
@@ -159,6 +160,7 @@ async function existingModelSelectionWouldChange(params: {
   loadGatewayModelCatalog?: () => Promise<ModelCatalogEntry[]>;
   requestedModel?: string;
   requestedContextWindow?: string;
+  requestedFastMode?: FastMode;
   requestedThinkingLevel?: string;
   subagentModelHint?: string;
 }): Promise<boolean> {
@@ -170,6 +172,12 @@ async function existingModelSelectionWouldChange(params: {
   }
   const requestedThinkingLevel = normalizeOptionalString(params.requestedThinkingLevel);
   const requestedContextWindow = normalizeOptionalString(params.requestedContextWindow);
+  if (
+    params.requestedFastMode !== undefined &&
+    params.requestedFastMode !== params.existingEntry.fastMode
+  ) {
+    return true;
+  }
   if (
     requestedContextWindow &&
     requestedContextWindow !== normalizeOptionalString(params.existingEntry.contextWindow)
@@ -302,6 +310,7 @@ export async function createGatewaySession(params: {
   model?: string;
   contextWindow?: string;
   thinkingLevel?: string;
+  fastMode?: FastMode;
   /** Registry identity recorded only when this request creates a logical session node. */
   projectId?: string;
   pendingProjectGitUrl?: string;
@@ -732,6 +741,14 @@ export async function createGatewaySession(params: {
         ...(spawnedCwd ? { spawnedCwd } : {}),
         ...(params.sessionRoot ? { sessionRoot: params.sessionRoot } : {}),
         ...(params.permissionMode ? { permissionMode: params.permissionMode } : {}),
+        ...(params.fastMode !== undefined
+          ? {
+              fastModeSelection: {
+                value: params.fastMode,
+                allowExistingChange: params.allowExistingModelSelection === true,
+              },
+            }
+          : {}),
         ...(params.prepareLifecycle ? { prepareLifecycle: params.prepareLifecycle } : {}),
         ...(params.onLifecycleCleanupError
           ? { onLifecycleCleanupError: params.onLifecycleCleanupError }
@@ -1038,12 +1055,13 @@ export async function createGatewaySession(params: {
         const requestedModel = normalizeOptionalString(params.model);
         const requestedContextWindow = normalizeOptionalString(params.contextWindow);
         const requestedThinkingLevel = normalizeOptionalString(params.thinkingLevel);
+        const requestedFastMode = params.fastMode;
         if (existingEntry?.sessionId && params.allowExistingModelSelection !== true) {
           const gateDefaultModel = resolveDefaultModelForAgent({
             cfg: params.cfg,
             agentId: target.agentId,
           });
-          const modelSelectionWouldChange = await existingModelSelectionWouldChange({
+          const sessionSelectionWouldChange = await existingSessionSelectionWouldChange({
             agentId: target.agentId,
             cfg: params.cfg,
             catalogModel,
@@ -1053,6 +1071,7 @@ export async function createGatewaySession(params: {
             loadGatewayModelCatalog: params.loadGatewayModelCatalog,
             requestedModel,
             requestedContextWindow,
+            requestedFastMode,
             requestedThinkingLevel,
             subagentModelHint: isSubagentSessionKey(target.canonicalKey)
               ? resolveSubagentConfiguredModelSelection({
@@ -1061,7 +1080,7 @@ export async function createGatewaySession(params: {
                 })
               : undefined,
           });
-          if (modelSelectionWouldChange) {
+          if (sessionSelectionWouldChange) {
             return {
               ok: false,
               error: missingScopeErrorShape({
@@ -1093,6 +1112,7 @@ export async function createGatewaySession(params: {
             ...((catalogModel ?? requestedModel) ? { model: catalogModel ?? requestedModel } : {}),
             ...(requestedContextWindow ? { contextWindow: requestedContextWindow } : {}),
             ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
+            ...(requestedFastMode !== undefined ? { fastMode: requestedFastMode } : {}),
             ...(requestedToolOverrides ? { toolOverrides: params.toolOverrides } : {}),
             ...(params.permissionMode ? { permissionMode: params.permissionMode } : {}),
           },
@@ -1256,6 +1276,11 @@ export async function createGatewaySession(params: {
             : inheritSessionSelection(currentParentSessionEntry);
         if (requestedToolOverrides) {
           delete inheritedSelection.toolOverrides;
+        }
+        if (requestedFastMode !== undefined) {
+          // The create-time choice belongs to the new session; parent inheritance must not
+          // replace it after the canonical patch has validated and stored it.
+          delete inheritedSelection.fastMode;
         }
         const entry: SessionEntry = {
           ...initializedEntry,
