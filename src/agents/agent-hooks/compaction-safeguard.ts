@@ -49,7 +49,9 @@ import {
   type SessionTreeEntry as CoreSessionTreeEntry,
 } from "../runtime/index.js";
 import { repairToolUseResultPairing } from "../session-transcript-repair.js";
+import type { SessionModelUsageSink } from "../sessions/compaction/runtime.js";
 import type { ExtensionAPI, ExtensionContext } from "../sessions/index.js";
+import { recordSessionModelUsage } from "../sessions/session-model-usage.js";
 import { extractToolCallsFromAssistant, extractToolResultId } from "../tool-call-id.js";
 import {
   MAX_WORKSPACE_BOOTSTRAP_FILE_BYTES,
@@ -1158,6 +1160,8 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         messages: messagesToSummarize,
         headers: authResult.headers,
       });
+      const usageSink: SessionModelUsageSink = (usage) =>
+        recordSessionModelUsage(ctx.sessionManager, usage);
       const llmSummaryParams = {
         model,
         apiKey: authResult.apiKey ?? "",
@@ -1168,6 +1172,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         summarizationInstructions,
         thinkingLevel,
         streamFn,
+        usageSink,
       };
       const qualityGuardMaxRetries = resolveQualityGuardMaxRetries(runtime?.qualityGuardMaxRetries);
 
