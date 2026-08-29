@@ -30,10 +30,12 @@ import {
   ensureAuthProfileStoreMock,
   estimateTokensMock,
   getApiKeyForModelMock,
+  getHistoryLimitFromSessionKeyMock,
   getMemorySearchManagerMock,
   guardSessionManagerMock,
   hookRunner,
   listRegisteredPluginAgentPromptGuidanceMock,
+  limitHistoryTurnsMock,
   loadCompactHooksHarness,
   maybeCompactAgentHarnessSessionMock,
   resolveAgentHarnessPolicyMock,
@@ -388,7 +390,7 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
       ok: true,
       compacted: true,
       compactionKind: "server-endpoint",
-      result: { tokensBefore: 1_000, tokensAfter: 200 },
+      result: { tokensBefore: 1_000 },
     });
     expect(result.result).not.toHaveProperty("summary");
     expect(attemptServerEndpointCompactionMock).toHaveBeenCalledWith(
@@ -545,6 +547,59 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     expect(result).toMatchObject({ ok: true, compacted: true });
     expect(result.compactionKind).toBeUndefined();
     expect(sessionManualCompactionMock).toHaveBeenCalledOnce();
+  });
+
+  it("prepares the routed peer's account window for server-endpoint compaction", async () => {
+    const history = await vi.importActual<typeof import("./history.js")>("./history.js");
+    getHistoryLimitFromSessionKeyMock.mockImplementationOnce(history.getHistoryLimitFromSessionKey);
+    limitHistoryTurnsMock.mockImplementationOnce(history.limitHistoryTurns);
+    attemptServerEndpointCompactionMock.mockResolvedValueOnce({
+      item: { type: "compaction", encrypted_content: "opaque" },
+      usage: { input_tokens: 1_000, output_tokens: 200 },
+    });
+    const sessionKey = "agent:main:telegram:direct:direct:peer";
+    sessionMessages.splice(
+      0,
+      sessionMessages.length,
+      ...Array.from({ length: 6 }, (_, index) => ({
+        role: "user",
+        content: `turn-${index + 1}`,
+        timestamp: index + 1,
+      })),
+    );
+    await compactEmbeddedAgentSessionDirect(
+      wrappedCompactionArgs({
+        sessionKey,
+        sessionTarget: { ...wrappedCompactionArgs().sessionTarget, sessionKey },
+        agentAccountId: "direct",
+        conversationRoutePeerId: "123",
+        chatType: "direct",
+        config: {
+          session: { identityLinks: { "direct:peer": ["telegram:123"] } },
+          channels: {
+            telegram: {
+              dmHistoryLimit: 20,
+              accounts: {
+                direct: {
+                  dmHistoryLimit: 10,
+                  dms: { "direct:peer": { historyLimit: 2 }, peer: { historyLimit: 6 } },
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    expect(attemptServerEndpointCompactionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          messages: [
+            { role: "user", content: "turn-5", timestamp: 5 },
+            { role: "user", content: "turn-6", timestamp: 6 },
+          ],
+        }),
+      }),
+    );
   });
 
   it("fails closed before generic compaction for a model-locked native session", async () => {
