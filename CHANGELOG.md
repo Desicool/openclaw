@@ -72,6 +72,8 @@ Docs: https://docs.openclaw.ai
 - Gateway/subagents: keep plugin completion turns bound to the owning Gateway runtime so successful native subagents can finish delivery without losing the published reply runtime.
 - **Upgrade config repair:** retain plugin-owned channel configuration migrations alongside core schemas so `doctor --fix` can repair older settings before an external plugin is installed or granted capabilities, while preserving installed-plugin ownership and state-migration boundaries.
 
+- **xAI startup:** keep voice capability metadata and plugin-version reads off the full agent runtime import path so the first Grok request does not stall during provider loading.
+
 - **Control UI tool progress:** keep error-shaped partial output running until the tool returns its result, with consistent status in collapsed rows, expanded cards, and side-panel details.
 
 - MCP Apps: let standalone operations finish across catalog refreshes within per-request server budgets, propagate App cancellation without cancelling shared catalog work, and reload restored history views without replaying interrupted operations. Thanks @tzy-17. (#119388)
