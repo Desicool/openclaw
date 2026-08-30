@@ -95,6 +95,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   private inputMeter: RealtimeTalkMediaStreamMeter | null = null;
   private readonly inputPump = new RealtimeTalkPcmInputPump();
   private closed = false;
+  private interruptedTurn = false;
   private readonly camera: RealtimeTalkCameraController;
   private readonly lifecycle = new GoogleLiveConnectionLifecycle();
   private cameraPublished = false;
@@ -273,6 +274,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
 
   private releaseResources(): void {
     this.clearSetupTimeout();
+    this.interruptedTurn = false;
     this.pendingTranscripts.user = { text: "", byteCount: 0 };
     this.pendingTranscripts.assistant = { text: "", byteCount: 0 };
     const inputMeter = this.inputMeter;
@@ -380,6 +382,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     }
     const content = message.serverContent;
     if (content?.interrupted) {
+      this.interruptedTurn = true;
       this.stopOutput();
     }
     if (content?.inputTranscription && !this.appendTranscript("user", content.inputTranscription)) {
@@ -424,8 +427,13 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
         final: true,
         payload: { reason: "provider-interrupted" },
       });
-    } else if (content?.turnComplete) {
+    } else if (content?.turnComplete && !this.interruptedTurn) {
       this.emitTalkEvent({ type: "turn.ended", final: true });
+    }
+    // Google completes interrupted turns separately; input transcription can
+    // arrive in between and must not have its new Talk turn closed by that frame.
+    if (content?.turnComplete) {
+      this.interruptedTurn = false;
     }
     if (this.closed) {
       return;
