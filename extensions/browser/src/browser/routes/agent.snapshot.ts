@@ -868,17 +868,20 @@ export function registerBrowserAgentSnapshotRoutes(
               delta: deltaState.delta,
             };
 
-            const cdpRoleSnapshot = async () => {
-              if (!tab.wsUrl) {
+            const cdpRoleWsUrl =
+              plan.refsMode !== "aria" && !plan.selectorValue && !plan.frameSelectorValue
+                ? tab.wsUrl
+                : null;
+            let usedCdpRoleSnapshot = false;
+            const cdpRoleSnapshot = async (recurseIframes = true) => {
+              if (!cdpRoleWsUrl) {
                 return null;
               }
-              if (plan.selectorValue || plan.frameSelectorValue) {
-                return null;
-              }
-              return await snapshotRoleViaCdp({
-                wsUrl: tab.wsUrl,
+              const snapshot = await snapshotRoleViaCdp({
+                wsUrl: cdpRoleWsUrl,
                 ...(tab.wsLookup ? { lookup: tab.wsLookup } : {}),
                 urls: plan.urls,
+                recurseIframes,
                 timeoutMs: plan.timeoutMs,
                 maxChars: plan.resolvedMaxChars,
                 options: {
@@ -888,21 +891,21 @@ export function registerBrowserAgentSnapshotRoutes(
                 },
                 delta: deltaState.delta,
               });
+              usedCdpRoleSnapshot = true;
+              return snapshot;
             };
 
-            const pw = await getPwAiModule();
+            const pw = pwModule;
+            const cdpFirstPw = pw && plan.wantsRoleSnapshot && cdpRoleWsUrl ? pw : null;
             const snap = plan.wantsRoleSnapshot
-              ? pw
-                ? await pw
-                    .snapshotRoleViaPlaywright(roleSnapshotArgs)
-                    .catch(async (err: unknown) => {
-                      const fallback = await cdpRoleSnapshot();
-                      if (fallback) {
-                        return fallback;
-                      }
-                      throw err;
-                    })
-                : await cdpRoleSnapshot()
+              ? cdpFirstPw
+                ? await cdpRoleSnapshot(false).catch(async () => {
+                    signal.throwIfAborted();
+                    return await cdpFirstPw.snapshotRoleViaPlaywright(roleSnapshotArgs);
+                  })
+                : pw
+                  ? await pw.snapshotRoleViaPlaywright(roleSnapshotArgs)
+                  : await cdpRoleSnapshot()
               : pw
                 ? await pw.snapshotAiViaPlaywright({
                     cdpUrl: profileCtx.profile.cdpUrl,
@@ -919,6 +922,17 @@ export function registerBrowserAgentSnapshotRoutes(
             if (!snap) {
               await requirePwAi(res, "ai snapshot");
               return;
+            }
+            if (usedCdpRoleSnapshot && pw && "refs" in snap) {
+              await assertDocumentIdentityUnchanged();
+              await pw.storeSnapshotRefsViaPlaywright({
+                cdpUrl: profileCtx.profile.cdpUrl,
+                targetId: tab.targetId,
+                refs: snap.refs,
+                ...(initialDocumentIdentity
+                  ? { expectedDocumentIdentity: initialDocumentIdentity }
+                  : {}),
+              });
             }
             if (plan.labels) {
               if (!pw) {
@@ -1013,7 +1027,7 @@ export function registerBrowserAgentSnapshotRoutes(
             return;
           }
           if (!usePlaywrightAriaSnapshot) {
-            await pwModule?.storeAriaSnapshotRefsViaPlaywright?.({
+            await pwModule?.storeSnapshotRefsViaPlaywright?.({
               cdpUrl: profileCtx.profile.cdpUrl,
               targetId: tab.targetId,
               nodes: resolved.nodes,
