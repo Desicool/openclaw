@@ -2915,6 +2915,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
       expect(await bubble.getByText("Media failed").count()).toBe(0);
 
       try {
+        await cards.filter({ hasText: "settings.toml" }).scrollIntoViewIfNeeded();
         const desktopStatusSpacing = await cards
           .filter({ hasText: "settings.toml" })
           .evaluate((card) => {
