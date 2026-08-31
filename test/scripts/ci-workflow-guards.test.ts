@@ -4773,8 +4773,32 @@ server.listen(0, "127.0.0.1", () => {
     });
     expect(cacheStep.with.key).toContain("build-all-v1-${{ inputs.build-all-cache-scope }}");
     expect(cacheStep.with.key).toContain("${{ runner.os }}-${{ runner.arch }}");
-    expect(cacheStep.with.key).toContain("scripts/lib/optional-bundled-clusters.mjs");
-    expect(cacheStep.with.key).toContain("'src/**', 'packages/**', 'extensions/**'");
+    const renderCacheKey = (template: string, runId: number, runAttempt: number) =>
+      template.replace(/\$\{\{([\s\S]*?)\}\}/gu, (_, expression: string) =>
+        String(
+          runInNewContext(expression.replace(/inputs\.([a-z-]+)/gu, 'inputs["$1"]'), {
+            github: { repository: "openclaw/openclaw", run_id: runId, run_attempt: runAttempt },
+            inputs: { "build-all-cache-scope": "full", "node-version": "24.x" },
+            runner: { os: "Linux", arch: "X64" },
+            hashFiles: () => "unchanged-source",
+          }),
+        ),
+      );
+    // A new warmer or rerun must publish rebuilt groups even when an outer input
+    // fingerprint would be unchanged; per-group signatures own content validity.
+    const keys = (
+      [
+        [10, 1],
+        [11, 1],
+        [11, 2],
+      ] as const
+    ).map(([runId, runAttempt]) => renderCacheKey(cacheStep.with.key, runId, runAttempt));
+    expect(new Set(keys).size).toBe(3);
+    for (const key of keys) {
+      expect(key.startsWith(renderCacheKey(cacheStep.with["restore-keys"], 11, 2).trim())).toBe(
+        true,
+      );
+    }
     expect(cacheStep.with["restore-keys"]).not.toContain("hashFiles");
     expect(action.runs.steps.indexOf(installStep)).toBeLessThan(
       action.runs.steps.indexOf(cacheStep),
@@ -5104,9 +5128,6 @@ server.listen(0, "127.0.0.1", () => {
     const buildSetupNodeStep = workflow.jobs["build-artifacts"].steps.find(
       (step: WorkflowStep) => step.name === "Setup Node environment",
     );
-    const buildStepCache = workflow.jobs["build-artifacts"].steps.find(
-      (step: WorkflowStep) => step.name === "Restore build-all step cache",
-    );
     const hostedTestCacheInput =
       "${{ (needs.preflight.outputs.runner_profile == 'github' || needs.preflight.outputs.runner_profile == 'hybrid') && 'true' || 'false' }}";
     const hostedTestCacheJobs = [
@@ -5182,16 +5203,11 @@ server.listen(0, "127.0.0.1", () => {
       "cache-mode": "${{ needs.preflight.outputs.cache_mode }}",
       "node-compile-cache": "true",
       "node-compile-cache-scope": "build",
+      "build-all-cache-scope": "full",
     });
     expect(buildSetupNodeStep.with["node-compile-cache-scope"]).not.toBe(
       setupNodeStep.with["node-compile-cache-scope"],
     );
-    expect(buildStepCache.with.key).toContain("build-all-v4-");
-    expect(buildStepCache.with.key).toContain("'src/**'");
-    expect(buildStepCache.with.key).toContain("'packages/**'");
-    expect(buildStepCache.with.key).toContain("'!packages/**/dist/**'");
-    expect(buildStepCache.with.key).toContain("'!packages/**/node_modules/**'");
-    expect(buildStepCache.with["restore-keys"]).toContain("build-all-v4-");
 
     for (const jobName of hostedTestCacheJobs) {
       const setup = workflow.jobs[jobName].steps.find(
@@ -5344,11 +5360,11 @@ server.listen(0, "127.0.0.1", () => {
     expect(saveSteps.map((step) => step.name)).toEqual([
       "Save Node toolchain cache",
       "Save exact dependency cache",
+      "Save build-all cache",
+      "Save dist build cache",
       "Save pnpm store cache",
       "Save Vitest transform cache",
       "Save Node compile cache",
-      "Save build-all cache",
-      "Save dist build cache",
     ]);
     for (const saveStep of saveSteps) {
       expect(saveStep.if, saveStep.name).toContain(
@@ -5368,6 +5384,17 @@ server.listen(0, "127.0.0.1", () => {
         // A normal step condition retains Actions' implicit success() gate,
         // so failed setup cannot publish even if it produced cache outputs.
         expect(saveStep.if, saveStep.name).not.toMatch(/\b(?:always|failure|cancelled)\(/u);
+      } else if (
+        saveStep.name === "Save build-all cache" ||
+        saveStep.name === "Save dist build cache"
+      ) {
+        expect(warmerSteps.indexOf(saveStep), saveStep.name).toBeGreaterThan(
+          warmerSteps.findIndex((step) => step.name === "Warm build cache"),
+        );
+        expect(warmerSteps.indexOf(saveStep), saveStep.name).toBeLessThan(
+          warmerSteps.indexOf(seedStep),
+        );
+        expect(saveStep.if).not.toMatch(/always\(|failure\(/u);
       } else {
         expect(warmerSteps.indexOf(saveStep), saveStep.name).toBeGreaterThan(
           warmerSteps.indexOf(warmStep),
