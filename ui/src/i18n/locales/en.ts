@@ -1646,8 +1646,8 @@ export const en: TranslationMap = {
         description: "Gateway server settings (port, auth, binding)",
       },
       wizard: {
-        label: "Setup Wizard",
-        description: "Setup wizard state and history",
+        label: "Setup",
+        description: "Discovery preferences for setup and read-only setup history.",
       },
       meta: {
         label: "Metadata",
@@ -1846,7 +1846,7 @@ export const en: TranslationMap = {
       mcp: "MCP",
       theme: "Theme",
       ui: "UI",
-      wizard: "Setup Wizard",
+      wizard: "Setup",
     },
     themes: {
       claw: {
@@ -2686,7 +2686,7 @@ export const en: TranslationMap = {
     config: "Legacy settings route; opens Appearance.",
     profile: "Your display name, avatar, and identity on this gateway.",
     communications: "Messages and text-to-speech settings.",
-    appearance: "Theme, UI, and setup wizard settings.",
+    appearance: "Theme and UI settings.",
     lobsterdex: "Every lobster palette that has visited this browser.",
     automation: "Commands, hooks, automations, and plugins.",
     mcp: "MCP servers, auth, tools, and diagnostics.",
