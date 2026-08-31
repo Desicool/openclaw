@@ -10,6 +10,7 @@ import * as tar from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createCrabboxNodeEnrollmentSetup,
+  createCrabboxNodeRuntimeSetup,
   type CrabboxWorkerNodeEnrollment,
 } from "./crabbox-worker-node-enrollment.js";
 import { createNodeBootstrapFixture } from "./crabbox-worker-node-enrollment.test-support.js";
@@ -168,6 +169,7 @@ async function enroll(
   home: string,
   nodeBootstrap: CrabboxWorkerNodeEnrollment["nodeBootstrap"],
   desktop?: DesktopFixture,
+  runtimeOnly = false,
 ) {
   const bin = path.join(home, "bin");
   const proc = path.join(home, "proc");
@@ -197,19 +199,21 @@ echo 123
       { mode: 0o700 },
     );
   }
-  const setup = createCrabboxNodeEnrollmentSetup({
-    leaseId,
-    desktop: desktop?.enabled,
-    enrollment: {
-      mode: "connect",
-      setupCode,
-      setupId: "bootstrap-test",
-      openclawVersion: "2026.8.1",
-      nodeBootstrap,
-      displayName: "Bootstrap test",
-      waitForDeviceId: async () => "device-test",
-    },
-  });
+  const setup = runtimeOnly
+    ? createCrabboxNodeRuntimeSetup({ leaseId, nodeBootstrap })
+    : createCrabboxNodeEnrollmentSetup({
+        leaseId,
+        desktop: desktop?.enabled,
+        enrollment: {
+          mode: "connect",
+          setupCode,
+          setupId: "bootstrap-test",
+          openclawVersion: "2026.8.1",
+          nodeBootstrap,
+          displayName: "Bootstrap test",
+          waitForDeviceId: async () => "device-test",
+        },
+      });
   expect(setup.command).not.toContain(nodeBootstrap.token);
   expect(setup.command).not.toContain(setupCode);
   const child = spawn("/bin/sh", [], {
@@ -257,9 +261,29 @@ async function readLaunch(stateDir: string) {
 }
 
 describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
-  it("installs the exact archive with lifecycle scripts and no credentials, then reuses its warm artifact", async () => {
+  it("prepares an exact runtime without node identity, then enrolls and reuses its warm artifact", async () => {
     const { home, stateDir, stop } = testHome();
     const { nodeBootstrap, authorizations } = await serveArtifact(await packageFixture("first"));
+    await expect(enroll(home, nodeBootstrap, undefined, true)).resolves.toEqual({
+      code: 0,
+      output: "",
+    });
+    expect(fs.existsSync(path.join(home, ".openclaw"))).toBe(false);
+    expect(fs.readdirSync(path.join(home, ".openclaw-worker", "node-runtimes"))).toEqual([
+      nodeBootstrap.sha256,
+    ]);
+    const preparedPackage = path.join(
+      home,
+      ".openclaw-worker",
+      "node-runtimes",
+      nodeBootstrap.sha256,
+      "node_modules",
+      "openclaw",
+    );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(preparedPackage, "installed.json"), "utf8")),
+    ).toEqual({ scriptsRan: true });
+    expect(authorizations).toEqual([`Bearer ${nodeBootstrap.token}`]);
     await expect(enroll(home, nodeBootstrap)).resolves.toEqual({ code: 0, output: "" });
     const launch = await readLaunch(stateDir);
     expect(launch).toMatchObject({
