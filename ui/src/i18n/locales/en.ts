@@ -1270,6 +1270,7 @@ export const en: TranslationMap = {
     groupByCategory: "Custom groups",
     groupByPerson: "Person",
     showSessionPreview: "Show message preview",
+    hideEmptyGroups: "Hide empty groups",
     showCronSessions: "Show automation sessions",
     showSystemSessions: "Show system sessions",
     groupByChannel: "Channel",
