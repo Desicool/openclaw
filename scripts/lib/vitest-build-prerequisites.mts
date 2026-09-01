@@ -27,9 +27,9 @@ const runtimeConsumers = [
   },
   {
     file: "src/cli/update-dry-run-state.process.test.ts",
-    configs: ["test/vitest/vitest.cli.config.ts"],
+    configs: ["test/vitest/vitest.cli-process.config.ts"],
     mode: "runtime",
-    dir: "src/cli",
+    dir: "",
   },
   ...[
     "src/commands/doctor-config-preflight.process.test.ts",

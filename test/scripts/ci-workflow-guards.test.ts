@@ -10588,6 +10588,48 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
         ],
       },
       { groups: [{ ...tooling, configs: ["test/vitest/legacy-tooling.config.ts"] }] },
+      { groups: [{ ...tooling, configs: ["test/vitest/vitest.tooling-isolated.config.ts"] }] },
+      { groups: [{ ...tooling, configs: ["test/vitest/vitest.tooling-docker.config.ts"] }] },
+      {
+        groups: [
+          {
+            ...tooling,
+            configs: [
+              "test/vitest/vitest.tooling-docker.config.ts",
+              "test/vitest/vitest.tooling-isolated.config.ts",
+            ],
+          },
+        ],
+      },
+      {
+        groups: [
+          {
+            ...tooling,
+            configs: [...tooling.configs, "test/vitest/vitest.tooling-isolated.config.ts"],
+          },
+        ],
+      },
+      {
+        groups: [
+          {
+            ...tooling,
+            configs: [
+              "test/vitest/vitest.tooling-isolated.config.ts",
+              "test/vitest/legacy-tooling.config.ts",
+            ],
+          },
+        ],
+      },
+      { groups: [{ ...tooling, configs: undefined }] },
+      {
+        groups: [
+          {
+            ...tooling,
+            configs: ["test/vitest/vitest.tooling-isolated.config.ts"],
+            includePatterns: [goTest],
+          },
+        ],
+      },
     ];
     const result = runCiManifestFixture({
       bundledPlanner: true,
@@ -10618,6 +10660,13 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       false,
       true,
       false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
       true,
       true,
     ]);
