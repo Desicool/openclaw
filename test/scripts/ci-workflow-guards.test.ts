@@ -3933,7 +3933,7 @@ NODE
       "macos-swift": "blacksmith-12vcpu-macos-26",
       "ios-build": "blacksmith-12vcpu-macos-26",
       "ios-screenshot-shard": "blacksmith-12vcpu-macos-26",
-      "check-test-types-hosted-core-shard": "blacksmith-8vcpu-ubuntu-2404",
+      "check-test-types-hosted-core-shard": "blacksmith-32vcpu-ubuntu-2404",
       "checks-ui": "blacksmith-8vcpu-ubuntu-2404",
       "checks-windows": "blacksmith-8vcpu-windows-2025",
     } as const;
@@ -4030,8 +4030,8 @@ NODE
       },
       {
         jobName: "check-shard",
-        matrix: { runner: "blacksmith-16vcpu-ubuntu-2404", task: "test-types" },
-        runner: "blacksmith-16vcpu-ubuntu-2404",
+        matrix: { runner: "blacksmith-32vcpu-ubuntu-2404", task: "test-types" },
+        runner: "blacksmith-32vcpu-ubuntu-2404",
       },
       {
         jobName: "check-shard",
@@ -4050,9 +4050,9 @@ NODE
         jobName: "check-additional-shard",
         matrix: {
           group: "runtime-topology-architecture",
-          runner: "blacksmith-8vcpu-ubuntu-2404",
+          runner: "blacksmith-32vcpu-ubuntu-2404",
         },
-        runner: "blacksmith-8vcpu-ubuntu-2404",
+        runner: "blacksmith-32vcpu-ubuntu-2404",
       },
       {
         jobName: "check-additional-shard",
@@ -5986,13 +5986,19 @@ server.listen(0, "127.0.0.1", () => {
     expect(workflow.jobs["checks-node-core-test-nondist-shard"]["runs-on"]).toContain(
       "blacksmith-4vcpu-ubuntu-2404",
     );
-    expect(workflow.jobs["check-shard"].strategy.matrix.include).toContainEqual({
-      check_name: "check-dependencies",
-      task: "dependencies",
-      // Concurrent Knip scans need cores and memory headroom.
+    for (const task of ["dependencies", "test-types"]) {
+      expect(workflow.jobs["check-shard"].strategy.matrix.include).toContainEqual({
+        check_name: `check-${task}`,
+        task,
+        runner: "blacksmith-32vcpu-ubuntu-2404",
+      });
+    }
+    expect(workflow.jobs["check-additional-shard"]["runs-on"]).toContain("matrix.runner");
+    expect(workflow.jobs["check-additional-shard"].strategy.matrix.include).toContainEqual({
+      check_name: "check-additional-runtime-topology-architecture",
+      group: "runtime-topology-architecture",
       runner: "blacksmith-32vcpu-ubuntu-2404",
     });
-    expect(workflow.jobs["check-additional-shard"]["runs-on"]).toContain("matrix.runner");
     expect(workflow.jobs["check-additional-shard"].strategy.matrix.include).toContainEqual({
       check_name: "check-session-accessor-boundary",
       group: "session-accessor-boundary",
@@ -6020,8 +6026,7 @@ server.listen(0, "127.0.0.1", () => {
     const checkShardJob = workflow.jobs["check-shard"];
     const hostedCoreJob = workflow.jobs["check-lint-hosted-core-shard"];
 
-    // Light-run pole: cold prep + 122 plugin compiles scale with cores at
-    // similar billed core-minutes.
+    // Cold SDK preparation and plugin compilation need CPU and memory headroom.
     expect(additionalJob.strategy.matrix.include).toContainEqual({
       check_name: "check-additional-extension-package-boundary",
       group: "extension-package-boundary",
