@@ -4510,8 +4510,6 @@ export const en: TranslationMap = {
     },
   },
   attention: {
-    custodianAlertAria: "Ask OpenClaw, {count} undismissed alert",
-    custodianAlertsAria: "Ask OpenClaw, {count} undismissed alerts",
     cronErrorUnknown: "Unknown error",
     cronFailed: "{job} failed",
     cronOverdue: "{job} overdue",
