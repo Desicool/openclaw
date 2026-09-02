@@ -174,7 +174,6 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     agentId,
     requestedHeartbeat: opts.heartbeat,
     source: wakeSource,
-    mergeRequestedHeartbeat: wakeSource === "cron",
   });
   const scheduledTasks = [...(opts.tasks ?? [])].toSorted((left, right) =>
     left.jobId.localeCompare(right.jobId),
