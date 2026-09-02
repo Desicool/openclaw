@@ -2161,6 +2161,7 @@ describe("scripts/test-projects changed-target routing", () => {
           "test/scripts/android-version.test.ts",
           "test/scripts/ci-git-prerequisites.test.ts",
           "test/scripts/ios-release-plan.test.ts",
+          "test/scripts/mac-native-fixtures.test.ts",
         ],
         watchMode: false,
       },
