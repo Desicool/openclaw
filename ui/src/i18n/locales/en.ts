@@ -860,6 +860,12 @@ export const en: TranslationMap & {
     lastSeen: "Last seen {time}",
     nodeUpdateRequired:
       "Update required: run {updateCommand}, then reconnect. For a headless node, run {restartCommand}.",
+    nodeCommandPendingApproval:
+      "Ask an administrator to approve the pending {command} request, or pick another device.",
+    nodeCommandUndeclared:
+      "Make {command} available on this device, then reconnect, or pick another device.",
+    nodeCommandUnauthorized:
+      "Authorize {command} in the Gateway node command policy, or pick another device.",
     capabilityCamera: "Camera",
     capabilityLocation: "Location",
     capabilityTalk: "Talk",

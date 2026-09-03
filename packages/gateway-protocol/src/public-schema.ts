@@ -83,6 +83,8 @@ export {
   WorkerEnvironmentStateSchema,
   WorkerTunnelStatusSchema,
   WorkerDesktopAppIdSchema,
+  RequiredNodeCommandStateSchema,
+  RequiredNodeCommandSchema,
   WorkerEnvironmentMetadataSchema,
   EnvironmentSummarySchema,
   EnvironmentsCreateParamsSchema,

@@ -10,11 +10,14 @@ import { UiE2eSequencer } from "./vitest.ui-e2e.sequencer.ts";
 
 const mediaTranscriptRealGatewayTest =
   "extensions/qa-lab/src/control-ui-media-transcript.real-gateway.e2e.test.ts";
+const sessionHostCommandStateRealGatewayTest =
+  "extensions/qa-lab/src/session-host-command-state.real-gateway.e2e.test.ts";
 const openClawDelegationRealGatewayTest =
   "extensions/qa-lab/src/control-ui-openclaw-delegation.real-gateway.e2e.test.ts";
 const uiE2eIncludePatterns = [
   "ui/src/**/*.e2e.test.ts",
   mediaTranscriptRealGatewayTest,
+  sessionHostCommandStateRealGatewayTest,
   openClawDelegationRealGatewayTest,
 ];
 export const uiE2eRealGatewayTestFiles = [
@@ -23,6 +26,7 @@ export const uiE2eRealGatewayTestFiles = [
   "ui/src/e2e/cron-duration-save.real-gateway.e2e.test.ts",
   "ui/src/e2e/logs-lifecycle.e2e.test.ts",
   "ui/src/e2e/mcp-app-conformance.e2e.test.ts",
+  sessionHostCommandStateRealGatewayTest,
   "ui/src/e2e/session-progress-hovercard.real-gateway.e2e.test.ts",
   "ui/src/e2e/usage-sessions-owner-attribution.e2e.test.ts",
   mediaTranscriptRealGatewayTest,
