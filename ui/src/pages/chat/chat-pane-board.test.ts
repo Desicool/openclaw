@@ -325,7 +325,7 @@ describe("chat pane board shell", () => {
     pane.context = {
       ...pane.context,
       runtimeConfig: {
-        state: { configSnapshot: { config: { tools: { swarm: { enabled: true } } } } },
+        state: { configSnapshot: { config: {} } },
       },
     } as unknown as ApplicationContext;
     pane.presentedChanged = () => undefined;
@@ -345,7 +345,7 @@ describe("chat pane board shell", () => {
     }
   });
 
-  it.each(["disabled", "disposed", "enabled"] as const)(
+  it.each(["disabled", "disposed", "enabled", "default"] as const)(
     "coalesces swarm roster redraws while %s",
     async (mode) => {
       swarmModuleImport.release();
@@ -358,7 +358,10 @@ describe("chat pane board shell", () => {
         ...pane.context,
         runtimeConfig: {
           state: {
-            configSnapshot: { config: { tools: { swarm: { enabled: mode === "enabled" } } } },
+            configSnapshot: {
+              config:
+                mode === "default" ? {} : { tools: { swarm: { enabled: mode === "enabled" } } },
+            },
           },
         },
       } as unknown as ApplicationContext;
@@ -387,6 +390,8 @@ describe("chat pane board shell", () => {
         if (dispose) {
           expect(dispose).toHaveBeenCalledOnce();
           expect(Reflect.get(pane, "swarmHydrator")).toBeNull();
+        } else if (mode === "enabled" || mode === "default") {
+          expect(Reflect.get(pane, "swarmHydrator")).toBeInstanceOf(SwarmRosterHydrator);
         }
       } finally {
         const hydrator = Reflect.get(pane, "swarmHydrator") as InstanceType<
