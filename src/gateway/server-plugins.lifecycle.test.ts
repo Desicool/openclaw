@@ -371,7 +371,11 @@ describe("gateway plugin instance bindings", () => {
     { timeout: 600_000 },
     async (serviceStopFailure) => {
       const { coordinator } = await prepareInstanceBindingTest({ serviceStopFailure });
-      const hotReloadRecovery = vi.fn(() => ({ status: "emitted" as const }));
+      const hotReloadRecovery = vi.fn(() => {
+        // No run loop consumes this synthetic emission, so release its signal-admission lease.
+        markGatewaySigusr1RestartHandled();
+        return { status: "emitted" as const };
+      });
       const port = await getFreePort();
       const server = await startTestGatewayServer(port, {
         auth: { mode: "none" },
