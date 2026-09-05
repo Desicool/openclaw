@@ -799,47 +799,84 @@ describe("config io write", () => {
     },
   );
 
-  itWithHome("rejects destructive internal writes before replacing the config", async (home) => {
-    const configPath = configPathForHome(home);
-    await fs.mkdir(path.dirname(configPath), { recursive: true });
-    const original = {
-      gateway: { mode: "local" },
-      channels: { telegram: { enabled: true, dmPolicy: "pairing" } },
-      agents: { entries: { main: { default: true, workspace: "/tmp/openclaw-main" } } },
-      tools: { profile: "messaging" },
-      commands: { restart: false },
-    } satisfies ConfigFileSnapshot["config"];
-    const originalRaw = formatConfig(original);
-    await fs.writeFile(configPath, originalRaw, "utf-8");
-    const warn = vi.fn();
-    const io = createHomeConfigIO(home, {
-      env: { VITEST: "true" } as NodeJS.ProcessEnv,
-      logger: { warn, error: vi.fn() },
-    });
-    const baseSnapshot = createExistingConfigSnapshot(configPath, original, originalRaw);
-
-    await expectConfigWriteRejected(
-      io.writeConfigFile(
-        { update: { channel: "beta" } },
-        {
-          baseSnapshot,
-        },
-      ),
-    );
-
-    await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(originalRaw);
-    const entries = await fs.readdir(path.dirname(configPath));
-    const rejectedEntries = entries.filter((entry) => entry.includes(".rejected."));
-    expect(rejectedEntries).toHaveLength(1);
-    expect(warn.mock.calls).toEqual([
-      [
-        `Config write rejected: ${configPath} (gateway-mode-removed). Rejected payload saved to ${path.join(
-          path.dirname(configPath),
-          rejectedEntries[0] ?? "",
-        )}.`,
-      ],
-    ]);
-  });
+  it.each(["success", "EACCES", "EEXIST"] as const)(
+    "reports the rejected payload save outcome accurately: %s",
+    async (outcome) => {
+      await withSuiteHome(async (home) => {
+        const original = { gateway: { mode: "local" } } satisfies OpenClawConfig;
+        const { configPath, raw: originalRaw } = await writeConfigFixture(home, original);
+        const previousPayload = "previous rejected payload\n";
+        const warn = vi.fn();
+        const io = createHomeConfigIO(home, {
+          env: { VITEST: "true" } as NodeJS.ProcessEnv,
+          logger: { warn, error: vi.fn() },
+          fs: {
+            ...fsNode,
+            promises: {
+              ...fsNode.promises,
+              writeFile: async (target, data, options) => {
+                if (typeof target === "string" && target.includes(".rejected.")) {
+                  if (outcome === "EACCES") {
+                    throw Object.assign(new Error("EACCES: permission denied"), { code: outcome });
+                  }
+                  if (outcome === "EEXIST") {
+                    await fs.writeFile(target, previousPayload);
+                  }
+                }
+                return fsNode.promises.writeFile(target, data, options);
+              },
+            },
+          },
+        });
+        const baseSnapshot = createExistingConfigSnapshot(configPath, original, originalRaw);
+        let rejection: Record<string, unknown> | undefined;
+        try {
+          await io.writeConfigFile({ update: { channel: "beta" } }, { baseSnapshot });
+        } catch (error) {
+          rejection = requireRecord(error, "config write rejection");
+        }
+        expect(rejection).toMatchObject({
+          code: "CONFIG_WRITE_REJECTED",
+          reasons: ["gateway-mode-removed"],
+        });
+        expect(warnMessages(warn)).toEqual([rejection?.message]);
+        const audit = listConfigAuditRecordsForTests({ env: io.env, homedir: () => home }).find(
+          (record) => record.event === "config.write" && record.configPath === configPath,
+        );
+        expect(audit).toMatchObject({
+          result: "rejected",
+          errorCode: "CONFIG_WRITE_REJECTED",
+          errorMessage: rejection?.message,
+          nextHash: null,
+          nextBytes: null,
+        });
+        await expect(fs.readFile(configPath, "utf8")).resolves.toBe(originalRaw);
+        const artifacts = (await fs.readdir(path.dirname(configPath))).filter((entry) =>
+          entry.includes(".rejected."),
+        );
+        if (outcome === "success") {
+          expect(artifacts).toHaveLength(1);
+          const savedPath = path.join(path.dirname(configPath), artifacts[0]!);
+          expect(rejection).toHaveProperty("rejectedPath", savedPath);
+          expect(rejection?.message).toContain(`Rejected payload saved to ${savedPath}.`);
+          expect(JSON.parse(await fs.readFile(savedPath, "utf8"))).toMatchObject({
+            update: { channel: "beta" },
+          });
+        } else {
+          expect(rejection).not.toHaveProperty("rejectedPath");
+          expect(rejection?.message).toContain("Rejected payload could not be saved to");
+          expect(rejection?.message).toContain(outcome);
+          expect(rejection?.message).not.toContain("Rejected payload saved to");
+          expect(artifacts).toHaveLength(outcome === "EEXIST" ? 1 : 0);
+          if (outcome === "EEXIST") {
+            await expect(
+              fs.readFile(path.join(path.dirname(configPath), artifacts[0]!), "utf8"),
+            ).resolves.toBe(previousPayload);
+          }
+        }
+      });
+    },
+  );
 
   itWithHome(
     "does not preflight runtime secrets before rejecting blocked root writes",
