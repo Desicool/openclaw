@@ -994,6 +994,7 @@ export const en: TranslationMap & {
     browserUp: "Parent folder",
     browserUse: "Use this folder",
     browserEmpty: "No subfolders",
+    browserNoMatches: "No matching folders",
     browserLoadFailed: "Couldn't list that folder.",
     hiddenFolder: "Hidden folder",
     worktree: "Worktree",
