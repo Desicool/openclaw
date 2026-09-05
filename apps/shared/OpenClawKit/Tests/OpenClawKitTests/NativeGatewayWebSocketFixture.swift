@@ -79,7 +79,7 @@ final class NativeGatewayWebSocketFixture {
         listener.start(queue: DispatchQueue(label: "native-gateway-fixture-listener"))
         do {
             let deadline = ContinuousClock.now + .seconds(5)
-            while ContinuousClock.now < deadline {
+            while true {
                 try Task.checkCancellation()
                 switch listener.state {
                 case .ready:
@@ -98,10 +98,14 @@ final class NativeGatewayWebSocketFixture {
                 case .cancelled:
                     throw CancellationError()
                 default:
+                    guard ContinuousClock.now < deadline else {
+                        throw URLError(.timedOut, userInfo: [
+                            NSLocalizedDescriptionKey: "Native gateway WebSocket fixture listener timed out: \(listener.state)",
+                        ])
+                    }
                     try await Task.sleep(for: .milliseconds(10))
                 }
             }
-            throw URLError(.timedOut)
         } catch {
             listener.cancel()
             throw error
