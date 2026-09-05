@@ -1701,7 +1701,6 @@ src/agents/code-mode.worker.ts	7
 src/agents/codex-mcp-config.ts	1
 src/agents/command/attempt-execution.helpers.ts	7
 src/agents/command/attempt-execution.ts	3
-src/agents/command/delivery.ts	2
 src/agents/compaction-planning-projection.ts	6
 src/agents/compaction-planning-worker.ts	1
 src/agents/compaction-planning.ts	1
@@ -2829,7 +2828,7 @@ src/gateway/server-methods-list.ts	1
 src/gateway/server-methods.ts	3
 src/gateway/server-methods/agent-run-handler.ts	1
 src/gateway/server-methods/agent-session-patch.ts	1
-src/gateway/server-methods/agent-session-reset.ts	2
+src/gateway/server-methods/agent-session-reset.ts	1
 src/gateway/server-methods/agent-wait.ts	1
 src/gateway/server-methods/approval-publication.ts	4
 src/gateway/server-methods/approval-request-delivery.ts	1
