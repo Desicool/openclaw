@@ -892,6 +892,17 @@ describe("CI changed Node test plan", () => {
     });
   });
 
+  it("retains compact metadata for the ordinary tooling delivery-cache smoke", () => {
+    const target = "test/e2e/qa-lab/runtime/gateway-codex-delivery-cache.test.ts";
+    expect(createChangedNodeTestShards([target])).toBeNull();
+    expect(buildVitestRunPlans([target])).toEqual([
+      expect.objectContaining({
+        config: "test/vitest/vitest.tooling.config.ts",
+        includePatterns: [target],
+      }),
+    ]);
+  });
+
   it("prebuilds private QA dist before the QA Lab extension fallback", () => {
     const shards = createChangedExtensionFallbackShards(["extensions/qa-lab/src/cli.runtime.ts"]);
     expect(shards.length).toBeGreaterThan(1);
