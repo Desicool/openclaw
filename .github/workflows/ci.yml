@@ -5582,6 +5582,15 @@ jobs:
           OPENCLAW_DOCKER_ALL_TAIL_PARALLELISM: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association) && 3 || 1 }}
         run: pnpm test:docker:all
 
+      - name: Upload Fleet Docker proof
+        if: always() && contains(format(' {0} ', needs.preflight.outputs.docker_seed_lanes), ' fleet-cache ')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fleet-cache-docker-proof
+          path: .artifacts/docker-tests/**/fleet-cache.log
+          include-hidden-files: true
+          if-no-files-found: warn
+
       - *runner_memory_peak_step
 
   ci-gate:
