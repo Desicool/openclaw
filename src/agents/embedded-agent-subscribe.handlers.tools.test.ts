@@ -246,8 +246,28 @@ function requireString(value: unknown, label: string): string {
 }
 
 describe("progress_card compatibility plan events", () => {
+  it("does not emit a generic argument summary before the authoritative plan event", async () => {
+    const { ctx } = createTestContext();
+    ctx.params.onToolResult = vi.fn();
+    ctx.shouldEmitToolResult = () => true;
+
+    await startTool(ctx, {
+      toolName: "progress_card",
+      toolCallId: "plan-start",
+      args: {
+        markdown: '<progress aria-label="CI · 2/3" value="2" max="3"></progress>',
+        plan: [{ step: "Inspect", status: "in_progress" }],
+      },
+    });
+
+    expect(ctx.emitToolSummary).not.toHaveBeenCalled();
+  });
+
   it("emits the typed full plan snapshot after a successful write", async () => {
     const { ctx, onAgentEvent } = createTestContext();
+    ctx.params.onToolResult = vi.fn();
+    ctx.shouldEmitToolResult = () => true;
+    ctx.shouldEmitToolOutput = () => true;
     const emitted: CapturedAgentEvent[] = [];
     const unsubscribe = registerAgentEventListener((event) => emitted.push(event));
     try {
@@ -275,6 +295,7 @@ describe("progress_card compatibility plan events", () => {
           phase: "update",
           title: "Plan updated",
           source: "openclaw",
+          explanation: "1/2 complete",
           steps: [
             { step: "Inspect", status: "completed" },
             { step: "Patch", status: "in_progress" },
@@ -283,22 +304,74 @@ describe("progress_card compatibility plan events", () => {
       };
       expect(onAgentEvent).toHaveBeenCalledWith(expected);
       expect(emitted).toContainEqual(expect.objectContaining(expected));
+      expect(ctx.emitToolSummary).not.toHaveBeenCalled();
+      expect(ctx.emitToolOutput).not.toHaveBeenCalled();
     } finally {
       unsubscribe();
     }
   });
 
-  it("emits an empty snapshot when a successful write clears the plan", async () => {
+  it("keeps failed card writes visible without exposing their arguments", async () => {
+    const { ctx, onAgentEvent } = createTestContext();
+    ctx.shouldEmitToolOutput = () => true;
+    const result = { content: [{ type: "text", text: "Card write failed" }] };
+    await executeTool(ctx, {
+      toolName: "progress_card",
+      toolCallId: "plan-failed",
+      args: { markdown: '<progress aria-label="private" value="1" max="2"></progress>' },
+      isError: true,
+      result,
+    });
+
+    expect(ctx.emitToolOutput).toHaveBeenCalledWith(
+      "progress_card",
+      undefined,
+      "Card write failed",
+      result,
+    );
+    expect(onAgentEvent).not.toHaveBeenCalledWith(expect.objectContaining({ stream: "plan" }));
+  });
+
+  it("projects card markdown as safe channel text without exposing progress markup", async () => {
     const { ctx, onAgentEvent } = createTestContext();
 
     await executeTool(ctx, {
       toolName: "progress_card",
       toolCallId: "plan-clear",
-      args: { markdown: "Narrative only" },
+      args: {
+        markdown:
+          '<progress aria-label="Browser Use Setup, 2/3" value="2" max="3"></progress>\n\n**Checking** safe candidates.<script>ignored()</script>',
+      },
       isError: false,
       result: {
         content: [{ type: "text", text: "Progress card updated (rev 3)" }],
         details: { revision: 3, steps: null },
+      },
+    });
+
+    expect(onAgentEvent).toHaveBeenCalledWith({
+      stream: "plan",
+      data: {
+        phase: "update",
+        title: "Plan updated",
+        source: "openclaw",
+        explanation: "Progress updated",
+        steps: [],
+      },
+    });
+  });
+
+  it("emits an empty snapshot when a successful write clears the card", async () => {
+    const { ctx, onAgentEvent } = createTestContext();
+
+    await executeTool(ctx, {
+      toolName: "progress_card",
+      toolCallId: "plan-clear",
+      args: {},
+      isError: false,
+      result: {
+        content: [{ type: "text", text: "Progress card cleared" }],
+        details: { revision: null, steps: null },
       },
     });
 
