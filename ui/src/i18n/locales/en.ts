@@ -199,7 +199,7 @@ export const en: TranslationMap & {
   },
   nativeLinkMenu: {
     label: "Link actions",
-    openInline: "Open in Sidebar",
+    openInline: "Open in Browser Panel",
     openExternal: "Open in Default Browser",
     copy: "Copy Link",
   },
@@ -2269,6 +2269,9 @@ export const en: TranslationMap & {
     uploadUnsupportedShell: "Cannot safely insert an uploaded path into unsupported shell: {shell}",
   },
   browser: {
+    nativeTab: "Mac tab",
+    remoteTab: "Agent browser tab",
+    stop: "Stop loading",
     profile: "Browser profile: {profile}",
     navigationBlocked:
       "The current browser navigation rules block this address. Select another tab or enter an allowed address.",
