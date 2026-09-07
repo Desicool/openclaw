@@ -482,6 +482,7 @@ async function updateCommandInternal(
     devTarget,
     packageTargetSchemaVersions,
     packageTargetVersion: targetVersion ?? undefined,
+    packageInstallSpec,
     opts,
     refuseUpdate,
   });
