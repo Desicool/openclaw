@@ -368,7 +368,7 @@
 }
 
 .chat-image-action:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
@@ -378,7 +378,7 @@
 }
 
 .chat-message-image-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--ring);
   outline-offset: -3px;
 }
 
@@ -682,7 +682,7 @@
 }
 
 .chat-assistant-attachment-card__action:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
