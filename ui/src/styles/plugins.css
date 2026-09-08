@@ -987,6 +987,16 @@ h3.plugins-subheader {
   justify-content: flex-end;
 }
 
+.skill-library-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.skill-library-import > .btn {
+  justify-self: end;
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 640px) {
