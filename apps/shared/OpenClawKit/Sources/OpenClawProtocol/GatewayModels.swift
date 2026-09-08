@@ -16541,6 +16541,8 @@ public struct ModelChoice: Codable, Sendable {
     public let unavailablereason: AnyCodable?
     public let unavailableuntil: Int?
     public let contextwindow: Int?
+    public let contexttokens: Int?
+    public let local: Bool?
     public let contextwindows: [[String: AnyCodable]]?
     public let contextwindowdefault: String?
     public let reasoning: Bool?
@@ -16563,6 +16565,8 @@ public struct ModelChoice: Codable, Sendable {
         unavailablereason: AnyCodable? = nil,
         unavailableuntil: Int? = nil,
         contextwindow: Int? = nil,
+        contexttokens: Int? = nil,
+        local: Bool? = nil,
         contextwindows: [[String: AnyCodable]]? = nil,
         contextwindowdefault: String? = nil,
         reasoning: Bool? = nil,
@@ -16584,6 +16588,8 @@ public struct ModelChoice: Codable, Sendable {
         self.unavailablereason = unavailablereason
         self.unavailableuntil = unavailableuntil
         self.contextwindow = contextwindow
+        self.contexttokens = contexttokens
+        self.local = local
         self.contextwindows = contextwindows
         self.contextwindowdefault = contextwindowdefault
         self.reasoning = reasoning
@@ -16607,6 +16613,8 @@ public struct ModelChoice: Codable, Sendable {
         case unavailablereason = "unavailableReason"
         case unavailableuntil = "unavailableUntil"
         case contextwindow = "contextWindow"
+        case contexttokens = "contextTokens"
+        case local
         case contextwindows = "contextWindows"
         case contextwindowdefault = "contextWindowDefault"
         case reasoning
@@ -16685,6 +16693,8 @@ public struct ModelsAuthStatusParams: Codable, Sendable {
 
 public struct ModelsListParams: Codable, Sendable {
     public let agentid: String?
+    public let provider: String?
+    public let includedetails: Bool?
     public let includeprovidercapabilities: Bool?
     public let preparedonly: Bool?
     public let refresh: Bool?
@@ -16692,12 +16702,16 @@ public struct ModelsListParams: Codable, Sendable {
 
     public init(
         agentid: String? = nil,
+        provider: String? = nil,
+        includedetails: Bool? = nil,
         includeprovidercapabilities: Bool? = nil,
         preparedonly: Bool? = nil,
         refresh: Bool? = nil,
         view: AnyCodable? = nil)
     {
         self.agentid = agentid
+        self.provider = provider
+        self.includedetails = includedetails
         self.includeprovidercapabilities = includeprovidercapabilities
         self.preparedonly = preparedonly
         self.refresh = refresh
@@ -16706,6 +16720,8 @@ public struct ModelsListParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case agentid = "agentId"
+        case provider
+        case includedetails = "includeDetails"
         case includeprovidercapabilities = "includeProviderCapabilities"
         case preparedonly = "preparedOnly"
         case refresh
