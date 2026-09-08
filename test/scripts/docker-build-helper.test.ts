@@ -5956,7 +5956,10 @@ grep -Fxq preserved "$TMPDIR/caller-fd"
     expectTextToIncludeAll(upgradeRunner, [
       "scripts/e2e/lib/upgrade-survivor",
       'UPGRADE_RUNNER="$UPGRADE_SCENARIO_DIR/run.sh"',
-      '-v "$UPGRADE_SCENARIO_DIR:/app/scripts/e2e/lib/upgrade-survivor:ro"',
+      'cp -R "$UPGRADE_SCENARIO_DIR/." "$UPGRADE_SCENARIO_STAGE/"',
+      'cp "$UPGRADE_DIAGNOSTICS" "$UPGRADE_SCENARIO_STAGE/diagnostics.mjs"',
+      '-v "$UPGRADE_SCENARIO_STAGE:/app/scripts/e2e/lib/upgrade-survivor:ro"',
+      '-v "$UPGRADE_NPM_REGISTRY_SERVER:/app/scripts/e2e/lib/plugins/npm-registry-server.mjs:ro"',
       '-v "$UPGRADE_NPM_PUBLISH_PLAN:/app/scripts/lib/npm-publish-plan.mjs:ro"',
       'DOCKER_E2E_WINDOWS_HELPERS_PATH="$UPGRADE_WINDOWS_HELPERS"',
       '-v "$UPGRADE_BOUNDED_RESPONSE:/app/scripts/lib/bounded-response.mjs:ro"',
