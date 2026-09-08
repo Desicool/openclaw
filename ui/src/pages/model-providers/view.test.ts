@@ -3,7 +3,7 @@
 import { nothing, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import { updatePickers } from "../../test-helpers/select-picker.ts";
+import { choosePickerValue, updatePickers } from "../../test-helpers/select-picker.ts";
 import type { ModelProviderCard } from "./data.ts";
 import { renderModelProviders } from "./view.ts";
 
@@ -89,6 +89,44 @@ function props(overrides: Partial<ModelProvidersViewProps> = {}): ModelProviders
     ...overrides,
   };
 }
+
+it("retains a saved unavailable model without offering it for another default setting", async () => {
+  const onUtilityChange = vi.fn();
+  const container = document.createElement("div");
+  render(
+    renderModelProviders(
+      props({
+        configuredModels: [
+          { provider: "fixture", id: "ready", name: "Ready", available: true },
+          { provider: "fixture", id: "blocked", name: "Blocked", available: false },
+        ],
+        defaultModels: {
+          primary: "fixture/ready",
+          fallbacks: ["fixture/blocked"],
+          utilityModel: "fixture/blocked",
+        },
+        onUtilityChange,
+      }),
+    ),
+    container,
+  );
+
+  await updatePickers(container);
+  const blocked = [...container.querySelectorAll('[role="option"][data-value="fixture/blocked"]')];
+  expect(blocked).toHaveLength(3);
+  expect(blocked.every((option) => option.getAttribute("aria-disabled") === "true")).toBe(true);
+  expect(
+    [...container.querySelectorAll('[role="option"][data-value="fixture/ready"]')].every(
+      (option) => option.getAttribute("aria-disabled") === "false",
+    ),
+  ).toBe(true);
+  const utility = container.querySelector<HTMLButtonElement>("#model-providers-utility-model")!;
+  expect(utility.textContent).toContain("Blocked");
+  await choosePickerValue(utility, "fixture/blocked");
+  expect(onUtilityChange).not.toHaveBeenCalled();
+  await choosePickerValue(utility, "__openclaw_automatic_utility__");
+  expect(onUtilityChange).toHaveBeenCalledExactlyOnceWith(null);
+});
 
 function mount(viewProps: ModelProvidersViewProps): HTMLDivElement {
   const container = document.createElement("div");

@@ -3,6 +3,7 @@
 // the operator types, and optional free-text entry appends values the option
 // list does not know. Light DOM so the shared stylesheet applies.
 import WaPopup from "@awesome.me/webawesome/dist/components/popup/popup.js";
+import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeCsvOrLooseStringList } from "@openclaw/normalization-core/string-normalization";
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
@@ -20,6 +21,7 @@ export type MultiSelectOption = {
   label: string;
   provider?: string;
   detail?: string;
+  disabled?: boolean;
 };
 
 type MultiSelectRow = MultiSelectOption & { custom?: boolean };
@@ -151,6 +153,13 @@ export class MultiSelect extends OpenClawLightDomElement {
     this.onOpen();
   }
 
+  private activeRowIndex(rows: readonly MultiSelectRow[]): number {
+    const activeRow = rows[this.activeIndex];
+    return activeRow && !activeRow.disabled
+      ? this.activeIndex
+      : rows.findIndex((row) => !row.disabled);
+  }
+
   private closeMenu() {
     this.open = false;
     this.query = "";
@@ -166,7 +175,7 @@ export class MultiSelect extends OpenClawLightDomElement {
     for (const value of values) {
       const next = value.trim();
       const key = this.getValueKey(next);
-      if (next && !taken.has(key) && !this.isExcluded(next)) {
+      if (next && !taken.has(key) && !this.isExcluded(next) && !this.optionFor(next)?.disabled) {
         taken.add(key);
         additions.push(next);
       }
@@ -183,6 +192,9 @@ export class MultiSelect extends OpenClawLightDomElement {
   }
 
   private selectRow(row: MultiSelectRow) {
+    if (row.disabled) {
+      return;
+    }
     if (row.custom) {
       this.commitTypedQuery();
     } else {
@@ -244,10 +256,15 @@ export class MultiSelect extends OpenClawLightDomElement {
           this.openMenu();
           return;
         }
-        const count = this.rows().length;
-        if (count > 0) {
-          const step = event.key === "ArrowDown" ? 1 : count - 1;
-          this.activeIndex = (this.activeIndex + step) % count;
+        const rows = this.rows();
+        const indices = rows.flatMap((row, index) => (row.disabled ? [] : [index]));
+        if (indices.length > 0) {
+          const current = indices.indexOf(this.activeRowIndex(rows));
+          const step = event.key === "ArrowDown" ? 1 : indices.length - 1;
+          this.activeIndex = expectDefined(
+            indices[(current + step) % indices.length],
+            "selectable option index",
+          );
         }
         return;
       }
@@ -255,7 +272,8 @@ export class MultiSelect extends OpenClawLightDomElement {
         if (!this.open) {
           return;
         }
-        const row = this.rows()[this.activeIndex];
+        const rows = this.rows();
+        const row = rows[this.activeRowIndex(rows)];
         if (row) {
           event.preventDefault();
           this.selectRow(row);
@@ -318,7 +336,7 @@ export class MultiSelect extends OpenClawLightDomElement {
 
   override render() {
     const rows = this.open ? this.rows() : [];
-    const active = this.open && rows.length > 0 ? Math.min(this.activeIndex, rows.length - 1) : -1;
+    const active = this.activeRowIndex(rows);
     const label = this.accessibleLabel || this.placeholder;
     return html`
       <div
@@ -358,11 +376,12 @@ export class MultiSelect extends OpenClawLightDomElement {
                 role="option"
                 id=${`${this.listboxId}-${index}`}
                 aria-selected=${index === active ? "true" : "false"}
+                aria-disabled=${row.disabled ? "true" : "false"}
                 data-value=${row.value}
                 ?data-custom=${Boolean(row.custom)}
                 @mousedown=${keepInputFocus}
                 @mousemove=${() => {
-                  if (this.activeIndex !== index) {
+                  if (!row.disabled && this.activeIndex !== index) {
                     this.activeIndex = index;
                   }
                 }}
