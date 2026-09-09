@@ -5544,6 +5544,8 @@ export const en: TranslationMap & {
         "Use arrow keys to choose a marker, Enter or Space to jump, and Escape to dismiss the preview.",
     },
     pendingInputs: {
+      waitingForWorkspaceSync: "Received · waiting for workspace sync",
+      waitingForWorkerSetup: "Received · waiting for worker setup",
       resuming:
         "Interrupted by a Gateway restart. This saved message will resume when the session is ready.",
       cancelled:
