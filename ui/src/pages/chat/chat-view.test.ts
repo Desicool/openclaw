@@ -352,6 +352,7 @@ function createChatHeaderState(
     models?: ModelCatalogEntry[];
     defaultsThinkingDefault?: string;
     thinkingDefault?: string;
+    thinkingLevels?: GatewaySessionRow["thinkingLevels"];
     omitSessionFromList?: boolean;
   } = {},
 ): { state: ChatHeaderTestState; request: ReturnType<typeof vi.fn> } {
@@ -436,6 +437,7 @@ function createChatHeaderState(
         modelOverrideSource: overrides.modelOverrideSource,
         defaultsThinkingDefault: overrides.defaultsThinkingDefault,
         thinkingDefault: overrides.thinkingDefault,
+        thinkingLevels: overrides.thinkingLevels,
         omitSessionFromList,
       });
     }
@@ -463,6 +465,7 @@ function createChatHeaderState(
     modelOverrideSource: overrides.modelOverrideSource,
     defaultsThinkingDefault: overrides.defaultsThinkingDefault,
     thinkingDefault: overrides.thinkingDefault,
+    thinkingLevels: overrides.thinkingLevels,
     omitSessionFromList,
   });
   const state: ChatHeaderTestState = {
@@ -7464,7 +7467,10 @@ describe("chat model controls", () => {
   });
 
   it("keeps the model picker geometry stable when its open catalog resolves", () => {
-    const { state } = createOpenAiHeaderState();
+    const { state } = createOpenAiHeaderState({
+      thinkingDefault: "medium",
+      thinkingLevels: ["off", "minimal", "low", "medium", "high"].map((id) => ({ id, label: id })),
+    });
     const container = renderModelControls(state, {
       modelCatalog: [],
       modelCatalogState: { hasSnapshot: false, status: "loading" },
@@ -8396,6 +8402,13 @@ describe("chat model controls", () => {
         },
       ],
     });
+    expectDefined(state.sessionsResult?.sessions[0], "session").thinkingLevels = [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ].map((id) => ({ id, label: id }));
     const container = renderModelControls(state);
 
     expect(
@@ -9076,6 +9089,7 @@ describe("chat model controls", () => {
     const { state } = createChatHeaderState({
       model: "local-model",
       modelProvider: "ollama",
+      thinkingLevels: ["off", "minimal", "low", "medium", "high"].map((id) => ({ id, label: id })),
       models: [{ id: "local-model", name: "Local Model", provider: "ollama" }],
     });
     const container = renderModelControls(state);
@@ -9124,6 +9138,13 @@ describe("chat model controls", () => {
       modelProvider: "ollama",
       thinkingDefault: "adaptive",
     });
+    expectDefined(state.sessionsResult?.sessions[0], "session").thinkingLevels = [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ].map((id) => ({ id, label: id }));
     const container = renderModelControls(state);
 
     const thinkingSelect = getThinkingSelect(container);
@@ -9149,6 +9170,13 @@ describe("chat model controls", () => {
       modelProvider: "openai",
       thinkingDefault: "medium",
     });
+    expectDefined(state.sessionsResult?.sessions[0], "session").thinkingLevels = [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ].map((id) => ({ id, label: id }));
     const container = renderModelControls(state);
 
     const slider = getThinkingSlider(container);
@@ -9252,6 +9280,11 @@ describe("chat model controls", () => {
           name: "DeepSeek V4 Flash",
           provider: "deepseek",
           reasoning: true,
+          thinkingLevels: [
+            { id: "low", label: "Low" },
+            { id: "high", label: "High" },
+          ],
+          thinkingDefault: "low",
         },
       ],
     });
@@ -9295,6 +9328,13 @@ describe("chat model controls", () => {
       defaultsThinkingDefault: "adaptive",
       omitSessionFromList: true,
     });
+    expectDefined(state.sessionsResult, "sessions").defaults.thinkingLevels = [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ].map((id) => ({ id, label: id }));
     const container = renderModelControls(state);
 
     const thinkingSelect = getThinkingSelect(container);
