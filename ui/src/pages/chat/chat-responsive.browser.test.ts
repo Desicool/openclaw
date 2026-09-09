@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Control UI tests cover chat responsive behavior.
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
