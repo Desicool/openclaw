@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.util.Locale
 
-private val visibleChatMessageRoles = setOf("user", "assistant", "system", "custom")
+private val visibleChatMessageRoles = setOf("user", "assistant", "system", "custom", "toolresult")
 internal const val CHAT_IMAGE_MAX_BASE64_CHARS = 300 * 1024
 
 /** Keeps transcript rows limited to roles Android renders as user-visible chat. */
@@ -28,6 +28,8 @@ data class ChatMessage(
   val content: List<ChatMessageContent>,
   val timestampMs: Long?,
   val idempotencyKey: String? = null,
+  val runId: String? = null,
+  val steerTargetRunId: String? = null,
   /** Canonical transcript-tree identity supplied by chat.history. */
   val entryId: String? = null,
   val truncated: Boolean = false,
@@ -40,6 +42,8 @@ data class ChatMessage(
   val deliveryMirror: ChatDeliveryMirror? = null,
   val usage: ChatMessageUsage? = null,
   val cost: ChatMessageCost? = null,
+  /** Starts a turn whose input was intentionally omitted from display history. */
+  val turnBoundary: Boolean = false,
 ) {
   // Synthetic mirrors and commentary borrow a transcript ID, not its canonical text.
   // Keep the ID for timeline actions, but never use it to recover or retain full text.
@@ -169,6 +173,18 @@ data class ChatMessageContent(
   val durationMs: Long? = null,
   val playback: String? = null,
   val widget: ChatWidgetPreview? = null,
+  val toolActivity: ChatToolActivity? = null,
+)
+
+/** Bounded, display-safe projection of a transcript tool block. */
+@Serializable
+data class ChatToolActivity(
+  val toolCallId: String?,
+  val name: String,
+  val detail: String?,
+  val result: String?,
+  val isError: Boolean,
+  val arguments: kotlinx.serialization.json.JsonObject? = null,
 )
 
 data class ChatWidgetPreview(

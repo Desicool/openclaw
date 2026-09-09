@@ -52,7 +52,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import java.util.Base64
@@ -7604,7 +7606,12 @@ class ChatController internal constructor(
   ): ChatMessage? {
     val role = normalizeVisibleChatMessageRole(obj["role"].asStringOrNull()) ?: return null
     val metadata = obj["__openclaw"].asObjectOrNull()
-    val content = parseChatMessageContents(obj)
+    val content =
+      if (role == "toolresult") {
+        listOfNotNull(parseTopLevelToolResult(obj))
+      } else {
+        parseChatMessageContents(obj)
+      }
     // v2026.7.1-2 retains entry IDs but signals display caps with an exact terminal suffix.
     // Native clients can outlive their Gateway; normalize here until the minimum supported
     // Gateway guarantees the structural marker. The retrieval cap differs from history's.
@@ -7616,7 +7623,17 @@ class ChatController internal constructor(
       content = content,
       timestampMs = obj["timestamp"].asLongOrNull(),
       idempotencyKey = obj["idempotencyKey"].asStringOrNull(),
+      runId =
+        normalizeChatRunId(metadata?.get("runId"))
+          ?: if (role == "user") normalizeChatRunId(metadata?.get("idempotencyKey")) ?: normalizeChatRunId(obj["idempotencyKey"]) else null,
+      steerTargetRunId =
+        metadata
+          ?.get("steerTargetRunId")
+          .asJsonStringOrNull()
+          ?.trim()
+          ?.takeIf(String::isNotEmpty),
       entryId = metadata?.get("id").asJsonStringOrNull()?.takeIf { it.isNotBlank() },
+      turnBoundary = metadata?.get("turnBoundary") == JsonPrimitive(true),
       isSyntheticDisplay = obj["openclawMessageToolMirror"].asObjectOrNull() != null || obj["openclawStreamFallback"].asObjectOrNull() != null,
       truncated =
         truncated == JsonPrimitive(true) ||
@@ -8381,10 +8398,150 @@ internal fun parseChatMessageContent(el: JsonElement): ChatMessageContent? {
       )
     }
 
+    "toolCall", "tool_call", "toolcall", "tool_use" -> {
+      parseToolActivityContent(obj, resultBlock = false)
+    }
+
+    "toolResult", "tool_result", "toolresult", "tool_result_block" -> {
+      parseToolActivityContent(obj, resultBlock = true)
+    }
+
     else -> {
       null
     }
   }
+}
+
+// Match gateway-client user-turn ownership, including the persisted user suffix.
+private fun normalizeChatRunId(value: JsonElement?): String? =
+  value
+    .asJsonStringOrNull()
+    ?.trim()
+    ?.removeSuffix(":user")
+    ?.takeIf(String::isNotEmpty)
+
+private const val CHAT_TOOL_DETAIL_MAX_CHARS = 600
+private const val CHAT_TOOL_RESULT_MAX_CHARS = 2_000
+
+private fun boundedToolText(
+  value: String?,
+  limit: Int,
+): String? =
+  value?.trim()?.takeIf(String::isNotEmpty)?.let { text ->
+    if (text.length <= limit) text else text.take(limit).trimEnd() + "…"
+  }
+
+private fun toolResultText(element: JsonElement?): String? =
+  when (element) {
+    is JsonPrimitive -> {
+      element.contentOrNull
+    }
+
+    is JsonArray -> {
+      buildString {
+        // Keep ordered text blocks, but never materialize an unbounded result projection.
+        for (item in element) {
+          val text =
+            item
+              .asObjectOrNull()
+              ?.get("text")
+              .asStringOrNull()
+              ?.trim()
+              ?.takeIf(String::isNotEmpty) ?: continue
+          if (isNotEmpty()) append('\n')
+          append(text.take((CHAT_TOOL_RESULT_MAX_CHARS + 1 - length).coerceAtLeast(0)))
+          if (length > CHAT_TOOL_RESULT_MAX_CHARS) break
+        }
+      }.takeIf(String::isNotEmpty)
+    }
+
+    is JsonObject -> {
+      element["text"].asStringOrNull() ?: element["content"].asStringOrNull()
+    }
+
+    else -> {
+      null
+    }
+  }
+
+private fun toolDetail(args: JsonObject?): String? {
+  if (args == null) return null
+  val keys = listOf("command", "cmd", "path", "filePath", "query", "url", "target", "description")
+  return keys.firstNotNullOfOrNull { key ->
+    boundedToolText(args[key].asStringOrNull(), CHAT_TOOL_DETAIL_MAX_CHARS)?.let { "$key: $it" }
+  }
+}
+
+private fun toolPresentationArguments(args: JsonObject?): JsonObject? {
+  if (args == null) return null
+  val projected =
+    buildJsonObject {
+      listOf("command", "cmd", "path", "filePath", "query", "url", "target", "description", "markdown").forEach { key ->
+        boundedToolText(args[key].asStringOrNull(), CHAT_TOOL_DETAIL_MAX_CHARS)?.let { put(key, JsonPrimitive(it)) }
+      }
+      (args["plan"] as? JsonArray)?.let { plan ->
+        put(
+          "plan",
+          buildJsonArray {
+            plan.take(50).forEach { entry ->
+              val step = entry.asObjectOrNull() ?: return@forEach
+              val text = boundedToolText(step["step"].asStringOrNull(), CHAT_TOOL_DETAIL_MAX_CHARS) ?: return@forEach
+              val status = step["status"].asStringOrNull()?.takeIf { it in setOf("pending", "in_progress", "completed") } ?: return@forEach
+              add(
+                buildJsonObject {
+                  put("step", JsonPrimitive(text))
+                  put("status", JsonPrimitive(status))
+                },
+              )
+            }
+          },
+        )
+      }
+    }
+  return projected.takeIf { it.isNotEmpty() }
+}
+
+private fun parseToolActivityContent(
+  obj: JsonObject,
+  resultBlock: Boolean,
+): ChatMessageContent? {
+  // Match the web transcript aliases. Result envelopes often carry toolName,
+  // not name; losing it creates a spurious generic "Tool" row.
+  val name =
+    listOf("name", "toolName", "tool_name")
+      .firstNotNullOfOrNull { key ->
+        obj[key].asStringOrNull()?.trim()?.takeIf(String::isNotEmpty)
+      }.orEmpty()
+  val id =
+    listOf("toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "callId", "id").firstNotNullOfOrNull { key ->
+      obj[key].asStringOrNull()?.trim()?.takeIf(String::isNotEmpty)
+    }
+  if (name.isEmpty() && id == null) return null
+  val args = (obj["arguments"] ?: obj["input"] ?: obj["args"]).asObjectOrNull()
+  val result = if (resultBlock) boundedToolText(toolResultText(obj["content"] ?: obj["result"] ?: obj["text"]), CHAT_TOOL_RESULT_MAX_CHARS) else null
+  return ChatMessageContent(
+    type = if (resultBlock) "toolResult" else "toolCall",
+    toolActivity =
+      ChatToolActivity(
+        toolCallId = id,
+        name = name.ifEmpty { "tool" },
+        detail = toolDetail(args),
+        result = result,
+        isError = obj["isError"] == JsonPrimitive(true),
+        arguments = toolPresentationArguments(args),
+      ),
+  )
+}
+
+private fun parseTopLevelToolResult(obj: JsonObject): ChatMessageContent? {
+  val synthetic =
+    buildMap<String, JsonElement> {
+      put("type", JsonPrimitive("toolResult"))
+      listOf("toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "callId", "name", "toolName", "tool_name", "isError", "content", "result", "text").forEach { key ->
+        obj[key]?.let { put(key, it) }
+      }
+    }
+  return parseToolActivityContent(JsonObject(synthetic), resultBlock = true)
 }
 
 private fun parseChatMediaContent(
