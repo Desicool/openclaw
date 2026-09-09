@@ -15986,6 +15986,7 @@ public struct AgentsFileEntry: Codable, Sendable {
     public let expectedabsent: Bool?
     public let size: Int?
     public let updatedatms: Int?
+    public let hash: String?
     public let content: String?
 
     public init(
@@ -15995,6 +15996,7 @@ public struct AgentsFileEntry: Codable, Sendable {
         expectedabsent: Bool? = nil,
         size: Int? = nil,
         updatedatms: Int? = nil,
+        hash: String? = nil,
         content: String? = nil)
     {
         self.name = name
@@ -16003,6 +16005,7 @@ public struct AgentsFileEntry: Codable, Sendable {
         self.expectedabsent = expectedabsent
         self.size = size
         self.updatedatms = updatedatms
+        self.hash = hash
         self.content = content
     }
 
@@ -16013,6 +16016,7 @@ public struct AgentsFileEntry: Codable, Sendable {
         case expectedabsent = "expectedAbsent"
         case size
         case updatedatms = "updatedAtMs"
+        case hash
         case content
     }
 }
@@ -16097,21 +16101,25 @@ public struct AgentsFilesSetParams: Codable, Sendable {
     public let agentid: String
     public let name: String
     public let content: String
+    public let expectedhash: String?
 
     public init(
         agentid: String,
         name: String,
-        content: String)
+        content: String,
+        expectedhash: String? = nil)
     {
         self.agentid = agentid
         self.name = name
         self.content = content
+        self.expectedhash = expectedhash
     }
 
     private enum CodingKeys: String, CodingKey {
         case agentid = "agentId"
         case name
         case content
+        case expectedhash = "expectedHash"
     }
 }
 
