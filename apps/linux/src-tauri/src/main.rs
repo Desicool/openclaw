@@ -387,7 +387,7 @@ struct DesktopInner {
     operation: Mutex<()>,
     pending_approvals: Mutex<pending_approvals::PendingApprovalState>,
     local_url: Url,
-    tray: Mutex<Option<tray::TrayHandles>>,
+    tray: Mutex<Option<Arc<tray::TrayHandles>>>,
     remote_tunnel: Mutex<Option<remote_gateway::SshTunnel>>,
     quitting: AtomicBool,
 }
@@ -414,19 +414,23 @@ impl DesktopState {
     }
 
     fn set_tray(&self, handles: tray::TrayHandles) {
-        *self.inner.tray.lock().expect("tray mutex poisoned") = Some(handles);
+        *self.inner.tray.lock().expect("tray mutex poisoned") = Some(Arc::new(handles));
+    }
+
+    fn with_tray(&self, update: impl FnOnce(&tray::TrayHandles)) {
+        let tray = self.inner.tray.lock().expect("tray mutex poisoned").clone();
+        // Menu setters synchronously dispatch to the main thread.
+        if let Some(tray) = tray {
+            update(&tray);
+        }
     }
 
     pub(crate) fn set_quickchat_shortcut_checked(&self, checked: bool) {
-        if let Some(tray) = self
-            .inner
-            .tray
-            .lock()
-            .expect("tray mutex poisoned")
-            .as_ref()
-        {
-            tray.set_quickchat_shortcut_checked(checked);
-        }
+        self.with_tray(|tray| tray.set_quickchat_shortcut_checked(checked));
+    }
+
+    pub(crate) fn refresh_update_action(&self, app: &AppHandle) {
+        self.with_tray(|tray| tray.refresh_update_action(app));
     }
 
     pub fn connect(&self, app: &AppHandle) -> Result<GatewaySnapshot, String> {
@@ -765,15 +769,7 @@ impl DesktopState {
     }
 
     fn update_tray(&self, snapshot: &GatewaySnapshot) {
-        if let Some(tray) = self
-            .inner
-            .tray
-            .lock()
-            .expect("tray mutex poisoned")
-            .as_ref()
-        {
-            tray.update(snapshot);
-        }
+        self.with_tray(|tray| tray.update(snapshot));
     }
 
     fn show_missing_cli(
@@ -822,15 +818,7 @@ impl DesktopState {
             .lock()
             .expect("pending approval mutex poisoned")
             .update(pending);
-        if let Some(tray) = self
-            .inner
-            .tray
-            .lock()
-            .expect("tray mutex poisoned")
-            .as_ref()
-        {
-            tray.update_pending_count(diff.count);
-        }
+        self.with_tray(|tray| tray.update_pending_count(diff.count));
         if !main_window(app).is_ok_and(|window| matches!(window.is_focused(), Ok(false))) {
             return;
         }
