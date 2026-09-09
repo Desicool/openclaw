@@ -7515,7 +7515,7 @@ describe("chat model controls", () => {
     expect(onThinkingSelect).not.toHaveBeenCalled();
   });
 
-  it("hides the provenance footer for an inherited default and resets a recorded pin", () => {
+  it("hides the provenance footer for the configured default and resets a recorded pin", () => {
     const { state } = createChatHeaderState({
       model: "gpt-5",
       modelProvider: "openai",
@@ -7551,6 +7551,33 @@ describe("chat model controls", () => {
     expect(details?.open).toBe(false);
     expect(document.activeElement).toBe(modelSelect);
     container.remove();
+  });
+
+  it("allows an inherited parent model to be reset to Default", () => {
+    const { state } = createChatHeaderState({
+      model: "gpt-5.4",
+      modelProvider: "openai",
+      modelOverrideSource: "inherited",
+      models: createOpenAiModelCatalog(),
+    });
+    state.sessionsResult = {
+      ...expectDefined(state.sessionsResult, "sessions result"),
+      defaults: {
+        ...expectDefined(state.sessionsResult, "sessions result").defaults,
+        model: "gpt-5.5",
+        modelProvider: "openai",
+      },
+    };
+    const onModelSelect = vi.fn(async () => true);
+    const container = renderModelControls(state, { onModelSelect });
+
+    const defaultRow = container.querySelector<HTMLButtonElement>(
+      '[data-chat-model-default="true"]',
+    );
+    expect(defaultRow?.getAttribute("aria-selected")).toBe("false");
+    defaultRow?.click();
+
+    expect(onModelSelect).toHaveBeenCalledWith("", "main");
   });
 
   it.each(["agent", "global"] as const)(
