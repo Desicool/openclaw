@@ -4081,8 +4081,9 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
       const page = await openFixture(width, height);
       try {
         await expectNoHorizontalOverflow(page);
-        // Measure the settled footer row after the context ring's 200ms entrance animation.
-        await page.waitForTimeout(220);
+        // Wall-clock sleeps can expire before Chromium advances compositor animations
+        // on a contended CI runner. Measure the footer after its finite entrance effect.
+        await page.locator(".context-ring").evaluate(finishElementAnimations);
         const controls = await page.evaluate(() => {
           const rectFor = (selector: string) => {
             const node = document.querySelector(selector) as HTMLElement | null;
@@ -4179,6 +4180,9 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         expect(rectsOverlap(model, send)).toBe(false);
         const contextModelGap = model.x - (context.x + context.width);
         expect(contextModelGap).toBeGreaterThanOrEqual(-1);
+        expect(
+          Math.abs(context.y + context.height / 2 - (model.y + model.height / 2)),
+        ).toBeLessThanOrEqual(2);
         const composerFontSizes = await page.evaluate(() => {
           const textareaNode = document.querySelector<HTMLTextAreaElement>(
             ".agent-chat__composer-combobox > textarea",
@@ -4239,11 +4243,6 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         if (width <= 768) {
           expect(send.width).toBeCloseTo(32, 2);
           expect(send.height).toBeCloseTo(32, 2);
-          for (const control of [model, context]) {
-            expect(
-              Math.abs(control.y + control.height / 2 - (model.y + model.height / 2)),
-            ).toBeLessThanOrEqual(2);
-          }
           expect(footer.height).toBeLessThanOrEqual(53);
         } else {
           // The editor reads at input size, while the controls around it stay
