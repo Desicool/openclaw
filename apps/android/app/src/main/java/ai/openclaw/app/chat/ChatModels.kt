@@ -449,6 +449,10 @@ data class ChatSessionEntry(
   val displayName: String? = null,
   val derivedTitle: String? = null,
   val label: String? = null,
+  /** Automatic device label; explicit labels and generated display names take precedence. */
+  val autoLabel: String? = null,
+  /** In-memory presentation fallback; never server metadata or cached session state. */
+  val localFallbackTitle: String? = null,
   val category: String? = null,
   val color: String? = null,
   val hasColorMetadata: Boolean = color != null,
@@ -529,7 +533,7 @@ data class ChatSessionAgentStatus(
   val attention: String? = null,
 )
 
-/** Local fallback for server-side `sessions.list` search over cached entries. */
+/** Local fallback for server-side `sessions.list` search over presented entries. */
 fun filterSessionEntries(
   sessions: List<ChatSessionEntry>,
   search: String,
@@ -537,7 +541,7 @@ fun filterSessionEntries(
   val query = search.trim().lowercase()
   if (query.isEmpty()) return sessions
   return sessions.filter { session ->
-    listOfNotNull(session.displayName, session.label, session.category, session.key)
+    listOfNotNull(session.displayName, session.label, session.autoLabel, session.localFallbackTitle, session.category, session.key)
       .any { it.lowercase().contains(query) }
   }
 }
