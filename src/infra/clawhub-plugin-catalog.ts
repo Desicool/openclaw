@@ -1,5 +1,6 @@
 // ClawHub plugin discovery reads and strict remote response normalization.
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { validatePluginCategories } from "../../packages/plugin-package-contract/src/index.js";
 import {
   createClawHubError,
   decodeClawHubResponseBody,
@@ -91,9 +92,16 @@ export type ClawHubPluginCategory = {
   order: number;
 };
 
+export type ClawHubPluginVersionCategories = {
+  name: string;
+  version: string;
+  categories: string[] | null;
+};
+
 type ClawHubReadOptions = {
   baseUrl?: string;
   token?: string;
+  skipAuth?: boolean;
   timeoutMs?: number;
   fetchImpl?: ClawHubFetch;
 };
@@ -376,6 +384,7 @@ async function fetchOptionalReadme(
   const { response, url, hasToken } = await requestClawHub({
     baseUrl: params.baseUrl,
     token: params.token,
+    skipAuth: params.skipAuth,
     timeoutMs: params.timeoutMs,
     fetchImpl: params.fetchImpl,
     path: `/api/v1/packages/${encodeURIComponent(params.packageName)}/file`,
@@ -542,6 +551,62 @@ export async function fetchClawHubPluginCategories(
     };
   });
   return categories.toSorted((left, right) => left.order - right.order);
+}
+
+/** Read effective categories for exact installed ClawHub package versions in one request. */
+export async function fetchClawHubPluginVersionCategories(
+  params: ClawHubReadOptions & {
+    packages: ReadonlyArray<{ name: string; version: string }>;
+  },
+): Promise<ClawHubPluginVersionCategories[]> {
+  if (params.packages.length === 0) {
+    return [];
+  }
+  if (params.packages.length > 200) {
+    throw new Error("ClawHub plugin category batch cannot exceed 200 packages.");
+  }
+  const value = await fetchClawHubJson<unknown>({
+    baseUrl: params.baseUrl,
+    token: params.token,
+    skipAuth: params.skipAuth,
+    timeoutMs: params.timeoutMs,
+    fetchImpl: params.fetchImpl,
+    method: "POST",
+    path: "/api/v1/packages/categories:batch",
+    json: { packages: params.packages },
+  });
+  if (!isRecord(value) || !Array.isArray(value.packages)) {
+    throw new Error(
+      "Malformed ClawHub plugin category batch response: expected packages to be an array.",
+    );
+  }
+  return value.packages.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Malformed ClawHub plugin category batch item ${index}: expected an object.`);
+    }
+    const rawCategories = entry.categories;
+    let categories: string[] | null;
+    if (rawCategories === null) {
+      categories = null;
+    } else {
+      const validation = validatePluginCategories(rawCategories);
+      if (!validation.ok || !validation.categories) {
+        throw new Error(
+          `Malformed ClawHub plugin category batch item ${index}: expected categories to be a string array or null.`,
+        );
+      }
+      categories = validation.categories;
+    }
+    return {
+      name: readRequiredClawHubStringField(entry, "name", `plugin category batch item ${index}`),
+      version: readRequiredClawHubStringField(
+        entry,
+        "version",
+        `plugin category batch item ${index}`,
+      ),
+      categories,
+    };
+  });
 }
 
 export async function fetchClawHubPluginDetail(
