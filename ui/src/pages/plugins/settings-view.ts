@@ -18,6 +18,7 @@ import {
 import { t } from "../../i18n/index.ts";
 import type { JsonSchema } from "../../lib/config-form-utils.ts";
 import { formatUiExternalText } from "../../lib/format-error.ts";
+import { formatDateMs } from "../../lib/format.ts";
 import { shouldHandleNavigationClick } from "../../lib/navigation-click.ts";
 import type {
   PluginCatalogItem,
@@ -25,12 +26,24 @@ import type {
   PluginsInspectResult,
 } from "../../lib/plugins/index.ts";
 import {
-  pluginOriginLabel,
+  pluginDetailCompatibilityRows,
+  renderPluginDetailCompatibility,
+  renderPluginDetailReadme,
+  renderPluginDetailVersions,
+} from "./catalog-detail.ts";
+import { clawHubPackageUrl } from "./catalog-links.ts";
+import { formatCompactCount } from "./catalog-results.ts";
+import {
   renderArtTile,
   renderPluginDeclaredCapabilities,
   renderPluginGrants,
 } from "./consent-dialog.ts";
+import { renderPluginDetailRows, renderPluginDetailShell } from "./detail-shell.ts";
+import { buildInstalledPluginDetailTabs, type InstalledPluginDetailTab } from "./detail-tabs.ts";
+import { renderPluginOfficialBadge } from "./plugin-card.ts";
 import { pluginRowKey, type PluginRowMessage } from "./plugin-row-message.ts";
+import { matchesPluginQuery, pluginStatePresentation } from "./plugin-state-presentation.ts";
+import { renderPluginLifecycle } from "./settings-lifecycle.ts";
 import { pluginEntryValue } from "./settings-model.ts";
 
 export type PluginSettingsTab = "installed" | "advanced";
@@ -73,7 +86,7 @@ type InventoryProps = SharedProps & {
   onOpenPlugin: (pluginId: string) => void;
 };
 
-type DetailProps = SharedProps & {
+export type DetailProps = SharedProps & {
   pluginId: string;
   inspection: PluginsInspectResult | null;
   inspectionError: string | null;
@@ -81,38 +94,11 @@ type DetailProps = SharedProps & {
   hostControlsSchema: JsonSchema | null;
   backHref: string;
   backLabel: string;
+  tab: InstalledPluginDetailTab;
   onBack: () => void;
   onRetryInspection: () => void;
+  onTabChange: (tab: InstalledPluginDetailTab) => void;
 };
-
-function pluginStatePresentation(plugin: PluginCatalogItem): {
-  kind: "ok" | "warn" | "danger" | "muted";
-  label: string;
-} {
-  switch (plugin.state) {
-    case "enabled":
-      return { kind: "ok", label: t("pluginsPage.enabled") };
-    case "disabled":
-      return { kind: "muted", label: t("pluginsPage.disabled") };
-    case "needs-setup":
-      return { kind: "warn", label: t("pluginsPage.setupRequired") };
-    case "error":
-      return { kind: "danger", label: t("pluginsPage.needsAttention") };
-    case "not-installed":
-      return { kind: "muted", label: t("pluginsPage.available") };
-  }
-  return plugin.state satisfies never;
-}
-
-function matchesQuery(plugin: PluginCatalogItem, query: string): boolean {
-  const needle = query.trim().toLocaleLowerCase();
-  return (
-    !needle ||
-    [plugin.name, plugin.id, plugin.description, plugin.packageName].some((value) =>
-      value?.toLocaleLowerCase().includes(needle),
-    )
-  );
-}
 
 function renderMessage(message: PluginRowMessage | undefined) {
   if (!message) {
@@ -185,7 +171,7 @@ function renderInstalledInventory(props: InventoryProps): TemplateResult {
   }
   const refreshError = props.error ? renderRetryError(props.error, props.onRefresh) : nothing;
   const plugins = (props.result?.plugins ?? [])
-    .filter((plugin) => plugin.installed && matchesQuery(plugin, props.query))
+    .filter((plugin) => plugin.installed && matchesPluginQuery(plugin, props.query))
     .toSorted((left, right) => left.name.localeCompare(right.name));
   if (plugins.length === 0) {
     return html`${refreshError}${renderSettingsEmpty(
@@ -372,9 +358,6 @@ function renderConfiguration(props: DetailProps, plugin: PluginCatalogItem): Tem
 }
 
 function renderAccess(props: DetailProps): TemplateResult {
-  if (props.inspectionError) {
-    return renderRetryError(props.inspectionError, props.onRetryInspection);
-  }
   if (!props.inspection) {
     return renderSettingsLoadingSkeleton({ rows: 3, carapace: true });
   }
@@ -420,128 +403,98 @@ function renderAccess(props: DetailProps): TemplateResult {
       }),
       carapace: true,
     })}
-    <details class="plugins-settings-advanced-access">
-      <summary>${t("pluginsPage.advanced")}</summary>
-      ${
-        props.hostControlsSchema && props.configValue
-          ? renderNode({
-              schema: props.hostControlsSchema,
-              value: pluginEntryValue(props.configValue, props.pluginId),
-              path: ["plugins", "entries", props.pluginId],
-              hints: props.configHints,
-              unsupported: new Set(props.configUnsupportedPaths),
-              disabled: !props.canEditConfig || props.configBusy,
-              showLabel: false,
-              onPatch: props.onConfigPatch,
-              onRemove: props.onConfigRemove,
-            })
-          : nothing
-      }
-      ${props.configError ? renderRetryError(props.configError, props.onConfigRetry) : nothing}
-      ${renderPluginDeclaredCapabilities(props.inspection.declared)}
-      ${renderPluginGrants(props.inspection.grants, props.inspection.plugin.origin)}
-    </details>
   `;
 }
 
-function renderLifecycle(props: DetailProps, plugin: PluginCatalogItem): TemplateResult {
-  const key = pluginRowKey(plugin.id);
-  const source = props.inspection?.source;
-  const trust = props.inspection?.trust;
-  const rows = html`
-    ${renderSettingsRow({
-      title: t("pluginsPage.detailPluginId"),
-      control: html`<code>${plugin.id}</code>`,
-      carapace: true,
-    })}
-    ${
-      plugin.version
-        ? renderSettingsRow({
-            title: t("pluginsPage.version"),
-            control: html`<span>${`v${plugin.version}`}</span>`,
-            carapace: true,
-          })
-        : nothing
-    }
-    ${
-      plugin.packageName
-        ? renderSettingsRow({
-            title: t("pluginsPage.detailPackage"),
-            control: html`<code>${plugin.packageName}</code>`,
-            carapace: true,
-          })
-        : nothing
-    }
-    ${
-      plugin.origin
-        ? renderSettingsRow({
-            title: t("pluginsPage.detailOrigin"),
-            control: html`<span>${pluginOriginLabel(plugin.origin)}</span>`,
-            carapace: true,
-          })
-        : nothing
-    }
-    ${
-      source
-        ? renderSettingsRow({
-            title: t("pluginsPage.installedSource"),
-            control: html`<span>${source.spec ?? source.packageName ?? source.kind}</span>`,
-            carapace: true,
-          })
-        : nothing
-    }
-    ${
-      source?.integrity
-        ? renderSettingsRow({
-            title: t("pluginsPage.integrity"),
-            control: html`<code title=${source.integrity}>${source.integrity.slice(0, 20)}…</code>`,
-            carapace: true,
-          })
-        : nothing
-    }
-    ${
-      trust
-        ? renderSettingsRow({
-            title: t("pluginsPage.trustStatus"),
-            control: html`<span>${trust.disposition}</span>`,
-            carapace: true,
-          })
-        : nothing
-    }
-    ${
-      plugin.removable
-        ? renderSettingsRow({
-            title: t("pluginsPage.uninstall"),
-            description: t("pluginsPage.uninstallDescription"),
-            control: renderReasonedDisabledControl(
-              props.mutationBlockedReason,
-              html`<button
-                type="button"
-                class="btn danger oc-action oc-action-secondary"
-                ?disabled=${
-                  !props.mutationBlockedReason && (!props.canMutate || Boolean(props.busy[key]))
-                }
-                aria-disabled=${!props.canMutate ? "true" : nothing}
-                aria-label=${t("pluginsPage.uninstallNamed", { name: plugin.name })}
-                @click=${() => {
-                  if (props.canMutate && !props.busy[key]) {
-                    props.onUninstall(plugin.id, key);
-                  }
-                }}
-              >
-                ${t("pluginsPage.uninstall")}
-              </button>`,
-            ),
-            carapace: true,
-          })
-        : renderSettingsRow({
-            title: t("pluginsPage.uninstall"),
-            description: t("pluginsPage.managedCannotUninstall"),
-            carapace: true,
-          })
-    }
-  `;
-  return rows;
+function renderInstalledAdvanced(props: DetailProps): TemplateResult {
+  if (!props.inspection) {
+    return renderSettingsLoadingSkeleton({ rows: 3, carapace: true });
+  }
+  const pluginEntry = pluginEntryValue(props.configValue, props.pluginId);
+  return html`${
+    props.hostControlsSchema && props.configValue
+      ? renderNode({
+          schema: props.hostControlsSchema,
+          value: pluginEntry,
+          path: ["plugins", "entries", props.pluginId],
+          hints: props.configHints,
+          unsupported: new Set(props.configUnsupportedPaths),
+          disabled: !props.canEditConfig || props.configBusy,
+          showLabel: false,
+          onPatch: props.onConfigPatch,
+          onRemove: props.onConfigRemove,
+        })
+      : nothing
+  }
+  ${props.configError ? renderRetryError(props.configError, props.onConfigRetry) : nothing}
+  ${renderPluginDeclaredCapabilities(props.inspection.declared)}
+  ${renderPluginGrants(props.inspection.grants, props.inspection.plugin.origin)}`;
+}
+
+function installedTabLabel(tab: InstalledPluginDetailTab, needsSetup: boolean): unknown {
+  const label = t(`pluginsPage.detailTabs.${tab}`);
+  if (tab !== "configuration" || !needsSetup) {
+    return label;
+  }
+  const warning = t("pluginsPage.additionalConfigurationRequired");
+  return html`<span class="plugin-installed-detail__configuration-label">
+    ${label}
+    <span class="plugin-installed-detail__setup-dot" title=${warning} aria-label=${warning}></span>
+  </span>`;
+}
+
+function renderInstalledTabPanel(
+  props: DetailProps,
+  plugin: PluginCatalogItem,
+  tab: InstalledPluginDetailTab,
+): TemplateResult {
+  const catalog = props.inspection?.catalog;
+  const components = props.inspection?.components;
+  if (tab === "readme" && catalog) {
+    return renderPluginDetailReadme(catalog);
+  }
+  if (tab === "configuration") {
+    return html`<div class="plugin-installed-detail__panel-head">
+        <p>${t("pluginsPage.configurationDescription")}</p>
+        ${renderConfigActions(props)}
+      </div>
+      ${
+        plugin.state === "needs-setup"
+          ? html`<div class="callout warning oc-banner oc-banner-warning" role="status">
+              ${t("pluginsPage.setupRequiredDescription")}
+            </div>`
+          : nothing
+      }
+      ${renderConfiguration(props, plugin)}`;
+  }
+  if (tab === "skills" && components) {
+    return renderPluginDetailRows(components.skills);
+  }
+  if (tab === "mcpServers" && components) {
+    return renderPluginDetailRows(components.mcpServers);
+  }
+  if (tab === "commands" && components) {
+    return renderPluginDetailRows(components.commands);
+  }
+  if (tab === "hooks" && components) {
+    return renderPluginDetailRows(components.hooks);
+  }
+  if (tab === "lspServers" && components) {
+    return renderPluginDetailRows(components.lspServers);
+  }
+  if (tab === "compatibility" && catalog) {
+    return renderPluginDetailCompatibility(catalog);
+  }
+  if (tab === "versions" && catalog) {
+    return renderPluginDetailVersions(catalog);
+  }
+  if (tab === "access") {
+    return renderAccess(props);
+  }
+  if (tab === "lifecycle") {
+    return renderPluginLifecycle(props, plugin);
+  }
+  return renderInstalledAdvanced(props);
 }
 
 export function renderPluginSettingsDetail(props: DetailProps): TemplateResult {
@@ -588,73 +541,151 @@ export function renderPluginSettingsDetail(props: DetailProps): TemplateResult {
         })
       : nothing;
   const setupRequired = plugin.state === "needs-setup";
-  return renderSettingsPage(
-    html`<section class="plugins-settings-detail-header">
-        <nav class="plugins-settings-breadcrumb" aria-label=${t("pluginsPage.breadcrumb")}>
-          <a
-            class="plugins-settings-breadcrumb__parent"
-            href=${props.backHref}
-            @click=${(event: Event) => {
-              event.preventDefault();
-              props.onBack();
-            }}
-            >${props.backLabel}</a
-          >
-          <span class="plugins-settings-breadcrumb__chevron" aria-hidden="true"
-            >${icons.chevronRight}</span
-          >
-          <span class="plugins-settings-breadcrumb__current" aria-current="page"
-            >${plugin.name}</span
-          >
-        </nav>
-        <div class="plugins-settings-detail-hero">
-          ${renderArtTile(plugin.id, plugin.name, props.iconUrls[plugin.id], () =>
-            props.onIconError(plugin.id),
-          )}
-          <div class="plugins-settings-detail-identity">
-            <h1 class="plugins-settings-detail-title">${plugin.name}</h1>
-            <p class="plugins-settings-detail-description">${plugin.description || plugin.id}</p>
-          </div>
-          <div class="plugins-settings-detail-actions">
-            ${stateStatus}
-            ${renderReasonedDisabledControl(
-              props.mutationBlockedReason,
-              renderSettingsToggle({
-                checked: plugin.enabled,
-                disabled:
-                  setupRequired ||
-                  (!props.mutationBlockedReason && (!props.canMutate || Boolean(props.busy[key]))),
-                ariaDisabled: setupRequired || !props.canMutate,
-                ariaLabel: t("pluginsPage.toggleNamed", { name: plugin.name }),
-                onChange: (enabled) => {
-                  if (setupRequired || !props.canMutate || props.busy[key]) {
-                    return false;
-                  }
-                  props.onSetEnabled(plugin.id, enabled, key);
-                  return true;
-                },
-              }),
-            )}
-          </div>
-        </div>
+  const catalog = props.inspection?.catalog;
+  const components = props.inspection?.components ?? {
+    mapped: [],
+    skills: [],
+    mcpServers: [],
+    commands: [],
+    hooks: [],
+    lspServers: [],
+    unavailable: { capabilities: [], mcpServers: [], lspServers: [] },
+  };
+  const hasConfiguration = Boolean(
+    props.configSchema ||
+    props.configSchemaLoading ||
+    props.configError ||
+    plugin.state === "needs-setup",
+  );
+  const tabs = buildInstalledPluginDetailTabs({
+    hasReadme: Boolean(catalog?.detail.readme),
+    hasConfiguration,
+    components,
+    hasCompatibility: Boolean(catalog && pluginDetailCompatibilityRows(catalog).length > 0),
+    hasVersions: Boolean(catalog?.detail.versions.length),
+  });
+  const activeTab = tabs.includes(props.tab) ? props.tab : (tabs[0] ?? "configuration");
+  const authorHandle = catalog?.detail.author?.handle ?? catalog?.plugin.catalog.author;
+  const publisherName =
+    catalog?.detail.author?.displayName ?? authorHandle ?? plugin.packageName ?? plugin.name;
+  const packageUrl = catalog
+    ? clawHubPackageUrl(catalog.detail.packageName, authorHandle)
+    : undefined;
+  const sidebar = catalog
+    ? html`<dl>
+          ${
+            catalog.plugin.catalog.downloads === undefined
+              ? nothing
+              : html`<div>
+                  <dt>${t("pluginsPage.catalogDownloadsColumn")}</dt>
+                  <dd>${icons.download} ${formatCompactCount(catalog.plugin.catalog.downloads)}</dd>
+                </div>`
+          }
+          ${
+            plugin.version
+              ? html`<div>
+                  <dt>${t("pluginsPage.version")}</dt>
+                  <dd>${plugin.version}</dd>
+                </div>`
+              : nothing
+          }
+          ${
+            catalog.detail.updatedAt
+              ? html`<div>
+                  <dt>${t("pluginsPage.detailUpdated")}</dt>
+                  <dd>${formatDateMs(catalog.detail.updatedAt, { dateStyle: "medium" })}</dd>
+                </div>`
+              : nothing
+          }
+        </dl>
         ${
-          setupRequired
-            ? html`<div
-                class="callout warn oc-banner oc-banner-warning plugins-settings-detail-setup"
-                role="status"
+          catalog.detail.security
+            ? html`<a
+                class="plugin-catalog-detail__security"
+                href=${packageUrl ? `${packageUrl}/security-audit` : nothing}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <span class="plugins-settings-detail-setup__icon" aria-hidden="true"
-                  >${icons.alertTriangle}</span
-                >
-                <div class="oc-banner-content">
-                  <p>${t("pluginsPage.setupRequiredNotice")}</p>
-                </div>
-              </div>`
+                <h2>${t("pluginsPage.detailSecurity")} ${icons.info}</h2>
+                <strong>${catalog.detail.security.status}</strong>
+              </a>`
             : nothing
         }
-      </section>
-      ${props.pageNotice ? renderMessage(props.pageNotice) : nothing}
+        ${
+          packageUrl
+            ? html`<a
+                class="btn plugin-catalog-detail__clawhub"
+                href=${packageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                >${t("pluginsPage.detailViewOnClawHub")}</a
+              >`
+            : nothing
+        }`
+    : undefined;
+  return renderSettingsPage(
+    html`${renderPluginDetailShell({
+      id: "plugin-installed-detail",
+      name: plugin.name,
+      summary: plugin.description || catalog?.plugin.catalog.summary || plugin.id,
+      backHref: props.backHref,
+      backLabel: props.backLabel,
+      onBack: props.onBack,
+      titleAction: html`<div class="plugins-settings-detail-actions">
+        ${stateStatus}
+        ${renderReasonedDisabledControl(
+          props.mutationBlockedReason,
+          renderSettingsToggle({
+            checked: plugin.enabled,
+            disabled:
+              setupRequired ||
+              (!props.mutationBlockedReason && (!props.canMutate || Boolean(props.busy[key]))),
+            ariaDisabled: setupRequired || !props.canMutate,
+            ariaLabel: t("pluginsPage.toggleNamed", { name: plugin.name }),
+            onChange: (enabled) => {
+              if (setupRequired || !props.canMutate || props.busy[key]) {
+                return false;
+              }
+              props.onSetEnabled(plugin.id, enabled, key);
+              return true;
+            },
+          }),
+        )}
+      </div>`,
+      identity: html`<div class="plugin-catalog-detail__publisher">
+        <span class="plugin-catalog-detail__publisher-icon" aria-hidden="true">
+          ${
+            props.iconUrls[plugin.id]
+              ? html`<img
+                  src=${props.iconUrls[plugin.id]}
+                  alt=""
+                  @error=${() => props.onIconError(plugin.id)}
+                />`
+              : icons.box
+          }
+        </span>
+        <div>
+          <div class="plugin-catalog-detail__publisher-name">
+            <strong>${publisherName}</strong>
+            ${catalog?.plugin.catalog.official ? renderPluginOfficialBadge() : nothing}
+          </div>
+          ${authorHandle ? html`<span>@${authorHandle.replace(/^@/u, "")}</span>` : nothing}
+        </div>
+      </div>`,
+      sidebar,
+      tabs: tabs.map((tab) => ({
+        value: tab,
+        label: installedTabLabel(tab, plugin.state === "needs-setup"),
+      })),
+      activeTab,
+      onTabChange: props.onTabChange,
+      panel: html`${props.pageNotice ? renderMessage(props.pageNotice) : nothing}
       ${props.error ? renderRetryError(props.error, props.onRefresh) : nothing}
+      ${
+        props.inspectionError
+          ? renderRetryError(props.inspectionError, props.onRetryInspection)
+          : nothing
+      }
       ${
         plugin.error
           ? html`<div class="callout danger oc-banner oc-banner-error" role="alert">
@@ -662,36 +693,8 @@ export function renderPluginSettingsDetail(props: DetailProps): TemplateResult {
             </div>`
           : nothing
       }
-      ${renderMessage(props.messages[key])}
-      ${
-        props.configSchema || props.configSchemaLoading || props.configError
-          ? renderSettingsSection(
-              {
-                title: t("pluginsPage.configuration"),
-                description: t("pluginsPage.configurationDescription"),
-                actions: renderConfigActions(props),
-                carapace: true,
-              },
-              renderConfiguration(props, plugin),
-            )
-          : nothing
-      }
-      ${renderSettingsSection(
-        {
-          title: t("pluginsPage.accessCapabilities"),
-          description: t("pluginsPage.accessCapabilitiesDescription"),
-          carapace: true,
-        },
-        renderAccess(props),
-      )}
-      ${renderSettingsSection(
-        {
-          title: t("pluginsPage.lifecycle"),
-          description: t("pluginsPage.lifecycleDescription"),
-          carapace: true,
-        },
-        renderLifecycle(props, plugin),
-      )}`,
-    { carapace: true },
+      ${renderMessage(props.messages[key])} ${renderInstalledTabPanel(props, plugin, activeTab)}`,
+    })}`,
+    { wide: true, carapace: true },
   );
 }
