@@ -11,6 +11,7 @@ import {
 } from "../../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import { resolveControlUiAuthCandidates } from "../../app/control-ui-auth.ts";
+import { gatewayPresentationScope } from "../../app/gateway-presentation-scope.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
 import { t } from "../../i18n/index.ts";
 import { formatUiError, formatUiExternalText } from "../../lib/format-error.ts";
@@ -31,6 +32,8 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import "../../styles/plugins.css";
 import type { PluginCatalogDetailTab } from "./catalog-detail.ts";
+import { InstallWizardController } from "./install-wizard-controller.ts";
+import type { PluginInstallWizardState } from "./install-wizard-model.ts";
 import { PluginDiscoveryController } from "./plugin-discovery-controller.ts";
 import { PluginIconController } from "./plugin-icon-controller.ts";
 import { confirmPluginUninstall } from "./plugin-lifecycle-confirmation.ts";
@@ -72,6 +75,7 @@ export class PluginsPage extends OpenClawLightDomElement {
     error: string | null;
   } | null = null;
   @state() private catalogDetailTab: PluginCatalogDetailTab = "readme";
+  @state() private installWizard: PluginInstallWizardState | null = null;
   private configAutoSaveStatus = this.context?.runtimeConfig.state.configAutoSaveStatus ?? "idle";
   private pluginConfigEditPending = false;
   private routeDataConsumed = false;
@@ -140,6 +144,34 @@ export class PluginsPage extends OpenClawLightDomElement {
     },
     requestUpdate: () => this.requestUpdate(),
   });
+  private readonly installWizardController = new InstallWizardController({
+    getState: () => this.installWizard,
+    setState: (wizard) => {
+      this.installWizard = wizard;
+    },
+    getCatalog: () => this.result,
+    getRuntimeConfig: () => this.context.runtimeConfig,
+    getConsentController: () => this.consentController,
+    getOwner: () => gatewayPresentationScope(this.context.gateway),
+    isConnected: () => this.gateway.connected,
+    canMutate: () => this.canMutate(),
+    canEditConfig: () => this.canEditConfig(),
+    refreshCatalog: () => this.refreshCatalog(),
+    requestRestart: async (reason) => {
+      const scope = this.gateway.capture();
+      if (!scope) {
+        throw new Error(t("pluginsPage.installWizard.restartFailed"));
+      }
+      await scope.client.request("gateway.restart.request", { reason });
+    },
+    requestUpdate: () => this.requestUpdate(),
+    onManage: (pluginId) => {
+      this.context.navigate("plugin-settings", {
+        pathname: pathForPluginSettings(pluginId, this.context.basePath),
+        search: "?from=plugins",
+      });
+    },
+  });
 
   private readonly catalogTask = new Task(this, {
     autoRun: false,
@@ -162,10 +194,12 @@ export class PluginsPage extends OpenClawLightDomElement {
   });
 
   private readonly subscriptions = new SubscriptionsController(this).effect(
-    () => (this.surface === "settings" ? this.context?.runtimeConfig : null),
+    () => this.context?.runtimeConfig,
     (runtimeConfig) => {
-      void runtimeConfig.ensureLoaded();
-      void runtimeConfig.ensureSchemaLoaded();
+      if (this.surface === "settings" || this.installWizard?.stage === "configuring") {
+        void runtimeConfig.ensureLoaded();
+        void runtimeConfig.ensureSchemaLoaded();
+      }
       this.configAutoSaveStatus = runtimeConfig.state.configAutoSaveStatus;
       return runtimeConfig.subscribe(() => {
         const nextStatus = runtimeConfig.state.configAutoSaveStatus;
@@ -193,6 +227,7 @@ export class PluginsPage extends OpenClawLightDomElement {
 
   override disconnectedCallback() {
     document.removeEventListener("keydown", this.handleDocumentKeydown, true);
+    this.installWizardController.disconnect();
     this.discovery.disconnect();
     this.subscriptions.clear();
     this.pluginIcons.reset();
@@ -207,7 +242,12 @@ export class PluginsPage extends OpenClawLightDomElement {
       return;
     }
     if (this.consentController.consent) {
-      this.consentController.close();
+      this.installWizardController.cancelConsent();
+      event.stopPropagation();
+      return;
+    }
+    if (this.installWizard && !this.installWizardController.busy) {
+      this.installWizardController.close();
       event.stopPropagation();
       return;
     }
@@ -262,7 +302,7 @@ export class PluginsPage extends OpenClawLightDomElement {
       this.busy = {};
     }
     if (shouldRefreshAfterChange) {
-      void this.refreshCatalog();
+      void this.refreshCatalog().then(() => this.installWizardController.resume());
       if (this.surface === "discovery") {
         const catalogId = pluginCatalogIdFromPath(
           this.routeData?.location.pathname ?? "",
@@ -326,6 +366,7 @@ export class PluginsPage extends OpenClawLightDomElement {
     // Inspection results belong to one connection epoch, including same-client reconnects.
     this.detail = null;
     this.catalogDetail = null;
+    this.installWizardController.invalidate();
     this.consentController.reset();
   }
 
@@ -564,6 +605,7 @@ export class PluginsPage extends OpenClawLightDomElement {
       iconUrls: this.iconUrls,
       catalogDetail: this.catalogDetail,
       catalogDetailTab: this.catalogDetailTab,
+      installWizard: this.installWizard,
       mutationBlockedReason: blockedReason,
       canMutate: this.canMutate(),
       canEditConfig: this.canEditConfig(),
@@ -576,6 +618,17 @@ export class PluginsPage extends OpenClawLightDomElement {
         selectCatalogDetailTab: (tab) => {
           this.catalogDetailTab = tab;
         },
+        openInstallWizard: (result) => this.installWizardController.open(result),
+        closeInstallWizard: () => this.installWizardController.close(),
+        beginInstallWizard: () => this.installWizardController.begin(),
+        continueInstallPolicyWarning: () => this.installWizardController.continuePolicyWarning(),
+        retryInstallWizard: () => this.installWizardController.retry(),
+        patchInstallWizardConfig: (path, value) =>
+          this.installWizardController.patchConfiguration(path, value),
+        removeInstallWizardConfig: (path) => this.installWizardController.removeConfiguration(path),
+        saveInstallWizardConfiguration: () => void this.installWizardController.saveConfiguration(),
+        manageInstalledWizardPlugin: () => this.installWizardController.manage(),
+        cancelConsent: () => this.installWizardController.cancelConsent(),
         setInventoryExpanded: (expanded) => {
           this.inventoryExpanded = expanded;
         },
