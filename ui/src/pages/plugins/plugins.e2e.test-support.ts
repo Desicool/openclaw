@@ -129,91 +129,6 @@ const telegramPlugin = {
   removable: false,
 } satisfies PluginCatalogItem;
 
-type InstalledInventoryPlugin = PluginCatalogItem & { categories: string[] };
-
-function installedInventoryPlugin(
-  id: string,
-  overrides: Partial<InstalledInventoryPlugin> = {},
-): InstalledInventoryPlugin {
-  return {
-    id,
-    name: id
-      .split("-")
-      .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-      .join(" "),
-    description: `Operator-visible capability for ${id}.`,
-    kind: ["productivity"],
-    origin: "bundled",
-    installed: true,
-    enabled: false,
-    state: "disabled",
-    categories: [],
-    removable: false,
-    ...overrides,
-  };
-}
-
-const installedPluginsItems = [
-  installedInventoryPlugin("attention-b", {
-    state: "error",
-    error: "Manifest B failed",
-    order: 20,
-    categories: ["channels"],
-  }),
-  installedInventoryPlugin("enabled-b", {
-    enabled: true,
-    state: "enabled",
-    order: 20,
-    categories: ["memory"],
-  }),
-  installedInventoryPlugin("needs-setup", {
-    state: "needs-setup",
-    order: 5,
-    categories: ["models"],
-  }),
-  ...Array.from({ length: 11 }, (_, index) =>
-    installedInventoryPlugin(
-      index === 0 ? "workboard" : `disabled-${String(index).padStart(2, "0")}`,
-      {
-        ...(index === 0
-          ? {
-              name: "Workboard",
-              description: "Dashboard workboard for agent-owned issues and sessions.",
-            }
-          : {}),
-        order: index,
-        categories: [
-          ["context"],
-          ["channels"],
-          ["channels"],
-          ["models"],
-          ["models"],
-          ["models"],
-          ["memory"],
-          ["memory"],
-          ["web"],
-          ["voice"],
-          [],
-        ][index],
-      },
-    ),
-  ),
-  installedInventoryPlugin("attention-a", {
-    state: "error",
-    error: "Manifest A failed",
-    order: 10,
-    categories: ["channels", "web"],
-  }),
-  installedInventoryPlugin("enabled-a", {
-    enabled: true,
-    state: "enabled",
-    order: 10,
-    categories: ["memory"],
-  }),
-];
-
-const installedPluginsInventory = inventory(installedPluginsItems);
-
 const initialInventory = inventory([
   workboardDisabled,
   telegramPlugin,
@@ -417,6 +332,11 @@ const matrixConfigSchema = {
                     properties: {
                       homeserver: { type: "string", title: "Homeserver" },
                       accessToken: { type: "string", title: "Access token" },
+                      mode: {
+                        type: ["string", "null"],
+                        enum: ["auto", null],
+                        title: "Mode",
+                      },
                     },
                     required: ["homeserver", "accessToken"],
                   },
@@ -561,31 +481,35 @@ function pluginMethodResponses() {
     },
     "plugins.catalog.browse": {
       cases: [
-        { match: { intent: "featured", pageSize: 9 }, response: featuredResult },
+        { match: { intent: "featured", pageSize: 8 }, response: featuredResult },
         {
-          match: { intent: "all", cursor: "catalog-page-2", pageSize: 25 },
+          match: { intent: "trending", pageSize: 8 },
+          response: { items: discoveryResult.items.slice(0, 8) },
+        },
+        {
+          match: { intent: "all", cursor: "catalog-page-2", pageSize: 100 },
           response: {
             items: secondDiscoveryPageItems,
             nextCursor: "catalog-page-3",
           },
         },
         {
-          match: { intent: "all", cursor: "catalog-page-3", pageSize: 25 },
+          match: { intent: "all", cursor: "catalog-page-3", pageSize: 100 },
           response: { items: finalDiscoveryPageItems },
         },
         {
-          match: { intent: "official", pageSize: 25 },
+          match: { intent: "official", pageSize: 100 },
           response: { items: [matrixDiscoveryPlugin] },
         },
         {
-          match: { intent: "all", category: "channels", pageSize: 25 },
+          match: { intent: "all", category: "channels", pageSize: 100 },
           response: { items: [matrixDiscoveryPlugin] },
         },
         {
-          match: { intent: "all", query: "matrix", pageSize: 25 },
+          match: { intent: "all", query: "matrix", pageSize: 100 },
           response: { items: [matrixDiscoveryPlugin] },
         },
-        { match: { intent: "all", pageSize: 25 }, response: discoveryResult },
+        { match: { intent: "all", pageSize: 100 }, response: discoveryResult },
       ],
     },
     "plugins.catalog.categories": discoveryCategories,
@@ -647,12 +571,10 @@ export async function teardownPluginsE2e(): Promise<void> {
 
 export {
   captureScreenshot,
-  desktopViewport,
   describeControlUiE2e,
   discoveryResult,
   initialInventory,
   installMockGateway,
-  installedPluginsInventory,
   inventory,
   localCalendarDisabled,
   localCalendarEnabled,

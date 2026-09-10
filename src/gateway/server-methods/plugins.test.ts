@@ -142,6 +142,29 @@ describe("plugin management Gateway handlers", () => {
     });
   });
 
+  it("projects an opaque catalog identity only for a proven ClawHub counterpart", async () => {
+    managementMocks.list.mockResolvedValue({
+      plugins: [
+        { ...workboard, clawhubPackage: "@openclaw/workboard" },
+        { ...workboard, id: "local-only", name: "Local only" },
+      ],
+      diagnostics: [],
+      mutationAllowed: true,
+    });
+
+    const result = await callHandler("plugins.list", {});
+
+    expect(result.response).toMatchObject({
+      plugins: [
+        { clawhubPackage: "@openclaw/workboard", catalogId: "ch_QG9wZW5jbGF3L3dvcmtib2FyZA" },
+        { id: "local-only" },
+      ],
+    });
+    expect(
+      (result.response as { plugins: Array<{ catalogId?: string }> }).plugins[1]?.catalogId,
+    ).toBeUndefined();
+  });
+
   it.each([
     {
       label: "bundled installed plugin",
@@ -250,7 +273,7 @@ describe("plugin management Gateway handlers", () => {
     });
   });
 
-  it("enriches an installed plugin by exact package identity and installed version", async () => {
+  it("returns local inspection without waiting for optional ClawHub presentation", async () => {
     const inspection = {
       ok: true,
       reviewToken,
@@ -292,97 +315,11 @@ describe("plugin management Gateway handlers", () => {
       },
     } as const;
     managementMocks.inspect.mockResolvedValue(inspection);
-    managementMocks.list.mockResolvedValue({
-      plugins: [
-        {
-          id: "community-plugin",
-          name: "Community Plugin",
-          packageName: "community/plugin",
-          version: "1.2.3",
-          installed: true,
-          enabled: false,
-          state: "disabled",
-        },
-      ],
-      diagnostics: [],
-      mutationAllowed: true,
-    });
-    catalogMocks.detail.mockResolvedValue({
-      packageName: "community/plugin",
-      displayName: "Community Plugin",
-      family: "code-plugin",
-      isOfficial: true,
-      categories: ["tools"],
-      latestVersion: "1.3.0",
-      topics: [],
-      configFields: [],
-      mcpServers: [],
-      skills: [],
-      versions: [],
-    });
+    catalogMocks.detail.mockImplementation(() => new Promise(() => {}));
 
     const result = await callHandler("plugins.inspect", { pluginId: "community-plugin" });
 
-    expect(catalogMocks.detail).toHaveBeenCalledWith({
-      packageName: "community/plugin",
-      version: "1.2.3",
-    });
-    expect(result).toMatchObject({
-      ok: true,
-      response: {
-        catalog: {
-          plugin: { catalog: { name: "Community Plugin" } },
-          detail: { packageName: "community/plugin" },
-        },
-      },
-    });
-  });
-
-  it("keeps installed inspection usable when ClawHub enrichment fails", async () => {
-    const inspection = {
-      ok: true,
-      reviewToken,
-      plugin: {
-        id: "community-plugin",
-        name: "Community Plugin",
-        version: "1.2.3",
-        installed: true,
-        enabled: false,
-      },
-      source: { kind: "clawhub", packageName: "community/plugin" },
-      declared: {
-        channels: [],
-        providers: [],
-        tools: [],
-        contracts: [],
-        hooks: [],
-        mcpServers: [],
-        cliCommands: [],
-        cliBackends: [],
-        skills: [],
-        dangerousConfigFlags: [],
-      },
-      components: {
-        mapped: [],
-        skills: [],
-        mcpServers: [],
-        commands: [],
-        hooks: [],
-        lspServers: [],
-        unavailable: { capabilities: [], mcpServers: [], lspServers: [] },
-      },
-      grants: {
-        hooks: {
-          allowPromptInjection: { effective: false },
-          allowConversationAccess: { effective: false },
-        },
-      },
-    } as const;
-    managementMocks.inspect.mockResolvedValue(inspection);
-    catalogMocks.detail.mockRejectedValue(new Error("offline"));
-
-    const result = await callHandler("plugins.inspect", { pluginId: "community-plugin" });
-
+    expect(catalogMocks.detail).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, response: inspection, error: undefined });
   });
 
@@ -482,7 +419,15 @@ describe("plugin management Gateway handlers", () => {
       nextCursor: "opaque-next",
     });
     managementMocks.list.mockResolvedValue({
-      plugins: [{ ...workboard, installed: true, enabled: true, state: "enabled" }],
+      plugins: [
+        {
+          ...workboard,
+          clawhubPackage: "memory-plus",
+          installed: true,
+          enabled: true,
+          state: "enabled",
+        },
+      ],
       diagnostics: [],
       mutationAllowed: true,
     });
@@ -508,6 +453,7 @@ describe("plugin management Gateway handlers", () => {
             id: "ch_bWVtb3J5LXBsdXM",
             catalog: {
               name: "Memory Plus",
+              packageName: "memory-plus",
               summary: "Long-term memory",
               family: "code-plugin",
               author: "alice",
@@ -546,6 +492,21 @@ describe("plugin management Gateway handlers", () => {
     });
   });
 
+  it("does not exhaust the official catalog for the initial All view", async () => {
+    catalogMocks.browse.mockResolvedValue({ items: [] });
+    managementMocks.list.mockResolvedValue({
+      plugins: [],
+      diagnostics: [],
+      mutationAllowed: true,
+    });
+
+    const result = await callHandler("plugins.catalog.browse", { intent: "all" });
+
+    expect(result.ok).toBe(true);
+    expect(catalogMocks.allOfficial).not.toHaveBeenCalled();
+    expect(catalogMocks.browse).toHaveBeenCalledOnce();
+  });
+
   it("returns canonical ClawHub categories unchanged", async () => {
     const categories = [
       {
@@ -582,9 +543,15 @@ describe("plugin management Gateway handlers", () => {
       mutationAllowed: false,
     });
 
-    const result = await callHandler("plugins.catalog.get", { id: "ch_bWVtb3J5LXBsdXM" });
+    const result = await callHandler("plugins.catalog.get", {
+      id: "ch_bWVtb3J5LXBsdXM",
+      version: "1.0.0",
+    });
 
-    expect(catalogMocks.detail).toHaveBeenCalledWith({ packageName: "memory-plus" });
+    expect(catalogMocks.detail).toHaveBeenCalledWith({
+      packageName: "memory-plus",
+      version: "1.0.0",
+    });
     expect(result.response).toMatchObject({
       plugin: {
         id: "ch_bWVtb3J5LXBsdXM",
@@ -613,9 +580,33 @@ describe("plugin management Gateway handlers", () => {
       ok: true,
       error: undefined,
       response: {
-        items: [],
-        remoteError: "ClawHub is unavailable: service unavailable.",
+        items: [expect.objectContaining({ local: expect.objectContaining({ installed: true }) })],
+        remoteError:
+          "ClawHub is unavailable: service unavailable. Installed plugins remain available.",
       },
+    });
+    const [item] = (result.response as { items: Array<{ catalog: object }> }).items;
+    expect(item?.catalog).not.toHaveProperty("publishedToClawHub");
+  });
+
+  it("preserves a failed browse cursor so the same page remains retryable", async () => {
+    catalogMocks.browse.mockRejectedValue(new Error("service unavailable"));
+    managementMocks.list.mockResolvedValue({
+      plugins: [],
+      diagnostics: [],
+      mutationAllowed: true,
+    });
+
+    const result = await callHandler("plugins.catalog.browse", {
+      intent: "all",
+      cursor: "page-two",
+    });
+
+    expect(result.response).toMatchObject({
+      items: [],
+      nextCursor: "page-two",
+      remoteError:
+        "ClawHub is unavailable: service unavailable. Installed plugins remain available.",
     });
   });
 
@@ -758,27 +749,39 @@ describe("plugin management Gateway handlers", () => {
     });
   });
 
-  it("resolves local-only discovery details without contacting ClawHub", async () => {
+  it("resolves and inspects an uninstalled official discovery candidate locally", async () => {
     const localOnly = {
       id: "workboard",
       name: "Workboard",
       packageName: "@openclaw/workboard",
       description: "Local work coordination.",
-      installed: true,
+      origin: "official" as const,
+      installed: false,
       enabled: false,
-      state: "needs-setup" as const,
+      state: "not-installed" as const,
       categories: ["tools"],
       category: "tools",
+      install: { source: "official" as const, pluginId: "workboard" },
     };
     managementMocks.list.mockResolvedValue({
-      plugins: [localOnly],
+      plugins: [
+        localOnly,
+        {
+          id: "other-plugin",
+          packageName: "workboard",
+          name: "Alias collision",
+          installed: false,
+          enabled: false,
+          state: "not-installed",
+        },
+      ],
       diagnostics: [],
       mutationAllowed: true,
     });
     managementMocks.inspect.mockResolvedValue({
       ok: true,
       plugin: localOnly,
-      source: { kind: "bundled" },
+      source: { kind: "official-catalog" },
       declared: {
         channels: [],
         providers: [],
@@ -800,14 +803,22 @@ describe("plugin management Gateway handlers", () => {
     });
 
     const result = await callHandler("plugins.catalog.get", {
-      id: "local_QG9wZW5jbGF3L3dvcmtib2FyZA",
+      id: "local_d29ya2JvYXJk",
     });
 
     expect(catalogMocks.detail).not.toHaveBeenCalled();
+    expect(managementMocks.inspect).toHaveBeenCalledWith({
+      config: {},
+      pluginId: "workboard",
+    });
     expect(result.response).toMatchObject({
       plugin: {
         catalog: { name: "Workboard", categories: ["tools"] },
-        local: { state: "needs-setup", action: "manage" },
+        local: {
+          state: "not-installed",
+          action: "install",
+          install: { source: "official", pluginId: "workboard" },
+        },
       },
       detail: {
         origin: "local",

@@ -143,6 +143,10 @@ export const PluginCatalogEntrySchema = closedObject({
   id: NonEmptyString,
   name: NonEmptyString,
   packageName: Type.Optional(NonEmptyString),
+  /** Canonical ClawHub identity proven by install provenance or the official catalog. */
+  clawhubPackage: Type.Optional(NonEmptyString),
+  /** Opaque discovery identity for loading optional ClawHub presentation metadata. */
+  catalogId: Type.Optional(NonEmptyString),
   description: Type.Optional(Type.String()),
   version: Type.Optional(NonEmptyString),
   kind: Type.Optional(Type.Array(NonEmptyString)),
@@ -347,6 +351,7 @@ export const PluginDiscoveryCategorySchema = closedObject({
 
 export const PluginDiscoveryCatalogFactsSchema = closedObject({
   name: NonEmptyString,
+  packageName: Type.Optional(NonEmptyString),
   summary: Type.Optional(Type.String()),
   family: Type.Optional(Type.Union([Type.Literal("code-plugin"), Type.Literal("bundle-plugin")])),
   author: Type.Optional(NonEmptyString),
@@ -411,6 +416,7 @@ export const PluginsCatalogCategoriesResultSchema = closedObject({
 
 export const PluginsCatalogGetParamsSchema = closedObject({
   id: Type.String({ minLength: 1, maxLength: 512, pattern: "^[A-Za-z0-9_-]+$" }),
+  version: Type.Optional(NonEmptyString),
 });
 
 const PluginDiscoveryCompatibilitySchema = closedObject({
@@ -471,6 +477,7 @@ export const PluginDiscoveryDetailSchema = closedObject({
   security: Type.Optional(
     closedObject({
       status: NonEmptyString,
+      auditUrl: Type.Optional(NonEmptyString),
       verdict: Type.Optional(NonEmptyString),
       summary: Type.Optional(Type.String()),
       guidance: Type.Optional(Type.String()),

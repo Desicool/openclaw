@@ -1,6 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { icons } from "../../components/icons.ts";
+import { handleMarkdownCodeBlockClick } from "../../components/markdown-code-blocks.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { renderReasonedDisabledControl } from "../../components/reasoned-disabled-control.ts";
 import { renderSettingsPage } from "../../components/settings-ui.ts";
@@ -13,6 +14,7 @@ import { clawHubPackageUrl } from "./catalog-links.ts";
 import { formatCompactCount } from "./catalog-results.ts";
 import { renderPluginDetailShell } from "./detail-shell.ts";
 import { renderPluginAuthor, renderPluginOfficialBadge } from "./plugin-card.ts";
+import { renderPluginSecurityAudit } from "./security-audit.ts";
 
 export type PluginCatalogDetailTab =
   | "readme"
@@ -41,31 +43,17 @@ function tabLabel(tab: PluginCatalogDetailTab): string {
   return t(`pluginsPage.detailTabs.${tab}`);
 }
 
-function securityLabel(status: string): string {
-  return /^(?:clean|pass|safe)$/iu.test(status) ? "Pass" : status;
-}
-
-function securityTone(status: string): "pass" | "warning" | "danger" | "unknown" {
-  if (/^(?:clean|pass|safe)$/iu.test(status)) {
-    return "pass";
-  }
-  if (/^(?:suspicious|warning|review)$/iu.test(status)) {
-    return "warning";
-  }
-  if (/^(?:blocked|danger|fail|malicious)$/iu.test(status)) {
-    return "danger";
-  }
-  return "unknown";
-}
-
 export function renderPluginDetailReadme(result: PluginDiscoveryDetailResult): TemplateResult {
   const readmeHtml = result.detail.readme
-    ? toSanitizedMarkdownHtml(result.detail.readme)
+    ? toSanitizedMarkdownHtml(result.detail.readme, { mode: "document" })
         .replaceAll("<h1", "<h2")
         .replaceAll("</h1>", "</h2>")
     : null;
   return result.detail.readme
-    ? html`<article class="plugin-catalog-detail__readme sidebar-markdown">
+    ? html`<article
+        class="plugin-catalog-detail__readme sidebar-markdown"
+        @click=${handleMarkdownCodeBlockClick}
+      >
         ${unsafeHTML(readmeHtml)}
       </article>`
     : html`<p class="plugin-catalog-detail__empty">${t("pluginsPage.detailNoReadme")}</p>`;
@@ -212,7 +200,10 @@ function renderTabPanel(
 function renderDetail(result: PluginDiscoveryDetailResult, props: PluginCatalogDetailProps) {
   const { plugin, detail } = result;
   const authorHandle = detail.author?.handle ?? plugin.catalog.author;
-  const packageUrl = clawHubPackageUrl(detail.packageName, authorHandle);
+  const packageUrl =
+    detail.origin === "clawhub" || plugin.catalog.publishedToClawHub === true
+      ? clawHubPackageUrl(detail.packageName, authorHandle)
+      : undefined;
   const packageIcon = plugin.catalog.imageUrl ? props.iconUrls[plugin.catalog.imageUrl] : undefined;
   const publisherIcon = detail.author?.imageUrl
     ? props.iconUrls[detail.author.imageUrl]
@@ -300,21 +291,10 @@ function renderDetail(result: PluginDiscoveryDetailResult, props: PluginCatalogD
       </dl>
       ${
         detail.security
-          ? html`<a
-              class="plugin-catalog-detail__security plugin-catalog-detail__security--${securityTone(
-                detail.security.status,
-              )}"
-              href=${packageUrl ? `${packageUrl}/security-audit` : nothing}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <h2>${t("pluginsPage.detailSecurity")} ${icons.info}</h2>
-              <div class="plugin-catalog-detail__security-score">
-                <strong>${securityLabel(detail.security.status)}</strong>
-                <span aria-hidden="true"></span><span aria-hidden="true"></span
-                ><span aria-hidden="true"></span>
-              </div>
-            </a>`
+          ? renderPluginSecurityAudit(
+              detail.security.status,
+              detail.security.auditUrl ?? (packageUrl ? `${packageUrl}/security-audit` : undefined),
+            )
           : nothing
       }
       ${

@@ -346,14 +346,10 @@ async function openWorkboard(page: Parameters<typeof waitForControlUiRoute>[0], 
   await workboardRow.waitFor();
   const workboardLink = workboardRow.getByRole("link", { name: /Workboard/iu });
   expect(await workboardLink.getAttribute("href")).toBe("/settings/plugins/workboard");
-  expect(await workboardRow.locator(".settings-status").count()).toBe(0);
-  const enabledSwitch = workboardRow.getByRole("switch");
-  expect(await enabledSwitch.count()).toBe(1);
-  expect(
-    await enabledSwitch.evaluate(
-      (element) => (element as HTMLElement & { checked: boolean }).checked,
-    ),
-  ).toBe(true);
+  const enabledStatus = workboardRow.locator('.settings-status[data-plugin-state="enabled"]');
+  expect(await enabledStatus.count()).toBe(1);
+  expect(await enabledStatus.getAttribute("title")).toBe("Enabled");
+  expect(await workboardRow.getByRole("switch").count()).toBe(0);
   await page.locator(".settings-page.oc-app-surface").waitFor();
   if (captureUiProof) {
     await page.screenshot({
@@ -452,6 +448,18 @@ suite.define(() => {
         await page.getByRole("link", { name: "Settings", exact: true }).waitFor();
         await page.getByText("Plan and track agent-owned work.", { exact: true }).waitFor();
         await page.getByRole("link", { name: "View on ClawHub", exact: true }).waitFor();
+        const securityAudit = page.getByRole("link", { name: /Security audit/iu });
+        expect(await securityAudit.getAttribute("href")).toBe(
+          "https://clawhub.ai/openclaw/plugins/workboard/security-audit",
+        );
+        expect(await securityAudit.getAttribute("class")).toContain(
+          "plugin-catalog-detail__security--pass",
+        );
+        expect(await securityAudit.getByText("Pass", { exact: true }).count()).toBe(1);
+        expect(
+          await securityAudit.locator(".plugin-catalog-detail__security-score > span").count(),
+        ).toBe(3);
+        expect(await securityAudit.getByText("clean", { exact: true }).count()).toBe(0);
         expect(
           await page
             .getByRole("tab")

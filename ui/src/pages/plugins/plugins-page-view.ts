@@ -6,6 +6,7 @@ import {
 } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { analyzeConfigSchema } from "../../components/config-form.ts";
+import { icons } from "../../components/icons.ts";
 import { renderSettingsPage } from "../../components/settings-ui.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { t } from "../../i18n/index.ts";
@@ -24,7 +25,6 @@ import {
   type PluginInstallWizardState,
 } from "./install-wizard-model.ts";
 import { renderPluginInstallWizard } from "./install-wizard.ts";
-import { renderInstalledPlugins } from "./installed-plugins.ts";
 import type { PluginDiscoveryController } from "./plugin-discovery-controller.ts";
 import type { PluginRowMessage } from "./plugin-row-message.ts";
 import type { PluginsConsentController } from "./plugins-consent-controller.ts";
@@ -58,9 +58,8 @@ type PluginsPageViewActions = {
   selectHubTab: (tab: PluginsHubTab) => void;
   closeCatalogDetail: () => void;
   retryCatalogDetail: () => void;
+  installCatalogEntry: (id: string) => void;
   selectCatalogDetailTab: (tab: PluginCatalogDetailTab) => void;
-  setInventoryExpanded: (expanded: boolean) => void;
-  setInventorySearchOpen: (open: boolean) => void;
   setQuery: (query: string) => void;
   refreshCatalog: () => void;
   openPluginSettings: (pluginId: string | null, fromDiscovery: boolean) => void;
@@ -70,7 +69,8 @@ type PluginsPageViewActions = {
   patchConfig: (path: Array<string | number>, value: unknown) => void;
   removeConfig: (path: Array<string | number>) => void;
   reloadConfig: () => void;
-  retryConfig: () => void;
+  retryConfigRead: () => void;
+  retryConfigWrite: () => void;
   closeSettingsDetail: (parentRoute: "plugins" | "plugin-settings") => void;
   retrySettingsDetail: (pluginId: string) => void;
   selectInstalledDetailTab: (tab: InstalledPluginDetailTab) => void;
@@ -87,8 +87,6 @@ export type PluginsPageViewModel = {
   error: string | null;
   query: string;
   settingsTab: PluginSettingsTab;
-  inventoryExpanded: boolean;
-  inventorySearchOpen: boolean;
   busy: Record<string, boolean>;
   messages: Record<string, PluginRowMessage>;
   detail: InstalledDetailState | null;
@@ -153,14 +151,23 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
     onConfigPatch: actions.patchConfig,
     onConfigRemove: actions.removeConfig,
     onConfigReload: actions.reloadConfig,
-    onConfigRetry: actions.retryConfig,
+    onConfigReadRetry: actions.retryConfigRead,
+    onConfigWriteRetry: actions.retryConfigWrite,
     onRefresh: actions.refreshCatalog,
   };
 
   return html`
     ${
       model.surface === "discovery" && !catalogDetail
-        ? renderPluginsHubHeader({ active: "plugins", onSelect: actions.selectHubTab })
+        ? renderPluginsHubHeader({
+            active: "plugins",
+            onSelect: actions.selectHubTab,
+            secondaryAction: {
+              label: t("pluginsPage.pluginSettings"),
+              icon: icons.settings,
+              onClick: () => actions.openPluginSettings(null, false),
+            },
+          })
         : nothing
     }
     ${renderSettingsWorkspace(html`
@@ -198,26 +205,7 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
                       iconUrls: model.catalogIconUrls,
                     })
                   : renderSettingsPage(
-                      html`${renderInstalledPlugins({
-                        connected: model.connected,
-                        loading: model.loading,
-                        result: model.result,
-                        error: model.error,
-                        expanded: model.inventoryExpanded,
-                        searchOpen: model.inventorySearchOpen,
-                        query: model.query,
-                        iconUrls: model.iconUrls,
-                        attributions: discovery.attributions,
-                        onExpandedChange: actions.setInventoryExpanded,
-                        onSearchOpenChange: actions.setInventorySearchOpen,
-                        onQueryChange: actions.setQuery,
-                        onRefresh: actions.refreshCatalog,
-                        settingsHref: (pluginId) =>
-                          `${pathForPluginSettings(pluginId, context.basePath)}?from=plugins`,
-                        onOpenSettings: (pluginId) =>
-                          actions.openPluginSettings(pluginId ?? null, true),
-                        onIconError: actions.handlePluginIconError,
-                      })}${renderPluginCatalogResults({
+                      renderPluginCatalogResults({
                         connected: model.connected,
                         loading: discovery.loading,
                         paging: discovery.paging,
@@ -225,18 +213,22 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
                         canGoPrevious: discovery.canGoPrevious,
                         canGoNext: discovery.canGoNext,
                         result: discovery.result,
-                        error: discovery.error,
+                        error: discovery.error ?? model.error,
                         remoteError: discovery.remoteError,
                         categories: discovery.categories,
                         categoriesError: discovery.categoriesError,
                         featured: discovery.featured,
                         featuredLoading: discovery.featuredLoading,
                         featuredError: discovery.featuredError,
+                        trending: discovery.trending,
+                        trendingLoading: discovery.trendingLoading,
+                        trendingError: discovery.trendingError,
                         intent: discovery.intent,
                         category: discovery.category,
                         query: discovery.query,
                         iconUrls: model.catalogIconUrls,
                         pluginIconUrls: model.iconUrls,
+                        canInstall: model.canMutate,
                         entryHref: (id) => pathForPluginCatalogEntry(id, context.basePath),
                         onIntentChange: (intent) => discovery.selectIntent(intent),
                         onCategoryChange: (category) => discovery.selectCategory(category),
@@ -245,12 +237,19 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
                           context.navigate("plugins", {
                             pathname: pathForPluginCatalogEntry(id, context.basePath),
                           }),
+                        onInstall: actions.installCatalogEntry,
                         onPreviousPage: () => void discovery.previousPage(),
                         onNextPage: () => void discovery.nextPage(),
                         onRetry: () => void discovery.refresh(),
+                        onRetryGrouped: () => {
+                          void Promise.all([
+                            discovery.refresh(),
+                            discovery.refreshFeatured(),
+                            discovery.refreshTrending(),
+                          ]);
+                        },
                         onRetryCategories: () => void discovery.refreshCategories(),
-                        onRetryFeatured: () => void discovery.refreshFeatured(),
-                      })}`,
+                      }),
                       { wide: true, carapace: true },
                     )
               }</wa-tab-panel
@@ -292,7 +291,7 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
             busy: Object.values(model.busy).some(Boolean),
             configSchema: installWizardConfigSchema,
             configSchemaLoading: configState.configSchemaLoading,
-            configValue: configState.configForm,
+            configValue: installWizard.configDraft?.value ?? null,
             configHints: configState.configUiHints,
             configUnsupportedPaths: configAnalysis.unsupportedPaths,
             configBusy: configState.configLoading || configState.configSaving,

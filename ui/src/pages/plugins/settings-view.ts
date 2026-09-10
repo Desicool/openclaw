@@ -40,9 +40,10 @@ import {
 } from "./consent-dialog.ts";
 import { renderPluginDetailRows, renderPluginDetailShell } from "./detail-shell.ts";
 import { buildInstalledPluginDetailTabs, type InstalledPluginDetailTab } from "./detail-tabs.ts";
-import { renderPluginOfficialBadge } from "./plugin-card.ts";
+import { renderPluginOfficialBadge, renderPluginStateStatus } from "./plugin-card.ts";
 import { pluginRowKey, type PluginRowMessage } from "./plugin-row-message.ts";
 import { matchesPluginQuery, pluginStatePresentation } from "./plugin-state-presentation.ts";
+import { renderPluginSecurityAudit } from "./security-audit.ts";
 import { renderPluginLifecycle } from "./settings-lifecycle.ts";
 import { pluginEntryValue } from "./settings-model.ts";
 
@@ -72,7 +73,8 @@ type SharedProps = {
   onConfigPatch: (path: Array<string | number>, value: unknown) => void;
   onConfigRemove: (path: Array<string | number>) => void;
   onConfigReload: () => void;
-  onConfigRetry: () => void;
+  onConfigReadRetry: () => void;
+  onConfigWriteRetry: () => void;
   onRefresh: () => void;
 };
 
@@ -184,31 +186,13 @@ function renderInstalledInventory(props: InventoryProps): TemplateResult {
     (plugin) => plugin.id,
     (plugin) => {
       const key = pluginRowKey(plugin.id);
-      const busy = Boolean(props.busy[key]);
-      const setupBlockedReason =
-        plugin.state === "needs-setup" ? t("pluginsPage.setupRequiredNotice") : null;
-      const toggle = renderSettingsToggle({
-        checked: plugin.enabled,
-        disabled:
-          Boolean(setupBlockedReason) ||
-          (!props.mutationBlockedReason && (!props.canMutate || busy)),
-        ariaDisabled: Boolean(setupBlockedReason) || !props.canMutate,
-        ariaLabel: t("pluginsPage.toggleNamed", { name: plugin.name }),
-        onChange: (enabled) => {
-          if (setupBlockedReason || !props.canMutate || busy) {
-            return false;
-          }
-          props.onSetEnabled(plugin.id, enabled, key);
-          return true;
-        },
-      });
       return html`
         <article
           class="settings-row settings-row--nav plugins-settings-row oc-settings-row"
           data-plugin-id=${plugin.id}
           @click=${(event: Event) => {
             const target = event.target;
-            if (!(target instanceof Element) || !target.closest("wa-switch, button, a")) {
+            if (!(target instanceof Element) || !target.closest("button, a")) {
               props.onOpenPlugin(plugin.id);
             }
           }}
@@ -233,7 +217,11 @@ function renderInstalledInventory(props: InventoryProps): TemplateResult {
             >
           </a>
           <div class="settings-row__control oc-settings-row-control">
-            ${renderReasonedDisabledControl(setupBlockedReason ?? props.mutationBlockedReason, toggle)}
+            ${
+              plugin.state === "not-installed"
+                ? nothing
+                : renderPluginStateStatus(plugin.state, "plugins-settings-row__status")
+            }
             <span class="settings-row__chevron" aria-hidden="true">${icons.chevronRight}</span>
           </div>
           ${renderMessage(props.messages[key])}
@@ -249,7 +237,7 @@ function renderAdvanced(props: InventoryProps): TemplateResult {
   }
   if (!props.advancedSchema || !props.configValue) {
     return props.configError
-      ? renderRetryError(props.configError, props.onConfigRetry)
+      ? renderRetryError(props.configError, props.onConfigReadRetry)
       : props.configSchemaLoading || !props.configValue
         ? renderSettingsLoadingSkeleton({ rows: 4, carapace: true })
         : renderSettingsEmpty(t("pluginsPage.schemaUnavailable"), { carapace: true });
@@ -266,7 +254,7 @@ function renderAdvanced(props: InventoryProps): TemplateResult {
       onPatch: props.onConfigPatch,
       onRemove: props.onConfigRemove,
     })}
-    ${props.configError ? renderRetryError(props.configError, props.onConfigRetry) : nothing}
+    ${props.configError ? renderRetryError(props.configError, props.onConfigWriteRetry) : nothing}
   `;
 }
 
@@ -336,7 +324,7 @@ export function renderPluginSettingsInventory(props: InventoryProps): TemplateRe
 function renderConfiguration(props: DetailProps, plugin: PluginCatalogItem): TemplateResult {
   if (!props.configValue || !props.configSchema) {
     if (props.configError) {
-      return renderRetryError(props.configError, props.onConfigRetry);
+      return renderRetryError(props.configError, props.onConfigReadRetry);
     }
     return renderSettingsLoadingSkeleton({ rows: 3, carapace: true });
   }
@@ -353,7 +341,7 @@ function renderConfiguration(props: DetailProps, plugin: PluginCatalogItem): Tem
       onPatch: props.onConfigPatch,
       onRemove: props.onConfigRemove,
     })}
-    ${props.configError ? renderRetryError(props.configError, props.onConfigRetry) : nothing}
+    ${props.configError ? renderRetryError(props.configError, props.onConfigWriteRetry) : nothing}
   `;
 }
 
@@ -426,7 +414,7 @@ function renderInstalledAdvanced(props: DetailProps): TemplateResult {
         })
       : nothing
   }
-  ${props.configError ? renderRetryError(props.configError, props.onConfigRetry) : nothing}
+  ${props.configError ? renderRetryError(props.configError, props.onConfigWriteRetry) : nothing}
   ${renderPluginDeclaredCapabilities(props.inspection.declared)}
   ${renderPluginGrants(props.inspection.grants, props.inspection.plugin.origin)}`;
 }
@@ -600,15 +588,11 @@ export function renderPluginSettingsDetail(props: DetailProps): TemplateResult {
         </dl>
         ${
           catalog.detail.security
-            ? html`<a
-                class="plugin-catalog-detail__security"
-                href=${packageUrl ? `${packageUrl}/security-audit` : nothing}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <h2>${t("pluginsPage.detailSecurity")} ${icons.info}</h2>
-                <strong>${catalog.detail.security.status}</strong>
-              </a>`
+            ? renderPluginSecurityAudit(
+                catalog.detail.security.status,
+                catalog.detail.security.auditUrl ??
+                  (packageUrl ? `${packageUrl}/security-audit` : undefined),
+              )
             : nothing
         }
         ${
@@ -653,7 +637,11 @@ export function renderPluginSettingsDetail(props: DetailProps): TemplateResult {
         )}
       </div>`,
       identity: html`<div class="plugin-catalog-detail__publisher">
-        <span class="plugin-catalog-detail__publisher-icon" aria-hidden="true">
+        <span
+          class="plugin-catalog-detail__publisher-icon"
+          aria-hidden="true"
+          data-plugin-icon-id=${plugin.id}
+        >
           ${
             props.iconUrls[plugin.id]
               ? html`<img

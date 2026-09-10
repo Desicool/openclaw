@@ -450,7 +450,7 @@
       "text": "Coordinate work using the included calendar plugin."
     },
     {
-      "count": 2,
+      "count": 1,
       "kind": "object-property",
       "name": "description",
       "path": "ui/src/pages/plugins/plugins.e2e.test-support.ts",
@@ -518,6 +518,13 @@
       "name": "title",
       "path": "ui/src/pages/plugins/plugins.e2e.test-support.ts",
       "text": "Homeserver"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/pages/plugins/plugins.e2e.test-support.ts",
+      "text": "Mode"
     },
     {
       "count": 1,

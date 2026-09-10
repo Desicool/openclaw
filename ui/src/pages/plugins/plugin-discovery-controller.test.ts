@@ -78,39 +78,39 @@ it("switches filtered tabs to All when starting a unified search", async () => {
 
 it("pages through retained unified-search overflow without another request", async () => {
   vi.useFakeTimers();
-  const matches = Array.from({ length: 26 }, (_, index) => entry(index));
+  const matches = Array.from({ length: 101 }, (_, index) => entry(index));
   const { controller, request } = setup([{ items: matches }]);
 
   controller.updateQuery("plugin");
   await vi.runAllTimersAsync();
-  expect(controller.result?.items).toHaveLength(25);
+  expect(controller.result?.items).toHaveLength(100);
 
   await controller.nextPage();
-  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-25"]);
+  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-100"]);
 
   await controller.previousPage();
-  expect(controller.result?.items).toHaveLength(25);
+  expect(controller.result?.items).toHaveLength(100);
   expect(request).toHaveBeenCalledTimes(1);
 });
 
 it("consumes cursorless Bundled overflow without requesting the first page again", async () => {
-  const bundled = Array.from({ length: 26 }, (_, index) => entry(index));
+  const bundled = Array.from({ length: 101 }, (_, index) => entry(index));
   const { controller, request } = setup([{ items: bundled }]);
   controller.intent = "bundled";
 
   await controller.refresh();
-  expect(controller.result?.items).toHaveLength(25);
+  expect(controller.result?.items).toHaveLength(100);
 
   await controller.nextPage();
-  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-25"]);
+  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-100"]);
   expect(request).toHaveBeenCalledTimes(1);
 });
 
 it("publishes visible entry changes on fetched and cached page transitions", async () => {
-  const firstPage = Array.from({ length: 25 }, (_, index) =>
+  const firstPage = Array.from({ length: 100 }, (_, index) =>
     entry(index, `https://cdn.example.test/${index}.png`),
   );
-  const secondPage = [entry(25, "https://cdn.example.test/25.png")];
+  const secondPage = [entry(100, "https://cdn.example.test/100.png")];
   const { controller, onEntriesChanged } = setup([
     { items: firstPage, nextCursor: "page-2" },
     { items: secondPage },
@@ -120,10 +120,81 @@ it("publishes visible entry changes on fetched and cached page transitions", asy
   expect(onEntriesChanged).toHaveBeenCalledTimes(1);
 
   await controller.nextPage();
-  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-25"]);
+  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-100"]);
   expect(onEntriesChanged).toHaveBeenCalledTimes(2);
 
   await controller.previousPage();
-  expect(controller.result?.items).toHaveLength(25);
+  expect(controller.result?.items).toHaveLength(100);
   expect(onEntriesChanged).toHaveBeenCalledTimes(3);
+});
+
+it("retains a failed page cursor for explicit retry without auto-following it", async () => {
+  const firstPage = Array.from({ length: 100 }, (_, index) => entry(index));
+  const recoveredPage = [entry(100)];
+  const { controller, request } = setup([
+    { items: firstPage, nextCursor: "page-2" },
+    {
+      items: [],
+      nextCursor: "page-2",
+      remoteError: "ClawHub is unavailable; local plugins remain available.",
+    },
+    { items: recoveredPage },
+  ]);
+
+  await controller.refresh();
+  await controller.nextPage();
+
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(controller.remoteError).toBe("ClawHub is unavailable; local plugins remain available.");
+  expect(controller.canGoNext).toBe(true);
+  expect(controller.result?.items).toHaveLength(100);
+
+  await controller.nextPage();
+
+  expect(request).toHaveBeenCalledTimes(3);
+  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-100"]);
+});
+
+it("retains a repeated page cursor for explicit retry instead of auto-following it", async () => {
+  const firstPage = Array.from({ length: 100 }, (_, index) => entry(index));
+  const { controller, request } = setup([
+    { items: firstPage, nextCursor: "page-2" },
+    { items: [], nextCursor: "page-2" },
+    { items: [entry(100)] },
+  ]);
+
+  await controller.refresh();
+  await controller.nextPage();
+
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(controller.canGoNext).toBe(true);
+  expect(controller.result?.items).toHaveLength(100);
+
+  await controller.nextPage();
+
+  expect(request).toHaveBeenCalledTimes(3);
+  expect(controller.result?.items.map((item) => item.id)).toEqual(["plugin-100"]);
+});
+
+it("surfaces partial ClawHub failures on the Featured shelf", async () => {
+  const { controller } = setup([
+    { items: [], remoteError: "ClawHub is unavailable; local plugins remain available." },
+  ]);
+
+  await controller.refreshFeatured();
+
+  expect(controller.featuredError).toBe("ClawHub is unavailable; local plugins remain available.");
+});
+
+it("clears cached catalog attribution when discovery ownership changes", async () => {
+  const attributed = entry(1);
+  attributed.local.pluginId = "local-plugin";
+  attributed.catalog.author = "first-gateway";
+  const { controller } = setup([{ items: [attributed] }]);
+  await controller.refresh();
+  expect(controller.attributions.get("local-plugin")?.author).toBe("first-gateway");
+
+  controller.invalidate();
+
+  expect(controller.attributions.size).toBe(0);
 });

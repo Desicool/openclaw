@@ -1,4 +1,6 @@
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
+import { PluginDiscoveryEntrySchema } from "../../packages/gateway-protocol/src/schema/plugins.js";
 import { joinClawHubPluginCatalog, resolvePluginDiscoveryIdentity } from "./catalog-discovery.js";
 
 const remote = {
@@ -23,6 +25,8 @@ describe("plugin discovery identity and local join", () => {
 
     expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(id).not.toContain(remote.packageName);
+    expect(plugin?.catalog).toMatchObject({ packageName: remote.packageName });
+    expect(Value.Check(PluginDiscoveryEntrySchema, plugin)).toBe(true);
     expect(resolvePluginDiscoveryIdentity(id)).toEqual({
       origin: "clawhub",
       identity: remote.packageName,
@@ -30,7 +34,7 @@ describe("plugin discovery identity and local join", () => {
     expect(resolvePluginDiscoveryIdentity("@alice/memory-plus")).toBeUndefined();
   });
 
-  it("joins a package runtime alias to authoritative Gateway state", () => {
+  it("joins a recorded ClawHub package identity to authoritative Gateway state", () => {
     const [plugin] = joinClawHubPluginCatalog({
       remote: [remote],
       local: {
@@ -38,6 +42,7 @@ describe("plugin discovery identity and local join", () => {
           {
             id: "memory-plus",
             name: "Memory Plus",
+            clawhubPackage: "@alice/memory-plus",
             installed: true,
             enabled: false,
             state: "needs-setup",
@@ -56,6 +61,27 @@ describe("plugin discovery identity and local join", () => {
       pluginId: "memory-plus",
       action: "manage",
     });
+  });
+
+  it("does not treat an unrelated runtime alias as installed", () => {
+    const [plugin] = joinClawHubPluginCatalog({
+      remote: [remote],
+      local: {
+        plugins: [
+          {
+            id: "memory-plus",
+            name: "Different package",
+            installed: true,
+            enabled: true,
+            state: "enabled",
+          },
+        ],
+        diagnostics: [],
+        mutationAllowed: true,
+      },
+    });
+
+    expect(plugin?.local).toMatchObject({ installed: false, state: "not-installed" });
   });
 
   it("does not claim install eligibility when Gateway mutation is disabled", () => {
@@ -81,6 +107,7 @@ describe("plugin discovery identity and local join", () => {
           {
             id: "memory-plus",
             packageName: "@alice/memory-plus",
+            clawhubPackage: "@alice/memory-plus",
             name: "Local presentation",
             installed: true,
             enabled: true,
@@ -132,7 +159,12 @@ describe("plugin discovery identity and local join", () => {
     expect(all.map((item) => item.catalog.name)).toEqual(["Memory Plus"]);
     expect(tools).toHaveLength(1);
     expect(tools[0]).toMatchObject({
-      catalog: { categories: ["tools", "web"], official: false },
+      catalog: {
+        packageName: bundledOnly.packageName,
+        categories: ["tools", "web"],
+        official: false,
+        publishedToClawHub: false,
+      },
       local: {
         present: true,
         action: "install",
@@ -141,7 +173,7 @@ describe("plugin discovery identity and local join", () => {
     });
     expect(resolvePluginDiscoveryIdentity(tools[0]?.id ?? "")).toEqual({
       origin: "local",
-      identity: "@openclaw/calendar-local",
+      identity: "calendar-local",
     });
   });
 
@@ -186,6 +218,119 @@ describe("plugin discovery identity and local join", () => {
     });
 
     expect(items.map((item) => item.catalog.name)).toEqual(["Private Bundle"]);
+  });
+
+  it("does not repeat local-only entries on remote cursor pages", () => {
+    const items = joinClawHubPluginCatalog({
+      remote: [remote],
+      published: [],
+      local: {
+        plugins: [
+          {
+            id: "private-bundle",
+            name: "Private Bundle",
+            origin: "bundled",
+            installed: false,
+            enabled: false,
+            state: "not-installed",
+          },
+        ],
+        diagnostics: [],
+        mutationAllowed: true,
+      },
+      includeBundledOnly: true,
+      intent: "all",
+      cursor: "page-two",
+    });
+
+    expect(items.map((item) => item.catalog.name)).toEqual(["Memory Plus"]);
+  });
+
+  it("keeps unmatched installed entries in All search and deduplicates remote matches", () => {
+    const items = joinClawHubPluginCatalog({
+      remote: [remote],
+      published: [],
+      local: {
+        plugins: [
+          {
+            id: "workspace-memory",
+            name: "Memory Workspace",
+            origin: "workspace",
+            installed: true,
+            enabled: true,
+            state: "enabled",
+          },
+          {
+            id: "global-memory",
+            name: "Memory Sidecar",
+            origin: "global",
+            installed: true,
+            enabled: false,
+            state: "disabled",
+          },
+          {
+            id: "memory-plus",
+            name: "Memory Remote Local",
+            clawhubPackage: "@alice/memory-plus",
+            origin: "global",
+            installed: true,
+            enabled: false,
+            state: "needs-setup",
+          },
+        ],
+        diagnostics: [],
+        mutationAllowed: true,
+      },
+      includeBundledOnly: true,
+      intent: "all",
+      query: "memory",
+    });
+
+    expect(items.map((item) => item.catalog.name)).toEqual([
+      "Memory Sidecar",
+      "Memory Workspace",
+      "Memory Plus",
+    ]);
+    expect(items[2]?.local).toMatchObject({
+      pluginId: "memory-plus",
+      state: "needs-setup",
+      action: "manage",
+    });
+  });
+
+  it("keeps installed packages when ClawHub publication exists but the search page omits them", () => {
+    const items = joinClawHubPluginCatalog({
+      remote: [],
+      published: [remote],
+      local: {
+        plugins: [
+          {
+            id: "memory-plus",
+            name: "Memory Plus",
+            clawhubPackage: remote.packageName,
+            origin: "global",
+            installed: true,
+            enabled: false,
+            state: "disabled",
+          },
+        ],
+        diagnostics: [],
+        mutationAllowed: true,
+      },
+      includeBundledOnly: true,
+      intent: "all",
+      query: "memory",
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      catalog: { packageName: remote.packageName, name: "Memory Plus" },
+      local: { pluginId: "memory-plus", installed: true, state: "disabled" },
+    });
+    expect(resolvePluginDiscoveryIdentity(items[0]?.id ?? "")).toEqual({
+      origin: "clawhub",
+      identity: remote.packageName,
+    });
   });
 
   it("filters bundled entries for unified search and keeps them ahead of ClawHub results", () => {

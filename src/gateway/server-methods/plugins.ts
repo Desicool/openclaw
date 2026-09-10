@@ -18,6 +18,7 @@ import {
 } from "../../infra/clawhub-plugin-catalog.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import {
+  encodePluginDiscoveryId,
   findLocalPluginByIdentity,
   joinClawHubPluginCatalog,
   joinClawHubPluginDetail,
@@ -63,7 +64,21 @@ export const pluginsHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      respond(true, await listManagedPlugins({ config: context.getRuntimeConfig() }), undefined);
+      const result = await listManagedPlugins({ config: context.getRuntimeConfig() });
+      respond(
+        true,
+        {
+          ...result,
+          plugins: result.plugins.map((plugin) =>
+            plugin.clawhubPackage
+              ? Object.assign({}, plugin, {
+                  catalogId: encodePluginDiscoveryId(plugin.clawhubPackage),
+                })
+              : plugin,
+          ),
+        },
+        undefined,
+      );
     } catch (error) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(error)));
     }
@@ -73,26 +88,14 @@ export const pluginsHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const config = context.getRuntimeConfig();
-      const inspection = await inspectManagedPlugin({ config, pluginId: params.pluginId });
-      let catalog: ReturnType<typeof joinClawHubPluginDetail> | undefined;
-      if (inspection.plugin.installed && inspection.plugin.version) {
-        try {
-          const local = await listManagedPlugins({ config });
-          const entry = local.plugins.find((plugin) => plugin.id === inspection.plugin.id);
-          const packageName = inspection.source?.packageName ?? entry?.packageName;
-          if (packageName) {
-            const remote = await fetchClawHubPluginDetail({
-              packageName,
-              version: inspection.plugin.version,
-            });
-            catalog = joinClawHubPluginDetail({ remote, local });
-          }
-        } catch {
-          // Hosted presentation metadata is optional; local settings remain fully usable offline.
-        }
-      }
-      respond(true, { ...inspection, ...(catalog ? { catalog } : {}) }, undefined);
+      respond(
+        true,
+        await inspectManagedPlugin({
+          config: context.getRuntimeConfig(),
+          pluginId: params.pluginId,
+        }),
+        undefined,
+      );
     } catch (error) {
       const lifecycleError = error instanceof ManagedPluginLifecycleError ? error : undefined;
       respond(
@@ -234,14 +237,21 @@ export const pluginsHandlers: GatewayRequestHandlers = {
               published,
               local,
               includeBundledOnly: canIncludeBundledOnly,
-              intent: params.intent,
+              intent,
               category: params.category,
               query: params.query,
               cursor: params.cursor,
             }),
+            ...(params.cursor ? { nextCursor: params.cursor } : {}),
             remoteError: [
               publicationError,
-              `ClawHub is unavailable: ${formatErrorMessage(error)}.${canIncludeBundledOnly ? " Bundled plugins remain available." : ""}`,
+              `ClawHub is unavailable: ${formatErrorMessage(error)}.${
+                canIncludeBundledOnly
+                  ? " Bundled plugins remain available."
+                  : intent === "all"
+                    ? " Installed plugins remain available."
+                    : ""
+              }`,
             ]
               .filter(Boolean)
               .join(" "),
@@ -301,7 +311,7 @@ export const pluginsHandlers: GatewayRequestHandlers = {
     }
     try {
       const local = await listManagedPlugins({ config: context.getRuntimeConfig() });
-      const localPlugin = findLocalPluginByIdentity(local, identity.identity);
+      const localPlugin = findLocalPluginByIdentity(local, identity.identity, identity.origin);
       if (identity.origin === "local") {
         if (!localPlugin) {
           respond(
@@ -311,17 +321,25 @@ export const pluginsHandlers: GatewayRequestHandlers = {
           );
           return;
         }
-        const inspection = localPlugin.installed
+        const inspectionPluginId = localPlugin.installed
+          ? localPlugin.id
+          : localPlugin.install?.source === "official"
+            ? localPlugin.install.pluginId
+            : undefined;
+        const inspection = inspectionPluginId
           ? await inspectManagedPlugin({
               config: context.getRuntimeConfig(),
-              pluginId: localPlugin.id,
+              pluginId: inspectionPluginId,
             })
           : undefined;
         respond(true, joinLocalPluginDetail({ plugin: localPlugin, local, inspection }), undefined);
         return;
       }
       try {
-        const remote = await fetchClawHubPluginDetail({ packageName: identity.identity });
+        const remote = await fetchClawHubPluginDetail({
+          packageName: identity.identity,
+          ...(params.version ? { version: params.version } : {}),
+        });
         registerClawHubCatalogIconUrls([remote.iconUrl, remote.owner?.imageUrl]);
         respond(true, joinClawHubPluginDetail({ remote, local }), undefined);
       } catch (error) {
