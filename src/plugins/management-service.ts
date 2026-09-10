@@ -57,6 +57,7 @@ import {
 import type { OfficialCatalogResult } from "./official-external-plugin-catalog.types.js";
 import { tracksPluginDependencyStatus } from "./official-external-plugin-repair-hints.js";
 import { createPluginCache, getProcessPluginCache, withPluginCache } from "./plugin-cache.js";
+import { resolvePluginConfigEnablement } from "./plugin-config-enablement.js";
 import {
   loadPluginMetadataSnapshot,
   resolvePluginMetadataSnapshot,
@@ -68,6 +69,20 @@ import {
   buildPluginDependencyStatus,
   projectPluginDependencyHealth,
 } from "./status-dependencies-core.js";
+
+function resolveManagedPluginState(params: {
+  enabled: boolean;
+  hasError: boolean;
+  setupMode: ReturnType<typeof resolvePluginConfigEnablement>["mode"];
+}): ManagedPluginCatalogEntry["state"] {
+  if (params.hasError) {
+    return "error";
+  }
+  if (params.enabled) {
+    return "enabled";
+  }
+  return params.setupMode === "missing" ? "needs-setup" : "disabled";
+}
 
 export type ManagedPluginInspection = PluginsInspectResult;
 
@@ -292,7 +307,13 @@ export const listManagedPlugins = withManagedPluginCache(
           : officialCatalogMetadata
             ? { ...localCatalog, ...officialCatalogMetadata }
             : localCatalog;
-      const error = firstPluginError(pluginDiagnostics, record.pluginId);
+      const setup = resolvePluginConfigEnablement({
+        config: params.config,
+        pluginId: record.pluginId,
+        manifest,
+      });
+      const configError = setup.mode === "invalid" ? setup.error : undefined;
+      const error = firstPluginError(pluginDiagnostics, record.pluginId) ?? configError;
       const kind = normalizeKinds(manifest?.kind);
       const category = derivePluginCategory(manifest);
       // Only externally installed plugins (tracked install record, non-bundled) can be removed.
@@ -314,7 +335,11 @@ export const listManagedPlugins = withManagedPluginCache(
         name: presentation.name,
         installed: true,
         enabled,
-        state: error ? "error" : enabled ? "enabled" : "disabled",
+        state: resolveManagedPluginState({
+          enabled,
+          hasError: Boolean(error),
+          setupMode: setup.mode,
+        }),
         removable,
       };
       if (record.packageName) {
