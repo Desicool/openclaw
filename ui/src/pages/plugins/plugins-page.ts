@@ -23,7 +23,7 @@ import { formatUiError, formatUiExternalText } from "../../lib/format-error.ts";
 import { inspectPlugin } from "../../lib/plugins/capability-consent-error.ts";
 import {
   uninstallPlugin,
-  type PluginCatalogItem,
+  type PluginDiscoveryResult,
   type PluginListResult,
   type PluginMutationResult,
   type PluginsInspectResult,
@@ -35,6 +35,7 @@ import {
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import "../../styles/plugins.css";
+import { renderPluginCatalogResults } from "./catalog-results.ts";
 import { renderPluginConsentDialog } from "./consent-dialog.ts";
 import { renderInstalledPlugins } from "./installed-plugins.ts";
 import { PluginIconController } from "./plugin-icon-controller.ts";
@@ -43,6 +44,7 @@ import type { PluginRowMessage } from "./plugin-row-message.ts";
 import { PluginsConsentController } from "./plugins-consent-controller.ts";
 import { renderPluginsHubHeader } from "./plugins-hub-header.ts";
 import { PLUGINS_HUB_PANEL_ID, type PluginsHubTab } from "./plugins-hub.ts";
+import { mergePluginCatalogItem } from "./plugins-page-model.ts";
 import {
   pluginAdvancedSchema,
   pluginConfigSchema,
@@ -64,24 +66,7 @@ export type PluginsRouteData = {
   location: RouteLocation;
 };
 
-function withPlugin(
-  current: PluginListResult | null,
-  plugin: PluginCatalogItem,
-): PluginListResult | null {
-  if (!current) {
-    return current;
-  }
-  const existingIndex = current.plugins.findIndex((entry) => entry.id === plugin.id);
-  const plugins = [...current.plugins];
-  if (existingIndex >= 0) {
-    plugins[existingIndex] = plugin;
-  } else {
-    plugins.push(plugin);
-  }
-  return { ...current, plugins };
-}
-
-class PluginsPage extends OpenClawLightDomElement {
+export class PluginsPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
   private context!: ApplicationContext;
 
@@ -90,6 +75,8 @@ class PluginsPage extends OpenClawLightDomElement {
 
   @state() private result: PluginListResult | null = null;
   @state() private error: string | null = null;
+  @state() private discoveryResult: PluginDiscoveryResult | null = null;
+  @state() private discoveryError: string | null = null;
   @state() private query = "";
   @state() private settingsTab: PluginSettingsTab = "installed";
   @state() private inventoryExpanded = false;
@@ -131,6 +118,8 @@ class PluginsPage extends OpenClawLightDomElement {
       this.preserveMessageKeyOnReconnect = null;
       this.result = null;
       this.error = null;
+      this.discoveryResult = null;
+      this.discoveryError = null;
       this.messages = preservedKey && preservedMessage ? { [preservedKey]: preservedMessage } : {};
       this.pageNotice = null;
     },
@@ -183,6 +172,25 @@ class PluginsPage extends OpenClawLightDomElement {
     },
     onError: (error) => {
       this.error = formatUiError(error);
+    },
+  });
+
+  private readonly discoveryTask = new Task(this, {
+    autoRun: false,
+    args: () => [this.gateway.connected ? this.gateway.client : null] as const,
+    task: ([client], { signal }) =>
+      client
+        ? client.request<PluginDiscoveryResult>(
+            "plugins.catalog.browse",
+            { intent: "all", pageSize: 12 },
+            { signal },
+          )
+        : initialState,
+    onComplete: (result) => {
+      this.discoveryResult = result;
+    },
+    onError: (error) => {
+      this.discoveryError = formatUiError(error);
     },
   });
 
@@ -282,6 +290,9 @@ class PluginsPage extends OpenClawLightDomElement {
     }
     if (shouldRefreshAfterChange) {
       void this.refreshCatalog();
+      if (this.surface === "discovery") {
+        void this.refreshDiscovery();
+      }
     } else {
       this.ensureInitialData();
     }
@@ -320,6 +331,9 @@ class PluginsPage extends OpenClawLightDomElement {
   private invalidateRequests(invalidateCatalog = true) {
     if (invalidateCatalog) {
       void this.catalogTask.run([null]);
+      void this.discoveryTask.run([null]);
+      this.discoveryResult = null;
+      this.discoveryError = null;
     }
     // Inspection results belong to one connection epoch, including same-client reconnects.
     this.detail = null;
@@ -343,19 +357,31 @@ class PluginsPage extends OpenClawLightDomElement {
     );
   }
 
+  private get discoveryLoading(): boolean {
+    return this.gateway.connected && this.discoveryTask.status === TaskStatus.PENDING;
+  }
+
   private ensureInitialData() {
     // The route owns initial loading; a warm page module can render before its data arrives.
     if (
       !this.routeDataConsumed ||
       !this.gateway.connected ||
       !this.gateway.client ||
-      this.loading ||
-      this.result ||
-      this.error
+      (this.routeData && !this.routeDataConsumed)
     ) {
       return;
     }
-    void this.refreshCatalog();
+    if (!this.loading && !this.result && !this.error) {
+      void this.refreshCatalog();
+    }
+    if (
+      this.surface === "discovery" &&
+      this.discoveryTask.status === TaskStatus.INITIAL &&
+      !this.discoveryResult &&
+      !this.discoveryError
+    ) {
+      void this.refreshDiscovery();
+    }
   }
 
   private async refreshCatalog(): Promise<void> {
@@ -365,6 +391,15 @@ class PluginsPage extends OpenClawLightDomElement {
     }
     this.error = null;
     await this.catalogTask.run([client]);
+  }
+
+  private async refreshDiscovery(): Promise<void> {
+    const client = this.gateway.client;
+    if (!client || !this.gateway.connected) {
+      return;
+    }
+    this.discoveryError = null;
+    await this.discoveryTask.run([client]);
   }
 
   private selectHubTab(tab: PluginsHubTab) {
@@ -435,7 +470,7 @@ class PluginsPage extends OpenClawLightDomElement {
 
   private applyMutationResult(result: PluginMutationResult) {
     this.pluginIcons.invalidate(result.plugin.id);
-    this.replaceResult(withPlugin(this.result, result.plugin), true);
+    this.replaceResult(mergePluginCatalogItem(this.result, result.plugin), true);
   }
 
   /** Plugin changes can affect both catalog state and route visibility (for example Workboard). */
@@ -619,6 +654,12 @@ class PluginsPage extends OpenClawLightDomElement {
                   onCancelConsent: () => this.consentController.close(),
                   onConfirmConsent: () => this.consentController.confirm(),
                   onRetryConsentInspection: () => void this.consentController.inspect(),
+                })}${renderPluginCatalogResults({
+                  connected: this.gateway.connected,
+                  loading: this.discoveryLoading,
+                  result: this.discoveryResult,
+                  error: this.discoveryError,
+                  onRetry: () => void this.refreshDiscovery(),
                 })}</wa-tab-panel
               >`
             : detailPluginId
@@ -699,5 +740,3 @@ declare global {
     "openclaw-plugins-page": PluginsPage;
   }
 }
-
-export { PluginsPage };
