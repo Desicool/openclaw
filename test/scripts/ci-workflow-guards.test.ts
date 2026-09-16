@@ -5020,6 +5020,24 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
       distribution: "temurin",
       "java-version": 17,
     });
+    expect(javaStep.with?.["set-default"]).not.toBe(false);
+    const gradleJavaStep = expectDefined(
+      action.runs.steps.find((step: WorkflowStep) => step.name === "Setup Gradle Java"),
+      "Gradle Java setup step",
+    );
+    expect(gradleJavaStep).toMatchObject({
+      id: "gradle-java",
+      uses: javaStep.uses,
+      with: {
+        distribution: "temurin",
+        "java-version": "21.0.12+101.0.LTS",
+        "set-default": false,
+      },
+    });
+    expect(action.outputs["gradle-java-home"].value).toBe("${{ steps.gradle-java.outputs.path }}");
+    expect(action.outputs["gradle-java-version"].value).toBe(
+      "${{ steps.gradle-java.outputs.version }}",
+    );
     expect(action.inputs["cache-mode"].default).toBe("off");
     expect(sdkRestoreStep.if).toBe("inputs.cache-mode != 'off'");
     expect(sdkRestoreStep.uses).toBe(CACHE_V5);
@@ -5550,6 +5568,29 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
       const root = tempDirs.make("openclaw-android-tier-");
       const callsPath = path.join(root, "gradle-calls.jsonl");
       const clockPath = path.join(root, "clock-reads.jsonl");
+      const gradleJavaHome = path.join(root, "gradle jdk");
+      const action = readAndroidToolchainAction();
+      const setupStep: WorkflowStep = expectDefined(
+        readCiWorkflow().jobs.android.steps.find(
+          (candidate: WorkflowStep) => candidate.name === "Setup Android toolchain",
+        ),
+        "Android toolchain setup",
+      );
+      const gradleJavaOutputs = {
+        path: gradleJavaHome,
+        version: "21.0.12+101.0.LTS",
+      };
+      const setupOutputs = Object.fromEntries(
+        ["gradle-java-home", "gradle-java-version"].map((key) => [
+          key,
+          String(
+            evaluateWorkflowExpression(action.outputs[key].value, {
+              ...context,
+              steps: { "gradle-java": { outputs: gradleJavaOutputs } },
+            }),
+          ),
+        ]),
+      );
       writeExecutable(path.join(root, "date"), [
         "#!/usr/bin/env node",
         'const fs = require("node:fs");',
@@ -5560,7 +5601,7 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
       ]);
       writeExecutable(path.join(root, "gradlew"), [
         "#!/usr/bin/env node",
-        'require("node:fs").appendFileSync(process.env.GRADLE_CALLS, JSON.stringify(process.argv.slice(2)) + "\\n");',
+        'require("node:fs").appendFileSync(process.env.GRADLE_CALLS, JSON.stringify({ args: process.argv.slice(2), javaHome: process.env.JAVA_HOME }) + "\\n");',
         "if (process.argv.includes(process.env.FAIL_GRADLE_TASK)) process.exit(23);",
       ]);
       const result = runWorkflowShellScript(expectDefined(step.run, "Android commands"), {
@@ -5568,10 +5609,22 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
         cwd: root,
         env: {
           ...process.env,
+          JAVA_HOME: path.join(root, "sdk jdk 17"),
           ...Object.fromEntries(
             Object.entries(step.env ?? {}).map(([key, value]) => [
               key,
-              String(evaluateWorkflowExpression(value, { ...context, matrix: row })),
+              String(
+                evaluateWorkflowExpression(value, {
+                  ...context,
+                  matrix: row,
+                  steps: {
+                    ...context.steps,
+                    [expectDefined(setupStep.id, "Android toolchain step id")]: {
+                      outputs: setupOutputs,
+                    },
+                  },
+                }),
+              ),
             ]),
           ),
           GITHUB_EVENT_NAME: context.eventName,
@@ -5582,12 +5635,14 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
           PATH: `${root}${path.delimiter}${process.env.PATH}`,
         },
       });
-      const calls: string[][] = existsSync(callsPath)
+      const invocations: Array<{ args: string[]; javaHome: string }> = existsSync(callsPath)
         ? readFileSync(callsPath, "utf8")
             .trim()
             .split("\n")
             .map((line) => JSON.parse(line))
         : [];
+      const calls = invocations.map(({ args }) => args);
+      expect(invocations.map(({ javaHome }) => javaHome)).toEqual(calls.map(() => gradleJavaHome));
       const clockReads = existsSync(clockPath)
         ? readFileSync(clockPath, "utf8").trim().split("\n")
         : [];
@@ -9318,12 +9373,13 @@ server.listen(0, "127.0.0.1", () => {
     expect(runStep.run).not.toMatch(/\bretry\b/iu);
   });
 
-  it("retains Android test XML after failures without collecting caches or canceled jobs", () => {
+  it("retains Android test XML and JVM diagnostics after failures without collecting caches or canceled jobs", () => {
     const steps = readCiWorkflow().jobs.android.steps as WorkflowStep[];
     const runIndex = steps.findIndex((step) => step.name === "Run Android ${{ matrix.task }}");
     const uploadIndex = steps.findIndex((step) => step.name === "Upload Android test reports");
     const upload = expectDefined(steps[uploadIndex], "Android test reports");
     expect(uploadIndex).toBeGreaterThan(runIndex);
+    expect(upload.with?.["retention-days"]).toBe(14);
     // A status function prevents Actions' implicit success() from hiding failed-test evidence.
     expect(upload.if).toMatch(/\b(?:always|cancelled|failure|success)\(\)/u);
     for (const [task, failed, cancelled, expected] of [
@@ -9356,6 +9412,12 @@ server.listen(0, "127.0.0.1", () => {
       "apps/android/app/build/test-results/testThirdPartyDebugUnitTest/TEST-ThirdParty.xml",
       "apps/android/wear/build/test-results/testDebugUnitTest/TEST-Wear.xml",
       "apps/android/wear-shared/build/test-results/testDebugUnitTest/TEST-Shared.xml",
+      "apps/android/hs_err_pid101.log",
+      "apps/android/replay_pid101.log",
+      "apps/android/app/hs_err_pid202.log",
+      "apps/android/app/replay_pid202.log",
+      "apps/android/wear/hs_err_pid303.log",
+      "apps/android/wear-shared/replay_pid404.log",
     ];
     const unrelated = [
       "apps/android/app/build/test-results/testPlayDebugUnitTest/binary/results.bin",
@@ -9363,6 +9425,11 @@ server.listen(0, "127.0.0.1", () => {
       "apps/android/app/build/outputs/apk/play/debug/app.apk",
       "apps/android/benchmark/build/test-results/testDebugUnitTest/TEST-Benchmark.xml",
       ".gradle/caches/TEST-cached.xml",
+      ".gradle/caches/hs_err_pid505.log",
+      "hs_err_pid606.log",
+      "replay_pid606.log",
+      "apps/android/app/core.202",
+      "apps/android/app/java_pid202.hprof",
     ];
     for (const file of [...reports, ...unrelated]) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
@@ -13192,6 +13259,11 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       selectedJobs: ["macos-node", "checks-windows"],
     },
     {
+      label: "Android toolchain action",
+      changedPath: ".github/actions/setup-android-toolchain/action.yml",
+      selectedJobs: ["android"],
+    },
+    {
       label: "Docs Agent",
       changedPath: ".github/workflows/docs-agent.yml",
       selectedJobs: ["macos-node", "checks-windows"],
@@ -13361,6 +13433,16 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       expect(
         JSON.parse(expectDefined(manifest.outputs.checks_windows_matrix, "Windows matrix")).include,
       ).toHaveLength(selectedJobs.includes("checks-windows") ? 2 : 0);
+      if (eventName === "pull_request" && selectedJobs.includes("android")) {
+        expect(
+          JSON.parse(expectDefined(preflightOutputs.android_matrix, "Android matrix")).include,
+        ).toEqual([
+          { check_name: "android-test-play", task: "test-play", lint: true },
+          { check_name: "android-test-third-party", task: "test-third-party", lint: true },
+          { check_name: "android-test-wear", task: "test-wear", lint: true },
+          { check_name: "android-ktlint", task: "ktlint" },
+        ]);
+      }
     },
   );
 
