@@ -125,7 +125,9 @@ export function assertSessionStoreMigrationComplete(params: {
     let hasUnindexedHistory: boolean | undefined;
     return [...required].some(({ target, destination }) => {
       const receipt = readDeferredPluginSessionImport({
-        target: { ...target, sqlitePath: destination },
+        cfg: params.cfg,
+        target,
+        sqlitePath: destination,
         env,
       });
       // Owners without a database can never hold a replayable receipt (receipts bind
