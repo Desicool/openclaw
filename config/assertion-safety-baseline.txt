@@ -1535,7 +1535,6 @@ src/acp/event-mapper.ts	1
 src/acp/permission-relay.ts	1
 src/acp/persistent-bindings.types.ts	3
 src/acp/runtime/registry.ts	2
-src/acp/runtime/session-meta.ts	2
 src/acp/server.ts	2
 src/acp/session-mapper.ts	1
 src/acp/tool-status.ts	1
@@ -1635,7 +1634,7 @@ src/agents/code-mode.ts	2
 src/agents/code-mode.worker.ts	7
 src/agents/codex-mcp-config.ts	1
 src/agents/command/attempt-execution.helpers.ts	7
-src/agents/command/attempt-execution.ts	3
+src/agents/command/attempt-execution.ts	1
 src/agents/compaction-planning-projection.ts	6
 src/agents/compaction-planning-worker.ts	1
 src/agents/compaction-planning.ts	1
