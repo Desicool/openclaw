@@ -4831,7 +4831,7 @@ NODE
     expect(job["timeout-minutes"]).toBe(60);
     expect(job.permissions).toEqual({ contents: "read" });
     expect(job.strategy).toBeUndefined();
-    expect(job.steps[0]).toEqual(jobs["pnpm-store-warmup"].steps[0]);
+    expect(job.steps[0]).toEqual(jobs["build-artifacts"].steps[0]);
     expect(job.steps[1].uses).toBe("./.ci-harness/.github/actions/setup-node-env");
     expect(job.steps[1].with).toMatchObject({
       "build-all-cache-scope": "full",
@@ -6985,7 +6985,6 @@ setImmediate(() => {
       "docker-seed-e2e": "ubuntu-24.04",
       "macos-node": "macos-15",
       "native-i18n": "ubuntu-24.04",
-      "pnpm-store-warmup": "ubuntu-24.04",
       preflight: "ubuntu-24.04",
       "security-fast": "ubuntu-24.04",
       "qa-smoke-ci-profile": "ubuntu-24.04",
@@ -7647,12 +7646,6 @@ setImmediate(() => {
     expect(preflightRestore?.step.if).toContain("github.event_name == 'pull_request'");
     expect(preflightRestore?.step.if).toContain("vars.OPENCLAW_CI_RUNNER_BACKEND != 'github'");
     expect(preflightRestore?.step.if).toContain("vars.OPENCLAW_CI_RUNNER_BACKEND != 'hybrid'");
-    expect(workflow.jobs["pnpm-store-warmup"].if).toContain(
-      "needs.preflight.outputs.runner_profile == 'github'",
-    );
-    expect(workflow.jobs["pnpm-store-warmup"].if).toContain(
-      "needs.preflight.outputs.runner_profile == 'hybrid'",
-    );
     const consumers = dependencySetups.filter(({ jobName }) => jobName !== "preflight");
     expect(consumers.map(({ jobName }) => jobName).toSorted()).toEqual([
       "build-artifacts",
@@ -16677,7 +16670,6 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     const gate = workflow.jobs["ci-gate"];
     const requiredJobs = ["preflight", "security-fast"];
     const selectedJobs = [
-      "pnpm-store-warmup",
       "build-artifacts",
       "control-ui-performance",
       "native-i18n",
@@ -16792,52 +16784,24 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       label: "same-repo Blacksmith PR",
       context: { eventName: "pull_request" },
       expected: {
-        "pnpm-store-warmup": false,
         "checks-node-compat": false,
         "ios-build": true,
         "ios-screenshot-shard": false,
       },
-    },
-    {
-      label: "fork PR",
-      context: { eventName: "pull_request", headRepository: "contributor/fork" },
-      expected: { "pnpm-store-warmup": true },
-    },
-    {
-      label: "same-repo docs-only PR",
-      context: { eventName: "pull_request", preflightOutputs: { run_node: "false" } },
-      expected: { "pnpm-store-warmup": true },
-    },
-    {
-      label: "no Node or docs scope",
-      context: { preflightOutputs: { run_node: "false", run_check_docs: "false" } },
-      expected: { "pnpm-store-warmup": false },
     },
     {
       label: "canonical Blacksmith push",
       context: { eventName: "push" },
       expected: {
-        "pnpm-store-warmup": false,
         "checks-node-compat": false,
         "ios-build": true,
         "ios-screenshot-shard": false,
       },
     },
     {
-      label: "non-main push",
-      context: { eventName: "push", ref: "refs/heads/topic" },
-      expected: { "pnpm-store-warmup": true },
-    },
-    {
-      label: "fork repository push",
-      context: { eventName: "push", repository: "contributor/fork" },
-      expected: { "pnpm-store-warmup": true },
-    },
-    {
       label: "GitHub push",
       context: { eventName: "push", runnerProfile: "github" },
       expected: {
-        "pnpm-store-warmup": true,
         "check-lint-hosted-core-shard": true,
         "check-test-types-hosted-core-shard": true,
       },
@@ -16845,7 +16809,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     {
       label: "hybrid PR",
       context: { eventName: "pull_request", runnerProfile: "hybrid" },
-      expected: { "pnpm-store-warmup": true, "check-lint-hosted-core-shard": true },
+      expected: { "check-lint-hosted-core-shard": true },
     },
     {
       label: "targeted core test PR",
