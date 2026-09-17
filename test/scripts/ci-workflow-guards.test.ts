@@ -5319,7 +5319,14 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     expect(sdkRestoreStep.if).toBe("inputs.cache-mode != 'off'");
     expect(sdkRestoreStep.uses).toBe(CACHE_V5);
     expect(sdkRestoreStep.with?.key).toContain(`platform-${appCompileSdk}.0-`);
+    expect(sdkRestoreStep.with?.key).toContain(
+      "${{ inputs.install-screenshot-emulators == 'true' && 'screenshot-emulators' || 'base' }}",
+    );
+    expect(String(sdkRestoreStep.with?.["restore-keys"])).toContain(
+      "inputs.install-screenshot-emulators == 'true'",
+    );
     expect(sdkSaveStep.if).toContain("inputs.cache-mode == 'read-write'");
+    expect(sdkSaveStep.if).toContain("steps.android-sdk-cache.outputs.cache-hit != 'true'");
     expect(sdkSaveStep.uses).toBe(CACHE_SAVE_V5);
     expect(sdkSaveStep.with?.key).toBe("${{ steps.android-sdk-cache.outputs.cache-primary-key }}");
     expect(gradleCacheStep).toMatchObject({
@@ -5718,11 +5725,13 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     );
 
     expect(restoreStep.with?.key).toBe(
+      "${{ runner.os }}-android-sdk-v2-cmdline-15859902-platform-37.0-build-tools-36.0.0-${{ inputs.install-screenshot-emulators == 'true' && 'screenshot-emulators' || 'base' }}",
+    );
+    expect(String(restoreStep.with?.["restore-keys"]).trim().split("\n")).toEqual([
+      "${{ inputs.install-screenshot-emulators == 'true' && format('{0}-android-sdk-v2-cmdline-15859902-platform-37.0-build-tools-36.0.0-base', runner.os) || '' }}",
       "${{ runner.os }}-android-sdk-v1-cmdline-15859902-platform-37.0-build-tools-36.0.0",
-    );
-    expect(String(restoreStep.with?.["restore-keys"]).trim()).toBe(
       "${{ runner.os }}-android-sdk-v1-cmdline-15859902-",
-    );
+    ]);
     expect(setupStep.run).toContain('CMDLINE_TOOLS_VERSION="15859902"');
     expect(setupStep.run).toContain(
       'CMDLINE_TOOLS_SHA256="4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583"',
