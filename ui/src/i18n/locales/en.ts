@@ -50,6 +50,7 @@ export const en: TranslationMap & {
   filePreview: TranslationMap & { bundle: TranslationMap };
   updates: TranslationMap;
   login: TranslationMap;
+  modelSetup: TranslationMap;
   newSession: TranslationMap;
   skillWorkshop: TranslationMap;
   systems: TranslationMap;
@@ -2490,17 +2491,7 @@ export const en: TranslationMap & {
       wait: "The previous setup attempt may still be running. Check again can refresh its result. If no model appears, check again after {time} to choose a provider.",
       useCurrent: "Verify & use selected model",
     },
-    verify: {
-      title: "Selected model",
-      button: "Check model",
-      retry: "Try again",
-      checkAgain: "Check again",
-      checkingButton: "Checking…",
-      checking: "Checking — asking {modelRef} for a quick reply…",
-      ready: "Ready",
-      readyIn: "Ready · {latencyMs} ms",
-      providerUnavailable: "{provider} isn’t responding.",
-    },
+    verify: {},
     access: {
       adminRequired: "Model setup requires operator.admin access.",
       gatewayTooOld: "The Gateway is running an older OpenClaw version",
@@ -2515,13 +2506,7 @@ export const en: TranslationMap & {
       retry: "Retry test",
       testingButton: "Testing…",
     },
-    nativeDiscovery: {
-      title: "Discover existing conversations",
-      body: "Show native assistant conversations from this Gateway host in OpenClaw. This is discovery, not an import or copy.",
-      enable: "Show existing native conversations",
-      decline:
-        "Leave unchecked to keep native session catalogs off when you connect your AI provider. Existing installations are not changed.",
-    },
+    nativeDiscovery: {},
     empty: {
       title: "Recommended installs",
       intro: "No existing AI access was detected. Install one of these tools, then check again.",
@@ -2562,16 +2547,8 @@ export const en: TranslationMap & {
       verifyHint: "OpenClaw verifies a real model reply before marking the connection ready.",
       required: "Choose a provider and enter an API key or token.",
     },
-    success: {
-      title: "Connection verified",
-      body: "OpenClaw received a real reply from {modelRef}. You can start chatting now.",
-      activeModel: "Active model",
-      latency: "Verified in {latencyMs} ms",
-      openChat: "Start chatting",
-      continueSetup: "Continue setup",
-      stayHere: "Stay in settings",
-      configuredModel: "Configured model",
-    },
+    success: {},
+    utility: {},
     failure: {
       auth: "Authentication failed",
       rateLimit: "Rate limited",
