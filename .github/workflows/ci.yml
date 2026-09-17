@@ -4905,7 +4905,19 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache-mode: ${{ needs.preflight.outputs.cache_mode }}
           install-bun: "false"
-          install-deps: "true"
+          install-deps: "false"
+
+      - name: Install Mermaid renderer dependencies
+        if: hashFiles('scripts/prepare-apple-mermaid.mjs') != ''
+        env:
+          CI: "true"
+        run: >-
+          pnpm install --frozen-lockfile --prefer-offline --optional
+          --filter '@openclaw/mermaid-renderer...'
+          --config.ignore-scripts=false
+          --config.engine-strict=false
+          --config.enable-pre-post-scripts=true
+          --config.side-effects-cache=true
 
       - name: Setup Node.js for native test tooling
         if: hashFiles('scripts/prepare-apple-mermaid.mjs') == ''

@@ -11417,6 +11417,9 @@ server.listen(0, "127.0.0.1", () => {
       const workflow = parse(readFileSync(workflowPath, "utf8"));
       const steps = workflow.jobs[jobName].steps as WorkflowStep[];
       const setupIndex = steps.findIndex((step) => step.uses?.endsWith("/setup-node-env"));
+      const installIndex = steps.findIndex(
+        (step) => step.name === "Install Mermaid renderer dependencies",
+      );
       const prepareIndex = steps.findIndex((step) =>
         step.run?.includes("node scripts/prepare-apple-mermaid.mjs"),
       );
@@ -11425,8 +11428,26 @@ server.listen(0, "127.0.0.1", () => {
       );
 
       const setupStep = expectDefined(steps[setupIndex], `${workflowPath}: dependency setup`);
-      expect(setupStep.with?.["install-deps"]).not.toBe("false");
-      expect(prepareIndex, `${workflowPath}: resource preparation`).toBeGreaterThan(setupIndex);
+      const installStep = expectDefined(steps[installIndex], `${workflowPath}: dependency install`);
+      expect(setupStep.with?.["install-deps"]).toBe("false");
+      expect(installStep.env).toEqual({ CI: "true" });
+      expect(installStep.run?.trim().split(/\s+/u)).toEqual([
+        "pnpm",
+        "install",
+        "--frozen-lockfile",
+        "--prefer-offline",
+        "--optional",
+        "--filter",
+        "'@openclaw/mermaid-renderer...'",
+        "--config.ignore-scripts=false",
+        "--config.engine-strict=false",
+        "--config.enable-pre-post-scripts=true",
+        "--config.side-effects-cache=true",
+      ]);
+      expect(installIndex, `${workflowPath}: filtered dependency install`).toBeGreaterThan(
+        setupIndex,
+      );
+      expect(prepareIndex, `${workflowPath}: resource preparation`).toBeGreaterThan(installIndex);
       expect(graphIndex, `${workflowPath}: SwiftPM graph`).toBeGreaterThan(prepareIndex);
     }
   });
