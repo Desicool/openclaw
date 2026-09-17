@@ -90,6 +90,7 @@ function holdAdmissionCleanup(admission: AgentDatabaseStartupAdmission) {
 }
 
 describe.skipIf(process.platform === "win32")("Gateway spawn broker lifetime", () => {
+  const nodeIt = process.versions.bun ? it.skip : it;
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   beforeAll(() => {
     Object.defineProperty(process, "platform", { ...platform, value: "linux" });
@@ -103,7 +104,7 @@ describe.skipIf(process.platform === "win32")("Gateway spawn broker lifetime", (
     observed.closeError = undefined;
   });
 
-  it("owns spawning through startup callbacks and the complete shutdown join", async () => {
+  nodeIt("owns spawning through startup callbacks and the complete shutdown join", async () => {
     const server = await startGatewayServer();
     try {
       expect(observed.brokerPid).toBeTypeOf("number");
@@ -118,7 +119,7 @@ describe.skipIf(process.platform === "win32")("Gateway spawn broker lifetime", (
     expect(() => process.kill(observed.brokerPid!, 0)).toThrow();
   });
 
-  it("joins the broker when runtime startup fails", async () => {
+  nodeIt("joins the broker when runtime startup fails", async () => {
     observed.failStartup = true;
     try {
       await expect(startGatewayServer()).rejects.toThrow("startup failed");
