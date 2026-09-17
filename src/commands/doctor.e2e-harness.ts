@@ -494,6 +494,7 @@ vi.mock("./doctor-memory-search.js", () => ({
 }));
 
 vi.mock("../plugins/doctor-contract-registry.js", () => ({
+  withDeferredPluginDoctorMigrations: (_pluginIds: readonly string[], run: () => unknown) => run(),
   applyPluginDoctorCompatibilityMigrations: (config: unknown) => ({
     config,
     changes: [],
@@ -590,6 +591,11 @@ vi.mock("./onboard-helpers.js", () => ({
 vi.mock("../infra/state-migrations.doctor.js", () => ({
   autoMigrateLegacyState,
   detectLegacyStateMigrations,
+  prepareLegacyStateDatabaseSchema: vi.fn(async () => ({
+    outcome: "skipped",
+    changes: [],
+    warnings: [],
+  })),
   runLegacyStateMigrations,
 }));
 
