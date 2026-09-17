@@ -188,13 +188,11 @@ export function createControlledWorkerCompiler(
     directory,
     "compiler-preload.mjs",
     `
-    import cp from 'node:child_process';
-    import {syncFixtureBuiltinExports} from ${JSON.stringify(new URL("./fixtures/ci-fixture-runtime.cjs", import.meta.url).href)};
-    const spawn = cp.spawn;
-    cp.spawn = (bin, args, options) => args[0] === ${JSON.stringify(path.join(root, "scripts/lib/vitest-worker-compiler.mts"))}
-      ? spawn(bin, [${JSON.stringify(compiler)}, args[1], ${JSON.stringify(input)}, ${JSON.stringify(receipt)}], options)
-      : spawn(bin, args, options);
-    syncFixtureBuiltinExports(["node:child_process"]);
+    if (process.argv[1] === ${JSON.stringify(path.join(root, "scripts/lib/vitest-worker-compiler.mts"))}) {
+      const {runWorkerFixtureCompiler} = await import(${JSON.stringify(pathToFileURL(compiler).href)});
+      await runWorkerFixtureCompiler(process.argv[2], ${JSON.stringify(input)}, ${JSON.stringify(receipt)});
+      process.exit(0);
+    }
   `,
   );
   const preloadEnv = Object.fromEntries(
@@ -282,7 +280,7 @@ export function workerProbe(
     import {value} from '#fixture-value';
     import { runtimeProcessEntrypoints } from ${JSON.stringify(path.join(root, "src/infra/runtime-process-entrypoints.ts"))};
     import { vectorKnnProcessEntrypoint } from ${JSON.stringify(path.join(root, "extensions/memory-core/src/memory/manager-search-knn-entrypoint.ts"))};
-    import { runtimeProcessBuildEntries } from ${JSON.stringify(path.join(root, "scripts/lib/runtime-process-build-entries.mts"))};
+    import { runtimeProcessBuildEntries, runtimeProcessBuildEntrypoints } from ${JSON.stringify(path.join(root, "scripts/lib/runtime-process-build-entries.mts"))};
     import { vitestWorkerBuildEntries } from ${JSON.stringify(path.join(root, "scripts/lib/vitest-worker-build-entries.mts"))};
     import { tuiPtyRuntimeEntrypoints } from ${JSON.stringify(path.join(root, "src/tui/tui-pty-runtime-test-support.ts"))};
     import { cliCompactionBackendEntrypoints } from ${JSON.stringify(path.join(root, "src/agents/command/cli-compaction-runtime.test-support.ts"))};
@@ -306,10 +304,10 @@ export function workerProbe(
       const launcherArgv = inject('launcherArgv');
       expect(path.isAbsolute(launcherArgv[1])).toBe(true);
       expect(path.basename(launcherArgv[1])).toBe('vitest.mjs');
-      expect(Object.values(runtimeProcessBuildEntries)).toHaveLength(Object.keys(runtimeProcessEntrypoints).length + 5);
+      expect(Object.values(runtimeProcessBuildEntries)).toHaveLength(runtimeProcessBuildEntrypoints.length);
       for (const source of Object.values(runtimeProcessBuildEntries)) {
         expect(source).not.toContain('/dist/');
-        expect(source).toMatch(/\\.ts$/);
+        expect(source).toMatch(/\\.m?ts$/);
         expect(fs.existsSync(source)).toBe(true);
       }
       expect(entriesPresentAtCollection).toBe(true);
