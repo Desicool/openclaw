@@ -69,7 +69,9 @@ import androidx.compose.runtime.rememberCompositionContext
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.AbstractComposeView
@@ -94,6 +96,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
@@ -191,6 +194,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowDialog
 import org.robolectric.shadows.ShadowSpeechRecognizer
+import java.io.File
 import java.io.IOException
 import java.util.Base64
 import java.util.UUID
@@ -4147,6 +4151,85 @@ class ChatComposerLayoutTest {
   }
 
   @Test
+  @Config(qualifiers = "w360dp-h800dp-mdpi")
+  fun longAttachmentKeepsRemoveTargetInsideComposerAcrossWidthAndFontScale() {
+    val width = mutableStateOf(320.dp)
+    val fontScale = mutableStateOf(2f)
+    val viewModel =
+      showChat(
+        viewportHeight = { 640.dp },
+        currentViewportWidth = { width.value },
+        fontScale = { fontScale.value },
+      )
+    val owner = viewModel.captureChatShareOwner()
+    val attachment =
+      PendingAttachment(
+        id = "long-document",
+        fileName = "release-notes-".repeat(30) + ".txt",
+        mimeType = "text/plain",
+        base64 = "SGVsbG8=",
+      )
+    composeRule.runOnIdle { viewModel.chatComposerState.addAttachments(owner, listOf(attachment)) }
+    for (viewportWidth in listOf(320.dp, 360.dp)) {
+      for (scale in listOf(2f, 1f)) {
+        composeRule.runOnIdle {
+          width.value = viewportWidth
+          fontScale.value = scale
+        }
+        captureComposerProof("long-attachment-${viewportWidth.value.toInt()}-$scale")
+        val composer = composeRule.onNodeWithTag("chat-composer-surface").getUnclippedBoundsInRoot()
+        val remove = composeRule.onNodeWithContentDescription(nativeString("Remove attachment"))
+        val target = remove.assertIsDisplayed().assertHasClickAction().getUnclippedBoundsInRoot()
+        assertTrue("The complete remove target must fit without horizontal scrolling: $target in $composer", target.left >= composer.left && target.right <= composer.right)
+        assertEquals(48f, (target.right - target.left).value, 0.5f)
+        assertEquals(48f, (target.bottom - target.top).value, 0.5f)
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeRule.onNodeWithText(attachment.fileName).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { assertTrue(it(layouts)) }
+        assertTrue("A long filename must ellipsize inside the remaining chip width", layouts.single().isLineEllipsized(0))
+        assertCompactComposerCircle(remove)
+      }
+    }
+    // Tap outside the painted circle but inside the full target.
+    composeRule.onNodeWithContentDescription(nativeString("Remove attachment")).performTouchInput {
+      click(Offset(this.width / 2f, 2f))
+    }
+    composeRule.onNodeWithText(attachment.fileName).assertDoesNotExist()
+    composeRule.runOnIdle {
+      val remaining = viewModel.chatComposerState.attachments.value[owner]
+      assertTrue(remaining.isNullOrEmpty())
+    }
+  }
+
+  private fun captureComposerProof(name: String) {
+    val directory = System.getenv("OPENCLAW_CHAT_WORK_PROOF_DIR") ?: return
+    val folder = File(directory)
+    check(folder.isDirectory || folder.mkdirs())
+    val image = composeRule.onNodeWithTag("chat-viewport").captureToImage().asAndroidBitmap()
+    assertTrue("Capture the complete nonempty ChatScreen", image.width >= 320 && image.height >= 640)
+    val file = File(folder, "$name.png")
+    check(!file.exists())
+    file.outputStream().use { assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+  }
+
+  private fun assertCompactComposerCircle(button: SemanticsNodeInteraction) {
+    val target = button.assertIsDisplayed().assertHasClickAction().getUnclippedBoundsInRoot()
+    assertEquals("Action width must remain 48dp", 48f, (target.right - target.left).value, 0.5f)
+    assertEquals("Action height must remain 48dp", 48f, (target.bottom - target.top).value, 0.5f)
+    val pixels = button.captureToImage().toPixelMap()
+    val centerX = pixels.width / 2
+    val outerY = (pixels.height * 4f / 48f).roundToInt()
+    val innerY = (pixels.height * 12f / 48f).roundToInt()
+    assertTrue(
+      "The 32dp painted circle must leave an unpainted inset inside the 48dp target",
+      pixels[centerX, outerY].toArgb() != pixels[centerX, innerY].toArgb(),
+    )
+    val fill = pixels[centerX, innerY].toArgb()
+    val filledRows = (0 until pixels.height).filter { pixels[centerX, it].toArgb() == fill }
+    val paintedHeight = (filledRows.last() - filledRows.first() + 1) * 48f / pixels.height
+    assertEquals("The visible circle must remain 32dp", 32f, paintedHeight, 1f)
+  }
+
+  @Test
   fun longProgressPlanKeepsEditorAndStopVisibleAndLastStepReachable() {
     showChat()
     val steps = List(20) { index -> "Step ${index + 1}: verify the Android chat behavior and document the result." }
@@ -4284,6 +4367,7 @@ class ChatComposerLayoutTest {
   }
 
   @Test
+  @Config(qualifiers = "w360dp-h800dp-mdpi")
   fun progressCardStaysUndecoratedWhileRecordingVoiceNote() {
     val permission = Manifest.permission.RECORD_AUDIO
     val permissionWasGranted = app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
@@ -4301,7 +4385,7 @@ class ChatComposerLayoutTest {
         ),
       )
       prefs.gatewayRegistry.setActive(AndroidScreenshotFixture.gatewayId)
-      val viewModel = showChat()
+      val viewModel = showChat(viewportWidth = 320.dp, viewportHeight = { 640.dp }, fontScale = { 2f })
       composeRule.runOnIdle {
         viewModel.attachRuntimeUi(lifecycleOwner, app.permissionRequester)
         controller.handleGatewayEvent(
@@ -4316,7 +4400,9 @@ class ChatComposerLayoutTest {
             node.config.getOrNull(SemanticsActions.OnLongClick)?.label == nativeString("Record voice note")
           },
         ).performSemanticsAction(SemanticsActions.OnLongClick) { action -> action() }
-      composeRule.onNodeWithContentDescription(nativeString("Cancel voice note")).assertIsDisplayed()
+      captureComposerProof("voice-controls-320-2.0")
+      assertCompactComposerCircle(composeRule.onNodeWithContentDescription(nativeString("Cancel voice note")))
+      assertCompactComposerCircle(composeRule.onNodeWithContentDescription(nativeString("Finish voice note")))
 
       val pixels = composeRule.onNodeWithTag("chat-progress-card").captureToImage().toPixelMap()
       assertEquals(
@@ -4324,6 +4410,11 @@ class ChatComposerLayoutTest {
         renderedCanvasColor.toArgb(),
         pixels[pixels.width / 2, 0].toArgb(),
       )
+      composeRule.onNodeWithContentDescription(nativeString("Cancel voice note")).performTouchInput {
+        click(Offset(width / 2f, 2f))
+      }
+      composeRule.onNodeWithContentDescription(nativeString("Cancel voice note")).assertDoesNotExist()
+      composeRule.onNode(hasSetTextAction()).assertIsDisplayed()
     } finally {
       if (!permissionWasGranted) shadowOf(app).denyPermissions(permission)
     }
