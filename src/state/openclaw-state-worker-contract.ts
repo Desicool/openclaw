@@ -38,6 +38,7 @@ import type {
 } from "../sessions/session-state-events.kernel.js";
 import type { DeviceAuthEntry } from "../shared/device-auth.js";
 import type { TaskRegistryWorkerOperations } from "../tasks/task-registry.worker-contract.js";
+import type { TranscriptReadOperations } from "../transcripts/store-worker-contract.js";
 import type { AgentProvenance } from "./agent-provenance.types.js";
 import type { PreparedBackupRunRecord } from "./backup-run-records.kernel.js";
 import type { OpenClawStateLeaseIdentity } from "./openclaw-state-lease-store.js";
@@ -54,6 +55,7 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   CronStoreSaveWorkerOperations &
   SessionDeliveryWorkerOperations &
   DeliveryQueueWorkerOperations &
+  TranscriptReadOperations &
   TaskRegistryWorkerOperations & {
     "deviceAuth.list": { input: { deviceId: string }; output: DeviceAuthEntry[] };
     "apns.registration.read": { input: string; output: ApnsRegistration | null };
