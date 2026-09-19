@@ -1,0 +1,92 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+# No `push` trigger: the sync job force-pushes to main, and we must not loop.
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assert full clone (filter-repo corrupts shallow clones)
+        run: |
+          if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+            echo "::error::Shallow clone detected; filter-repo requires full history."
+            exit 1
+          fi
+
+      - name: Save overlay
+        run: |
+          mkdir -p /tmp/overlay/.github/workflows
+          cp .github/workflows/sync-upstream.yml /tmp/overlay/.github/workflows/
+          cp .github/workflows/clean-binary-history.yml /tmp/overlay/.github/workflows/
+
+      - name: Configure git identity
+        run: |
+          git config user.name "openclaw-fork-sync"
+          git config user.email "actions@github.com"
+
+      - name: Fetch upstream main (no tags)
+        run: |
+          git remote add upstream https://github.com/openclaw/openclaw.git
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
+
+      - name: Reset main to upstream
+        run: git checkout -B main upstream/main
+
+      - name: Install git-filter-repo
+        run: pip install git-filter-repo
+
+      - name: Strip binary artifacts from history
+        run: |
+          git filter-repo --force --invert-paths \
+            --path .serena/ \
+            --path apps/shared/ClawdisKit/.build/ \
+            --path apps/ios/screenshots/session-2026-03-07/
+
+      - name: Restore overlay
+        run: |
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp /tmp/overlay/.github/workflows/sync-upstream.yml .github/workflows/
+          cp /tmp/overlay/.github/workflows/clean-binary-history.yml .github/workflows/
+          git add .github/workflows
+          if ! git diff --staged --quiet; then
+            git commit -m "ci: re-apply fork overlay [skip ci]"
+          fi
+
+      - name: Force-push main
+        run: |
+          git push --force \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            refs/heads/main:refs/heads/main
+
+  mirror-release:
+    needs: sync
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch latest synced main
+        run: git fetch origin main
+
+      - name: Force-push main to desicool-release
+        run: |
+          git push --force \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            refs/remotes/origin/main:refs/heads/desicool-release
