@@ -1,20 +1,17 @@
 import { createHash } from "node:crypto";
-import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { getRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { readResponseWithLimit } from "../infra/http-body.js";
-import { pruneMapToMaxSize } from "../infra/map-size.js";
-import { parseRetryAfterHeaderSeconds } from "../infra/retry-after.js";
+import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
+import { readResponseWithLimit } from "openclaw/plugin-sdk/response-limit-runtime";
+import { parseRetryAfterHeaderSeconds } from "openclaw/plugin-sdk/retry-runtime";
 import {
-  assertSecretOwnerAvailable,
-  isTrustedSecretSurfaceUnavailableError,
-  SecretSurfaceUnavailableError,
-} from "../secrets/runtime-degraded-state.js";
+  asFiniteNumber,
+  isRecord,
+  parseStrictNonNegativeInteger,
+  readNonBlankString,
+} from "openclaw/plugin-sdk/string-coerce-runtime";
+
+export { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 export const GITHUB_API_ORIGIN = "https://api.github.com";
-export const CONTROL_UI_GITHUB_CREDENTIAL_UNAVAILABLE_MESSAGE =
-  "The configured Control UI GitHub credential is unavailable. Resolve gateway.controlUi.github.token and retry.";
 const GITHUB_JSON_MAX_BYTES = 256 * 1024;
 export const GITHUB_REQUEST_TIMEOUT_MS = 8_000;
 const GITHUB_API_VERSION = "2022-11-28";
@@ -73,9 +70,6 @@ export function formatControlUiGitHubPreviewError(error: unknown): {
   retryable: boolean;
   retryAfterMs?: number;
 } {
-  if (isTrustedSecretSurfaceUnavailableError(error)) {
-    return { message: CONTROL_UI_GITHUB_CREDENTIAL_UNAVAILABLE_MESSAGE, retryable: false };
-  }
   if (error instanceof ControlUiGitHubTransportError) {
     return { message: `${error.message}. Retry or check GitHub availability.`, retryable: true };
   }
@@ -126,54 +120,27 @@ export function formatControlUiGitHubPreviewError(error: unknown): {
   };
 }
 
-export function githubApiToken(
-  env: NodeJS.ProcessEnv = process.env,
-  config: OpenClawConfig | null = getRuntimeConfigSnapshot(),
-): string | undefined {
-  const configured = config?.gateway?.controlUi?.github?.token;
-  if (configured !== undefined) {
-    assertSecretOwnerAvailable("capability", "control-ui-github");
-    const token = typeof configured === "string" ? configured.trim() : "";
-    if (!token) {
-      throw new SecretSurfaceUnavailableError({
-        ownerKind: "capability",
-        ownerId: "control-ui-github",
-        state: "unavailable",
-        paths: ["gateway.controlUi.github.token"],
-        refKeys: [],
-        reason: "secret reference was not materialized by the active runtime",
-      });
-    }
-    return token;
-  }
-  return env.GH_TOKEN?.trim() || env.GITHUB_TOKEN?.trim() || undefined;
-}
-
-/** Raw-config inspection for doctor; it never consults process-global runtime degradation state. */
-export function hasConfiguredGitHubApiCredential(
-  env: NodeJS.ProcessEnv,
-  config: OpenClawConfig,
-): boolean {
-  return (
-    config.gateway?.controlUi?.github?.token !== undefined ||
-    Boolean(env.GH_TOKEN?.trim() || env.GITHUB_TOKEN?.trim())
-  );
-}
-
-/** Captures the effective token and a non-secret cache scope from the same env snapshot. */
-export function resolveGitHubApiCredentialScope(env: NodeJS.ProcessEnv = process.env): {
-  token: string | undefined;
-  cacheScope: string;
-} {
-  const token = githubApiToken(env);
-  return {
-    token,
-    cacheScope: githubApiCredentialCacheScope(token),
-  };
-}
-
 export function githubApiCredentialCacheScope(token: string | undefined): string {
   return token ? createHash("sha256").update(token).digest("hex") : "anonymous";
+}
+
+export function requiredString(record: Record<string, unknown>, key: string): string {
+  const value = readNonBlankString(record[key]);
+  if (value === undefined) {
+    throw new ControlUiGitHubError(502, `GitHub response omitted ${key}`);
+  }
+  return value;
+}
+
+export function readOptionalGitHubString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  return readNonBlankString(record[key]);
+}
+
+export function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  return asFiniteNumber(record[key]);
 }
 
 function githubApiResource(url: URL): string {
