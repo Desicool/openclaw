@@ -50,7 +50,7 @@ export const en: TranslationMap & {
       >;
   };
   // Lazy en-devices.ts assigns into this namespace.
-  devices: TranslationMap;
+  devices: TranslationMap & { pairing: TranslationMap };
   desktop: TranslationMap &
     Record<"title" | "openWindow" | "unavailable" | "toggle" | "reconnect" | "connecting", string>;
   filePreview: TranslationMap;
@@ -674,53 +674,12 @@ export const en: TranslationMap & {
       pairingAndAdminRequired:
         "Browsing only. Device changes require operator.pairing; exec approvals and node bindings require operator.admin.",
     },
+    // The trigger and load failure stay eager; dialog copy follows its lazy renderer.
     pairing: {
       button: "Pair device",
       adminRequired: "Administrator access is required to create setup codes.",
       title: "Pair a device",
-      subtitle: "Create a secure setup for a mobile app or node host.",
-      noApp: "Don't have the app yet?",
-      getApps: "Get the apps",
-      generating: "Creating a secure setup code…",
-      accessTitle: "Setup type",
-      fullAccess: "Full access (recommended)",
-      fullAccessHint:
-        "Device capabilities plus complete Gateway controls, including settings and upgrades.",
-      limitedAccess: "Limited access",
-      limitedAccessHint:
-        "Device capabilities, chat, and approvals without administrative controls.",
-      nodeAccess: "Node host",
-      nodeAccessHint: "Connect a computer as a command and capability host.",
-      generateCode: "Create setup code",
-      transportLimitedTitle: "Limited for network safety",
-      transportLimitedHint:
-        "This Gateway URL uses plaintext ws://. Use wss:// or Tailscale Serve, then create a new code for full access.",
-      failed: "Could not create a setup code.",
-      statusFailed: "Could not verify whether pairing completed.",
       loadFailed: "Could not load the pairing dialog. Check your connection and try again.",
-      qrAlt: "OpenClaw mobile pairing QR code",
-      qrUnavailable: "QR unavailable. Copy the setup code instead.",
-      copySetupCode: "Copy setup code",
-      nodeExpiresIn: "This setup link expires in {time}.",
-      nodeExpired: "This setup link has expired. Create a new one.",
-      newCode: "New code",
-      showSetupCode: "Show setup code",
-      pending: "Device requests waiting for review: {count}",
-      review: "Review",
-      waiting: "Official OpenClaw mobile apps connect automatically after scanning.",
-      pairedTitle: "Device paired",
-      deliveryUncertainTitle: "Pairing delivery could not be confirmed",
-      deliveryUncertainHint:
-        "The setup code is retired, but the device may not have received its credential. Check Manage devices, remove the device if needed, then create a new code.",
-      fullAccessSummary: "Full access",
-      nodeAccessSummary: "Node access",
-      done: "Done",
-      expiredTitle: "Setup code expired",
-      generateNewCode: "Generate new code",
-      nodeWaiting: "Run the command on the device, then review its pairing request here.",
-      help: "Pairing help",
-      helpNewTab: "Pairing help (opens in a new tab)",
-      manageDevices: "Manage devices",
     },
     binding: {
       loadConfigHint: "Load config to edit bindings.",
