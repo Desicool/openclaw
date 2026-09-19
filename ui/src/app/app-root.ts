@@ -4,7 +4,6 @@ import type { RouteLocation, RouteNotFound } from "@openclaw/uirouter";
 import { html, nothing } from "lit";
 import { state } from "lit/decorators.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
-import type { RouteId } from "../app-routes.ts";
 import "../components/gateway-url-confirmation.ts";
 import "../components/link-reader-hovercard-registration.ts";
 import { renderLazyElementState, renderLazyViewError } from "../components/lazy-view-error.ts";
@@ -76,7 +75,7 @@ export class OpenClawApp extends OpenClawLightDomElement {
     this.closeDocument(this.context?.basePath ?? ""),
   );
 
-  private get context(): ApplicationContext<RouteId> | undefined {
+  private get context(): ApplicationContext | undefined {
     return this.runtime?.context;
   }
 
@@ -474,7 +473,7 @@ export class OpenClawApp extends OpenClawLightDomElement {
     </openclaw-tooltip-provider>`;
   }
 
-  private renderDocument(context: ApplicationContext<RouteId>, runtime: ApplicationRuntime) {
+  private renderDocument(context: ApplicationContext, runtime: ApplicationRuntime) {
     const gatewaySnapshot = context.gateway.snapshot;
     const gatewayConnected = gatewaySnapshot.phase === "connected";
     const gatewayStartupStatus =
