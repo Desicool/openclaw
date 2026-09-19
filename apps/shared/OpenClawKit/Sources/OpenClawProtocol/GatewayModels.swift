@@ -23292,6 +23292,16 @@ public struct TranscriptsStatusResult: Codable, Sendable {
     }
 }
 
+public struct TranscriptsSummarizeParams: Codable, Sendable {
+    public let selector: String
+
+    public init(
+        selector: String)
+    {
+        self.selector = selector
+    }
+}
+
 public struct TtsSpeakParams: Codable, Sendable {
     public let text: String
 
