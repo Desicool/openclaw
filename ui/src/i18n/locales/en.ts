@@ -4477,6 +4477,8 @@ export const en: TranslationMap & {
       tasksEmpty: "Follow active and recently completed background tasks.",
       desktop: "Desktop",
       desktopEmpty: "Connect to an available remote desktop.",
+      portal: "Portal",
+      portalEmpty: "Preview a web application running for this task.",
       discussion: "Discussion",
       discussionEmpty: "Open the shared discussion for this session.",
       dashboard: "Dashboard",
