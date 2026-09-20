@@ -102,6 +102,8 @@ import {
 import { ensureAgentProvenanceSchema } from "./agent-provenance.schema.js";
 import { recordBackupRunInDatabase } from "./backup-run-records.kernel.js";
 import { readConfigMachineState } from "./config-machine-state.js";
+import { isOnboardingRecommendationWriteCommand } from "./onboarding-recommendations.contract.js";
+import { executeOnboardingRecommendationCommand } from "./onboarding-recommendations.kernel.js";
 import { executeAgentDatabaseCleanupCommand } from "./openclaw-agent-execution-cleanup.worker.js";
 import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 import { assertOpenClawStateDatabaseOwner } from "./openclaw-state-db-maintenance.js";
@@ -311,6 +313,13 @@ export function executeSharedStateCommand(
       command.input.generation,
       readStableSqliteFileGeneration(context.databasePath),
     );
+  }
+  if (isOnboardingRecommendationWriteCommand(command)) {
+    return executeOnboardingRecommendationCommand(command, {
+      database: open(),
+      path: context.databasePath,
+      env: getSqliteWorkerStateContext().environment,
+    });
   }
   if (command.type === "userPreferences.read" || command.type === "userPreferences.write") {
     return executeUserPreferenceCommand(command, {

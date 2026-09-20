@@ -8,6 +8,7 @@ import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-co
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
 import { serveWorkerTasks } from "../infra/worker-task-pool.js";
 import { readConfigMachineStateRowInDatabase } from "./config-machine-state.js";
+import { readOnboardingRecommendationsInDatabase } from "./onboarding-recommendations.kernel.js";
 import { readRegisteredAgentDatabaseRows } from "./openclaw-agent-db-registry.read.js";
 import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
 import {
@@ -52,6 +53,8 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
           typeof input.command.input.executionId === "string")) ||
       input.command.type === "fleet.list" ||
       input.command.type === "nodeHost.config" ||
+      (input.command.type === "onboardingRecommendations.read" &&
+        typeof input.command.configKey === "string") ||
       (input.command.type === "fleet.get" && typeof input.command.tenantId === "string"))
   );
 }
@@ -107,6 +110,14 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
           return withOpenClawStateReadOnlyLocation(
             ({ db }) => {
               sourceAdmitted = true;
+              if (command.type === "onboardingRecommendations.read") {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  record: readOnboardingRecommendationsInDatabase(db, command.configKey),
+                };
+              }
               if (command.type === "audit.run.inspect") {
                 try {
                   return {
