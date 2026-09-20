@@ -248,6 +248,9 @@ export const databaseWorkerCoreTestFiles = [
   "src/plugins/services.cron.test.ts",
   "test/plugins/memory-dreaming-cron.test.ts",
   "src/state/creator-namespace-migration.test.ts",
+  "src/agents/auth-profiles/store-owner-publication.test.ts",
+  "src/agents/auth-profiles/usage.inherited-owner.test.ts",
+  "test/helpers/stage-live-auth-profiles.test.ts",
 ];
 
 const databaseWorkerCoreTestFileSet = new Set(databaseWorkerCoreTestFiles);
