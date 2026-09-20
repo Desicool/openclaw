@@ -40,6 +40,7 @@ import { countFailedDeliveryQueueEntriesInDatabase } from "../infra/delivery-que
 import * as deviceAuth from "../infra/device-auth-store.kernel.js";
 import { executeDeliveryQueueAck } from "../infra/outbound/delivery-queue-ack.worker.js";
 import { executeDeliveryQueueEnqueue } from "../infra/outbound/delivery-queue-enqueue.worker.js";
+import { executePendingDeliveryFailure } from "../infra/outbound/delivery-queue-pending-failure.worker.js";
 import { executePromotionCommand } from "../infra/promotions-feed.worker.js";
 import {
   readApnsRegistrationFromDatabase,
@@ -464,6 +465,9 @@ export function executeSharedStateCommand(
   };
   if (command.type === "deliveryQueue.ack") {
     return executeDeliveryQueueAck(command.input, writeOptions);
+  }
+  if (command.type === "deliveryQueue.failPending") {
+    return executePendingDeliveryFailure(command.input, writeOptions);
   }
   if (command.type === "skillUploads.commit") {
     return commitSkillUploadInDatabase(command.input, writeOptions);
