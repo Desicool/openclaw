@@ -31,6 +31,7 @@ type FixtureRecord = {
   enablePrivateQaCli?: string | null;
   nodeOptions?: string | null;
   gatewayOnlyEnvKeys?: string[];
+  profile?: string | null;
 };
 
 // The fixture never contacts a provider or stores auth. Its independent failsafes
@@ -56,6 +57,7 @@ if (command === "descendant") {
   const current = command === "models" ? args[args.indexOf("--provider") + 1]
     : command === "update" ? (args.includes("--help") ? "help" : "repair") : command;
   write(current, {
+    profile: process.env.OPENCLAW_PROFILE ?? null,
     buildPrivateQa: process.env.OPENCLAW_BUILD_PRIVATE_QA ?? null,
     enablePrivateQaCli: process.env.OPENCLAW_ENABLE_PRIVATE_QA_CLI ?? null,
     nodeOptions: process.env.NODE_OPTIONS ?? null,
@@ -251,6 +253,7 @@ async function fixture(phase: string, mode: string) {
 
 describe.skipIf(process.platform === "win32")("packaged QA bootstrap lifetime", () => {
   it("uses the direct candidate CLI while its Gateway owns the state", async () => {
+    vi.stubEnv("OPENCLAW_PROFILE", "operator-parent");
     const f = await fixture("hang", "running");
     const repoRoot = path.join(f.root, "harness");
     await fs.mkdir(path.join(repoRoot, "dist"), { recursive: true });
@@ -265,6 +268,7 @@ describe.skipIf(process.platform === "win32")("packaged QA bootstrap lifetime", 
       controlUiEnabled: false,
       transportBaseUrl: "http://127.0.0.1:1",
       runtimeEnvPatch: {
+        OPENCLAW_PROFILE: "operator-patch",
         NODE_OPTIONS: "--no-warnings",
         Node_Options: "--trace-warnings",
         OpenClaw_Build_Private_QA: "foreign",
@@ -302,6 +306,12 @@ describe.skipIf(process.platform === "win32")("packaged QA bootstrap lifetime", 
       "message",
       "message",
     ]);
+    const profiles = new Set(f.records().map((entry) => entry.profile));
+    expect(profiles.size).toBe(1);
+    const [profile] = profiles;
+    expect(profile).toMatch(/^[a-z0-9][a-z0-9_-]{0,63}$/u);
+    expect(profile).not.toBe("operator-parent");
+    expect(profile).not.toBe("operator-patch");
     const runtimeEnv = ({ buildPrivateQa, enablePrivateQaCli, nodeOptions }: FixtureRecord) => ({
       buildPrivateQa,
       enablePrivateQaCli,
