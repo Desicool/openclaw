@@ -4233,6 +4233,7 @@ export const en: TranslationMap & {
       removeNamedAttachment: "Remove {name}",
       removeBrowserAnnotation: "Remove browser annotation: {name}",
       addAttachment: "Add attachment",
+      attach: "Attach…",
       attachPhoto: "Photo",
       attachFileOption: "File",
       menu: {
