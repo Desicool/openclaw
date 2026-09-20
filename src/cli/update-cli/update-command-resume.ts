@@ -407,6 +407,8 @@ export async function convergePostCoreUpdatePlugins(params: {
   updateStartedAtMs?: number;
   /** Modern parents finalize after consuming the result; legacy children finalize before publication. */
   parentOwnsCompletion?: boolean;
+  beforeDoctor?: () => Promise<void>;
+  onWarnings?: (warnings: string[]) => void;
   assertCurrent?: () => void;
 }) {
   const { assertCurrent } = params;
@@ -460,6 +462,8 @@ export async function convergePostCoreUpdatePlugins(params: {
             opts: params.opts,
             pluginUpdate: producedPluginUpdate,
             freshDoctorRequired: producedPluginUpdate.changed,
+            beforeDoctor: params.beforeDoctor,
+            onWarnings: params.onWarnings,
             assertCurrent,
             yes: params.opts.yes === true,
             json: params.opts.json === true,
