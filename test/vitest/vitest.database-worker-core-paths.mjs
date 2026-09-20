@@ -1,5 +1,6 @@
 // These consumers need the host-owned SQLite broker, which runs in forked processes.
 export const databaseWorkerCoreTestFiles = [
+  "src/plugins/diffs-cleanup.lifecycle.test.ts",
   "src/skills/workshop/store.test.ts",
   "src/state/onboarding-recommendations.test.ts",
   "src/commands/onboard-recommendations.test.ts",
@@ -412,6 +413,9 @@ export const databaseWorkerCoreTestFiles = [
   "test/plugins/beam-http-identity.test.ts",
   "test/plugins/codex-session-catalog-naming.test.ts",
   "src/plugin-sdk/runtime-doctor-migrations.test.ts",
+  "src/plugin-state/plugin-blob-store.test.ts",
+  "src/plugin-state/plugin-blob-store.admission.test.ts",
+  "src/plugin-state/plugin-blob-store.readonly.test.ts",
   "src/plugin-state/plugin-state-store.doctor-repair.test.ts",
   "src/plugin-state/plugin-state-store.test.ts",
   "src/plugin-state/plugin-state-store.bulk.test.ts",
