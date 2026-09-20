@@ -3213,7 +3213,6 @@ src/plugins/loader-shared.ts	2
 src/plugins/managed-npm-retention.ts	4
 src/plugins/manifest-capability-normalizers.ts	3
 src/plugins/manifest-install-owner.ts	1
-src/plugins/manifest-registry.ts	2
 src/plugins/manifest-setup-normalizers.ts	4
 src/plugins/manifest.ts	2
 src/plugins/marketplace.ts	6
