@@ -3789,6 +3789,9 @@ function classifyTarget(arg: string, cwd: string, beforeDatabaseWorkerOwnership 
   if (isToolingIsolatedTestFile(relative)) {
     return "toolingIsolated";
   }
+  if (isCliProcessTestFile(relative)) {
+    return "cliProcess";
+  }
   if (resolveUnitFastTimerTestIncludePattern(relative)) {
     return "unitFastFakeTimers";
   }
@@ -3883,9 +3886,6 @@ function classifyTarget(arg: string, cwd: string, beforeDatabaseWorkerOwnership 
   }
   if (isPathAtOrUnder(relative, "src/acp")) {
     return "acp";
-  }
-  if (isCliProcessTestFile(relative)) {
-    return "cliProcess";
   }
   if (isPathAtOrUnder(relative, "src/cli")) {
     return "cli";
