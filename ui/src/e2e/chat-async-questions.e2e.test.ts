@@ -4,6 +4,7 @@ import { expect, it } from "vitest";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { defaultControlUiFeatureMethods } from "../test-helpers/control-ui-e2e.ts";
 import {
+  captureUiProof,
   controlUiSessionUrl,
   createChatFlowE2eSuite,
   expectRequestCountStable,
@@ -348,6 +349,25 @@ suite.define(() => {
         await summary.waitFor();
         expect(await summary.textContent()).toContain("Include one practical example.");
         await expectRequestCountStable(gateway, "chat.send", 1);
+        if (!active) {
+          // Stop overriding the old run's history: startup must recover the answer
+          // committed by the default chat.send boundary, not an injected answer row.
+          await gateway.setMethodResponse("chat.history", { cases: [] });
+          await page.reload();
+          await expectBrowser(summary).toContainText("Include one practical example.");
+          await expectBrowser(summary).toContainText("/stop is an example for the whole team");
+          await expectBrowser(card).toHaveCount(0);
+          await expectBrowser(
+            page.locator(".chat-group.user .chat-bubble").filter({
+              hasText: "/stop is an example for the whole team",
+            }),
+          ).toHaveCount(1);
+          await expectRequestCountStable(gateway, "chat.send", 0);
+          await page.screenshot({
+            path: path.join(artifactDir, "submitted-after-reload.png"),
+            animations: "disabled",
+          });
+        }
       } finally {
         await suite.closeBrowserContext(context);
       }
@@ -514,6 +534,56 @@ suite.define(() => {
       expect(await userMessages.count()).toBe(1);
       expect(await card.getByRole("button", { name: "Submit", exact: true }).count()).toBe(0);
       await expectRequestCountStable(gateway, "chat.send", 2);
+    } finally {
+      await suite.closeBrowserContext(context);
+    }
+  });
+
+  it("does not resurrect a saved async answer after reload or remount", async () => {
+    const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
+    const page = await context.newPage();
+    const sessionKey = "agent:main:dashboard:async-question-answer-persistence";
+    const savedQuestion = {
+      ...questionMessage,
+      __openclaw: { id: "saved-audience-question", seq: 1 },
+    };
+    const savedAnswer = {
+      role: "user",
+      content: `> ${title}\n\nEveryone`,
+      timestamp: questionMessage.timestamp + 1_000,
+      __openclaw: { id: "saved-audience-answer", seq: 2 },
+    };
+    const gateway = await installMockGateway(page, {
+      sessionKey,
+      historyMessages: [savedQuestion],
+    });
+    try {
+      await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionKey));
+      const card = page.locator(".agent-chat__question-dock openclaw-chat-question-panel");
+      await card.getByRole("radio", { name: /Engineers/ }).waitFor();
+      await captureUiProof(suite, page, "async-question-answer-persistence", "before-answer.png");
+
+      await gateway.setMethodResponse("chat.history", {
+        messages: [savedQuestion, savedAnswer],
+        sessionInfo: { hasActiveRun: false, activeRunIds: [] },
+      });
+      await page.reload();
+      await expectBrowser(card).toHaveCount(0);
+      const summary = page
+        .locator(".chat-thread .chat-question-summary")
+        .filter({ hasText: title });
+      await summary.waitFor();
+      await expectBrowser(summary).toContainText("Everyone");
+      await captureUiProof(suite, page, "async-question-answer-persistence", "after-reload.png");
+
+      // A second navigation must derive the same completed state from history rather than
+      // relying on the first mount's local draft map.
+      await page.reload();
+      await expectBrowser(card).toHaveCount(0);
+      await expectBrowser(
+        page.locator(".chat-thread .chat-question-summary").filter({ hasText: title }),
+      ).toContainText("Everyone");
+      await captureUiProof(suite, page, "async-question-answer-persistence", "after-remount.png");
     } finally {
       await suite.closeBrowserContext(context);
     }
