@@ -277,6 +277,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/harness/acp-native-execution.process.test.ts",
   "src/agents/tools/message-tool.internal-source-reply.integration.test.ts",
   "src/agents/command/delivery.custody.integration.test.ts",
+  "src/agents/main-session-recovery/main-session-restart-recovery-admission.test.ts",
   "src/agents/main-session-recovery/main-session-restart-recovery.test.ts",
   "src/auto-reply/reply/route-reply.prepared.test.ts",
   "src/auto-reply/reply/route-reply.recovery-owner.test.ts",
