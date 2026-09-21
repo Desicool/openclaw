@@ -158,6 +158,8 @@ export type SessionExactEntriesWorkerInput = {
   env: NodeJS.ProcessEnv;
   sessionKeys: readonly string[];
   lifecycleSessionKey?: string;
+  projection?: "full" | "backing";
+  continuation?: CanonicalSessionReaderContinuation;
 };
 
 export type SessionExactEntriesWorkerResult = {
