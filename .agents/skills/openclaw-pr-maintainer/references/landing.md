@@ -120,6 +120,30 @@ merge with `gh pr merge --match-head-commit <verified-sha>` under the same autho
 
 ## Recovery and closeout
 
+Before replacing the remote head of an accepted auto-merge request, explicitly
+retire that request through its retained outcome:
+
+```bash
+git rev-parse refs/openclaw/pr-merge-outcomes/<PR>
+scripts/pr merge-recover <PR> <OUTCOME_OID> --confirmed-operator-recovery --cancel-auto
+```
+
+This supports an exact accepted non-queue auto request. It preserves the original
+intent and captures, checks the PR identity and head, and reconciles a concurrent
+merge. A lost cancellation response is observation-only on retry; never send a
+second cancellation blindly. Only a confirmed cancellation allows head repair.
+Then repair and push the branch, refresh review and preparation, and wait for
+completed CI. Use the current retained outcome OID and explicitly reviewed head:
+
+```bash
+scripts/pr merge-recover <PR> <OUTCOME_OID> --confirmed-operator-recovery --replacement-head <HEAD_SHA>
+```
+
+Replacement recovery requires completed ordinary gates, not `github_pending`.
+Use the completed-evidence preparation path above. Neither command deletes the
+prior outcome or bypasses review and merge admission. Queue cancellation is not
+supported by this path.
+
 A failed operation can retain a lock. Verify no owned child tools remain, then
 recover only with the exact token and command the wrapper printed. Never remove
 locks by hand or start competing retries. After throttling, inspect quota before
