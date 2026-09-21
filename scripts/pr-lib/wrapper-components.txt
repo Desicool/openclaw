@@ -805,6 +805,7 @@ src/infra/worker-task-pool.ts
 src/infra/worker-task-server.ts
 src/infra/worker-transfer-bytes.ts
 src/infra/wsl.ts
+src/infra/zstd-codec.ts
 src/logger.ts
 src/logging/config.ts
 src/logging/console.ts
