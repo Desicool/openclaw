@@ -655,7 +655,6 @@ it.each([true, false])(
 );
 
 it("keeps completed CLI segments distinct through coalescing and final dedupe", async () => {
-  const { createBlockReplyPipeline } = await import("./block-reply-pipeline.js");
   const { prepareCliReplyPayload } = await import("./cli-reply-payload.js");
   const sent: ReplyPayload[] = [];
   const pipeline = createBlockReplyPipeline({
