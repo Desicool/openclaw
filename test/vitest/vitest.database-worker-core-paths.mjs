@@ -1,5 +1,6 @@
 // These consumers need the host-owned SQLite broker, which runs in forked processes.
 export const databaseWorkerCoreTestFiles = [
+  "src/config/sessions/disk-budget.physical-usage.test.ts",
   "src/agents/agent-bundle-mcp-requester-connect.read.test.ts",
   "src/agents/mcp-oauth-provider.read.test.ts",
   "src/agents/mcp-oauth-store.test.ts",
@@ -39,6 +40,13 @@ export const databaseWorkerCoreTestFiles = [
   "src/node-host/invoke.test.ts",
   "src/node-host/worker-runtime.test.ts",
   "src/skills/workshop/store.test.ts",
+  "src/channels/message-access/discord-native-acp-owner.test.ts",
+  "src/channels/message-access/telegram-native-acp-owner.test.ts",
+  "src/auto-reply/reply/commands-acp.owner.test.ts",
+  "src/auto-reply/reply/commands-config.owner.test.ts",
+  "src/auto-reply/reply/commands-plugins.owner.test.ts",
+  "src/auto-reply/reply/commands-plugin.owner.test.ts",
+  "src/auto-reply/reply/commands-session-restart.test.ts",
   "src/cli/node-cli/identity.test.ts",
   "src/node-host/local-id.test.ts",
   "src/state/onboarding-recommendations.test.ts",
@@ -309,6 +317,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/media/store.cleanup.test.ts",
   "src/state/agent-provenance.test.ts",
   "src/state/user-profiles.avatar-worker.test.ts",
+  "src/state/user-channel-identities.test.ts",
   "src/state/user-profile-email.test.ts",
   "src/state/user-profiles.avatar-admission.test.ts",
   "src/state/user-profiles.avatar-lifetime.test.ts",
