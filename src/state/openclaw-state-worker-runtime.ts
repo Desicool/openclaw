@@ -95,6 +95,7 @@ import {
   resolveProjectRegistryInDatabase,
   resolveRecordedProjectRootInDatabase,
 } from "../projects/project-registry.kernel.js";
+import { purgeExpiredSecretStoreEntriesInDatabase } from "../secrets/store/secret-store-expiry.kernel.js";
 import {
   pruneSessionStateEventsInDatabase,
   recordSessionStateEventInDatabase,
@@ -501,6 +502,9 @@ export function executeSharedStateCommand(
     path: context.databasePath,
     env: getSqliteWorkerStateContext().environment,
   };
+  if (command.type === "secrets.purge") {
+    return purgeExpiredSecretStoreEntriesInDatabase(command.input, writeOptions);
+  }
   if (
     command.type === "conversationBindings.resolve" ||
     command.type === "conversationBindings.touch"
