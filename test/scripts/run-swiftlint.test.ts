@@ -105,31 +105,46 @@ process.exitCode = Number(process.env.SWIFTLINT_TEST_EXIT);
     expect(result.summary).not.toContain("force_try");
   });
 
-  it("warns only for type-name length and keeps name characters and capitalization blocking", () => {
-    const length = {
-      ...violation("type_name"),
-      reason: "Type name 'A' should be between 2 and 60 characters long",
-    };
-    const invalidNames = [
-      "Type name 'lowercase' should start with an uppercase character",
-      "Type name 'Invalid_Name' should only contain alphanumeric and other allowed characters",
-    ];
-    const lengthOnly = run([length]);
-    expect(lengthOnly.status, lengthOnly.stderr).toBe(0);
-    expect(lengthOnly.output).toContain("title=SwiftLint type_name");
-    expect(lengthOnly.summary).toContain(length.reason);
+  it.each([
+    {
+      rule: "type_name",
+      prefix: "Type name",
+      lengthReason: "Type name 'A' should be between 2 and 60 characters long",
+    },
+    {
+      rule: "generic_type_name",
+      prefix: "Generic type name",
+      lengthReason:
+        "Generic type name 'TTTTTTTTTTTTTTTTTTTTT' should be between 1 and 20 characters long",
+    },
+  ])(
+    "$rule warns only for length and keeps name characters and capitalization blocking",
+    ({ rule, prefix, lengthReason }) => {
+      const length = {
+        ...violation(rule),
+        reason: lengthReason,
+      };
+      const invalidNames = [
+        `${prefix} 'lowercase' should start with an uppercase character`,
+        `${prefix} 'Invalid_Name' should only contain alphanumeric and other allowed characters`,
+      ];
+      const lengthOnly = run([length]);
+      expect(lengthOnly.status, lengthOnly.stderr).toBe(0);
+      expect(lengthOnly.output).toContain(`title=SwiftLint ${rule}`);
+      expect(lengthOnly.summary).toContain(length.reason);
 
-    const mixed = run([
-      length,
-      ...invalidNames.map((reason) => ({ ...violation("type_name"), reason })),
-    ]);
-    expect(mixed.status, mixed.stderr).toBe(2);
-    expect(mixed.output.match(/::warning /gu)).toHaveLength(1);
-    for (const reason of invalidNames) {
-      expect(mixed.stderr).toContain(`error: ${reason} (type_name)`);
-      expect(mixed.summary).not.toContain(reason);
-    }
-  });
+      const mixed = run([
+        length,
+        ...invalidNames.map((reason) => ({ ...violation(rule), reason })),
+      ]);
+      expect(mixed.status, mixed.stderr).toBe(2);
+      expect(mixed.output.match(/::warning /gu)).toHaveLength(1);
+      for (const reason of invalidNames) {
+        expect(mixed.stderr).toContain(`error: ${reason} (${rule})`);
+        expect(mixed.summary).not.toContain(reason);
+      }
+    },
+  );
 
   it("keeps tool failures fatal even when their partial report contains only limits", () => {
     const result = run([violation("file_length")], { exit: 1 });

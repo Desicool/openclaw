@@ -24,11 +24,13 @@ type SwiftLintViolation = {
 };
 
 function isLimitViolation(violation: SwiftLintViolation): boolean {
-  // type_name also rejects invalid characters and lowercase names; those remain blocking.
+  // Type naming rules also reject invalid characters and lowercase names; those remain blocking.
   return (
     LIMIT_RULES.has(violation.rule_id) ||
-    (violation.rule_id === "type_name" &&
-      /^Type name '.+' should be between \d+ and \d+ characters long$/u.test(violation.reason))
+    ((violation.rule_id === "type_name" || violation.rule_id === "generic_type_name") &&
+      /^(?:Type|Generic type) name '.+' should be between \d+ and \d+ characters long$/u.test(
+        violation.reason,
+      ))
   );
 }
 
