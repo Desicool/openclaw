@@ -6954,6 +6954,7 @@ describe("ci workflow guards", () => {
               shard_count: jobCount,
               task: shard === jobCount ? "browser-extension" : "control-ui",
               vitest_shard_count: jobCount - 1,
+              vitest_max_workers: 2,
             };
           }),
         });
@@ -7000,10 +7001,15 @@ describe("ci workflow guards", () => {
       "test/vitest/vitest.ui-e2e.config.ts",
       "--configLoader",
       "runner",
+      "--maxWorkers",
+      "2",
       "--shard",
       "1/3",
     ];
     expect(runCommand(shardEnv)).toEqual(expectedArgs);
+    expect(runCommand({ ...shardEnv, VITEST_MAX_WORKERS: "3" })).toEqual(
+      expectedArgs.with(expectedArgs.indexOf("--maxWorkers") + 1, "3"),
+    );
     expect(readFileSync(commandInclude, "utf8")).toBe("");
 
     const codec = "scripts/lib/ci-node-test-groups-codec.mts";
@@ -7068,7 +7074,7 @@ describe("ci workflow guards", () => {
     expect(uiE2e.strategy["fail-fast"]).toBe(false);
     expect(uiE2e.strategy["max-parallel"]).toBe(14);
     expect(uiE2e.strategy.matrix).toBe("${{ fromJson(needs.preflight.outputs.ui_e2e_matrix) }}");
-    const expectedUiE2eMatrices = [6, 12].map((vitestShardCount) => ({
+    const expectedUiE2eMatrices = [6, 8, 12].map((vitestShardCount) => ({
       include: Array.from({ length: vitestShardCount + 1 }, (_, index) => {
         const shard = index + 1;
         return {
@@ -7076,6 +7082,7 @@ describe("ci workflow guards", () => {
           shard_count: vitestShardCount + 1,
           task: shard === vitestShardCount + 1 ? "browser-extension" : "control-ui",
           vitest_shard_count: vitestShardCount,
+          vitest_max_workers: vitestShardCount === 8 ? 3 : 2,
         };
       }),
     }));
@@ -7327,6 +7334,7 @@ describe("ci workflow guards", () => {
         ".artifacts/control-ui-e2e-timeouts/shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}",
       VITEST_SHARD_INDEX: "${{ matrix.shard }}",
       VITEST_SHARD_COUNT: "${{ matrix.vitest_shard_count }}",
+      VITEST_MAX_WORKERS: "${{ matrix.vitest_max_workers || 2 }}",
       OPENCLAW_NODE_TEST_GROUPS_GZIP_BASE64:
         "${{ needs.preflight.outputs.ui_e2e_test_groups_gzip_base64 }}",
     });

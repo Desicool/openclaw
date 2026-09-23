@@ -118,6 +118,14 @@ describe("Control UI release-only inventories", () => {
     "ui/src/e2e/chat-collaborator-scroll.real-gateway.e2e.test.ts",
     "ui/src/e2e/mcp-app-conformance.e2e.test.ts",
   ]);
+  const tours = [
+    "ui/src/e2e/board-fixture.e2e.test.ts",
+    "ui/src/e2e/chat-attachment-menu.e2e.test.ts",
+    "ui/src/e2e/chat-mobile-bubble-margin.e2e.test.ts",
+    "ui/src/e2e/github-link-hovercard.e2e.test.ts",
+    "ui/src/e2e/settings-layout.e2e.test.ts",
+    "ui/src/e2e/theme-muted-contrast.e2e.test.ts",
+  ];
 
   it("omits only the named exhaustive matrices from ordinary UI owners", () => {
     const groups = createUiTestShardGroups({ includeReleaseOnlyTests: false });
@@ -127,6 +135,16 @@ describe("Control UI release-only inventories", () => {
     expect(
       uiE2eRealGatewayTestFiles.filter((file) => groups.e2e[0]?.includePatterns?.includes(file)),
     ).toEqual(uiE2eRealGatewayTestFiles.filter((file) => !releaseOnlyRealGateway.has(file)));
+    for (const file of tours) {
+      expect(groups.e2e[0]?.includePatterns).not.toContain(file);
+    }
+    for (const file of [
+      "ui/src/e2e/board-mcp-app.e2e.test.ts",
+      "ui/src/e2e/chat-composer-redesign.e2e.test.ts",
+      "ui/src/e2e/chat-position-rail-layout.e2e.test.ts",
+    ]) {
+      expect(groups.e2e[0]?.includePatterns).toContain(file);
+    }
     expect(groups.ui[0]?.includePatterns).toContain(
       "ui/src/components/app-sidebar-row-identity.browser.test.ts",
     );
@@ -141,12 +159,19 @@ describe("Control UI release-only inventories", () => {
   it("retains directly edited matrices without widening from their source owner", () => {
     const groups = createUiTestShardGroups({
       includeReleaseOnlyTests: false,
-      changedPaths: [entry, automationManagement, "ui/src/components/app-sidebar.ts", "ui/src/e2e"],
+      changedPaths: [
+        entry,
+        ...tours,
+        automationManagement,
+        "ui/src/components/app-sidebar.ts",
+        "ui/src/e2e",
+      ],
     });
     expect(groups.e2e[0]?.includePatterns).toContain(entry);
     expect(
       groups.e2e[0]?.includePatterns?.filter((file) => releaseOnlyRealGateway.has(file)),
     ).toEqual([automationManagement]);
+    expect(groups.e2e[0]?.includePatterns).toEqual(expect.arrayContaining(tours));
     expect(groups.e2e[0]?.includePatterns).not.toContain(embed);
     expect(groups.ui[0]?.includePatterns).not.toContain(sidebar);
   });
