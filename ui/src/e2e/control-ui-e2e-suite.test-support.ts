@@ -8,7 +8,17 @@ import {
   type Locator,
   type Page,
 } from "playwright";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  vi,
+  type TestContext,
+} from "vitest";
 import { getActiveGatewayRootWorkCount } from "../../../src/process/gateway-work-admission.js";
 import { createDeferredCore } from "../../../src/shared/deferred.ts";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.js";
@@ -47,10 +57,7 @@ type ControlUiE2eScenario<T> = {
   release?: () => Promise<void>;
   retainedState?: () => string | undefined;
 };
-type ControlUiE2eScenarioContext = {
-  signal: AbortSignal;
-  onTestFinished: (cleanup: () => void | Promise<void>, timeout?: number) => void;
-};
+type ControlUiE2eScenarioContext = Pick<TestContext, "signal" | "onTestFinished" | "task">;
 type ControlUiE2eSuite = {
   readonly artifactDir: string;
   readonly browser: Browser;
@@ -197,14 +204,16 @@ export function createControlUiE2eSuite(options: ControlUiE2eSuiteOptions): Cont
   const contextClosures = new WeakMap<BrowserContext, Promise<void>>();
   const contextDiagnostics = new WeakMap<
     BrowserContext,
-    { test: TestContext | undefined; capture?: Promise<void> }
+    { test: ControlUiE2eScenarioContext | undefined; capture?: Promise<void> }
   >();
   const contextAcquisitions = new Map<Promise<BrowserContext>, AbortController | undefined>();
   const acquisitionFailures: Array<{ owner: AbortController | undefined; error: unknown }> = [];
   const scenarios = new Set<Promise<unknown>>();
   const resourceLifetime = new AbortController();
-  let activeTest: TestContext | undefined;
-  let activeScenario: { controller: AbortController; test: TestContext } | undefined;
+  let activeTest: ControlUiE2eScenarioContext | undefined;
+  let activeScenario:
+    | { controller: AbortController; test: ControlUiE2eScenarioContext }
+    | undefined;
   let unsafeCleanup: { error: unknown; retainedState: () => string | undefined } | undefined;
   let browser: Browser | undefined;
   let server: ControlUiE2eServer | undefined;
