@@ -497,11 +497,11 @@ needs the same `lane_waiver` acknowledgement on the publish workflow.
     -f state=rejected -f comment="Reject stale release gate" -F "environment_ids[]=$env_id"
   gh run cancel <child> --repo openclaw/openclaw
   ```
-- `gh run rerun --failed` on a plugin npm child never passes: `Validate npm
-preflight artifact readback` pins `workflow.runAttempt`, so attempt 2 fails
-  `Preflight manifest workflow mismatch`. Only a fresh child works; since
-  #156760 the parent re-dispatches one (at most twice) when only pack/preflight
-  jobs failed.
+- `gh run rerun --failed` on a plugin npm child fails its attempt-bound
+  preflight artifact readback. The parent waits for the original child to
+  settle and propagates its failure without dispatching a replacement.
+  Diagnose and fix the failed owner before explicitly recovering publication;
+  preserve successful immutable packages and evidence.
 - Core child `Verify full release validation target` failing with
   `pass lane_waiver=<reason> to acknowledge it`: the tooling tag predates
   #156816 (waiver forwarded to children). Cut a new tooling tag from a `main`
