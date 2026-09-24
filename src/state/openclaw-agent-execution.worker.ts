@@ -1,5 +1,6 @@
 import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
 import type { Result } from "@openclaw/normalization-core/result";
+import type { SessionTranscriptInitializationPublication } from "../config/sessions/session-accessor.sqlite-entry-cache.types.js";
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
 import { sqliteReaderDatabasePathKey } from "../infra/sqlite-reader-lifecycle.js";
 import { assertTransactionUsable } from "../infra/sqlite-transaction.js";
@@ -107,19 +108,40 @@ function openAgentDatabaseBackend(
   admitOpen();
   const options = { agentId: input.agentId, path: input.databasePath, env: input.environment };
   const preparedFileIdentity =
-    opening.existingIdentity ?? readDatabasePathIdentitySync(input.databasePath).key;
-  let admittedFileIdentity = preparedFileIdentity.startsWith("file:")
-    ? preparedFileIdentity
-    : undefined;
+    input.creatingIdentity?.key ??
+    opening.existingIdentity ??
+    readDatabasePathIdentitySync(input.databasePath).key;
+  let admittedFileIdentity = preparedFileIdentity;
+  let admittedFileBirthtime = input.creatingIdentity?.birthtime;
   const assertFileIdentity = () => {
     if (input.expectedIdentity) {
       assertExistingDatabaseIdentity(
         input.databasePath,
         `file:${input.expectedIdentity.physicalIdentity}`,
+        input.expectedIdentity.birthtime,
       );
     }
-    if (admittedFileIdentity) {
-      assertExistingDatabaseIdentity(input.databasePath, admittedFileIdentity);
+    if (admittedFileIdentity.startsWith("path:")) {
+      const current = readDatabasePathIdentitySync(input.databasePath);
+      if (
+        current.key !== admittedFileIdentity ||
+        (input.creatingIdentity && current.canonicalPath !== input.creatingIdentity.canonicalPath)
+      ) {
+        throw new Error("Agent database target changed before creating open");
+      }
+    } else {
+      if (
+        input.creatingIdentity &&
+        readDatabasePathIdentitySync(input.databasePath).canonicalPath !==
+          input.creatingIdentity.canonicalPath
+      ) {
+        throw new Error("Agent database target changed before creating open");
+      }
+      assertExistingDatabaseIdentity(
+        input.databasePath,
+        admittedFileIdentity,
+        admittedFileBirthtime,
+      );
     }
   };
   let database: OpenClawAgentDatabase | undefined;
@@ -209,7 +231,12 @@ function openAgentDatabaseBackend(
         throw new Error("Disk agent execution requires its canonical file identity");
       }
       const openedFileIdentity = `file:${nativeIdentity.identity}`;
-      if (admittedFileIdentity && openedFileIdentity !== admittedFileIdentity) {
+      if (
+        admittedFileIdentity.startsWith("file:") &&
+        (openedFileIdentity !== admittedFileIdentity ||
+          (admittedFileBirthtime !== undefined &&
+            nativeIdentity.birthtime !== admittedFileBirthtime))
+      ) {
         throw new Error("Agent writer differs from its admitted physical file");
       }
       if (
@@ -219,9 +246,11 @@ function openAgentDatabaseBackend(
         throw new Error("Agent writer differs from its expected physical file");
       }
       admittedFileIdentity = openedFileIdentity;
+      admittedFileBirthtime = nativeIdentity.birthtime;
       identity = {
         kind: "file",
         physicalIdentity: nativeIdentity.identity,
+        birthtime: nativeIdentity.birthtime,
         incarnation: nativeIdentity.incarnation,
         nativeLocation: nativeIdentity.filename,
       };
@@ -422,12 +451,23 @@ function openAgentDatabaseBackend(
               throw new Error("Session transcript lost its canonical database owner");
             }
             admit("transaction");
+            const publication: SessionTranscriptInitializationPublication = {
+              kind: "session-transcript-initialized",
+              sessionKey: command.input.sessionKey,
+            };
             initialize(
               current,
               { agentId: input.agentId, path: input.databasePath, ...command.input },
               command.input.cwd,
+              {
+                onPlaceholderInserted: ({ sessionId }) => {
+                  publication.placeholder = { sessionId };
+                },
+              },
             );
-            admit("commit");
+            deferSqliteWorkerCommitReceipt(current.db, publication);
+            admit("commit", publication);
+            return publication;
           },
           options,
           { operationLabel: "session.entry.create-with-transcript" },
