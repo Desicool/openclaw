@@ -2971,7 +2971,6 @@ function runFullReleaseInputValidation(
       RELEASE_PROFILE: releaseProfile,
       SKIP_PACKAGE_TELEGRAM_E2E: skipTelegram,
       TELEGRAM_WAIVER: options.telegramWaiver ?? "",
-      LANE_WAIVER: "",
       RERUN_GROUP: options.rerunGroup ?? "all",
       LIVE_SUITE_FILTER: options.liveSuiteFilter ?? "",
       TARGET_CONTEXT_REF: "",
@@ -3083,7 +3082,6 @@ printf '%s\\n' "$value"
       GITHUB_OUTPUT: outputPath,
       PATH: `${fakeBin}:${process.env.PATH}`,
       RELEASE_PROFILE: params.releaseProfile ?? "beta",
-      LANE_WAIVER: "",
       RUN_RELEASE_SOAK: params.runReleaseSoak ?? "false",
       RERUN_GROUP: params.rerunGroup ?? "all",
       CROSS_OS_SUITE_FILTER: params.crossOsSuiteFilter ?? "",
@@ -3163,7 +3161,6 @@ function runReleaseChecksInputValidation(
       RELEASE_RUN_RELEASE_SOAK_INPUT: runReleaseSoak,
       RELEASE_SKIP_PACKAGE_TELEGRAM_E2E_INPUT: skipTelegram,
       TELEGRAM_WAIVER: options.telegramWaiver ?? "",
-      LANE_WAIVER: "",
     },
   });
   return { outputPath, result };
@@ -3275,7 +3272,6 @@ function runFullReleaseCandidateRequest(packagePublished: boolean) {
       UPGRADE_SURVIVOR_BASELINE: "openclaw@latest",
       UPGRADE_SURVIVOR_BASELINES: "",
       UPGRADE_SURVIVOR_SCENARIOS: "",
-      LANE_WAIVER: "",
     },
   });
   const output = Object.fromEntries(
@@ -3451,7 +3447,6 @@ function runFullReleaseChildDispatch(
     SCENARIO: "",
     SKIP_PACKAGE_TELEGRAM_E2E: "false",
     TELEGRAM_WAIVER: "",
-    LANE_WAIVER: "",
     TARGET_CONTEXT_REF: "",
     TARGET_REF: "main",
     TARGET_SHA: "b".repeat(40),
@@ -5696,7 +5691,6 @@ const fs=require("node:fs");fs.writeFileSync("install-proof.json",JSON.stringify
     },
   ])("carries the $name artifact owner without replacing publication authority", async (mode) => {
     const stableSoakWaiver = mode.fullReleasePreflight ? "Soak infrastructure unavailable" : "";
-    const laneWaiver = mode.fullReleasePreflight ? "Telegram lane blocked: operator approved" : "";
     const producerRunId = mode.independentProducer ? "333" : "111";
     const fullReleaseRunId = mode.fullReleasePreflight ? "111" : "222";
     const qualifiedName = `openclaw-npm-preflight-${"a".repeat(40)}`;
@@ -5727,7 +5721,6 @@ const fs=require("node:fs");fs.writeFileSync("install-proof.json",JSON.stringify
     const expressions: Record<string, string> = {
       "${{ inputs.preflight_run_id }}": "111",
       "${{ inputs.stable_soak_waiver }}": stableSoakWaiver,
-      "${{ inputs.lane_waiver }}": laneWaiver,
       "${{ inputs.full_release_validation_run_id }}": fullReleaseRunId,
     };
     for (const [name, value] of Object.entries(target.outputs ?? {})) {
@@ -5842,7 +5835,6 @@ render_github_release_notes() { cp "$2" "$1"; printf '%s\\n' '{"verificationIncl
     const dispatch = fixture.events().find((event) => event.startsWith("dispatch:"));
     expect(dispatch).toContain("-f preflight_run_id=111");
     expect(dispatch).toContain(`-f stable_soak_waiver=${stableSoakWaiver}`);
-    expect(dispatch).toContain(`-f lane_waiver=${laneWaiver}`);
     expect(dispatch).toContain(`-f full_release_validation_run_id=${fullReleaseRunId}`);
 
     const proof = fixture.run(
@@ -8444,7 +8436,6 @@ test "$package_manager" = "pnpm@12.1.0"
         RELEASE_TAG: "${{ inputs.tag }}",
         RELEASE_NPM_DIST_TAG: "${{ inputs.npm_dist_tag }}",
         STABLE_SOAK_WAIVER: "${{ inputs.stable_soak_waiver }}",
-        LANE_WAIVER: "${{ inputs.lane_waiver }}",
       });
     }
     expect(validationStep.env?.EXPECTED_RELEASE_PROFILE).toBe("${{ inputs.release_profile }}");
@@ -10868,15 +10859,15 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
 
   it.each([
     { label: "canonical beta", scope: "npm-beta" },
-    { label: "Linux-only beta", crossOsSuiteFilter: "ubuntu", scope: "npm-beta" },
+    { label: "all-OS beta", crossOsSuiteFilter: "ubuntu,windows,macos", scope: "npm-beta" },
     { label: "beta soak", runReleaseSoak: "true", scope: "full" },
     { label: "focused beta CI", rerunGroup: "ci", scope: "full" },
     { label: "stable profile", releaseProfile: "stable", scope: "full" },
     { label: "stable version", version: "2026.8.1", scope: "full" },
     { label: "main beta profile", targetRef: "main", scope: "full" },
     {
-      label: "canonical stable with Windows omitted",
-      crossOsSuiteFilter: "ubuntu,macos",
+      label: "canonical stable with all OSes",
+      crossOsSuiteFilter: "ubuntu,windows,macos",
       releaseProfile: "stable",
       version: "2026.8.1",
       runReleaseSoak: "true",
@@ -10934,18 +10925,24 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     ["beta", "2026.8.1-beta.3", "false"],
     ["stable", "2026.8.1", "true"],
   ])(
-    "rejects %s qualification when the cross-OS selection omits Linux coverage",
+    "rejects %s qualification when the cross-OS selection omits required OS coverage",
     (releaseProfile, version, runReleaseSoak) => {
-      const result = runFullReleaseTargetIdentityValidation({
-        targetRef: "release/2026.8.1",
-        releaseProfile,
-        version,
-        runReleaseSoak,
-        crossOsSuiteFilter: "windows,macos,ubuntu/packaged-fresh",
-      });
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("Linux");
-      expect(result.output).not.toContain("coverage_policy=");
+      for (const crossOsSuiteFilter of [
+        "windows,macos,ubuntu/packaged-fresh",
+        "ubuntu,macos",
+        "ubuntu,windows",
+      ]) {
+        const result = runFullReleaseTargetIdentityValidation({
+          targetRef: "release/2026.8.1",
+          releaseProfile,
+          version,
+          runReleaseSoak,
+          crossOsSuiteFilter,
+        });
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("all Linux, Windows, and macOS cross-OS suites");
+        expect(result.output).not.toContain("coverage_policy=");
+      }
     },
   );
 
