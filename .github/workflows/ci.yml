@@ -6188,16 +6188,38 @@ jobs:
             -only-testing:OpenClawTests/OpenClawTypographyTests \
             test
 
-      # App compilation and screenshots do not execute approval or notification
-      # lifecycles. Exercise both owners on the already provisioned simulator.
+      # Compile-only smoke cannot verify native Access crypto or session ownership.
+      # Full validation also exercises the existing app and notification lifecycles.
       - name: Run focused iOS lifecycle simulator tests
         id: ios_lifecycle_tests
-        if: matrix.phase == 'tests' && needs.preflight.outputs.compatibility_target != 'true'
+        if: (matrix.phase == 'smoke' || matrix.phase == 'tests') && needs.preflight.outputs.compatibility_target != 'true'
         run: |
           set -euo pipefail
           source .ci-harness/scripts/lib/swift-toolchain.sh
           result_bundle="apps/ios/build/LifecycleTestResults/OpenClawLifecycleTests.xcresult"
           mkdir -p "apps/ios/build/LifecycleTestResults"
+          test_args=(
+            -only-testing:OpenClawTests/CloudflareAccessClientTests
+            -only-testing:OpenClawTests/CloudflareAccessTransferTests
+            -only-testing:OpenClawTests/CloudflareAccessSessionStoreTests
+          )
+          if [[ "$IOS_CI_PHASE" == "tests" ]]; then
+            test_args+=(
+              -only-testing:OpenClawLogicTests/WatchVoiceTurnTrackerTests
+              -only-testing:OpenClawTests/DelayedActionGateTests
+              -only-testing:OpenClawTests/IOSGatewayChatTransportTests
+              -only-testing:OpenClawTests/LocationServiceCallbackTests
+              -only-testing:OpenClawTests/LocationServiceOrderingTests
+              -only-testing:OpenClawTests/NodeAppModelInvokeTests
+              -only-testing:OpenClawTests/OpenClawAppDelegateTests
+              -only-testing:OpenClawTests/WatchMessagingInboundTransportTests
+              -only-testing:OpenClawTests/WatchSessionActivationGateTests
+              -only-testing:OpenClawTests/OpenClawTypographyTests
+              -only-testing:OpenClawTests/NotificationServingPreferenceTests
+              -only-testing:OpenClawTests/RootTabsSourceGuardTests
+              -only-testing:OpenClawTests/TraceHeadingVisualProofTests
+            )
+          fi
           run_apple_command_logged "${result_bundle%.xcresult}.log" xcodebuild \
             -project apps/ios/OpenClaw.xcodeproj \
             -scheme OpenClaw \
@@ -6205,29 +6227,19 @@ jobs:
             -destination "platform=iOS Simulator,id=${IOS_SIMULATOR_ID:?}" \
             -resultBundlePath "$result_bundle" \
             -parallel-testing-enabled NO \
-            -only-testing:OpenClawLogicTests/WatchVoiceTurnTrackerTests \
-            -only-testing:OpenClawTests/DelayedActionGateTests \
-            -only-testing:OpenClawTests/IOSGatewayChatTransportTests \
-            -only-testing:OpenClawTests/LocationServiceCallbackTests \
-            -only-testing:OpenClawTests/LocationServiceOrderingTests \
-            -only-testing:OpenClawTests/NodeAppModelInvokeTests \
-            -only-testing:OpenClawTests/OpenClawAppDelegateTests \
-            -only-testing:OpenClawTests/WatchMessagingInboundTransportTests \
-            -only-testing:OpenClawTests/WatchSessionActivationGateTests \
-            -only-testing:OpenClawTests/OpenClawTypographyTests \
-            -only-testing:OpenClawTests/NotificationServingPreferenceTests \
-            -only-testing:OpenClawTests/RootTabsSourceGuardTests \
-            -only-testing:OpenClawTests/TraceHeadingVisualProofTests \
+            "${test_args[@]}" \
             test
-          run_apple_command_logged apps/ios/build/LifecycleTestResults/OpenClawWatchDeliveryUITests.log xcodebuild \
-            -project apps/ios/OpenClaw.xcodeproj \
-            -scheme OpenClawUITests \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=${IOS_SIMULATOR_ID:?}" \
-            -resultBundlePath apps/ios/build/LifecycleTestResults/OpenClawWatchDeliveryUITests.xcresult \
-            -parallel-testing-enabled NO \
-            -only-testing:OpenClawUITests/OpenClawSnapshotUITests/testWatchMessageDeliveryIsReachableFromSettings \
-            test
+          if [[ "$IOS_CI_PHASE" == "tests" ]]; then
+            run_apple_command_logged apps/ios/build/LifecycleTestResults/OpenClawWatchDeliveryUITests.log xcodebuild \
+              -project apps/ios/OpenClaw.xcodeproj \
+              -scheme OpenClawUITests \
+              -configuration Debug \
+              -destination "platform=iOS Simulator,id=${IOS_SIMULATOR_ID:?}" \
+              -resultBundlePath apps/ios/build/LifecycleTestResults/OpenClawWatchDeliveryUITests.xcresult \
+              -parallel-testing-enabled NO \
+              -only-testing:OpenClawUITests/OpenClawSnapshotUITests/testWatchMessageDeliveryIsReachableFromSettings \
+              test
+          fi
 
       - name: Run focused Apple Watch operation simulator tests
         if: matrix.phase == 'tests' && needs.preflight.outputs.compatibility_target != 'true'
