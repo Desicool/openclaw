@@ -3458,6 +3458,7 @@ export const en: TranslationMap & {
       typing: "{name} is typing…",
       typingMany: "{names} are typing…",
       typingDraftState: "Typing · not sent",
+      pausedDraftState: "Paused · not sent",
       state: {
         pending: "Pending",
         accepted: "Accepted",
