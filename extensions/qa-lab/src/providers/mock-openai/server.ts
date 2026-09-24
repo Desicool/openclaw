@@ -1145,7 +1145,7 @@ async function buildResponsesPayload(
   if (whatsAppGroupDispatchReply) {
     return buildAssistantEvents(whatsAppGroupDispatchReply);
   }
-  const whatsAppBatchedReply = buildWhatsAppBatchedReply(allInputText);
+  const whatsAppBatchedReply = buildWhatsAppBatchedReply(prompt);
   if (whatsAppBatchedReply) {
     return buildAssistantEvents(whatsAppBatchedReply);
   }
