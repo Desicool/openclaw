@@ -526,6 +526,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/infra/sqlite-worker-existing-schema.test.ts",
   "src/state/openclaw-state-read.existing-schema.test.ts",
   "src/infra/session-cost-usage-metadata.test.ts",
+  "src/plugins/installed-plugin-index-records.managed-npm.test.ts",
   "src/plugins/installed-plugin-index-records.test.ts",
   "src/acp/runtime/session-meta-doctor.test.ts",
   "src/agents/agent-tools.at-prefixed-remote-paths.test.ts",
