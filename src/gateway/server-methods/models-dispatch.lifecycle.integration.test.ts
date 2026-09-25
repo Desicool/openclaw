@@ -152,7 +152,7 @@ async function withDispatchLifecycle(
                   headers: { Authorization: "Bearer " + auth.discoveryApiKey },
                 });
                 if (!response.ok) return {
-                  providers: {}, outcomes: [{ provider: "opencode", status: "unavailable" }],
+                  providers: {}, outcomes: [{ provider: "opencode", profileId: auth.profileId, status: "unavailable" }],
                 };
                 const { data } = await response.json();
                 return { provider: {
@@ -163,7 +163,7 @@ async function withDispatchLifecycle(
                     contextWindow: 32768, maxTokens: 1536,
                     compat: { maxTokensField: "max_tokens" },
                   })),
-                } };
+                }, outcomes: [{ provider: "opencode", profileId: auth.profileId, status: "ready" }] };
               },
             },
           });
