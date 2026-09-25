@@ -105,7 +105,7 @@ env:
   IOS_SCREENSHOT_FASTLANE_VERSION: "2.240.1"
   IOS_SCREENSHOT_NODE_VERSION: "24.16.0"
   IOS_SCREENSHOT_XCODE_VERSION: "Xcode 27.0 Build version 27A266a"
-  NODE_VERSION: "24.19.0"
+  NODE_VERSION: "24.21.0"
 
 jobs:
   # Preflight: establish routing truth and job matrices once, then let real
@@ -2565,7 +2565,7 @@ jobs:
         run: node "$PRIVATE_KEY_SCANNER_PATH"
 
       - name: Install security scanners
-        run: python3 --version && python3 -m pip install --disable-pip-version-check pre-commit==4.6.2 zizmor==1.29.0
+        run: python3 --version && python3 -m pip install --disable-pip-version-check pre-commit==4.6.2 zizmor==1.30.1
 
       - name: Audit changed GitHub workflows with zizmor
         env:
@@ -4411,7 +4411,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-${{ matrix.task }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-${{ matrix.task }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-${{ matrix.task }}-
 
       # Full runs publish core state in five stripe caches. The changed-graph
       # queue needs that same state even when it runs inside the central row.
@@ -4423,7 +4422,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-1-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-1-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-1-
 
       - name: Restore changed core test-type stripe 2
         if: matrix.task == 'test-types' && needs.preflight.outputs.changed_core_test_paths_json != '' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true'
@@ -4433,7 +4431,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-2-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-2-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-2-
 
       - name: Restore changed core test-type stripe 3
         if: matrix.task == 'test-types' && needs.preflight.outputs.changed_core_test_paths_json != '' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true'
@@ -4443,7 +4440,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-3-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-3-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-3-
 
       - name: Restore changed core test-type stripe 4
         if: matrix.task == 'test-types' && needs.preflight.outputs.changed_core_test_paths_json != '' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true'
@@ -4453,7 +4449,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-4-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-4-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-4-
 
       - name: Restore changed core test-type stripe 5
         if: matrix.task == 'test-types' && needs.preflight.outputs.changed_core_test_paths_json != '' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true'
@@ -4463,7 +4458,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-5-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-5-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-5-
 
       - name: Compute extension boundary input fingerprint
         id: extension-boundary-inputs
@@ -4999,7 +4993,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-${{ matrix.stripe }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-${{ matrix.stripe }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
-            ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-core-${{ matrix.stripe }}-
 
       - name: Run hosted core test-types stripe
         env:
@@ -5397,7 +5390,7 @@ jobs:
     timeout-minutes: 60
     env:
       # Node 24.20 includes the Windows native scheduler shutdown fix (nodejs/node#61999).
-      NODE_VERSION: "24.20.0"
+      NODE_VERSION: "24.21.0"
       NODE_OPTIONS: --max-old-space-size=8192
       OPENCLAW_TEST_SKIP_FULL_EXTENSIONS_SHARD: 1
     defaults:
@@ -6359,16 +6352,16 @@ jobs:
         uses: ruby/setup-ruby@984c0c890880bbf811283d6f09c4607c62d210a4 # v1.323.0
         with:
           ruby-version: "3.4.10"
-          bundler: "2.6.9"
+          bundler: "4.0.21"
           bundler-cache: false
           working-directory: apps/ios
 
       - name: Install locked Fastlane bundle
         working-directory: apps/ios
         run: |
-          bundle _2.6.9_ install --jobs 4 --retry 3
-          bundle _2.6.9_ check
-          bundle _2.6.9_ exec fastlane --version
+          bundle _4.0.21_ install --jobs 4 --retry 3
+          bundle _4.0.21_ check
+          bundle _4.0.21_ exec fastlane --version
 
       - *select_xcode_step
 
