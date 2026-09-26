@@ -28,6 +28,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/commands/doctor-channel-ingress.test.ts",
   "src/plugins/registry.runtime-config.test.ts",
   "src/acp/runtime/session-meta-list.test.ts",
+  "src/tui/tui-last-session.test.ts",
   "src/agents/session-placement-admission.caller-scope.test.ts",
   "src/trajectory/runtime-store-writer.test.ts",
   "src/trajectory/runtime.test.ts",
