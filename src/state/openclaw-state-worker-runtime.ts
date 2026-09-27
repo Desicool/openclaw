@@ -359,13 +359,6 @@ export function executeSharedStateCommand(
       (stage) => requestSqliteWorkerOperationAdmission({ stage, facts: undefined }),
     );
   }
-  if (command.type === "plugins.deferredMigrations.record") {
-    return recordDeferredPluginMigrationsInWorker(command.input, {
-      database: open(),
-      path: context.databasePath,
-      env: getSqliteWorkerStateContext().environment,
-    });
-  }
   if (
     command.type === "plugins.deferredMigrations.read" ||
     command.type === "plugins.deferredMigrations.completions.read"
@@ -514,6 +507,9 @@ export function executeSharedStateCommand(
     path: context.databasePath,
     env: getSqliteWorkerStateContext().environment,
   };
+  if (command.type === "plugins.deferredMigrations.record") {
+    return recordDeferredPluginMigrationsInWorker(command.input, writeOptions);
+  }
   if (
     command.type === "nativeHookRelay.write" ||
     command.type === "nativeHookRelay.renew" ||
