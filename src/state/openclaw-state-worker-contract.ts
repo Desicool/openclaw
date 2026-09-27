@@ -64,10 +64,7 @@ import type {
   SqliteWalPeriodicRequest,
   SqliteWalPeriodicResult,
 } from "../infra/sqlite-wal-write-admission.js";
-import type {
-  SqliteWorkerPreparedBackend,
-  SqliteWorkerStateLifecycle,
-} from "../infra/sqlite-worker-contract.js";
+import type { SqliteWorkerPreparedBackend } from "../infra/sqlite-worker-contract.js";
 import type { SqliteWorkerAdmissionFactory } from "../infra/sqlite-worker-operation-admission.js";
 import type { TelemetryWorkerOperations } from "../infra/telemetry-worker-contract.js";
 import type {
@@ -364,8 +361,6 @@ export type OpenClawStateWorkerRuntimeCommand = Exclude<
 /** Host-only admission options; never serialized with a worker command. */
 export type OpenClawStateWorkerOperationOptions = {
   preparation?: OpenClawStateWorkerOpenPreparation;
-  /** Acquire matching lifecycle custody for each dispatched command. */
-  requireStateLifecycle?: SqliteWorkerStateLifecycle;
   existingOnly?: boolean;
   assertCurrent?: (commandType?: PropertyKey) => void;
   createAdmission?: SqliteWorkerAdmissionFactory;
