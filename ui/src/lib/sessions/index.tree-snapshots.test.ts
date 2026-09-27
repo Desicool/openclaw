@@ -86,6 +86,7 @@ describe("tree row snapshots", () => {
     async (event) => {
       vi.useFakeTimers();
       const outcomes: GatewaySessionRow[][] = [];
+      const summary = { state: "stale" as const, canEnsure: true };
       try {
         for (const references of [true, false]) {
           const h = treeHarness();
@@ -104,6 +105,7 @@ describe("tree row snapshots", () => {
               const ancestors = [
                 {
                   ...settledParent,
+                  activitySummary: summary,
                   totalTokensFresh: false,
                   snapshotAt,
                   ancestorRevision: "parent-revision",
@@ -140,6 +142,27 @@ describe("tree row snapshots", () => {
                   ts: snapshotAt,
                 },
               });
+              if (snapshotAt === 102) {
+                // Page reads omit opt-in recaps and retain the wire's empty usage marker.
+                const read = h.holdRead();
+                const refresh = h.sessions.refreshList({
+                  agentId: "main",
+                  includeUnknown: false,
+                  force: true,
+                });
+                read.resolve(
+                  sessionsResult(
+                    [settledChild, settledParent, settledGrandparent].map((row) => ({
+                      ...row,
+                      totalTokensFresh: false,
+                      snapshotAt,
+                    })),
+                    snapshotAt,
+                  ),
+                );
+                await refresh;
+                h.request.mockClear();
+              }
             }
             // Snapshot clocks are sampling metadata, not a row-content difference.
             outcomes.push(
@@ -155,8 +178,8 @@ describe("tree row snapshots", () => {
           }
         }
         expect(outcomes).toEqual([
-          [settledChild, settledParent, settledGrandparent],
-          [settledChild, settledParent, settledGrandparent],
+          [settledChild, { ...settledParent, activitySummary: summary }, settledGrandparent],
+          [settledChild, { ...settledParent, activitySummary: summary }, settledGrandparent],
         ]);
       } finally {
         vi.useRealTimers();

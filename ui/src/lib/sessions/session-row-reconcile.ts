@@ -70,7 +70,7 @@ export type SessionChangedEventInfo = {
   isAncestorReference: boolean;
 };
 
-function sanitizeSessionRow(row: GatewaySessionRow): GatewaySessionRow {
+export function sanitizeSessionRow(row: GatewaySessionRow): GatewaySessionRow {
   const next = { ...row };
   for (const [key, value] of Object.entries(row)) {
     if (
