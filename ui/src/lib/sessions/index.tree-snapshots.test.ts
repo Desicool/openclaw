@@ -87,7 +87,7 @@ describe("tree row snapshots", () => {
       vi.useFakeTimers();
       const outcomes: GatewaySessionRow[][] = [];
       try {
-        for (const references of [false, true]) {
+        for (const references of [true, false]) {
           const h = treeHarness();
           const invalidated = vi.fn();
           const observer = h.sessions.observeRow(
@@ -140,7 +140,6 @@ describe("tree row snapshots", () => {
                   ts: snapshotAt,
                 },
               });
-              await vi.dynamicImportSettled();
             }
             // Snapshot clocks are sampling metadata, not a row-content difference.
             outcomes.push(
@@ -185,7 +184,6 @@ describe("tree row snapshots", () => {
             ],
           },
         });
-        await vi.dynamicImportSettled();
         if (change === "list replacement") {
           const read = h.holdRead();
           const refresh = h.sessions.refresh({ agentId: "main", force: true });
@@ -313,7 +311,6 @@ describe("tree row snapshots", () => {
           },
         });
       emit(false);
-      await vi.dynamicImportSettled();
       const pending = h.holdRead();
       const refresh = h.sessions.refresh({ agentId: "main", force: true });
       emit(true);
