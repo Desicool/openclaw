@@ -1706,7 +1706,6 @@ src/agents/tool-search-catalog.ts	4
 src/agents/tool-search-directory.ts	1
 src/agents/tool-search-runtime.ts	4
 src/agents/tool-search-transcript.ts	1
-src/agents/tool-search.ts	1
 src/agents/tools-effective-inventory-build.ts	2
 src/agents/tools-effective-inventory.ts	4
 src/agents/tools/agents-wait-tool.ts	1
@@ -2363,7 +2362,7 @@ src/gateway/secret-input-paths.ts	1
 src/gateway/server-broadcast.ts	1
 src/gateway/server-channels.ts	1
 src/gateway/server-chat-state.ts	1
-src/gateway/server-chat.ts	5
+src/gateway/server-chat.ts	4
 src/gateway/server-close.ts	1
 src/gateway/server-core-runtime.ts	1
 src/gateway/server-cron-reconciled.ts	1
