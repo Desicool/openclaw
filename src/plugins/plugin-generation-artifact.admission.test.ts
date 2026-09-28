@@ -517,6 +517,61 @@ it.each([false, true])(
   },
 );
 
+it("keeps an installed generation current while another cache admits its native companions", async () => {
+  await withOpenClawTestState({ label: "native-admission-overlapping-caches" }, async (state) => {
+    const fixture = createFixture(state.path("installed"), true);
+    fs.unlinkSync(fixture.filename);
+    const manifestPath = path.join(fixture.root, "package.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const dependencies = { "native-a": "1.0.0", "native-b": "1.0.0" };
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, dependencies }));
+    for (const name of [...Object.keys(dependencies), "common"]) {
+      const dependencyRoot = path.join(fixture.root, "node_modules", name);
+      fs.mkdirSync(dependencyRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(dependencyRoot, "package.json"),
+        JSON.stringify({
+          name,
+          version: "1.0.0",
+          ...(name === "common" ? {} : { dependencies: { common: "1.0.0" } }),
+        }),
+      );
+      if (name !== "common") {
+        fs.writeFileSync(path.join(dependencyRoot, "fixture.bin"), "native fixture");
+      }
+    }
+    const companion = path.join(fixture.root, "node_modules", "common", "a-companion.txt");
+    fs.writeFileSync(companion, "unchanged native companion");
+    const modifiedAt = new Date(1_000);
+    fs.utimesSync(companion, modifiedAt, modifiedAt);
+    await writePersistedInstalledPluginIndex(fixture.index, { stateDir: state.stateDir });
+    const caches = [createPluginCache(), createPluginCache()];
+    const artifacts: ReturnType<typeof capturePluginGenerationArtifact>[] = [];
+    try {
+      for (const cache of caches) {
+        preparePluginNativeAdmissions(fixture.index, cache);
+        artifacts.push(withPluginCache(cache, () => capturePluginGenerationArtifact(fixture.root)));
+      }
+      expect(() => artifacts[0]!.assertSourceCurrent()).not.toThrow();
+      const capturedDependency = createRequire(artifacts[0]!.resolve(fixture.entry)).resolve(
+        "native-a/package.json",
+      );
+      const capturedCompanion = createRequire(capturedDependency).resolve("common/a-companion.txt");
+      fs.writeFileSync(companion, "different native companion");
+      fs.utimesSync(companion, modifiedAt, modifiedAt);
+      expect(() => artifacts[0]!.assertSourceCurrent()).toThrow("Plugin source changed");
+      expect(fs.readFileSync(capturedCompanion, "utf8")).toBe("unchanged native companion");
+    } finally {
+      for (const artifact of artifacts) {
+        await artifact.disposeAsync();
+      }
+      for (const cache of caches) {
+        await retirePluginCache(cache);
+      }
+    }
+  });
+});
+
 it("snapshots a mutable native edit once while retained generations keep their previous bytes", async () => {
   await withOpenClawTestState({ label: "native-admission-mutable" }, async (state) => {
     const fixture = createFixture(state.path("source"), false);
