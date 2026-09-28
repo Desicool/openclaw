@@ -1555,7 +1555,7 @@ describe("ci workflow guards", () => {
           core: [],
           extensions: [],
           central: {
-            packages: ["ui"],
+            files: [],
             coreStripes: [],
             extensionStripes: [],
             groups: [],
