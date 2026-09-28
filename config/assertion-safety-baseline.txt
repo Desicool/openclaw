@@ -36,7 +36,6 @@ extensions/anthropic/stream-wrappers.ts	3
 extensions/baseten/models.ts	3
 extensions/beam/src/mirror.ts	3
 extensions/beam/src/types.ts	2
-extensions/browser/plugin-registration.ts	1
 extensions/browser/src/browser-node-fallback.ts	1
 extensions/browser/src/browser-node-proxy.ts	2
 extensions/browser/src/browser-proxy-upload.ts	2
@@ -84,7 +83,6 @@ extensions/browser/src/browser/routes/tabs.ts	6
 extensions/browser/src/browser/server-context.remote-tab-ops.harness.ts	2
 extensions/browser/src/browser/server-context.tab-ops.ts	2
 extensions/browser/src/browser/server-middleware.ts	2
-extensions/browser/src/browser/snapshot-delta-cache.ts	1
 extensions/browser/src/browser/system-chrome-cookies.ts	1
 extensions/browser/src/browser/system-profiles.ts	1
 extensions/browser/src/browser/test-port.ts	1
