@@ -343,7 +343,10 @@ async function verifyPreExistingFailure(evidence, run, jobs, checks, main, repos
           owner.steps.some(
             (step) =>
               step.number === cancellation.step &&
-              step.name === "Cancel remaining PR work after a failure" &&
+              [
+                "Cancel remaining PR work after a failure",
+                "Classify PR failures and cancel eligible same-repository work",
+              ].includes(step.name) &&
               step.status === "completed" &&
               step.conclusion === "success",
           ),

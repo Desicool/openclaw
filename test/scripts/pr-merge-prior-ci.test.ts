@@ -341,6 +341,26 @@ describePosix("explicit prior-CI admin landing", () => {
     expect(f.state().mutations).toBe(0);
   });
 
+  it.each([
+    ["Classify PR failures and cancel eligible same-repository work", true],
+    ["Unrelated successful step", false],
+  ] as const)("recognizes only owned fail-fast steps: %s", (name, accepted) => {
+    const f = preExistingCandidate();
+    const state = f.state();
+    state.priorCi.jobs![2]!.steps![0]!.name = name;
+    f.save(state);
+    const result = f.verifyPriorCi(f.path);
+    if (accepted) {
+      expect(result.status, result.output).toBe(0);
+    } else {
+      expect(result.status, result.output).not.toBe(0);
+      expect(result.output).toContain(
+        "all cancelled jobs require explicit inspected fail-fast provenance",
+      );
+    }
+    expect(f.state().mutations).toBe(0);
+  });
+
   it.each(["failure", "cancelled"])(
     "lands an attributed %s attempt without claiming cancelled coverage passed",
     (conclusion) => {
