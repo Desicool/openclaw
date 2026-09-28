@@ -9260,6 +9260,11 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       stripeCount?: number;
     }) => {
       const root = tempDirs.make("openclaw-hosted-lint-owner-");
+      mkdirSync(path.join(root, ".ci-harness/scripts"), { recursive: true });
+      copyFileSync(
+        new URL("../../scripts/ci-static-step.sh", import.meta.url),
+        path.join(root, ".ci-harness/scripts/ci-static-step.sh"),
+      );
       const binDir = path.join(root, "bin");
       const callsPath = path.join(root, "calls.txt");
       const goEnvPath = path.join(root, "go-env.txt");
@@ -9329,6 +9334,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
           HOSTED_RUNNER_STRIPES: profile === "blacksmith" ? "false" : "true",
           LINT_CALLS: callsPath,
           LINT_GO_ENV: goEnvPath,
+          OPENCLAW_CI_STATIC_EVIDENCE: "0",
           OPENCLAW_LOCAL_CHECK: "0",
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
           RELEASE_GATE: String(
@@ -9586,6 +9592,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
           CI_TYPE_GRAPHS_JSON: "",
           CI_CORE_TYPE_GRAPHS_JSON: "",
           CI_CORE_TYPE_CONCURRENCY: "",
+          OPENCLAW_CI_STATIC_EVIDENCE: "0",
         },
       });
       expect(report.code, report.output).toBe(0);
