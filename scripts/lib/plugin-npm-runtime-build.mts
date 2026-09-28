@@ -747,7 +747,7 @@ type PluginNpmRuntimeBuildArgs =
       profile?: "qa-gateway-fixture";
     };
 
-function readPackageDirArg(argv: string[]): PluginNpmRuntimeBuildArgs {
+export function parseArgs(argv: string[]): PluginNpmRuntimeBuildArgs {
   const args = argv[0] === "--" ? argv.slice(1) : [...argv];
   const prepareIndex = args.indexOf("--prepare-native-import");
   if (prepareIndex !== -1) {
@@ -774,11 +774,6 @@ function readPackageDirArg(argv: string[]): PluginNpmRuntimeBuildArgs {
   return prepareIndex !== -1
     ? { packageDir, prepareNativeImport: true }
     : { packageDir, ...(fixtureIndex !== -1 ? { profile: "qa-gateway-fixture" as const } : {}) };
-}
-
-/** @internal Directly tested script implementation detail. */
-export function parseArgs(argv: string[]) {
-  return readPackageDirArg(argv);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
