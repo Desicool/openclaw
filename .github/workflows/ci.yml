@@ -88,13 +88,7 @@ permissions:
 run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.dispatch_id != '' && format('CI {0}', inputs.dispatch_id) || (github.event_name == 'workflow_dispatch' && inputs.release_gate && format('CI release gate {0}', inputs.target_ref) || 'CI') }}
 
 concurrency:
-  # Admit each scheduled run independently so a prior iOS tail cannot block core CI.
-  # The iOS job owns scheduled simulator serialization; manual/release runs stay independent.
-  # Canonical main uses run-number parity for two non-canceling slots. Each
-  # slot keeps GitHub's single coalesced pending tip while its active run finishes.
-  # Passive draft events must not replace runnable CI before job gates: pending
-  # replacement happens even with cancel-in-progress false. Keep converted_to_draft
-  # in the PR group so it still cancels earlier work.
+  # Main parity slots preserve active runs; iOS serializes itself. Passive drafts must not replace pending PR work; converted_to_draft still cancels it.
   group: >-
     ${{ github.event_name == 'pull_request' && github.event.pull_request.draft &&
         github.event.action != 'converted_to_draft' && format('{0}-draft-v1-{1}', github.workflow, github.run_id) ||
@@ -110,16 +104,13 @@ env:
   NODE_VERSION: "24.21.0"
 
 jobs:
-  # Preflight: establish routing truth and job matrices once, then let real
-  # work fan out from a single source of truth.
-  # Fork PRs cannot read base-repository vars, so their retries select hosted
-  # runners independently of the backend override, including preflight itself.
+  # Fork retries use hosted runners without base-repository variables.
   preflight:
     permissions:
       contents: read
       actions: read
       pull-requests: read
-    # Full main CI is hourly by default; security-fast still runs on every admitted push.
+    # Full main CI is hourly; security-fast remains per push.
     if: ${{ (github.event_name != 'schedule' || (github.repository == 'openclaw/openclaw' && github.ref == 'refs/heads/main')) && ((github.event_name != 'push' || github.ref != 'refs/heads/main' || vars.OPENCLAW_CI_ON_PUSH == 'true') && (github.event_name != 'pull_request' || !github.event.pull_request.draft)) }}
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || (contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.run_attempt != 1)) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')))) || ((vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || (contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.run_attempt != 1)) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')) }}
     timeout-minutes: 20
@@ -994,8 +985,7 @@ jobs:
         id: checkout_ref
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      # The owner exports matching revisions; retain Actions checkout's existing
-      # transport and retry contract for independently pinned workflow revisions.
+      # Workflow and target revisions are pinned independently.
       - name: Checkout trusted CI harness
         if: ${{ steps.checkout_ref.outputs.sha != github.workflow_sha }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1374,10 +1364,7 @@ jobs:
             node scripts/ci-changed-scope.mjs --base "$BASE" --head "$HEAD_SHA"
           fi
 
-      # Current-revision preflight is dependency-free: the manifest planner
-      # closure and protocol coverage import only node builtins and relative
-      # files, and Node strips their types natively. Different-revision manual
-      # targets retain tsx for their candidate-owned syntax.
+      # Current-source planning needs no dependencies; older targets retain tsx.
       - name: Setup manifest pnpm
         if: github.event_name == 'workflow_dispatch' && steps.checkout_ref.outputs.sha != github.workflow_sha
         uses: ./.ci-harness/.github/actions/setup-pnpm-store-cache
@@ -1417,8 +1404,7 @@ jobs:
           OPENCLAW_CI_DOCS_CHANGED: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'workflow_dispatch' && (steps.runner_profile.outputs.node_runner_backend != 'runson' && steps.runner_profile.outputs.ci_qualification != 'true') && 'true' || steps.docs_scope.outputs.docs_changed }}
           OPENCLAW_CI_RUN_NODE: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'workflow_dispatch' && (steps.runner_profile.outputs.node_runner_backend != 'runson' && steps.runner_profile.outputs.ci_qualification != 'true') && 'true' || steps.changed_scope.outputs.run_node || 'false' }}
           OPENCLAW_CI_NODE_TEST_DATA_ONLY: ${{ steps.changed_scope.outputs.node_test_data_only || 'false' }}
-          # Ordinary manual/release validation stays full. A release_gate is a
-          # hosted substitute for PR CI, so it must retain the exact Apple scope.
+          # release_gate retains the PR Apple scope.
           OPENCLAW_CI_RUN_MACOS: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.run_macos || 'false' }}
           OPENCLAW_CI_RUN_MACOS_NODE: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.run_macos_node || 'false' }}
           OPENCLAW_CI_RUN_IOS_BUILD: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.run_ios_build || 'false' }}
@@ -2757,7 +2743,7 @@ jobs:
             node scripts/check-protocol-event-coverage.mts
           fi
 
-      # Consume immutable dependencies before Blacksmith fanout; only the warmer publishes.
+      # Only the trusted warmer publishes dependencies.
       - name: Restore exact dependency cache
         if: vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && !contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.repository == 'openclaw/openclaw' && steps.manifest.outputs.run_node == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
         uses: ./.ci-harness/.github/actions/setup-node-env
@@ -2766,8 +2752,7 @@ jobs:
           dependency-cache: "true"
           install-bun: "false"
 
-  # Preflight budgets optional hosted work before security allocates a runner.
-  # Security still runs after a failed preflight; other work never waits for it.
+  # Security survives failed preflight and never blocks other work.
   security-fast:
     permissions:
       contents: read
@@ -2785,8 +2770,7 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Manual target validation has a distinct fallback contract: a missing branch/tag
-      # falls back to the workflow SHA, while transport timeouts still fail closed.
+      # Missing refs fall back; transport failures do not.
       - name: Prepare Git owner
         shell: bash
         env:
@@ -2897,7 +2881,7 @@ jobs:
           source .ci-harness/.github/actions/setup-pnpm-store-cache/ensure-node.sh
           openclaw_ensure_node "$REQUESTED_NODE_VERSION"
 
-      # Scan first-party hooks before installs; no PyPI dependency. Node downloads only on cache misses.
+      # Scan hooks before installs.
       - name: Detect committed private keys
         run: node "$PRIVATE_KEY_SCANNER_PATH"
 
@@ -2943,8 +2927,7 @@ jobs:
       - name: Audit production dependencies
         run: node scripts/pre-commit/pnpm-audit-prod.mjs --audit-level=high
 
-      # Full manual CI compares main with itself. Keep differential protections
-      # on the actual push range rather than losing them between hourly runs.
+      # Hourly main-to-main validation cannot replace push-diff guards.
       - name: Setup differential guard dependencies
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.OPENCLAW_CI_ON_PUSH != 'true'
         uses: ./.ci-harness/.github/actions/setup-node-env
@@ -2963,7 +2946,6 @@ jobs:
           pnpm check:assertion-safety --base "$BASE_SHA"
           node --import ./scripts/tsx.mjs scripts/check-protocol-since.mts
 
-  # Build once, alongside the independent correctness lanes.
   build-artifacts:
     permissions:
       contents: read
@@ -2988,8 +2970,7 @@ jobs:
           install-bun: "true"
           node-compile-cache: "true"
           build-all-cache-scope: full
-          # The trusted warmer publishes exact dependencies for Blacksmith.
-          # Gate on the actual runner so hybrid hosted retries stay store-only.
+          # Use the physical runner to keep hosted retries store-only.
           dependency-cache: &trusted_dependency_cache ${{ (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) != 'github' && runner.environment == 'self-hosted' && (github.event_name != 'workflow_dispatch' || ((needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true') && github.run_attempt == 1)) && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && 'true' || 'false' }}
 
       - name: Restore dist build cache
@@ -3011,7 +2992,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm build:ci-artifacts
 
-      # Reject stale plugin assets even on package-only changes that omit byte-equality suites.
+      # Package-only changes must also reject stale plugin assets.
       - name: Check bundled plugin generated assets
         run: |
           set -euo pipefail
@@ -3037,15 +3018,14 @@ jobs:
         run: node openclaw.mjs status --json --timeout 1
 
       - name: Smoke test built CLI with Bun
-        # Older frozen targets intentionally reject Bun at launcher startup.
+        # Older frozen launchers intentionally reject Bun.
         if: ${{ needs.preflight.outputs.frozen_target != 'true' }}
         run: |
           bun openclaw.mjs --help
           bun openclaw.mjs status --json --timeout 1
 
       - name: Verify built browser native host
-        # Frozen candidates may predate this source proof; a skipped step is
-        # unavailable historical coverage, never a successful native-host test.
+        # A skipped historical proof is unavailable, not passed.
         if: ${{ needs.preflight.outputs.run_browser_native_host == 'true' && (needs.preflight.outputs.frozen_target != 'true' || hashFiles('extensions/browser/src/browser/extension-install.native-host.e2e.test.ts') != '') }}
         env:
           FROZEN_TARGET: &frozen_target ${{ needs.preflight.outputs.frozen_target }}
@@ -3101,13 +3081,12 @@ jobs:
           console.log(JSON.stringify({ proof: "browser-native-host", fullNames: expectedNames, passed: expectedNames.length, failed: 0, pending: 0 }));
           BROWSER_PROOF_REPORT
 
-      # Measure startup RSS alone before independent dist readers overlap.
+      # Measure RSS before overlapping dist readers.
       - name: Run built artifact checks
         env:
           PARALLEL_GATEWAY_WATCH: ${{ runner.environment != 'github-hosted' && 'true' || 'false' }}
           PARALLEL_BUILT_VERIFIERS: ${{ runner.environment != 'github-hosted' && 'true' || 'false' }}
-          # GitHub-hosted Linux reports a higher RSS baseline than Blacksmith for
-          # the same built CLI. Keep the tighter Blacksmith regression ceiling.
+          # Hosted Linux has a higher RSS baseline; keep Blacksmith tighter.
           OPENCLAW_STARTUP_MEMORY_PLUGINS_LIST_MB: ${{ runner.environment == 'github-hosted' && '425' || '400' }}
           RUN_CHANNELS: ${{ needs.preflight.outputs.run_proof_tier == 'true' && needs.preflight.outputs.run_checks == 'true' }}
           CHANNEL_NODE_OPTIONS: ${{ fromJSON(needs.preflight.outputs.source_channel_test_env_json).NODE_OPTIONS }}
@@ -3529,10 +3508,10 @@ jobs:
       contents: read
     name: checks-ui-e2e (${{ matrix.shard }}/${{ matrix.shard_count }})
     needs: [preflight]
-    # Compatibility E2E expectations belong to the pinned release.
+    # Pinned releases own compatibility E2E expectations.
     if: needs.preflight.outputs.run_ui_e2e == 'true' && needs.preflight.outputs.compatibility_target != 'true'
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && needs.preflight.outputs.hybrid_hosted_offload == 'true' && matrix.task == 'browser-extension') && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1))) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (matrix.task == 'control-ui' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404') || 'ubuntu-24.04')))) || ((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && needs.preflight.outputs.hybrid_hosted_offload == 'true' && matrix.task == 'browser-extension') && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1))) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (matrix.task == 'control-ui' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404') || 'ubuntu-24.04')) }}
-    # Source-server and runtime-budget owners retain serial Chromium execution.
+    # Runtime-budget Chromium projects stay serial.
     timeout-minutes: 25
     env:
       OPENCLAW_UI_E2E_SKIP_REAL_GATEWAY: "1"
@@ -3593,7 +3572,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Publish only the synthetic desktop PiP fixture, never other desktop captures.
+      # Upload only the synthetic PiP fixture.
       - name: Upload synthetic desktop Picture-in-Picture proof
         if: always() && matrix.task == 'control-ui' && hashFiles('.artifacts/control-ui-e2e/desktop-picture-in-picture-*/native-pip-after-tab-switch.png') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -3605,7 +3584,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # This fixture uses synthetic documents and a mocked Gateway; exclude other UI artifacts.
+      # Upload only this synthetic mocked-Gateway fixture.
       - name: Upload synthetic widget prompt failure evidence
         if: failure() && hashFiles('.artifacts/control-ui-e2e/control-ui-authenticated-widget-sandbox-*/widget-prompt-failure.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -3627,11 +3606,11 @@ jobs:
       contents: read
     name: ${{ matrix.shard_count == 1 && 'checks-ui-e2e-real-gateway' || format('checks-ui-e2e-real-gateway ({0}/{1})', matrix.shard, matrix.shard_count) }}
     needs: [preflight]
-    # Compatibility E2E expectations belong to the pinned release.
+    # Pinned releases own compatibility E2E expectations.
     if: needs.preflight.outputs.run_ui_real_gateway == 'true' && needs.preflight.outputs.compatibility_target != 'true'
-    # Trust gates Blacksmith; fallback runs stay hosted. SDK overlap still obeys available memory.
+    # Trust gates Blacksmith; available memory gates SDK overlap.
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-24.04')))) || ((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-24.04')) }}
-    # Hosted preparation and the complete suite need a larger job budget; test deadlines stay fixed.
+    # Hosted preparation needs more job time, not longer test deadlines.
     timeout-minutes: ${{ ((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) || (github.event_name == 'workflow_dispatch' && needs.preflight.outputs.ci_shape != 'main') || (github.event_name == 'pull_request' && github.run_attempt > 1) || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))) && 40 || 20 }}
     strategy:
       fail-fast: false
@@ -3653,7 +3632,7 @@ jobs:
       - name: Build runtime and Control UI artifacts for real-Gateway tests
         env:
           OPENCLAW_BUILD_PRIVATE_QA: "1"
-          # build-artifacts owns SDK declarations; browser/Gateway consumers need runtime bytes.
+          # Only build-artifacts owns SDK declarations.
           OPENCLAW_RUN_NODE_SKIP_DTS_BUILD: "1"
         run: pnpm build
 
@@ -3843,8 +3822,7 @@ jobs:
           fi
 
       - name: Check Control UI locale parity
-        # Automatic source-only drift stays advisory because the post-merge bot owns
-        # repair. Generated locale changes and ordinary manual/release CI stay strict.
+        # The post-merge bot repairs source-only drift; generated/manual checks stay strict.
         continue-on-error: ${{ needs.preflight.outputs.strict_control_ui_i18n != 'true' }}
         run: pnpm ui:i18n:check
 
@@ -4059,10 +4037,7 @@ jobs:
           esac
 
       - name: Check startup corpus
-        # Main owns the selected corpus. PRs need an exact-tree coverage receipt from
-        # their admitted Node plan; release gates retain their separate merge tree.
-        # State cases mutate process-global config and database state. Independent
-        # files let Vitest distribute the complete matrix across up to four workers.
+        # PR corpus coverage requires an exact-tree Node receipt. Release gates retain their merge tree; separate files isolate global state.
         if: matrix.task == 'startup-corpus' && !(github.repository == 'openclaw/openclaw' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.preflight.outputs.run_check == 'true') && !(github.repository == 'openclaw/openclaw' && github.event_name == 'pull_request' && needs.preflight.outputs.startup_corpus_node_revision && needs.preflight.outputs.startup_corpus_node_revision == needs.preflight.outputs.checkout_revision)
         env:
           OPENCLAW_CI_STARTUP_CORPUS_TEST_FILES_JSON: ${{ needs.preflight.outputs.startup_corpus_test_files_json }}
@@ -4153,7 +4128,6 @@ jobs:
           cache-mode: *cache_mode
           install-bun: "false"
           dependency-cache: *trusted_dependency_cache
-          # The trusted warmer seeds build tooling and Node orchestration together.
           node-compile-cache: "true"
 
       - name: Build QA smoke runtime
@@ -4438,13 +4412,13 @@ jobs:
     name: ${{ matrix.check_name || 'checks-node-core-test-nondist-shard' }}
     needs: [preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.run_checks_node_core_nondist == 'true' }}
-    # Extension placement follows planner metadata; bundle numbers change after packing.
+    # Planner metadata owns placement; bundle numbers can change.
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON(needs.preflight.outputs.node_runner_backend == 'runson' && matrix.runner == 'runson-c8i-8xlarge' && github.run_attempt == 1 && format('runs-on={0}-{1}/family=c8i.8xlarge/cpu=32/ram=64/spot=true/retry=false/image=ubuntu24-full-x64/volume=80gb', github.run_id, matrix.check_name) || matrix.runner == 'runson-c8i-8xlarge' && 'ubuntu-24.04' || (needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true') && github.run_attempt == 1 && ((matrix.runner == 'blacksmith-8vcpu-ubuntu-2404' && contains(fromJSON('["checks-node-compact-large-9","checks-node-compact-large-5"]'), matrix.check_name)) && 'blacksmith-16vcpu-ubuntu-2404' || matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && ((matrix.runner == 'blacksmith-8vcpu-ubuntu-2404' && contains(fromJSON('["checks-node-compact-large-9","checks-node-compact-large-5"]'), matrix.check_name)) && 'blacksmith-16vcpu-ubuntu-2404' || matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')))) || (needs.preflight.outputs.node_runner_backend == 'runson' && matrix.runner == 'runson-c8i-8xlarge' && github.run_attempt == 1 && format('runs-on={0}-{1}/family=c8i.8xlarge/cpu=32/ram=64/spot=true/retry=false/image=ubuntu24-full-x64/volume=80gb', github.run_id, matrix.check_name) || matrix.runner == 'runson-c8i-8xlarge' && 'ubuntu-24.04' || (needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true') && github.run_attempt == 1 && ((matrix.runner == 'blacksmith-8vcpu-ubuntu-2404' && contains(fromJSON('["checks-node-compact-large-9","checks-node-compact-large-5"]'), matrix.check_name)) && 'blacksmith-16vcpu-ubuntu-2404' || matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && ((matrix.runner == 'blacksmith-8vcpu-ubuntu-2404' && contains(fromJSON('["checks-node-compact-large-9","checks-node-compact-large-5"]'), matrix.check_name)) && 'blacksmith-16vcpu-ubuntu-2404' || matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')) }}
     timeout-minutes: ${{ matrix.timeout_minutes || 60 }}
     strategy:
-      # The trusted monitor must classify a failure before sibling cancellation.
+      # Classify failures before cancelling siblings.
       fail-fast: ${{ github.event_name == 'pull_request' && (github.run_attempt != 1 || github.repository != 'openclaw/openclaw') }}
-      # Manifest caps bound registrations; parallelism bounds active jobs. Main keeps two parity slots.
+      # Matrix caps bound registrations; parallelism bounds active jobs.
       max-parallel: ${{ github.event_name == 'pull_request' && github.repository == 'openclaw/openclaw' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association) && github.run_attempt == 1 && needs.preflight.outputs.frozen_target != 'true' && needs.preflight.outputs.runner_profile != 'github' && needs.preflight.outputs.node_runner_backend != 'runson' && contains(fromJSON('["","blacksmith","hybrid"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && 130 || 96 }}
       matrix: ${{ fromJson(needs.preflight.outputs.checks_node_core_nondist_matrix) }}
     steps:
@@ -4478,7 +4452,7 @@ jobs:
           cache-mode: *cache_mode
           node-version: "${{ (matrix.runner == 'runson-c8i-8xlarge' || startsWith(matrix.check_name, 'checks-node-runson-cron-')) && env.NODE_VERSION || matrix.node_version || '24.x' }}"
           install-bun: "false"
-          # The trusted warmer seeds Node 24; other versions use the store.
+          # Only Node 24 consumes the trusted compile seed.
           dependency-cache: ${{ matrix.runner != 'runson-c8i-8xlarge' && (matrix.node_version == null || matrix.node_version == '24.x') && (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) != 'github' && runner.environment == 'self-hosted' && (github.event_name != 'workflow_dispatch' || ((needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true') && github.run_attempt == 1)) && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && 'true' || 'false' }}
           vitest-fs-cache: "true"
           vitest-worker-cache: ${{ needs.preflight.outputs.frozen_target != 'true' && matrix.pretest_build_mode == null && (matrix.node_version == null || matrix.node_version == '24.x') && 'true' || 'false' }}
@@ -4496,8 +4470,7 @@ jobs:
 
       - name: Setup Go for docs i18n
         if: matrix.requires_go == true
-        # The current workflow validates frozen targets whose go.mod may predate this toolchain pin.
-        # Keep the runner toolchain owned by the workflow; cache publication is gated separately.
+        # The workflow owns toolchain pins even for older frozen go.mod files.
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.1"
@@ -4537,9 +4510,7 @@ jobs:
         run: test "$(go env GOVERSION)" = "go1.27.1"
 
       - name: Checkout trusted Node shard runner
-        # Frozen release targets can predate the workflow-owned shard runner.
-        # Keep its implementation pinned to this workflow revision, while tests
-        # continue to run against the checked-out candidate.
+        # Pin orchestration to the workflow; run tests against the candidate.
         if: ${{ hashFiles('scripts/ci-run-node-test-shard.mts') == '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -4558,7 +4529,7 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      # Prepare shared runtime assets before workers; artifact checks own SDK/UI validation.
+      # Prepare runtime assets before workers.
       - name: Build Node test runtime
         id: node-test-runtime
         if: matrix.pretest_build_mode != null
@@ -4579,9 +4550,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends ripgrep
 
       - name: Configure Node test resources
-        # Sample headroom after runtime preparation. Roomy serial self-hosted
-        # jobs use the shared scheduler; hosted, frozen and overlapping rows
-        # retain their existing ceilings. Group pins can lower the job budget.
+        # Measure headroom after preparation; group pins may lower worker ceilings.
         env:
           PREDICTED_TEST_SECONDS: ${{ matrix.predicted_seconds || '' }}
           SHARD_PLAN_CONCURRENCY: ${{ matrix.plan_concurrency || '' }}
@@ -4633,9 +4602,7 @@ jobs:
           OPENCLAW_NODE_TEST_ENV_JSON: ${{ toJson(matrix.env) }}
           OPENCLAW_NODE_TEST_INCLUDE_PATTERNS_JSON: ${{ toJson(matrix.includePatterns) }}
           OPENCLAW_NODE_TEST_TARGETS_JSON: ${{ toJson(matrix.targets) }}
-          # Frozen targets can carry integration hooks whose cold setup exceeds
-          # the current defaults on shared release runners. Keep the no-output
-          # watchdog above Vitest so it cannot preempt hook diagnostics.
+          # Keep the watchdog above Vitest so frozen hook diagnostics finish.
           OPENCLAW_NODE_TEST_VITEST_ARGS_JSON: ${{ needs.preflight.outputs.compatibility_target == 'true' && '["--hookTimeout=600000"]' || '[]' }}
           OPENCLAW_VITEST_SHARD_NAME: ${{ matrix.shard_name }}
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: ${{ needs.preflight.outputs.compatibility_target == 'true' && '660000' || '300000' }}
@@ -4704,7 +4671,7 @@ jobs:
         env:
           OPENCLAW_CI_CHECK_PLAN_INPUT_JSON: ${{ needs.preflight.outputs.check_plan_input_json }}
         run: node scripts/ci-check-plan.mts
-      # The failure observer reads this completed step's name from the Jobs API.
+      # The failure observer depends on this step name.
       - name: "CI check job count v1: ${{ steps.plan.outputs.check_job_count }}"
         run: ":"
 
@@ -4717,7 +4684,7 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && ((needs.preflight.outputs.hybrid_hosted_checks == 'true' && matrix.task == 'dependencies') || (needs.preflight.outputs.hybrid_hosted_main_checks == 'true' && (matrix.task == 'lint' || matrix.task == 'test-types')))) && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.repository == 'openclaw/openclaw' && (github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) && !inputs.release_gate && startsWith(inputs.dispatch_id, 'full-release-validation-') && needs.preflight.outputs.frozen_target == 'true' && matrix.task == 'lint') && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || github.run_attempt > 1 || (matrix.task != 'lint' && matrix.task != 'test-types' && matrix.task != 'dependencies'))) && 'ubuntu-24.04' || (((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) && inputs.release_gate) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')))) || ((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && ((needs.preflight.outputs.hybrid_hosted_checks == 'true' && matrix.task == 'dependencies') || (needs.preflight.outputs.hybrid_hosted_main_checks == 'true' && (matrix.task == 'lint' || matrix.task == 'test-types')))) && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.repository == 'openclaw/openclaw' && (github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) && !inputs.release_gate && startsWith(inputs.dispatch_id, 'full-release-validation-') && needs.preflight.outputs.frozen_target == 'true' && matrix.task == 'lint') && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || github.run_attempt > 1 || (matrix.task != 'lint' && matrix.task != 'test-types' && matrix.task != 'dependencies'))) && 'ubuntu-24.04' || (((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) && inputs.release_gate) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')) }}
     timeout-minutes: 20
     env:
-      # Prepare comparison history before checkout's credential scope ends.
+      # Fetch history before checkout credentials expire.
       CHECKOUT_BASE_SHA: ${{ ((matrix.task == 'guards' && (github.event_name == 'pull_request' || (needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true'))) || (matrix.task == 'npm-lock' && (github.event_name != 'workflow_dispatch' || (needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true')))) && needs.preflight.outputs.diff_base_revision || '' }}
     strategy:
       fail-fast: false
@@ -4757,8 +4724,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-tsgo-v1-${{ matrix.task }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'test/tsconfig/*.json', 'scripts/run-tsgo*', 'scripts/lib/local-check-runtime.mts') }}-
 
-      # Full runs publish core state in five stripe caches. The changed-graph
-      # queue needs that same state even when it runs inside the central row.
+      # The changed-graph queue also needs all five stripe caches.
       - name: Restore changed core test-type stripe 1
         if: &changed_core_test_type_cache_gate matrix.task == 'test-types' && needs.preflight.outputs.changed_core_test_paths_json != '' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -4833,16 +4799,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-extension-package-boundary-v4-
 
-      # Read the protected boundary lane's snapshot; lint never publishes it.
+      # Lint only reads the protected boundary snapshot.
       - name: Mount extension boundary sticky disk
         if: &lint_boundary_sticky_disk_gate runner.environment == 'self-hosted' && matrix.task == 'lint' && steps.extension-boundary-inputs.outputs.enabled == 'true' && vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && !contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw')
         uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
         with:
-          # One stable disk for the whole repository. The v1 per-PR/per-config
-          # keys minted a new backing disk for every PR and toolchain change
-          # and helped saturate Blacksmith's installation-wide sticky-disk
-          # budget, 429-failing every mount. Snapshot validity lives in the
-          # in-job marker checked below instead of the key.
+          # One stable disk; in-job markers validate snapshots without exhausting disk quota.
           key: ${{ github.repository }}-ext-boundary-v2
           path: /var/tmp/openclaw-ext-boundary
           commit: "false"
@@ -5200,7 +5162,7 @@ jobs:
           path: .artifacts/tsgo-cache
           key: ${{ steps.test-type-cache.outputs.cache-primary-key }}
 
-  # Hybrid packs five core stripes into two jobs. Main keeps four actual CPUs for the heavy first row.
+  # The heavy hybrid lint row needs four actual CPUs.
 
   check-lint-hosted-core-shard:
     permissions:
@@ -5280,7 +5242,7 @@ jobs:
           done
           finish_static_checks
 
-  # Keep extension compilation off the already packed hybrid core-lint rows.
+  # Keep extension compilation off packed core-lint rows.
 
   check-lint-hosted-extension-shard:
     permissions:
@@ -5332,7 +5294,7 @@ jobs:
             --only=extensions --extension-stripe="$EXTENSION_STRIPE/$EXTENSION_STRIPE_COUNT" --threads=1
           finish_static_checks
 
-  # Core stripes keep two compiler children; the central row owns the tail. Frozen layout stays paired.
+  # Core stripes keep two compiler children; frozen layout stays paired.
 
   check-test-types-hosted-core-shard:
     permissions:
@@ -5418,7 +5380,7 @@ jobs:
       matrix: ${{ fromJSON(needs.preflight.outputs.check_additional_matrix) }}
     steps:
       - *linux_node_checkout_step
-      # The report is dispatch-only; fetching its inputs can otherwise fail skipped PR work.
+      # Do not fetch report inputs for skipped PR work.
       - name: Ensure Plugin SDK API diff base commit
         if: matrix.group == 'plugin-sdk-api-diff' && github.event_name == 'workflow_dispatch'
         uses: ./.ci-harness/.github/actions/ensure-base-commit
@@ -5439,25 +5401,15 @@ jobs:
         shell: bash
         run: *extension_boundary_fingerprint_run
 
-      # Only trusted self-hosted jobs use writable boundary snapshots; hosted/fork jobs use GitHub caches.
+      # Only trusted self-hosted jobs can write boundary snapshots.
       - name: Mount extension boundary sticky disk
         if: &additional_boundary_sticky_disk_gate runner.environment == 'self-hosted' && matrix.group == 'extension-package-boundary' && steps.extension-boundary-inputs.outputs.enabled == 'true' && vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && !contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw')
         uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
         with:
-          # One stable disk for the whole repository. The v1 per-PR/per-config
-          # keys minted a new backing disk for every PR and toolchain change
-          # and helped saturate Blacksmith's installation-wide sticky-disk
-          # budget, 429-failing every mount. Snapshot validity lives in the
-          # in-job marker checked below instead of the key, so source and
-          # toolchain changes refresh this disk in place.
+          # Stable disk keys avoid quota exhaustion; markers detect source/toolchain changes.
           key: ${{ github.repository }}-ext-boundary-v2
           path: /var/tmp/openclaw-ext-boundary
-          # Single semantic writer: only protected pushes commit, so
-          # pull_request clones stay read-only and the snapshot tracks main.
-          # Explicit true (not on-change/if-missing) because the allocated-byte
-          # heuristic can miss a same-size refresh, permanently stranding
-          # consumers on a stale marker. v1.4.0 skips commit after
-          # failed/cancelled steps, so a broken build cannot poison this key.
+          # Only protected successful pushes publish. Explicit commit:true refreshes same-size changes.
           commit: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
 
       - name: Restore extension boundary artifacts from sticky disk
@@ -5501,8 +5453,7 @@ jobs:
           RUN_PROMPT_SNAPSHOTS: ${{ needs.preflight.outputs.run_prompt_snapshots }}
           OPENCLAW_ADDITIONAL_BOUNDARY_SHARD: ""
           OPENCLAW_ADDITIONAL_BOUNDARY_CONCURRENCY: 4
-          # Keep the existing CI worker budget; the requested runner label is not a CPU count.
-          # The script's resource-based default caps at 6 outside this explicit override.
+          # Runner labels are not CPU counts; preserve the CI worker budget.
           OPENCLAW_EXTENSION_BOUNDARY_CONCURRENCY: 16
         shell: bash
         run: |
@@ -5635,7 +5586,7 @@ jobs:
           path: .artifacts/plugin-sdk-api-diff.json
           retention-days: 14
 
-      # Only the protected writer publishes snapshots. Seed before its sticky post-action flush; rsync -aR preserves restore paths.
+      # Seed before the protected writer flushes; rsync -aR preserves restore paths.
       - name: Seed extension boundary sticky disk
         if: success() && steps.extension-boundary-inputs.outputs.enabled == 'true' && steps.boundary-sticky-restore.outputs.restored == 'false' && matrix.group == 'extension-package-boundary' && vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && !contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.event_name != 'workflow_dispatch' && github.event_name != 'pull_request' && github.repository == 'openclaw/openclaw'
         shell: bash
@@ -5650,14 +5601,12 @@ jobs:
           echo "${{ steps.extension-boundary-inputs.outputs.fingerprint }}" > "$sticky_root/.source-fingerprint"
           touch "$sticky_root/.snapshot-ready"
 
-  # Validate docs (format, lint, broken links) only when docs files changed.
-
   check-docs:
     permissions:
       contents: read
     needs: [preflight]
     if: needs.preflight.outputs.run_check_docs == 'true'
-    # Hosted egress supports the unauthenticated ClawHub mirror clone; never lend it the repository token.
+    # Never lend the repository token to the ClawHub mirror.
     runs-on: *hosted_linux_runner
     timeout-minutes: 20
     steps:
@@ -5728,7 +5677,7 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && 'windows-2025' || (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'windows-2025' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'windows-2025' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'windows-2025' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-16vcpu-windows-2025' || 'windows-2025')))) || ((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'windows-2025' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'windows-2025' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'windows-2025' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-16vcpu-windows-2025' || 'windows-2025')) }}
     timeout-minutes: 60
     env:
-      # Node 24.20 includes the Windows native scheduler shutdown fix (nodejs/node#61999).
+      # Node 24.20 fixes Windows scheduler shutdown (nodejs/node#61999).
       NODE_VERSION: "24.21.0"
       NODE_OPTIONS: --max-old-space-size=8192
       OPENCLAW_TEST_SKIP_FULL_EXTENSIONS_SHARD: 1
@@ -5737,7 +5686,6 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
-      # Retain the existing five-row Windows cap.
       max-parallel: 5
       matrix: ${{ fromJson(needs.preflight.outputs.checks_windows_matrix) }}
     steps:
@@ -5811,7 +5759,7 @@ jobs:
       - name: Run ${{ matrix.task }} (${{ matrix.runtime }})
         env:
           TASK: ${{ matrix.task }}
-          # The 16-class delivers four native CPUs; hosted fallback keeps its serial budget.
+          # The 16-class supplies four CPUs; hosted fallback stays serial.
           OPENCLAW_VITEST_MAX_WORKERS: ${{ runner.environment == 'self-hosted' && 4 || 1 }}
           WINDOWS_TARGETS_JSON: ${{ toJSON(matrix.targets || null) }}
         shell: bash
@@ -5905,14 +5853,12 @@ jobs:
     name: ${{ format('macos-swift ({0})', matrix.phase) }}
     needs: [preflight]
     if: needs.preflight.outputs.run_macos_swift == 'true'
-    # Independent package builds must not consume the app test job's budget.
-    # Full validation also compiles the optimized app, within the same two-job cap.
+    # Package builds have independent budgets; full validation also builds Release.
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
         phase: ${{ fromJSON(github.event_name == 'workflow_dispatch' && needs.preflight.outputs.validation_tier != 'main' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && '["release","tests","packages"]' || '["tests","packages"]') }}
-    # Keep hosted admission and the existing budget while validating Xcode 27.
     runs-on: &hosted_xcode_runner ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON('xcode-27'))) || ('xcode-27') }}
     timeout-minutes: 30
     env:
@@ -5920,7 +5866,7 @@ jobs:
       MACOS_PRIMARY_PHASE: ${{ github.event_name == 'workflow_dispatch' && needs.preflight.outputs.validation_tier != 'main' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && 'release' || 'tests' }}
       OPENCLAWKIT_TEST_EXECUTION: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && needs.preflight.outputs.ci_shape != 'main') || github.run_attempt > 1) && 'serial' || 'parallel' }}
     steps:
-      # Start before checkout/setup so their time counts against optional cache work.
+      # Checkout/setup count against optional cache work.
       - name: Start Swift cache clock
         id: swift-cache-clock
         continue-on-error: true
@@ -6060,8 +6006,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/macos/.build
-          # SwiftPM retains old dependency traits while resolving cached checkouts.
-          # Phase-owned products must never race to populate the same archive key.
+          # Cached SwiftPM traits and phase products need separate archives.
           key: ${{ runner.os }}-swift-build-${{ matrix.phase == 'tests' && 'v7' || 'v6' }}-${{ matrix.phase }}-${{ hashFiles('scripts/swift-build-cache-metadata.py') }}-graph-${{ steps.swift-toolchain.outputs.key }}-${{ hashFiles('apps/macos/Package*.swift', 'apps/macos/Package.resolved', 'apps/shared/**/Package*.swift', 'apps/shared/**/Package.resolved', 'apps/swabble/Package*.swift', 'apps/swabble/Package.resolved') }}-${{ hashFiles('apps/macos/Sources/**', 'apps/macos/Tests/**', 'apps/shared/**/Sources/**', 'apps/swabble/Sources/**') }}
           restore-keys: |
             ${{ runner.os }}-swift-build-${{ matrix.phase == 'tests' && 'v7' || 'v6' }}-${{ matrix.phase }}-${{ hashFiles('scripts/swift-build-cache-metadata.py') }}-graph-${{ steps.swift-toolchain.outputs.key }}-${{ hashFiles('apps/macos/Package*.swift', 'apps/macos/Package.resolved', 'apps/shared/**/Package*.swift', 'apps/shared/**/Package.resolved', 'apps/swabble/Package*.swift', 'apps/swabble/Package.resolved') }}-
@@ -6275,9 +6220,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Cache writes are optional and must not inherit the remaining job lifetime.
-      # Admit the whole tail before minute 20: its gate/save/metadata/save bounds
-      # total five minutes, leaving five for runner startup, cancellation and cleanup.
+      # Admit optional cache writes before minute 20, reserving five minutes for cleanup.
       - name: Check Swift cache save budget
         id: swift-cache-budget
         if: matrix.phase != 'packages' && needs.preflight.outputs.cache_write_allowed == 'true'
@@ -6309,8 +6252,7 @@ jobs:
           path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ steps.swiftpm-cache.outputs.cache-primary-key }}
 
-      # Each phase leaves its source inputs unchanged. Record
-      # their actual metadata with the successful products immediately before save.
+      # Record unchanged source metadata immediately before saving successful products.
       - name: Record Swift build input timestamps
         id: record-swift-build-cache-metadata
         continue-on-error: true
@@ -6333,13 +6275,11 @@ jobs:
     name: ${{ format('ios-build ({0})', matrix.phase) }}
     needs: [preflight]
     if: needs.preflight.outputs.run_ios_build == 'true'
-    # Finish active hourly simulator proof and coalesce only pending iOS jobs.
-    # Other invocations and their Release/tests siblings must not displace each other.
+    # Coalesce pending hourly iOS work without displacing active proof or other phases.
     concurrency:
       group: ${{ github.event_name == 'schedule' && format('{0}-hourly-ios-v1-{1}', github.workflow, matrix.phase) || format('{0}-ios-v1-{1}-{2}', github.workflow, github.run_id, matrix.phase) }}
       cancel-in-progress: false
-    # PRs compile and lint; hourly main retains simulator tests. Full manual
-    # validation also adds the independent Release device phase.
+    # PRs compile/lint; hourly runs test; full validation also builds Release.
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -6360,7 +6300,7 @@ jobs:
 
       - &install_watch_rust_toolchain
         name: Install Watch Rust toolchain
-        # Frozen release sources can include Watch RTC even when they use compatibility CI.
+        # Frozen compatibility sources may still include Watch RTC.
         if: env.HISTORICAL_TARGET != 'true' || hashFiles('apps/shared/OpenClawWatchRTC/Cargo.toml') != ''
         run: |
           set -euo pipefail
@@ -6477,8 +6417,7 @@ jobs:
           fi
           pnpm ios:build
 
-      # Debug's incremental compilation can miss actor-isolation diagnostics
-      # that Swift's optimized whole-module Release build enforces.
+      # Release compilation catches actor-isolation errors missed by incremental Debug.
       - name: Build iOS app (Release)
         if: matrix.phase == 'release'
         run: |
@@ -6495,7 +6434,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      # Full validation owns attachment UI proof; its fast unit regressions also run below.
       - name: Prove native managed document download and export
         id: ios_attachment_tests
         if: matrix.phase == 'tests' && needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.compatibility_target != 'true'
@@ -6533,9 +6471,7 @@ jobs:
             -only-testing:OpenClawTests/OpenClawTypographyTests \
             test
 
-      # Compile-only smoke cannot verify native Access crypto or session ownership.
-      # Hourly and full validation also exercise the app and notification lifecycles.
-      # Only full validation launches the Watch-delivery UI runner.
+      # Hourly tests prove native Access and lifecycle behavior; Watch UI is full-only.
       - name: Run focused iOS lifecycle simulator tests
         id: ios_lifecycle_tests
         if: (matrix.phase == 'smoke' || matrix.phase == 'tests') && needs.preflight.outputs.compatibility_target != 'true'
@@ -6696,12 +6632,10 @@ jobs:
     permissions:
       contents: read
     name: "ios-screenshots-${{ matrix.device_family }}"
-    # Each shard builds its own simulator app; ios-build produces no input here.
-    # Full manual validation requires both build and screenshot evidence.
+    # Screenshot shards build independently; full validation requires both proofs.
     needs: [preflight]
-    # Capture on changed inputs and full manual/release validation, never hourly.
+    # Screenshots run on changed inputs or full validation, never hourly.
     if: &ios_screenshot_capture_gate ${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') }}
-    # Keep capture on the same verified hosted image as the iOS build phases.
     runs-on: *hosted_xcode_runner
     timeout-minutes: 90
     env:
@@ -6901,11 +6835,11 @@ jobs:
     needs: [preflight]
     if: needs.preflight.outputs.run_android_job == 'true'
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04')))) || ((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04')) }}
-    # Hosted build-play keeps its three-invocation budget on retries.
+    # Hosted build-play retries keep the three-invocation budget.
     timeout-minutes: ${{ matrix.task == 'build-play' && ((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) || (github.event_name == 'workflow_dispatch' && needs.preflight.outputs.ci_shape != 'main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1) || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))) && 35 || 20 }}
     strategy:
       fail-fast: false
-      # All four normal rows have native work; avoid serializing a second heavy wave.
+      # All four normal rows do native work; avoid a second heavy wave.
       max-parallel: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && github.event_name != 'workflow_dispatch' && github.event_name != 'schedule' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))) && github.run_attempt == 1 && 4 || 2 }}
       matrix: ${{ fromJson(needs.preflight.outputs.android_matrix) }}
     steps:
@@ -6930,8 +6864,7 @@ jobs:
 
       - name: Setup Android toolchain
         id: android-toolchain
-        # Frozen targets keep their Gradle task contract, but CI toolchain pins remain
-        # workflow-owned as before. Load them from the workflow revision so old targets work.
+        # Frozen sources own Gradle tasks; the workflow owns toolchain pins.
         uses: ./.ci-harness/.github/actions/setup-android-toolchain
         with:
           cache-mode: ${{ needs.preflight.outputs.cache_write_allowed == 'true' && 'read-write' || needs.preflight.outputs.cache_mode }}
@@ -6948,37 +6881,18 @@ jobs:
         if: needs.preflight.outputs.use_compatible_android_ci != 'true'
         env:
           CI: "true"
-        # Match the native Mermaid install profile used by macOS CodeQL.
-        # Keep root tooling while avoiding unrelated plugin SDK downloads.
+        # Keep root tooling, without unrelated SDK downloads.
         run: *mermaid_renderer_install_run
 
-      # Same-repo runs carry the Gradle user home (dependency, wrapper, and
-      # build caches) on a Blacksmith sticky disk: the Actions Gradle cache
-      # above is evicted so quickly under the repo quota that it rarely
-      # restores, leaving every run to re-resolve the full dependency graph.
-      # Fork PRs, manual dispatches, the GitHub backend, and hosted hybrid retries must never produce writable
-      # repository-global snapshots, so they keep the GitHub cache path (their
-      # runs-on already selects non-Blacksmith ubuntu-24.04 runners).
+      # Only trusted same-repo Blacksmith jobs write Gradle sticky disks; others use GitHub caches.
       - name: Mount Gradle sticky disk
         if: &android_gradle_sticky_disk_gate vars.OPENCLAW_CI_RUNNER_BACKEND != 'github' && !(contains(fromJSON('["hybrid","runson"]'), vars.OPENCLAW_CI_RUNNER_BACKEND) && github.run_attempt > 1) && github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw')
         uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
         with:
-          # One stable disk per matrix task. The v1 per-PR/per-dependency-hash
-          # keys minted a new backing disk for every PR and dependency bump
-          # and helped saturate Blacksmith's installation-wide sticky-disk
-          # budget, 429-failing every mount. Task scope stays in the key: each
-          # matrix task resolves a different dependency set, and a shared key
-          # would let a light task (ktlint) pin a thin snapshot the heavy
-          # build lanes can never repair. Gradle invalidates changed inputs and
-          # expires unused entries; dependency changes must not erase warm caches.
+          # Keep one disk per matrix task so thin dependency sets cannot pin heavier lanes. Gradle owns invalidation.
           key: ${{ github.repository }}-gradle-v2-${{ matrix.task }}
           path: /var/tmp/openclaw-gradle
-          # Single semantic writer: only protected pushes commit, so
-          # pull_request clones stay read-only and the snapshot tracks main.
-          # Explicit true (not on-change) because the allocated-byte heuristic
-          # can miss a same-size refresh;
-          # v1.4.0 still skips commit after failed/cancelled steps, so a
-          # broken build cannot poison this key.
+          # Only successful protected pushes publish. Explicit commit:true refreshes same-size changes.
           commit: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
 
       - name: Point Gradle at the sticky disk
@@ -7293,8 +7207,7 @@ jobs:
             --target-context-ref "$TARGET_CONTEXT_REF")"
           printf 'OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC=%s\n' "$baseline" >> "$GITHUB_ENV"
 
-      # The main update tripwire needs the complete runtime and public SDK types.
-      # Manual/release validation retains the full declaration-complete package.
+      # The update tripwire and release validation require complete SDK declarations.
       - name: Prepare main Docker smoke package
         if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (needs.preflight.outputs.ci_qualification == 'true' && needs.preflight.outputs.ci_shape == 'main') || needs.preflight.outputs.validation_tier == 'main'
         run: |
@@ -7348,8 +7261,7 @@ jobs:
       actions: write
       pull-requests: read
     needs: [preflight]
-    # Survive our own cancellation long enough to hand its cause to ci-gate.
-    # Partial reruns reuse prerequisites and do not contain the complete manifest.
+    # Survive cancellation to report its cause; partial reruns lack a complete manifest.
     if: ${{ always() && github.event_name == 'pull_request' && github.run_attempt == 1 && github.repository == 'openclaw/openclaw' && !github.event.pull_request.draft && needs.preflight.result == 'success' && needs.preflight.outputs.run_checks_node_core_nondist == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -7424,10 +7336,9 @@ jobs:
       - android-access-native
       - docker-seed-e2e
       - pr-fail-fast
-    # Failure cancellation must stay red, including an uncertain cancel response.
-    # Superseded runs have no failure cause and release their slot without a gate.
+    # Failure cancellation stays red even if uncertain; superseded runs release their slot.
     if: ${{ (github.event_name != 'schedule' || (github.repository == 'openclaw/openclaw' && github.ref == 'refs/heads/main')) && ((github.event_name != 'push' || github.ref != 'refs/heads/main' || vars.OPENCLAW_CI_ON_PUSH == 'true') && always() && (github.event_name == 'schedule' || !cancelled() || (needs.pr-fail-fast.outputs.failure_run_attempt == format('{0}', github.run_attempt) && needs.pr-fail-fast.outputs.failure_job_id != '') || (github.run_attempt == 1 && needs.pr-fail-fast.result == 'failure')) && (github.event_name != 'pull_request' || !github.event.pull_request.draft)) }}
-    # PR aggregation stays hosted, including failure reporting during cancellation grace.
+    # PR cancellation reporting stays hosted.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && needs.preflight.outputs.qualification_runner_backend || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (github.event_name != 'workflow_dispatch' || needs.preflight.outputs.ci_qualification == 'true' || needs.preflight.outputs.node_runner_backend == 'runson')) && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04'))) || ((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && needs.preflight.outputs.qualification_runner_backend || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (github.event_name != 'workflow_dispatch' || needs.preflight.outputs.ci_qualification == 'true' || needs.preflight.outputs.node_runner_backend == 'runson')) && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 5
     steps:
@@ -7526,8 +7437,7 @@ jobs:
 
           exit "$failures"
 
-      # Downstream write-capable consumers inspect this step in the exact run
-      # attempt. A green workflow with skipped full CI is not validation evidence.
+      # Write-capable consumers require this exact-attempt receipt; skipped CI proves nothing.
       - name: Confirm validated workflow revision
         if: success() && needs.preflight.outputs.validation_tier == 'full' && needs.preflight.outputs.checkout_revision == github.sha && (github.event_name != 'workflow_dispatch' || (!inputs.release_gate && inputs.target_ref == '' && inputs.release_scope == 'full' && inputs.include_android))
         run: echo "Full CI validated the immutable workflow revision."
