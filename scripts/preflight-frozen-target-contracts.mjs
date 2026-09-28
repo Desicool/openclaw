@@ -648,6 +648,8 @@ async function planWorkflowAdmission(input) {
   ) {
     sourcePaths.add("scripts/lib/upgrade-survivor-scenarios.json");
     sourcePaths.add("scripts/e2e/lib/upgrade-survivor/assertions.mjs");
+    // Legacy-operator planning stages the candidate's official providers for prepublish.
+    sourcePaths.add("scripts/lib/official-external-provider-catalog.json");
   }
   if (docker.length > 256) {
     throw new Error("too many selected Docker groups");
