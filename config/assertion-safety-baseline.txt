@@ -1861,9 +1861,8 @@ src/channels/message/adapter.ts	1
 src/channels/message/capabilities.ts	1
 src/channels/message/ingress-claim-owner.ts	1
 src/channels/message/ingress-drain.ts	1
-src/channels/message/ingress-monitor.ts	4
+src/channels/message/ingress-monitor.ts	3
 src/channels/message/outbound-bridge.ts	1
-src/channels/message/outbound-echo-state.ts	2
 src/channels/model-overrides.ts	1
 src/channels/plugins/account-config-mutation.ts	1
 src/channels/plugins/account-helpers.ts	6
@@ -1907,9 +1906,9 @@ src/channels/thread-bindings-policy.ts	2
 src/channels/turn/agent-run-terminal-outcome.ts	1
 src/channels/turn/execution.ts	2
 src/channels/turn/history-window.ts	1
-src/channels/turn/lifecycle.ts	3
+src/channels/turn/lifecycle.ts	2
 src/channels/turn/route-dm-scope.ts	1
-src/channels/turn/run-channel-turn.ts	6
+src/channels/turn/run-channel-turn.ts	4
 src/claws/add.ts	7
 src/claws/cron.ts	13
 src/claws/doctor.ts	2
