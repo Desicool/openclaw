@@ -805,6 +805,13 @@ It no longer packs or uploads the unused `dist-runtime-build` and
 they do not wait for SDK declarations, the Control UI build, or artifact checks.
 Diagnostic and proof uploads remain available.
 
+Completed canonical-main extension boundary jobs publish their existing compiler
+receipts into a cache separated by OS, architecture, and runner environment. PRs
+restore that archive, falling back to the SDK warmer's declaration-only archive.
+Every restored receipt still validates its compiler, configuration, source,
+resolution topology, and output hashes; the negative boundary canary always runs.
+This reuses work the boundary job already completed and adds no producer job.
+
 Declaration caches hash the selected writer's transitive generator imports,
 package and plugin metadata, explicit schema and build metadata inputs, and
 the compiler's recorded source files. Editing an unrelated CI script does not

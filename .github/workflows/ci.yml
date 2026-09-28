@@ -5455,7 +5455,16 @@ jobs:
         id: extension-package-boundary-cache
         if: needs.preflight.outputs.cache_mode != 'off' && matrix.group == 'extension-package-boundary' && steps.extension-boundary-inputs.outputs.enabled == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: *extension_boundary_cache_with
+        with:
+          path: |
+            packages/plugin-sdk/dist
+            .artifacts/extension-package-boundary/plugins
+            .artifacts/extension-package-boundary/*.json
+            .artifacts/extension-package-boundary/compile
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-extension-package-boundary-compiled-v1-${{ steps.extension-boundary-inputs.outputs.fingerprint }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-extension-package-boundary-compiled-v1-
+            ${{ runner.os }}-extension-package-boundary-v4-
 
       - name: Run additional check shard
         env:
@@ -5590,6 +5599,19 @@ jobs:
           done
 
           exit "$failures"
+
+      # Publish completed main compiler receipts; the existing SDK warmer stays a cold fallback.
+      - name: Save compiled extension package boundary artifacts
+        if: ${{ success() && github.repository == 'openclaw/openclaw' && github.ref == 'refs/heads/main' && contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && !inputs.release_gate && needs.preflight.outputs.candidate_trust == 'main' && needs.preflight.outputs.cache_write_allowed == 'true' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true' && needs.preflight.outputs.compatibility_target != 'true' && matrix.group == 'extension-package-boundary' && steps.extension-boundary-inputs.outputs.enabled == 'true' && steps.extension-package-boundary-cache.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/plugin-sdk/dist
+            .artifacts/extension-package-boundary/plugins
+            .artifacts/extension-package-boundary/*.json
+            .artifacts/extension-package-boundary/compile
+          key: ${{ steps.extension-package-boundary-cache.outputs.cache-primary-key }}
 
       - name: Upload Plugin SDK API diff
         if: always() && matrix.group == 'plugin-sdk-api-diff' && hashFiles('.artifacts/plugin-sdk-api-diff.json') != ''

@@ -292,7 +292,7 @@ function runRunnerProfileFixture(options: {
 function runCandidateTrustClassification(options: {
   checkoutRevision: string;
   defaultRevision?: string;
-  eventName: "pull_request" | "push" | "workflow_dispatch";
+  eventName: "pull_request" | "push" | "schedule" | "workflow_dispatch";
   historicalTarget?: boolean;
   ref?: string;
   releaseCandidateTarget?: boolean;
@@ -5453,12 +5453,22 @@ describe("ci workflow guards", () => {
     );
     for (const cache of [hostedLintCache, hostedCoreCache]) {
       expect(cache.uses).toBe(CACHE_V5);
-      expect(cache.with).toEqual(boundaryCache.with);
+      expect(cache.with.path).toEqual(boundaryCache.with.path);
+      expect(cache.with.key).toBe(
+        "${{ runner.os }}-extension-package-boundary-v4-${{ steps.extension-boundary-inputs.outputs.fingerprint }}",
+      );
+      expect(cache.with["restore-keys"].trim()).toBe(
+        "${{ runner.os }}-extension-package-boundary-v4-",
+      );
     }
     const fingerprintReference = "${{ steps.extension-boundary-inputs.outputs.fingerprint }}";
     expect(boundaryCache.with.key).toBe(
-      "${{ runner.os }}-extension-package-boundary-v4-${{ steps.extension-boundary-inputs.outputs.fingerprint }}",
+      "${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-extension-package-boundary-compiled-v1-${{ steps.extension-boundary-inputs.outputs.fingerprint }}",
     );
+    expect(boundaryCache.with["restore-keys"].trim().split("\n")).toEqual([
+      "${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-extension-package-boundary-compiled-v1-",
+      "${{ runner.os }}-extension-package-boundary-v4-",
+    ]);
     expect(boundaryCache.with.path.trim().split("\n")).toEqual([
       "packages/plugin-sdk/dist",
       ".artifacts/extension-package-boundary/plugins",
@@ -5509,8 +5519,72 @@ describe("ci workflow guards", () => {
       "warmer boundary save",
     );
     expect(warmerBoundaryRestore.with.path).toBe(boundaryCache.with.path);
-    expect(warmerBoundaryRestore.with["restore-keys"]).toBe(boundaryCache.with["restore-keys"]);
+    expect(warmerBoundaryRestore.with["restore-keys"]).toBe(hostedLintCache.with["restore-keys"]);
     expect(warmerBoundarySave.with.path).toBe(boundaryCache.with.path);
+    const compiledSave = expectDefined(
+      additionalJob.steps.find(
+        (step: WorkflowStep) => step.name === "Save compiled extension package boundary artifacts",
+      ),
+      "compiled boundary cache writer",
+    );
+    expect(compiledSave.uses).toBe(CACHE_SAVE_V5);
+    expect(compiledSave.with.path).toBe(boundaryCache.with.path);
+    expect(compiledSave.with.key).toBe(
+      "${{ steps.extension-package-boundary-cache.outputs.cache-primary-key }}",
+    );
+    expect(additionalJob.steps.indexOf(compiledSave)).toBeGreaterThan(
+      additionalJob.steps.indexOf(runStep),
+    );
+    const writer: Parameters<typeof evaluateWorkflowExpression>[1] = {
+      eventName: "schedule",
+      repository: "openclaw/openclaw",
+      ref: "refs/heads/main",
+      runAttempt: 1,
+      matrix: { group: "extension-package-boundary" },
+      preflightOutputs: {
+        candidate_trust: "main",
+        cache_write_allowed: "true",
+        cache_mode: "restore",
+        frozen_target: "false",
+        compatibility_target: "false",
+      },
+      steps: {
+        "extension-boundary-inputs": { outputs: { enabled: "true" } },
+        "extension-package-boundary-cache": { outputs: { "cache-hit": "false" } },
+      },
+    };
+    for (const eventName of ["push", "schedule", "workflow_dispatch"] as const) {
+      expect(evaluateWorkflowExpression(compiledSave.if, { ...writer, eventName })).toBe(true);
+    }
+    for (const rejected of [
+      { eventName: "pull_request" as const },
+      { failed: true },
+      { cancelled: true },
+      { repository: "contributor/openclaw" },
+      { ref: "refs/heads/feature" },
+      { releaseGate: true },
+      { matrix: { group: "boundaries" } },
+      ...Object.entries({
+        candidate_trust: "same-repository-pr",
+        cache_write_allowed: "false",
+        cache_mode: "off",
+        frozen_target: "true",
+        compatibility_target: "true",
+      }).map(([name, value]) => ({
+        preflightOutputs: { ...writer.preflightOutputs, [name]: value },
+      })),
+      {
+        steps: { ...writer.steps, "extension-boundary-inputs": { outputs: { enabled: "false" } } },
+      },
+      {
+        steps: {
+          ...writer.steps,
+          "extension-package-boundary-cache": { outputs: { "cache-hit": "true" } },
+        },
+      },
+    ]) {
+      expect(evaluateWorkflowExpression(compiledSave.if, { ...writer, ...rejected })).toBe(false);
+    }
     // Single semantic writer: protected pushes commit explicitly (not
     // on-change/if-missing, whose allocated-byte heuristic can strand a stale
     // marker); PR clones and the lint consumer stay read-only.
@@ -5856,6 +5930,15 @@ describe("ci workflow guards", () => {
         expected: { cache_mode: "restore", cache_write_allowed: "true", trust: "main" },
         options: {
           checkoutRevision: defaultRevision,
+          eventName: "schedule" as const,
+          ref: "refs/heads/main",
+          workflowRevision,
+        },
+      },
+      {
+        expected: { cache_mode: "restore", cache_write_allowed: "true", trust: "main" },
+        options: {
+          checkoutRevision: defaultRevision,
           eventName: "push" as const,
           ref: "refs/heads/main",
           workflowRevision,
@@ -5864,9 +5947,39 @@ describe("ci workflow guards", () => {
     ];
 
     for (const testCase of cases) {
-      const result = runCandidateTrustClassification(testCase.options);
+      const ref = "refs/heads/main";
+      const result = runCandidateTrustClassification({ ...testCase.options, ref });
       expect(result.status, result.output).toBe(0);
       expect(result.outputs).toMatchObject(testCase.expected);
+      const writer = expectDefined(
+        readCiWorkflow().jobs["check-additional-shard"].steps.find(
+          (step: WorkflowStep) =>
+            step.name === "Save compiled extension package boundary artifacts",
+        ),
+        "compiled boundary cache writer",
+      );
+      // Dependency setup remains restore-only; the producer separately grants cache publication.
+      expect(
+        evaluateWorkflowExpression(writer.if, {
+          eventName: testCase.options.eventName,
+          releaseGate: "releaseGate" in testCase.options && testCase.options.releaseGate,
+          repository: "openclaw/openclaw",
+          ref,
+          runAttempt: 1,
+          matrix: { group: "extension-package-boundary" },
+          preflightOutputs: {
+            candidate_trust: result.outputs.trust!,
+            cache_mode: result.outputs.cache_mode!,
+            cache_write_allowed: result.outputs.cache_write_allowed!,
+            frozen_target: "false",
+            compatibility_target: "false",
+          },
+          steps: {
+            "extension-boundary-inputs": { outputs: { enabled: "true" } },
+            "extension-package-boundary-cache": { outputs: { "cache-hit": "false" } },
+          },
+        }),
+      ).toBe(testCase.expected.trust === "main");
     }
   });
 
