@@ -2376,6 +2376,12 @@ jobs:
             return row.task === "lint" ? narrowCheckScope.lint : narrowCheckScope.checkTasks.includes(row.task);
           });
 
+          // The selected guards row owns the same coercion scan; fast-only plans retain its row.
+          if (!frozenTarget && !compatibilityTarget && runCheck && checkTasks.some(({ task }) => task === "guards")) {
+            const coercionTask = checksFastCoreTasks.findIndex(({ task }) => task === "coercion-helpers");
+            if (coercionTask >= 0) checksFastCoreTasks.splice(coercionTask, 1);
+          }
+
           const manifest = {
             release_scope: releaseScope,
             release_fast_lane: releaseFastLane,

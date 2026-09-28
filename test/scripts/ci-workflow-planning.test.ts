@@ -1524,6 +1524,11 @@ describe("ci workflow guards", () => {
           "dependencies",
           "test-types",
         ]);
+        expect(
+          JSON.parse(
+            expectDefined(manifest.outputs.checks_fast_core_matrix, "fast checks matrix"),
+          ).include.some((row: { task: string }) => row.task === "coercion-helpers"),
+        ).toBe(false);
         expect(manifest.outputs.narrow_check_paths_json).toBe("");
         expect(manifest.outputs.run_baseline_ratchets).toBe("true");
         expect(manifest.outputs.run_plugin_contracts_shards).toBe("true");
