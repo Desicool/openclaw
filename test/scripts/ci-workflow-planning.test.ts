@@ -1205,7 +1205,7 @@ describe("ci workflow guards", () => {
         coreStripes: [1, 4],
         lintCoreStripes: [1, 2],
         lintExtensionStripes: [],
-        lintPackage: ".",
+        lintCentralScripts: true,
       },
       {
         path: "src/agents/session.test.ts",
@@ -1218,7 +1218,7 @@ describe("ci workflow guards", () => {
         coreStripes: [1],
         lintCoreStripes: [1, 2],
         lintExtensionStripes: [],
-        lintPackage: ".",
+        lintCentralScripts: true,
         graphs: ["core-test-agents-root", "test-root"],
       },
       {
@@ -1232,7 +1232,7 @@ describe("ci workflow guards", () => {
         coreStripes: [],
         lintCoreStripes: [],
         lintExtensionStripes: [],
-        lintPackage: "ui",
+        lintCentralScripts: false,
       },
       {
         path: "packages/ui-shared/index.ts",
@@ -1245,7 +1245,7 @@ describe("ci workflow guards", () => {
         coreStripes: [1, 4],
         lintCoreStripes: [1],
         lintExtensionStripes: [],
-        lintPackage: "packages/ui-shared",
+        lintCentralScripts: false,
       },
       {
         path: "extensions/telegram/src/send.ts",
@@ -1258,7 +1258,7 @@ describe("ci workflow guards", () => {
         coreStripes: [],
         lintCoreStripes: [],
         lintExtensionStripes: [3],
-        lintPackage: "extensions/telegram",
+        lintCentralScripts: false,
         graphs: ["extensions", "extensions-test", "test-root"],
       },
     ])(
@@ -1274,7 +1274,7 @@ describe("ci workflow guards", () => {
         coreStripes,
         lintCoreStripes,
         lintExtensionStripes,
-        lintPackage,
+        lintCentralScripts,
         graphs,
       }) => {
         const paths = [changedPath];
@@ -1282,7 +1282,7 @@ describe("ci workflow guards", () => {
           core: lintCoreStripes.map((stripe) => ({
             stripe,
             lint_selection_json: JSON.stringify({
-              packages: [lintPackage],
+              files: [changedPath],
               coreStripes: stripe === 1 ? [1, 2] : [3, 4, 5],
               extensionStripes: [],
               groups: [],
@@ -1292,7 +1292,7 @@ describe("ci workflow guards", () => {
           extensions: lintExtensionStripes.map((stripe) => ({
             stripe,
             lint_selection_json: JSON.stringify({
-              packages: [lintPackage],
+              files: [changedPath],
               coreStripes: [],
               extensionStripes: [stripe],
               groups: [],
@@ -1300,10 +1300,10 @@ describe("ci workflow guards", () => {
             }),
           })),
           central: {
-            packages: [lintPackage],
+            files: lintCentralScripts ? ["scripts/selected-lint.mts"] : [],
             coreStripes: [],
             extensionStripes: [],
-            groups: lintPackage === "." ? ["scripts"] : [],
+            groups: lintCentralScripts ? ["scripts"] : [],
             central: true,
           },
         };
@@ -1493,7 +1493,7 @@ describe("ci workflow guards", () => {
           core: [{ stripe: 1, lint_selection_json: "{}" }],
           extensions: [{ stripe: 1, lint_selection_json: "{}" }],
           central: {
-            packages: ["."],
+            files: ["scripts/selected-lint.mts"],
             coreStripes: [],
             extensionStripes: [],
             groups: ["scripts"],
