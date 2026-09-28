@@ -2248,7 +2248,8 @@
   },
   "bundleDependencies": [
     "@openclaw/proxyline",
-    "chrome-devtools-mcp"
+    "chrome-devtools-mcp",
+    "undici"
   ],
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
