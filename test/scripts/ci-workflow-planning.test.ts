@@ -5502,10 +5502,10 @@ describe("ci workflow guards", () => {
       ),
     );
     expect(
-      hostedCoreJob.steps.some((step: WorkflowStep) =>
-        step.uses?.startsWith("actions/cache/save@"),
-      ),
-    ).toBe(false);
+      hostedCoreJob.steps
+        .filter((step: WorkflowStep) => step.uses?.startsWith("actions/cache/save@"))
+        .map((step: WorkflowStep) => step.name),
+    ).toEqual(["Save hosted SDK boundary cache"]);
     const warmerBoundaryRestore = expectDefined(
       warmer.jobs.warm.steps.find(
         (step: WorkflowStep) => step.name === "Restore native SDK boundary cache",
@@ -5521,6 +5521,76 @@ describe("ci workflow guards", () => {
     expect(warmerBoundaryRestore.with.path).toBe(boundaryCache.with.path);
     expect(warmerBoundaryRestore.with["restore-keys"]).toBe(hostedLintCache.with["restore-keys"]);
     expect(warmerBoundarySave.with.path).toBe(boundaryCache.with.path);
+    const sdkSave = expectDefined(
+      hostedCoreJob.steps.find(
+        (step: WorkflowStep) => step.name === "Save hosted SDK boundary cache",
+      ),
+      "hosted SDK writer",
+    );
+    const extensionJob = readCiWorkflow().jobs["check-lint-hosted-extension-shard"];
+    expect(extensionJob.steps.find((step: WorkflowStep) => step.name === sdkSave.name)).toEqual(
+      sdkSave,
+    );
+    expect(sdkSave.uses).toBe(CACHE_SAVE_V5);
+    expect(sdkSave.with.path).toBe(hostedCoreCache.with.path);
+    expect(sdkSave.with.path).toBe(
+      extensionJob.steps.find((step: WorkflowStep) => step.id === "sdk-boundary-cache").with.path,
+    );
+    expect(sdkSave.with.key).toBe("${{ steps.sdk-boundary-cache.outputs.cache-primary-key }}");
+    for (const job of [hostedCoreJob, extensionJob]) {
+      const saveIndex = job.steps.findIndex((step: WorkflowStep) => step.name === sdkSave.name);
+      const lintIndex = job.steps.findIndex((step: WorkflowStep) =>
+        step.name?.startsWith("Run hosted"),
+      );
+      expect(saveIndex).toBeGreaterThan(lintIndex);
+    }
+    const sdkContext: Parameters<typeof evaluateWorkflowExpression>[1] = {
+      eventName: "schedule",
+      repository: "openclaw/openclaw",
+      ref: "refs/heads/main",
+      runAttempt: 1,
+      runnerEnvironment: "github-hosted",
+      matrix: { stripe: 1 },
+      preflightOutputs: {
+        candidate_trust: "main",
+        cache_write_allowed: "true",
+        cache_mode: "restore",
+        frozen_target: "false",
+        compatibility_target: "false",
+      },
+      steps: {
+        "extension-boundary-inputs": { outputs: { enabled: "true", fingerprint: "a".repeat(40) } },
+        "sdk-boundary-cache": { outputs: { "cache-hit": "false" } },
+      },
+    };
+    expect(evaluateWorkflowExpression(sdkSave.if, sdkContext)).toBe(true);
+    for (const rejected of [
+      { matrix: { stripe: 2 } },
+      { matrix: { stripe: 1, lint_selection_json: "{}" } },
+      { runnerEnvironment: "self-hosted" as const },
+      { failed: true },
+      { cancelled: true },
+      { repository: "contributor/openclaw" },
+      { ref: "refs/heads/feature" },
+      { releaseGate: true },
+      { preflightOutputs: { ...sdkContext.preflightOutputs, frozen_target: "true" } },
+      { preflightOutputs: { ...sdkContext.preflightOutputs, compatibility_target: "true" } },
+      { preflightOutputs: { ...sdkContext.preflightOutputs, cache_mode: "off" } },
+      { preflightOutputs: { ...sdkContext.preflightOutputs, cache_write_allowed: "false" } },
+      {
+        steps: {
+          ...sdkContext.steps,
+          "extension-boundary-inputs": {
+            outputs: { enabled: "false", fingerprint: "a".repeat(40) },
+          },
+        },
+      },
+      {
+        steps: { ...sdkContext.steps, "sdk-boundary-cache": { outputs: { "cache-hit": "true" } } },
+      },
+    ]) {
+      expect(evaluateWorkflowExpression(sdkSave.if, { ...sdkContext, ...rejected })).toBe(false);
+    }
     const compiledSave = expectDefined(
       additionalJob.steps.find(
         (step: WorkflowStep) => step.name === "Save compiled extension package boundary artifacts",
@@ -5958,25 +6028,45 @@ describe("ci workflow guards", () => {
         ),
         "compiled boundary cache writer",
       );
-      // Dependency setup remains restore-only; the producer separately grants cache publication.
+      const sdkWriter = expectDefined(
+        readCiWorkflow().jobs["check-lint-hosted-extension-shard"].steps.find(
+          (step: WorkflowStep) => step.name === "Save hosted SDK boundary cache",
+        ),
+        "hosted SDK cache writer",
+      );
+      // Dependency setup remains restore-only; publication consumes the same producer facts.
+      const context: Parameters<typeof evaluateWorkflowExpression>[1] = {
+        eventName: testCase.options.eventName,
+        releaseGate: "releaseGate" in testCase.options && testCase.options.releaseGate,
+        repository: "openclaw/openclaw",
+        ref,
+        runAttempt: 1,
+        matrix: { group: "extension-package-boundary" },
+        preflightOutputs: {
+          candidate_trust: result.outputs.trust!,
+          cache_mode: result.outputs.cache_mode!,
+          cache_write_allowed: result.outputs.cache_write_allowed!,
+          frozen_target: "false",
+          compatibility_target: "false",
+        },
+        steps: {
+          "extension-boundary-inputs": { outputs: { enabled: "true" } },
+          "extension-package-boundary-cache": { outputs: { "cache-hit": "false" } },
+        },
+      };
+      expect(evaluateWorkflowExpression(writer.if, context)).toBe(
+        testCase.expected.trust === "main",
+      );
       expect(
-        evaluateWorkflowExpression(writer.if, {
-          eventName: testCase.options.eventName,
-          releaseGate: "releaseGate" in testCase.options && testCase.options.releaseGate,
-          repository: "openclaw/openclaw",
-          ref,
-          runAttempt: 1,
-          matrix: { group: "extension-package-boundary" },
-          preflightOutputs: {
-            candidate_trust: result.outputs.trust!,
-            cache_mode: result.outputs.cache_mode!,
-            cache_write_allowed: result.outputs.cache_write_allowed!,
-            frozen_target: "false",
-            compatibility_target: "false",
-          },
+        evaluateWorkflowExpression(sdkWriter.if, {
+          ...context,
+          runnerEnvironment: "github-hosted",
+          matrix: { stripe: 1 },
           steps: {
-            "extension-boundary-inputs": { outputs: { enabled: "true" } },
-            "extension-package-boundary-cache": { outputs: { "cache-hit": "false" } },
+            "extension-boundary-inputs": {
+              outputs: { enabled: "true", fingerprint: testCase.options.checkoutRevision },
+            },
+            "sdk-boundary-cache": { outputs: { "cache-hit": "false" } },
           },
         }),
       ).toBe(testCase.expected.trust === "main");

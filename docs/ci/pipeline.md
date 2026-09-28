@@ -805,6 +805,14 @@ It no longer packs or uploads the unused `dist-runtime-build` and
 they do not wait for SDK declarations, the Control UI build, or artifact checks.
 Diagnostic and proof uploads remain available.
 
+Hosted Linux SDK declarations are published by the existing full main lint stripe 1,
+after lint succeeds. Hybrid uses its plugin-lint row; the GitHub profile uses its
+core row that also checks plugin stripe 1. Both use the workflow's pinned Node
+runtime and preserve the restore archive's path contract for the prepared SDK
+and its validated receipt. The warmer keeps
+its other caches and non-hosted SDK ownership, avoiding a second hosted SDK emit.
+PRs remain restore-only, and semantic source/toolchain/output checks still run.
+
 Completed canonical-main extension boundary jobs publish their existing compiler
 receipts into a cache separated by OS, architecture, and runner environment. PRs
 restore that archive, falling back to the SDK warmer's declaration-only archive.

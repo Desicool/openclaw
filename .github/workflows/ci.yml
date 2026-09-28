@@ -5198,6 +5198,7 @@ jobs:
         run: *extension_boundary_fingerprint_run
 
       - name: Cache extension package boundary artifacts for hosted core lint
+        id: sdk-boundary-cache
         if: needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.runner_profile == 'github' && !inputs.release_gate && steps.extension-boundary-inputs.outputs.enabled == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *extension_boundary_cache_with
@@ -5253,7 +5254,21 @@ jobs:
           done
           finish_static_checks
 
-  # Keep extension compilation off packed core-lint rows.
+      # Only the full hosted stripe 1 publishes its already prepared SDK.
+      - &save_hosted_sdk_step
+        name: Save hosted SDK boundary cache
+        if: ${{ success() && github.repository == 'openclaw/openclaw' && github.ref == 'refs/heads/main' && needs.preflight.outputs.candidate_trust == 'main' && needs.preflight.outputs.cache_write_allowed == 'true' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true' && needs.preflight.outputs.compatibility_target != 'true' && !inputs.release_gate && runner.environment == 'github-hosted' && matrix.stripe == 1 && !matrix.lint_selection_json && steps.extension-boundary-inputs.outputs.enabled == 'true' && steps.sdk-boundary-cache.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/plugin-sdk/dist
+            .artifacts/extension-package-boundary/plugins
+            .artifacts/extension-package-boundary/*.json
+            .artifacts/extension-package-boundary/compile
+          key: ${{ steps.sdk-boundary-cache.outputs.cache-primary-key }}
+
+  # Keep extension compilation off the already packed hybrid core-lint rows.
 
   check-lint-hosted-extension-shard:
     permissions:
@@ -5279,11 +5294,10 @@ jobs:
       - name: Compute extension boundary input fingerprint
         id: extension-boundary-inputs
         shell: bash
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: *extension_boundary_fingerprint_run
 
       - name: Restore extension package boundary artifacts
+        id: sdk-boundary-cache
         if: needs.preflight.outputs.cache_mode != 'off'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *extension_boundary_cache_with
@@ -5305,7 +5319,10 @@ jobs:
             --only=extensions --extension-stripe="$EXTENSION_STRIPE/$EXTENSION_STRIPE_COUNT" --threads=1
           finish_static_checks
 
-  # Core stripes keep two compiler children; frozen layout stays paired.
+      - *save_hosted_sdk_step
+
+  # Run each complete core stripe independently; the central row owns the tail.
+  # Keep two compiler children per row and the frozen target's paired layout.
 
   check-test-types-hosted-core-shard:
     permissions:
