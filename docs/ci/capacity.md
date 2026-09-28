@@ -96,7 +96,7 @@ The three Mac Node parts add two hosted jobs per run on `github` and `hybrid`, w
 
 `Release npm Cache Warm` (`release-npm-cache-warm.yml`) runs a hosted Linux job on scheduled and manual triggers to prepare an npm download seed from the latest published OpenClaw package with lifecycle scripts disabled. Its concurrency group is separate from push-triggered Vitest warming, so newer pushes cannot cancel a pending seed. Scheduled runs publish from `main`, so new release branches can restore that seed through GitHub's default-branch cache scope. Each seed starts empty and contains only the current baseline dependency graph. Cross-OS release checks first restore their candidate-specific cache, then a matching runtime/suite cache, then this shared seed. Only npm's content-addressed `_cacache` directory is archived; install prefixes, OpenClaw state, npm logs, and executable `npx` caches remain fresh. The producer and consumers use the same relative archive path and enable cross-OS archives. npm retains normal freshness and integrity checks and downloads missing platform-specific packages. This adds one hosted Linux job per scheduled or manual warmer run, no jobs on pushes, and no Blacksmith registrations.
 
-Small precise PR changes use a focused Node plan. Broad, deleted or unknown changes retain compact core plus the affected plugin fallback; canonical pushes use the integration compact. Every compact planner profile is capped at 90 rows, and plugin fallback packing is capped at 50. The final canonical Node matrix also enforces 70 push rows, 77 main-tier validation rows, or 130 PR rows, including precise plans. Missing changed paths, missing current planner capabilities and planner errors fail preflight instead of emitting an incomplete successful matrix. Approved historical dispatches retain their full named plans. Count every emitted matrix row and nonmatrix job, including the conservative six-row Android inventory, independently of concurrency.
+Canonical PRs use the bounded changed-owner Node plan, including protected transitive consumers and fixed smoke tests. Broad inputs retain their owner coverage; missing or unresolved selection fails preflight. Canonical pushes use the integration compact. Every compact planner profile is capped at 90 rows, and plugin fallback packing is capped at 50. The final canonical Node matrix also enforces 70 push rows, 77 main-tier validation rows, or 130 PR rows, including precise plans. Missing changed paths, missing current planner capabilities and planner errors fail preflight instead of emitting an incomplete successful matrix. Approved historical dispatches retain their full named plans. Count every emitted matrix row and nonmatrix job, including the conservative six-row Android inventory, independently of concurrency.
 
 Android retains four normal rows and six full-manual rows. Normal same-repository canonical first attempts on Blacksmith overlap all four rows; the GitHub override, retries, manual dispatches, forks, and noncanonical repositories retain two. Reassigning app lint to the existing Wear and Kotlin-lint rows adds no jobs or registrations. A three-row cap kept every job below ten minutes but left a 941-second Android span in [run 35812544118](https://github.com/openclaw/openclaw/actions/runs/35812544118), so normal runs admit all four independent rows together. The conservative six-row allowance and `4 × 150 + 21 × 210 = 5,010` registration envelope remain unchanged, below the 6,000 operating target against the 10,000 live bucket checked on September 23, 2026. This allowance does not establish physical runner availability or a measured wall-time improvement.
 
@@ -772,11 +772,11 @@ PRs changing the compact planner or timing inputs now select their owner tests,
 affected transitive import consumers, protected regressions, and fixed smoke
 set on every backend. The complete compact
 inventory still runs hourly on main; Full Release Validation retains its full
-named plan. Changed-owner rows target at most 300 estimated test seconds while
+named plan. Changed-owner rows target at most 150 estimated test seconds while
 preserving whole files, existing runner classes, and the 130-row PR cap. A single
-indivisible file can exceed that target. These admission estimates do not prove
+indivisible file or canonical group can exceed that target. These admission estimates do not prove
 job wall time or setup/build/queue savings; before/after replay evidence belongs
-in the change's PR.
+with the change's landing evidence.
 
 The September 16 refresh retained three families' previous complete timing entries to avoid hosted expansion:
 `agentic-gateway-server-isolated`, `agentic-gateway-core-runtime`, and

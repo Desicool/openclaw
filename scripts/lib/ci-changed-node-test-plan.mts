@@ -662,17 +662,15 @@ function boundChangedNodeRows(
               return [row];
             }
             const middle = Math.ceil(selectedFiles.length / 2);
-            return [
-              ...split(selectedFiles.slice(0, middle)),
-              ...split(selectedFiles.slice(middle)),
-            ];
+            return split(selectedFiles.slice(0, middle)).concat(split(selectedFiles.slice(middle)));
           });
-        return split(files).map((row, index) => ({
-          ...row,
-          checkName: `${shard.checkName}-${index + 1}`,
-          shardName: `${shard.shardName}-${index + 1}`,
-          predictedTestSeconds: testSeconds(row),
-        }));
+        return split(files).map((row, index) =>
+          Object.assign({}, row, {
+            checkName: `${shard.checkName}-${index + 1}`,
+            shardName: `${shard.shardName}-${index + 1}`,
+            predictedTestSeconds: testSeconds(row),
+          }),
+        );
       }
       return [shard];
     }

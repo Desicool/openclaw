@@ -432,14 +432,27 @@ function expectCanonicalGroupedConcurrency(shards: ReturnType<typeof createChang
   );
   for (const shard of grouped) {
     for (const group of shard.groups ?? []) {
-      const file = expectDefined(group.includePatterns?.[0], "selected group file");
+      if (!group.includePatterns) {
+        // Paired isolated tooling configs retain whole processes and serial admission.
+        expect(group.shard_name).toBe("core-tooling-isolated");
+        expect(group.configs.toSorted()).toEqual([
+          "test/vitest/vitest.tooling-docker.config.ts",
+          "test/vitest/vitest.tooling-isolated.config.ts",
+        ]);
+        expect(shard.planConcurrency).toBe(1);
+        continue;
+      }
       const owner = expectDefined(
         canonical.find((job) =>
-          job.groups.some((candidate) => candidate.includePatterns?.includes(file)),
+          job.groups.some(
+            (candidate) =>
+              candidate.shard_name === group.shard_name &&
+              group.configs.every((config) => candidate.configs.includes(config)),
+          ),
         ),
-        `canonical concurrency owner for ${file}`,
+        `canonical concurrency owner for ${group.shard_name}`,
       );
-      expect(shard.planConcurrency, file).toBe(owner.planConcurrency);
+      expect(shard.planConcurrency, group.shard_name).toBe(owner.planConcurrency);
     }
   }
 }
@@ -2250,10 +2263,11 @@ describe("CI changed Node test plan", () => {
   });
 
   describe("documentation targeting", () => {
-    it("keeps the complete two-job corpus plan beside a documentation page", () => {
+    it("keeps the complete budgeted corpus plan beside a documentation page", () => {
       const targets = startupCorpusTestFiles;
       const before = createChangedNodeTestShards(targets);
-      expect(before).toHaveLength(2);
+      expect(before).toHaveLength(3);
+      expect(before?.every((shard) => (shard.predictedSeconds ?? 0) <= 150)).toBe(true);
       expect(before?.flatMap((shard) => shard.targets ?? []).toSorted()).toEqual(
         targets.toSorted(),
       );
@@ -3796,9 +3810,7 @@ describe("CI changed Node test plan", () => {
       expect(
         fallbackGroups(shards ?? []).flatMap((group) => group.includePatterns ?? []),
       ).toContain("test/scripts/docs-i18n.test.ts");
-      expect(
-        shards?.filter((shard) => shard.groups).every((shard) => shard.planConcurrency === 1),
-      ).toBe(true);
+      expectCanonicalGroupedConcurrency(shards);
       expect(shards?.some((shard) => shard.requiresDist)).toBe(false);
       expect(shards).toContainEqual(
         expect.objectContaining({ configs: ["test/vitest/vitest.boundary.config.ts"] }),

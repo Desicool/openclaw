@@ -931,11 +931,13 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       );
       if (expectedJobs === 1) {
         expect(after[0]).toMatchObject({
-          checkName: anchor.checkName,
+          checkName: tail.checkName,
+          shardName: tail.shardName,
           runner: DEFAULT_NODE_TEST_RUNNER,
           env: { OPENCLAW_VITEST_MAX_WORKERS: "2" },
-          predictedSeconds: 720,
+          predictedSeconds: 660,
         });
+        expect(after[0]!.predictedSeconds! + 60).toBe(720);
       }
     },
   );
