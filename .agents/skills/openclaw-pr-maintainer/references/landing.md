@@ -192,8 +192,11 @@ operator `reason`, affected `contracts`, and actual passing scoped `checks`.
 Retain these additional fields:
 
 - `testedMerge`: the actual checkout from inspected CI evidence. Its retained
-  Git object must have exactly two ordered parents, `priorHead` and `head`;
-  the baseline must be an ancestor of the captured protected main.
+  Git object must have exactly two ordered parents, `priorHead` and `head`, and
+  its tree must equal Git's successful merge of those parents. This prevents a
+  submitted merge tree from omitting PR changes. The baseline must be an ancestor
+  of the captured protected main. Which checkout the selected CI attempt executed
+  remains an inspected attestation bound to the named artifacts below.
 - `artifacts`: named regular files with `name`, `path`, and `sha256`. Reuse
   existing checkout logs, failure logs, and independent qualification receipts;
   do not create another proof system. `checkout` contains `reason` and `evidence`

@@ -190,6 +190,16 @@ async function verifyPreExistingFailure(evidence, run, jobs, checks, main, repos
     parents.length === 3 && parents[1] === evidence.priorHead && parents[2] === evidence.head,
     "tested merge must have the recorded baseline and exact prepared head as its ordered parents",
   );
+  const testedTree = git(["rev-parse", `${evidence.testedMerge}^{tree}`])
+    .toString("utf8")
+    .trim();
+  const derivedTree = git(["merge-tree", "--write-tree", evidence.priorHead, evidence.head])
+    .toString("utf8")
+    .trim();
+  requireEvidence(
+    oid.test(derivedTree) && testedTree === derivedTree,
+    "tested merge tree must match the recorded baseline and exact prepared head",
+  );
   git(["merge-base", "--is-ancestor", evidence.priorHead, main]);
   requireEvidence(
     jobs.length > 0 &&

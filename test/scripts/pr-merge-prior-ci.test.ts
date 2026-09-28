@@ -335,7 +335,9 @@ describePosix("explicit prior-CI admin landing", () => {
     writeFileSync(f.path, JSON.stringify(f.evidence));
     const result = f.verifyPriorCi(f.path);
     expect(result.status, result.output).not.toBe(0);
-    expect(result.output).toMatch(/matrix|workflow/u);
+    expect(result.output).toMatch(
+      fault === "changed workflow" ? /tested merge tree/u : /matrix|workflow/u,
+    );
     expect(f.state().mutations).toBe(0);
   });
 
@@ -412,6 +414,7 @@ describePosix("explicit prior-CI admin landing", () => {
   it.each([
     ["changed source", "failed input changed"],
     ["wrong merge parents", "ordered parents"],
+    ["forged merge tree", "tested merge tree"],
     ["missing failed job", "every failed job"],
     ["unattributed case", "observed cases"],
     ["missing cancellation", "all cancelled jobs"],
@@ -434,6 +437,10 @@ describePosix("explicit prior-CI admin landing", () => {
     }
     if (fault === "wrong merge parents") {
       f.evidence.testedMerge = f.commit(f.tree("resolved conflict\n"), [f.head, f.base]);
+    }
+    if (fault === "forged merge tree") {
+      f.evidence.testedMerge = f.commit(f.git(["rev-parse", `${f.base}^{tree}`]), [f.base, f.head]);
+      f.evidence.failures[0]!.sourcePaths = ["owner.txt"];
     }
     if (fault === "missing failed job") {
       f.evidence.failures = [];
