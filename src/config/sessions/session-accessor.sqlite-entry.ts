@@ -576,7 +576,16 @@ function buildInboundSessionCreationStamp(ctx: UpdateSessionLastRouteParams["ctx
   return buildSessionCreationStamp(
     ctx?.SessionCreation ?? {
       via: "channel",
-      ...(senderId ? { actor: { type: "human", source: "channel", id: senderId } } : {}),
+      ...(senderId
+        ? {
+            actor: {
+              type: "human",
+              source: "channel",
+              id: senderId,
+              label: ctx?.SenderName?.trim() || undefined,
+            },
+          }
+        : {}),
     },
   );
 }
