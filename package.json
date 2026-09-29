@@ -352,6 +352,7 @@
     "!dist/extensions/searxng/**",
     "!dist/extensions/signal/**",
     "!dist/extensions/slack/**",
+    "!dist/extensions/slack-huddles/**",
     "!dist/extensions/sms/**",
     "!dist/extensions/stepfun/**",
     "!dist/extensions/synthetic/**",
