@@ -1202,7 +1202,7 @@ packages/ai/src/transports/openai-responses-client.ts	11
 packages/ai/src/transports/openai-responses-compact-request.ts	2
 packages/ai/src/transports/openai-responses-continuation.ts	2
 packages/ai/src/transports/openai-responses-contracts.ts	1
-packages/ai/src/transports/openai-responses-debug.ts	12
+packages/ai/src/transports/openai-responses-debug.ts	11
 packages/ai/src/transports/openai-responses-params-internal.ts	8
 packages/ai/src/transports/openai-responses-payload-policy.ts	3
 packages/ai/src/transports/openai-responses-prompt-observer-internal.ts	2
@@ -1274,7 +1274,6 @@ packages/normalization-core/src/stable-stringify.ts	1
 packages/normalization-core/src/string-coerce.ts	1
 packages/sdk/src/event-hub.ts	2
 packages/sdk/src/transport.ts	3
-packages/session-url-contract/src/parse.ts	1
 packages/terminal-core/src/note.ts	1
 packages/terminal-core/src/prompt-select-styled-params.ts	1
 packages/terminal-core/src/stream-writer.ts	1
