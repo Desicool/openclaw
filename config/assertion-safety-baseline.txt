@@ -1930,7 +1930,7 @@ src/commands/agent-via-gateway.ts	7
 src/commands/agents.commands.bind.ts	2
 src/commands/agents.commands.identity.ts	1
 src/commands/agents.config.ts	1
-src/commands/agents.providers.ts	8
+src/commands/agents.providers.ts	4
 src/commands/audit.ts	1
 src/commands/backup-restore.ts	1
 src/commands/backup-schedule.ts	1
@@ -2020,7 +2020,6 @@ src/commands/doctor/shared/stale-auth-order-store.ts	3
 src/commands/doctor/shared/stale-auth-order.ts	4
 src/commands/doctor/shared/stale-oauth-profile-shadows.ts	1
 src/commands/doctor/shared/stale-plugin-repair-preservation.ts	1
-src/commands/doctor/shared/stale-subagent-allowlist.ts	2
 src/commands/gateway-health-auth-diagnostic.ts	1
 src/commands/gateway-presence.ts	1
 src/commands/gateway-status/helpers.ts	11
