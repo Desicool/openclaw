@@ -171,7 +171,7 @@ export function createDeclarationFileSystem(
         return accepted;
       }
     },
-    writeFile() {
+    writeFile(this: void) {
       reject(new Error("Native declarations must be emitted in memory"));
     },
   } satisfies FileSystem;
