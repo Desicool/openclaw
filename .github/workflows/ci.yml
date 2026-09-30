@@ -4032,7 +4032,7 @@ jobs:
     name: check-test-types-core-${{ matrix.stripe }}
     needs: [preflight, check-plan]
     if: ${{ !cancelled() && !failure() && (needs.preflight.outputs.run_check_plan != 'true' || needs.check-plan.result == 'success') && (needs.preflight.outputs.run_check == 'true' && (!needs.preflight.outputs.narrow_check_paths_json || (needs.preflight.outputs.run_check_plan == 'true' && needs.check-plan.outputs.run_changed_core_type_stripes || needs.preflight.outputs.run_changed_core_type_stripes) == 'true') && (needs.preflight.outputs.runner_profile == 'github' || needs.preflight.outputs.runner_profile == 'hybrid') && (needs.preflight.outputs.frozen_target != 'true' || needs.preflight.outputs.hosted_runner_profile_contract == 'true')) }}
-    # Healthy, budgeted hybrid checks use hosted capacity with unchanged compiler children.
+    # Healthy hybrid checks may use hosted capacity.
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && needs.preflight.outputs.hybrid_hosted_checks == 'true') && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04')))) || ((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && needs.preflight.outputs.hybrid_hosted_checks == 'true') && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt > 1) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04')) }}
     timeout-minutes: 15
     strategy:
@@ -4067,7 +4067,7 @@ jobs:
           source .ci-harness/scripts/ci-static-step.sh tsgo
           if [ -n "${CI_TYPE_GRAPHS_JSON:-}" ]; then
             run_static_check node scripts/run-tsgo-core-test-shards.mjs --ci-graphs-json "$CI_TYPE_GRAPHS_JSON" --concurrency 2
-            if [ -n "$ROOT_TYPE_STRIPE" ]; then
+            if [ -n "${ROOT_TYPE_STRIPE:-}" ]; then
               run_static_check env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$ROOT_TYPE_STRIPE"
             fi
             finish_static_checks
@@ -4088,8 +4088,8 @@ jobs:
               args+=(--changed-paths-json "$CHANGED_CORE_TEST_PATHS_JSON")
             fi
             run_static_check node scripts/run-tsgo-core-test-shards.mjs "${args[@]}"
-            if [ "$CORE_STRIPE" -le 4 ] && grep -q -- '--root-stripe' scripts/run-tsgo-core-test-shards.mts; then
-              run_static_check env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$CORE_STRIPE/4"
+            if [ "$CORE_STRIPE" -ge 2 ] && grep -q -- '--root-stripe' scripts/run-tsgo-core-test-shards.mts; then
+              run_static_check env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$((CORE_STRIPE - 1))/4"
             fi
             finish_static_checks
           fi

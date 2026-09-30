@@ -6554,11 +6554,11 @@ describe("ci workflow guards", () => {
             command: `node --stripe ${stripe}/5 --concurrency 2`,
             localCheck: null,
           },
-          ...(stripe <= 4
+          ...(stripe >= 2
             ? [
                 {
                   row: `core-${stripe}`,
-                  command: `node --root-stripe ${stripe}/4`,
+                  command: `node --root-stripe ${stripe - 1}/4`,
                   localCheck: "0",
                 },
               ]

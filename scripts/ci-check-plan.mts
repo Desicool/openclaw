@@ -104,7 +104,7 @@ export async function createCiCheckPlan(input: CiCheckPlanInput) {
   // Reuse admitted rows only; small selections keep their serial central owner.
   // Each root partition runs after its row's concurrent core compilers settle.
   if (coreRows.length >= 4 && other.some(({ name }) => name === "test-root")) {
-    for (const [index, row] of coreRows.slice(0, 4).entries()) {
+    for (const [index, row] of coreRows.slice(-4).entries()) {
       row.root_type_stripe = `${index + 1}/4`;
     }
     other = other.filter(({ name }) => name !== "test-root");
