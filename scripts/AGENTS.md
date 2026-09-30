@@ -155,12 +155,16 @@ pending/skipped `openclaw/ci-gate`. An explicitly approved `pre-existing-failure
 attribution instead binds the current failed attempt, effective gate check-run,
 tested merge/base, unchanged failure inputs, and inspected qualification artifacts.
 Every failed job and fail-fast cancellation must be accounted for; cancelled
-coverage stays unrun. An independently attributed cancelled Node test or
-`check-prod-types` root can use `failures[].failedStep: { number, workflowJob }`,
-with `checks-node-core-test-nondist-shard` or `check-shard`, respectively.
+coverage stays unrun. An independently attributed cancelled Node test,
+`check-prod-types`, or real-Gateway UI root can use
+`failures[].failedStep: { number, workflowJob }`, with
+`checks-node-core-test-nondist-shard`, `check-shard`, or
+`checks-ui-e2e-real-gateway`, respectively.
 Admission binds its live check-run, complete steps, single failed execution step,
-timestamps, and unchanged audited workflow. The production-type route also
-matches every declared source step and its ordered timeline. Other steps must
+timestamps, and unchanged audited workflow. The production-type and UI routes also
+match every declared source step and its ordered timeline. The UI route permits
+only its explicit optional runner setup/cleanup pair and requires the successful
+private-QA build before its audited test entrypoint. Other steps must
 succeed or be skipped through successful cleanup.
 Retain the cancelled conclusion in the root proof; this is not passing coverage.
 A collateral cancelled job's failed step remains blocking except for
