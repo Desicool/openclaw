@@ -1649,7 +1649,7 @@ AFTER_CD
     }
   });
 
-  it("runs the Docker seed tier with the published updater and a checked main smoke package", () => {
+  it("runs the Docker seed tier with the published updater and a checked main/PR smoke package", () => {
     const source = readFileSync(".github/workflows/ci.yml", "utf8");
     const jobs = readCiWorkflow().jobs;
     const job = jobs["docker-seed-e2e"];
@@ -1688,8 +1688,8 @@ AFTER_CD
     });
     expect(parallelism).toContain("&& 3 || 1");
     expect(run.env).not.toHaveProperty("OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC");
-    const prepare = job.steps.find(
-      (step: WorkflowStep) => step.name === "Prepare main Docker smoke package",
+    const prepare = job.steps.find((step: WorkflowStep) =>
+      step.run?.includes("scripts/package-openclaw-for-docker.mjs"),
     ) as WorkflowStep;
     for (const eventName of ["push", "pull_request"] as const) {
       expect(
@@ -1698,7 +1698,20 @@ AFTER_CD
           repository: "openclaw/openclaw",
           runAttempt: 1,
         }),
-      ).toBe(eventName === "push");
+      ).toBe(true);
+    }
+    for (const releaseGate of [false, true]) {
+      for (const qualification of [false, true]) {
+        expect(
+          evaluateWorkflowExpression("${{ " + prepare.if + " }}", {
+            eventName: "workflow_dispatch",
+            repository: "openclaw/openclaw",
+            runAttempt: 1,
+            releaseGate,
+            preflightOutputs: { ci_qualification: String(qualification) },
+          }),
+        ).toBe(releaseGate && !qualification);
+      }
     }
     expect(prepare.run).toContain("pnpm build:ci-artifacts");
     expect(prepare.run).toContain("node scripts/package-openclaw-for-docker.mjs --skip-build");

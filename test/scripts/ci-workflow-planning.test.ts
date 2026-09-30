@@ -2402,8 +2402,8 @@ describe("ci workflow guards", () => {
             ].includes(name),
         );
       }
-      const packageStep = workflow.jobs["docker-seed-e2e"].steps.find(
-        (step: WorkflowStep) => step.name === "Prepare main Docker smoke package",
+      const packageStep = workflow.jobs["docker-seed-e2e"].steps.find((step: WorkflowStep) =>
+        step.run?.includes("scripts/package-openclaw-for-docker.mjs"),
       );
       expect(evaluateWorkflowExpression("${{ " + packageStep.if + " }}", context)).toBe(!release);
     },
