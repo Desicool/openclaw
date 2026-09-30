@@ -131,7 +131,6 @@ extensions/codex/src/app-server/client-runtime.ts	1
 extensions/codex/src/app-server/client.ts	3
 extensions/codex/src/app-server/compact.ts	1
 extensions/codex/src/app-server/computer-use-cache.ts	1
-extensions/codex/src/app-server/config-utils.ts	1
 extensions/codex/src/app-server/context-engine-projection.ts	1
 extensions/codex/src/app-server/dynamic-tool-build.ts	1
 extensions/codex/src/app-server/dynamic-tools.ts	1
