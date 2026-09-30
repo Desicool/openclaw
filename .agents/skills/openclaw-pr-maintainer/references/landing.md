@@ -311,9 +311,11 @@ the current effective GitHub Actions gate check-run, and source/artifact hashes.
 During active prior-CI admission, unrelated main movement can pass when it is
 forward from both captured main anchors and produces a conflict-free, nonempty
 merge. Exact PR/policy facts and final live authority checks still apply; the
-intent and landing-parent audit retain their original main anchor. The last
-reread uses local objects only, so a newly unavailable main is a pre-dispatch
-refusal, not permission to fetch after authority verification. Crabbox admission
+intent and landing-parent audit retain their original main anchor. Already-selected
+REST completes its final observation and main materialization before one final
+live authority verification. GraphQL retains its post-authority local-only reread,
+including late REST fallback; a newly unavailable main there is a pre-dispatch
+refusal. Neither path fetches after final authority verification. Crabbox admission
 and retained-outcome reconciliation keep their existing strict main binding.
 A fork run with an empty GitHub PR association must match the current PR's exact
 head, branch, and source repository identity as well as that check-run; an
