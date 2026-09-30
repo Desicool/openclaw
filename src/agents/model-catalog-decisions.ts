@@ -58,44 +58,6 @@ function listEnabledSyntheticAuthProviderRefs(
     .flatMap((plugin) => plugin.syntheticAuthRefs ?? []);
 }
 
-function createModelsListAuthResolver(params: {
-  cfg: OpenClawConfig;
-  agentId: string;
-  metadataSnapshot: PluginMetadataSnapshot;
-  preparedAuthStore: AuthProfileStore;
-  preparedRuntimeAuthModes?: PreparedAgentCredentialModes;
-  preparedRuntimeAuthMaterializations?: readonly RuntimeAuthMaterialization[];
-  preparedSyntheticAuthComplete?: boolean;
-  workspaceDir: string;
-  routeResolverFactory?: typeof createOpenAIModelRoutesResolver;
-}): ModelAuthAvailabilityResolver {
-  const agentDir = resolveAgentDir(params.cfg, params.agentId);
-  return createModelAuthAvailabilityResolver({
-    cfg: params.cfg,
-    agentId: params.agentId,
-    authStore: params.preparedAuthStore,
-    agentDir,
-    preparedCliRuntimeAuthDirectories: {
-      agentDir,
-      inheritedAuthDir: resolveLegacyInheritedAuthDir(params.cfg),
-    },
-    workspaceDir: params.workspaceDir,
-    env: process.env,
-    metadataSnapshot: params.metadataSnapshot,
-    preparedRuntimeAuthModes: params.preparedRuntimeAuthModes,
-    preparedRuntimeAuthMaterializations: params.preparedRuntimeAuthMaterializations,
-    preparedSyntheticAuthComplete: params.preparedSyntheticAuthComplete,
-    skipSetupProviderFallback: true,
-    syntheticAuthProviderRefs: listEnabledSyntheticAuthProviderRefs(
-      params.metadataSnapshot,
-      params.cfg,
-    ),
-    externalCliProviderIds: resolveExternalCliAuthScopeFromConfig(params.cfg)?.providerIds ?? [],
-    preparedRuntimeAuthStore: params.preparedAuthStore,
-    routeResolverFactory: params.routeResolverFactory,
-  });
-}
-
 function createModelsListEntryEvaluator(params: {
   authResolver: ModelAuthAvailabilityResolver;
   providerOutcomes?: readonly ProviderCatalogOutcome[];
@@ -305,16 +267,27 @@ export function createModelCatalogDecisions(params: ModelCatalogDecisionParams) 
       ]),
     ].filter((deadline): deadline is number => deadline !== undefined && deadline > preparedAt),
   );
-  const authResolver = createModelsListAuthResolver({
+  const agentDir = resolveAgentDir(params.cfg, params.agentId);
+  const authResolver = createModelAuthAvailabilityResolver({
     cfg: params.cfg,
     agentId: params.agentId,
+    authStore,
+    agentDir,
+    preparedCliRuntimeAuthDirectories: {
+      agentDir,
+      inheritedAuthDir: resolveLegacyInheritedAuthDir(params.cfg),
+    },
+    env: process.env,
     metadataSnapshot,
-    preparedAuthStore: authStore,
     preparedRuntimeAuthModes: params.preparedRuntimeAuthModes,
     preparedRuntimeAuthMaterializations: params.preparedRuntimeAuthMaterializations,
     preparedSyntheticAuthComplete:
       params.preparedSyntheticAuthComplete ?? isPreparedModelCatalogFull(params.snapshot),
     workspaceDir,
+    skipSetupProviderFallback: true,
+    syntheticAuthProviderRefs: listEnabledSyntheticAuthProviderRefs(metadataSnapshot, params.cfg),
+    externalCliProviderIds: resolveExternalCliAuthScopeFromConfig(params.cfg)?.providerIds ?? [],
+    preparedRuntimeAuthStore: authStore,
     routeResolverFactory: params.routeResolverFactory,
   });
   const evaluateStoredEntry = createModelsListEntryEvaluator({
