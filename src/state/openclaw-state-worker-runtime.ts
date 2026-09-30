@@ -94,7 +94,7 @@ import {
   readTelemetryStateInWorker,
 } from "../infra/telemetry-store.kernel.js";
 import { persistInterruptedUpdateObservation } from "../infra/update-run-interruption-store.js";
-import { recordUpdateRunStepInWorker } from "../infra/update-run-mutation.worker.js";
+import { recordUpdateRunMutationInWorker } from "../infra/update-run-mutation.worker.js";
 import { reconcileUpdateRunCandidatesInWorker } from "../infra/update-run-reconciliation.worker.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { readRemoteModelCatalog } from "../model-catalog/remote-store.js";
@@ -332,8 +332,8 @@ export function executeSharedStateCommand(
       { database, path: context.databasePath, env: getSqliteWorkerStateContext().environment },
     );
   }
-  if (command.type === "updateRuns.recordStep") {
-    return recordUpdateRunStepInWorker(command.input, stateOptions(), (stage) =>
+  if (command.type === "updateRuns.recordStep" || command.type === "updateRuns.recordPhase") {
+    return recordUpdateRunMutationInWorker(command, stateOptions(), (stage) =>
       requestSqliteWorkerOperationAdmission({ stage, facts: undefined }),
     );
   }
