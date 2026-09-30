@@ -4182,16 +4182,6 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-extension-package-boundary-compiled-v1-
             ${{ runner.os }}-extension-package-boundary-v4-
 
-      - name: Run dependency checks
-        if: matrix.group == 'dependencies'
-        env:
-          TASK: dependencies
-          OPENCLAW_LOCAL_CHECK: "0"
-          FROZEN_TARGET: *frozen_target
-          HISTORICAL_TARGET: *historical_target
-        shell: bash
-        run: *run_check_shard
-
       - name: Run additional check shard
         if: matrix.group != 'dependencies'
         env:
@@ -4326,6 +4316,16 @@ jobs:
           done
 
           exit "$failures"
+
+      - name: Run dependency checks
+        if: matrix.group == 'dependencies'
+        env:
+          TASK: dependencies
+          OPENCLAW_LOCAL_CHECK: "0"
+          FROZEN_TARGET: *frozen_target
+          HISTORICAL_TARGET: *historical_target
+        shell: bash
+        run: *run_check_shard
 
       - name: Save compiled extension package boundary artifacts
         if: ${{ success() && github.repository == 'openclaw/openclaw' && github.ref == 'refs/heads/main' && contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && !inputs.release_gate && needs.preflight.outputs.candidate_trust == 'main' && needs.preflight.outputs.cache_write_allowed == 'true' && needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.frozen_target != 'true' && needs.preflight.outputs.compatibility_target != 'true' && matrix.group == 'extension-package-boundary' && steps.extension-boundary-inputs.outputs.enabled == 'true' && steps.extension-package-boundary-cache.outputs.cache-hit != 'true' }}
