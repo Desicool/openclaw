@@ -1860,7 +1860,6 @@ src/cli/program/message/helpers.ts	1
 src/cli/program/message/register.permissions-search.ts	2
 src/cli/program/preaction.ts	1
 src/cli/program/program-context.ts	2
-src/cli/program/register-lazy-command.ts	1
 src/cli/program/register.agent-turn.ts	1
 src/cli/program/register.audit.ts	12
 src/cli/program/register.configure.ts	1
