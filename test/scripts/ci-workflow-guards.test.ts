@@ -1874,6 +1874,10 @@ require("node:fs").writeFileSync("scheduler-restart", process.env.OPENCLAW_UPGRA
       writeFileSync(path.join(root, "github-env"), "");
       const inheritedBaseline = run.env?.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC;
       const inheritedScenario = run.env?.OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS;
+      const inheritedRestartMode = run.env?.OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE;
+      if (typeof inheritedRestartMode !== "string") {
+        throw new Error("Docker seed restart mode must be a string");
+      }
       const result = runWorkflowShellScript(
         `set -euo pipefail\n${baseline?.run ?? ""}\nset -a\nsource "$GITHUB_ENV"\nset +a\n${run.run}`,
         {
@@ -1895,8 +1899,7 @@ require("node:fs").writeFileSync("scheduler-restart", process.env.OPENCLAW_UPGRA
                     }),
                   )
                 : "",
-            OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE:
-              run.env?.OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE,
+            OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE: inheritedRestartMode,
             FROZEN_TARGET: String(fixture.frozen ?? false),
             TARGET_CONTEXT_REF: fixture.context ?? "main",
           },
