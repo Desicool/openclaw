@@ -110,6 +110,7 @@ import {
 } from "../state/agent-database-admission.js";
 import {
   createCronExitWatchers,
+  reconcileCronExitWatchers,
   type CronExitResult,
   type CronExitWatcherHandlers,
   type CronExitWatchers,
@@ -129,6 +130,7 @@ import {
   dispatchGatewayCronFinishedNotifications,
   sendGatewayCronWebhook,
   sendGatewayCronFailureAlert,
+  runGatewayCronFailureRepair,
 } from "./server-cron-notifications.js";
 import { toPluginCronJob } from "./server-cron-plugin-job.js";
 import { reconcileSkillCollectionReviewJobs } from "./server-cron-skill-review-jobs.js";
@@ -228,18 +230,6 @@ export async function fireStreamJob(
     return "disabled";
   }
   return disposition ?? (result.ok && result.ran === true ? "fired" : "not-run");
-}
-
-function reconcileCronExitWatchers(params: {
-  cronEnabled: boolean;
-  exitWatchers: ReturnType<typeof createCronExitWatchers>;
-  jobs: CronJob[];
-}) {
-  if (!params.cronEnabled) {
-    void params.exitWatchers.cancelAll();
-    return;
-  }
-  params.exitWatchers.reconcile(params.jobs);
 }
 
 function pickDefined<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[]): Partial<T> {
@@ -995,6 +985,8 @@ export function buildGatewayCronService(params: {
         webhookToken: params.cfg.cron?.webhookToken,
         ssrfPolicy: webhookSsrfPolicy,
       }),
+    runCronFailureRepair: (request) =>
+      runGatewayCronFailureRepair(request, scheduledGatewayContextResolver),
     log: toPinoLikeLogger(
       getChildLogger({ module: "cron", storeKey: storePath }),
       getResolvedLoggerSettings().level,
