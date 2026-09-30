@@ -1121,7 +1121,7 @@ describe("release fast lane", () => {
     expect(result.outputs.release_fast_lane).toBe("true");
     expect(result.outputs.run_docker_seed_e2e).toBe("true");
     expect(result.outputs.docker_seed_lanes).toBe(
-      "published-upgrade-survivor mcp-channels cron-mcp-cleanup mcp-code-mode-gateway",
+      "mcp-channels cron-mcp-cleanup mcp-code-mode-gateway",
     );
     expect(result.outputs.run_qa_smoke_ci).toBe("true");
     expect(result.outputs.run_check).toBe("true");
@@ -3316,9 +3316,9 @@ describe("ci workflow guards", () => {
     invalid?: boolean;
   }>([
     { eventName: "pull_request" as const, production: false, expected: false },
-    { eventName: "pull_request" as const, production: true, expected: true },
+    { eventName: "pull_request" as const, production: true, expected: false },
     { eventName: "workflow_dispatch", releaseGate: true, production: false, expected: false },
-    { eventName: "workflow_dispatch", releaseGate: true, production: true, expected: true },
+    { eventName: "workflow_dispatch", releaseGate: true, production: true, expected: false },
     { eventName: "push" as const, production: false, expected: true },
     { eventName: "push" as const, production: true, expected: true },
     { eventName: "workflow_dispatch" as const, production: false, expected: true },
