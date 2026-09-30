@@ -8,7 +8,7 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { chmod, cp, link, mkdir, rename, symlink } from "node:fs/promises";
+import { chmod, cp, link, mkdir, rename, symlink, unlink } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect } from "vitest";
 import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
@@ -28,11 +28,11 @@ const packageTimeouts = {
   OPENCLAW_DOCKER_PACKAGE_PACK_TIMEOUT_MS: "234567",
   OPENCLAW_DOCKER_PACKAGE_TARBALL_CHECK_TIMEOUT_MS: "900000",
 };
-const materializer = "scripts/materialize-mac-node-worker.py";
+const materializer = "scripts/materialize-mac-runtime.py";
 const inventory = "scripts/lib/mac-native-inventory.py";
 
-type WorkerScratchObservation = {
-  phase: "pack" | "install" | "verify";
+type RuntimeScratchObservation = {
+  phase: "pack" | "driver" | "install" | "verify";
   home: string;
   temporary: string;
   createdDirectory: string;
@@ -42,6 +42,7 @@ type WorkerScratchObservation = {
   product: string;
   productDevice: string;
   productInode: string;
+  cpu: string | null;
 };
 
 function snapshot(root: string) {
@@ -70,7 +71,7 @@ function snapshot(root: string) {
 }
 
 async function materializationFixture(mac: MacScriptFixture, complete = false) {
-  const root = realpathSync(mac.createTempDir("openclaw-worker-native-copy-"));
+  const root = realpathSync(mac.createTempDir("openclaw-runtime-native-copy-"));
   const source = path.join(root, "canonical");
   const parent = path.join(root, "stage");
   const destination = path.join(parent, "derived");
@@ -143,8 +144,8 @@ async function materializationFixture(mac: MacScriptFixture, complete = false) {
   };
 }
 
-async function stagingFixture(mac: MacScriptFixture) {
-  const root = realpathSync(mac.createTempDir("openclaw-worker-materialization-"));
+async function stagingFixture(mac: MacScriptFixture, architectures = ["arm64", "x86_64"]) {
+  const root = realpathSync(mac.createTempDir("openclaw-runtime-materialization-"));
   const binaries = await compiledMacNativeFixtures(root, mac);
   const scripts = path.join(root, "scripts");
   const destination = path.join(root, "published");
@@ -155,20 +156,7 @@ async function stagingFixture(mac: MacScriptFixture) {
   await mkdir(tmp);
   await write(path.join(root, "operator-sentinel"), "ambient home must remain untouched");
   await write(path.join(tmp, "other-task/sentinel"), "unrelated scratch must survive");
-  await cp("scripts/stage-mac-node-worker.sh", path.join(scripts, "stage-mac-node-worker.sh"));
-  await write(path.join(scripts, "tsx.mjs"), "");
-  await write(
-    path.join(scripts, "prune-mac-node-worker.ts"),
-    `
-const fs = require('node:fs');
-const path = require('node:path');
-const runtime = process.argv[2];
-fs.rmSync(path.join(runtime, 'lib/node_modules/openclaw/dist/control-ui'), {
-  force: true,
-  recursive: true,
-});
-`,
-  );
+  await cp("scripts/stage-mac-runtime.sh", path.join(scripts, "stage-mac-runtime.sh"));
   await cp(materializer, path.join(scripts, path.basename(materializer)));
   await write(path.join(scripts, "lib/mac-native-inventory.py"), readFileSync(inventory));
   await write(path.join(root, "dist/build-info.json"), '{"buildId":"unchanged-build"}');
@@ -201,6 +189,7 @@ module.exports = (phase, product) => {
       process.env[name] ? [[name, process.env[name]]] : [])),
     privateRootMode: privateRoot === null ? null : fs.statSync(privateRoot).mode & 0o777,
     product, productDevice: info.dev.toString(), productInode: info.ino.toString(),
+    cpu: process.env.npm_config_cpu ?? null,
   }) + '\\n');
 };
 if (require.main === module) module.exports(process.argv[2], process.argv[3]);
@@ -213,7 +202,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import recordScratch from './record-scratch.cjs';
-assert(process.argv.includes('--pnpm-pack'), 'worker package must use the repository-pinned packer');
+assert(process.argv.includes('--pnpm-pack'), 'runtime package must use the repository-pinned packer');
 const target = path.join(process.argv[process.argv.indexOf('--output-dir') + 1], process.argv[process.argv.indexOf('--output-name') + 1]);
 fs.writeFileSync(target, 'inert package mock');
 recordScratch('pack', target);
@@ -222,55 +211,87 @@ console.log(target);
 `,
   );
   await write(
-    path.join(scripts, "verify-mac-node-worker.mjs"),
+    path.join(scripts, "verify-mac-runtime.mjs"),
     `
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import recordScratch from './record-scratch.cjs';
 assert.equal(process.argv[3], ${JSON.stringify(path.join(root, "dist/build-info.json"))});
-assert.equal(fs.readFileSync(process.argv[2]+'/build-info.json', 'utf8'), fs.readFileSync(process.argv[3], 'utf8'));
-assert.equal(fs.existsSync(path.join(process.argv[2], 'lib/node_modules/openclaw/dist/control-ui')), false, 'worker retained Control UI');
+assert.equal(fs.readFileSync(process.argv[2]+'/lib/node_modules/openclaw/dist/build-info.json', 'utf8'), fs.readFileSync(process.argv[3], 'utf8'));
+assert.equal(fs.existsSync(path.join(process.argv[2], 'lib/node_modules/openclaw/dist/control-ui/index.html')), true, 'runtime lost Control UI');
+assert.equal(fs.existsSync(path.join(process.argv[2], 'bin/node')), false, 'build-time Node leaked');
+assert.equal(process.env.OPENCLAW_SQLITE_LIBRARY, path.join(process.argv[2], 'lib/libsqlite3.dylib'));
 recordScratch('verify', process.argv[2]);
-if (process.argv[2].includes('/x86_64/') && fs.existsSync(${JSON.stringify(path.join(root, "reject-verification"))})) process.exit(42);
+if (fs.existsSync(${JSON.stringify(path.join(root, "reject-verification"))})) process.exit(42);
 `,
   );
-  for (const arch of ["arm64", "x86_64"] as const) {
-    const canonical = path.join(root, "canonical", arch);
-    await write(path.join(canonical, "matching.node"), binaries[arch]);
+  const canonical = path.join(root, "canonical");
+  const packageRoot = path.join(canonical, "lib/node_modules/openclaw");
+  for (const [name, os, cpu, bytes] of [
+    ["native-darwin-arm64", "darwin", "arm64", binaries.arm64],
+    ["native-darwin-x64", "darwin", "x64", binaries.x86_64],
+    ["native-linux-arm64", "linux", "arm64", binaries.elf],
+    ["native-win32-x64", "win32", "x64", binaries.pe],
+    ["@fixture/native-darwin-arm64", "darwin", "arm64", binaries.arm64],
+    ["@fixture/native-linux-arm64", "linux", "arm64", binaries.elf],
+  ] as const) {
+    const nativeRoot = path.join(packageRoot, "node_modules", name);
     await write(
-      path.join(canonical, "opposite.node"),
-      binaries[arch === "arm64" ? "x86_64" : "arm64"],
+      path.join(nativeRoot, "package.json"),
+      JSON.stringify({ name, os: [os], cpu: [cpu] }),
     );
-    await write(path.join(canonical, "universal.node"), binaries.universal);
-    await write(path.join(canonical, "foreign.node"), binaries.elf);
+    await write(path.join(nativeRoot, "binding.node"), bytes);
+  }
+  const npmRoot = path.join(packageRoot, "node_modules/npm");
+  await write(
+    path.join(npmRoot, "package.json"),
+    JSON.stringify({ name: "npm", version: "1.0.0" }),
+  );
+  for (const command of ["npm", "npx"]) {
+    for (const suffix of ["", ".cmd", ".ps1"]) {
+      await write(
+        path.join(npmRoot, "bin", command + suffix),
+        "# inert Node launcher fixture\n",
+        0o755,
+      );
+    }
     await write(
-      path.join(canonical, "nested/win32/build.mjs"),
-      "// preserve Windows source\n",
-      0o755,
+      path.join(npmRoot, "bin", `${command}-cli.js`),
+      "// CLI module must remain available to Bun\n",
     );
-    await write(
-      path.join(canonical, "lib/node_modules/openclaw/dist/control-ui/index.html"),
-      "<!doctype html>\n",
-    );
-    await write(
-      path.join(canonical, "lib/node_modules/openclaw/dist/control-ui/assets/app.js"),
-      "// Gateway-owned UI\n",
-    );
-    await cp(path.join(root, "dist/build-info.json"), path.join(canonical, "build-info.json"));
-    // The fixture Node is an explicit execution mock; no native payload is launched.
-    await write(
-      path.join(canonical, "bin/node"),
-      `#!/bin/bash
+  }
+  await write(
+    path.join(packageRoot, "nested/win32/package.json"),
+    JSON.stringify({ name: "fixture-resource", os: ["win32"], cpu: ["x64"] }),
+  );
+  await write(path.join(packageRoot, "universal.node"), binaries.universal);
+  await write(path.join(packageRoot, "foreign.node"), binaries.elf);
+  await write(
+    path.join(packageRoot, "nested/win32/build.mjs"),
+    "// preserve Windows source\n",
+    0o755,
+  );
+  await write(path.join(packageRoot, "dist/control-ui/index.html"), "<!doctype html>\n");
+  await write(path.join(packageRoot, "dist/control-ui/assets/app.js"), "// bundled Control UI\n");
+  await cp(path.join(root, "dist/build-info.json"), path.join(packageRoot, "dist/build-info.json"));
+  await mkdir(path.join(packageRoot, "node_modules/.bin"));
+  await symlink(
+    "../native-linux-arm64/binding.node",
+    path.join(packageRoot, "node_modules/.bin/native"),
+  );
+  await write(path.join(canonical, "lib/libsqlite3.dylib"), binaries.universalLibrary);
+  // The fixture Bun is an explicit execution mock; no native payload is launched.
+  await write(
+    path.join(canonical, "bin/bun"),
+    `#!/bin/bash
 set -euo pipefail
-if [[ "$1" == -e ]]; then exit 0; fi
-[[ "$1" == ${quote(path.join(scripts, "verify-mac-node-worker.mjs"))} ]] || exit 97
+[[ "$1" == ${quote(path.join(scripts, "verify-mac-runtime.mjs"))} ]] || exit 97
 printf '%s|%s|%s\\n' "$0" "$2" "$3" >> ${quote(calls)}
 exec ${quote(testNodeExecPath)} "$@"
 `,
-      0o755,
-    );
-  }
+    0o755,
+  );
   await write(
     path.join(scripts, "install-cli.sh"),
     `
@@ -278,34 +299,76 @@ exec ${quote(testNodeExecPath)} "$@"
 node_dir() { printf '%s' "$PREFIX/node"; }
 node_bin() { printf '%s/bin/node' "$(node_dir)"; }
 install_node() {
-  local selected="$2"
-  [[ "$selected" != x64 ]] || selected=x86_64
-  mkdir -p "$PREFIX"
-  cp -pR ${quote(path.join(root, "canonical"))}/"$selected" "$(node_dir)"
-  ${quote(testNodeExecPath)} ${quote(path.join(scripts, "record-scratch.cjs"))} install "$PREFIX"
+  [[ "$1" == darwin && "$2" == "$npm_config_cpu" ]]
+  mkdir -p "$(node_dir)/bin"
+  ln -s ${quote(testNodeExecPath)} "$(node_bin)"
+  printf '%s\\n' "$2" > "$(node_dir)/installed-cpu"
+  ${quote(testNodeExecPath)} ${quote(path.join(scripts, "record-scratch.cjs"))} driver "$(node_dir)"
 }
-install_openclaw() { [[ "$(cat "$OPENCLAW_VERSION")" == "inert package mock" ]]; }
+install_openclaw() {
+  [[ "$(cat "$OPENCLAW_VERSION")" == "inert package mock" ]]
+  [[ "$npm_config_os" == darwin && "$npm_config_omit" == dev && "$npm_config_include" == optional ]]
+  [[ "$npm_config_cpu" == arm64 || "$npm_config_cpu" == x64 ]]
+  [[ "$(cat "$(node_dir)/installed-cpu")" == "$npm_config_cpu" ]]
+  [[ "$(command -v node)" == "$(node_bin)" ]]
+  mkdir -p "$(node_dir)/lib/node_modules"
+  cp -pR ${quote(packageRoot)} "$(node_dir)/lib/node_modules/openclaw"
+  # npm excludes other-CPU optional packages even when --force is set.
+  local modules="$(node_dir)/lib/node_modules/openclaw/node_modules"
+  if [[ "$npm_config_cpu" == arm64 ]]; then
+    rm -rf "$modules/native-darwin-x64"
+  else
+    rm -rf "$modules/native-darwin-arm64" "$modules/@fixture/native-darwin-arm64"
+  fi
+  ${quote(testNodeExecPath)} ${quote(path.join(scripts, "record-scratch.cjs"))} install "$(node_dir)"
+}
 `,
   );
+  await write(
+    path.join(scripts, "stage-openclaw-bun-macos.sh"),
+    `#!/bin/bash
+set -euo pipefail
+destination="$1"
+shift
+[[ "$*" == ${quote(architectures.join(" "))} ]]
+mkdir -p "$destination/bin"
+cp -p ${quote(path.join(canonical, "bin/bun"))} "$destination/bin/bun"
+`,
+  );
+  await write(
+    path.join(scripts, "build-mac-sqlite.sh"),
+    `#!/bin/bash
+set -euo pipefail
+[[ "$1" == ${quote(architectures.length === 1 ? architectures[0]! : "universal")} ]]
+cp -p ${quote(path.join(canonical, "lib/libsqlite3.dylib"))} "$2/lib/libsqlite3.dylib"
+`,
+  );
+  const supportedArchitectures = [];
+  for (const arch of architectures) {
+    if ((await mac.run("/usr/bin/arch", [`-${arch}`, "/usr/bin/true"])).status === 0) {
+      supportedArchitectures.push(arch);
+    }
+  }
   return {
     root,
     destination,
     calls,
     scratchLog,
+    supportedArchitectures,
     tmp,
     temporaryBefore: snapshot(tmp),
-    readScratchObservations(): WorkerScratchObservation[] {
+    readScratchObservations(): RuntimeScratchObservation[] {
       return existsSync(scratchLog)
         ? readFileSync(scratchLog, "utf8")
             .trim()
             .split("\n")
-            .map((line) => JSON.parse(line) as WorkerScratchObservation)
+            .map((line) => JSON.parse(line) as RuntimeScratchObservation)
         : [];
     },
     async run(variant: string, tempRoot = tmp, overrides = {}) {
       return await mac.run(
         "/bin/bash",
-        [path.join(scripts, "stage-mac-node-worker.sh"), destination, "arm64", "x86_64"],
+        [path.join(scripts, "stage-mac-runtime.sh"), destination, ...architectures],
         {
           encoding: "utf8",
           env: {
@@ -325,7 +388,7 @@ install_openclaw() { [[ "$(cat "$OPENCLAW_VERSION")" == "inert package mock" ]];
   };
 }
 
-function expectWorkerScratchCleaned(fixture: Awaited<ReturnType<typeof stagingFixture>>) {
+function expectRuntimeScratchCleaned(fixture: Awaited<ReturnType<typeof stagingFixture>>) {
   for (const observation of fixture.readScratchObservations()) {
     expect(existsSync(observation.home)).toBe(false);
     expect(existsSync(observation.createdDirectory)).toBe(false);
@@ -333,18 +396,24 @@ function expectWorkerScratchCleaned(fixture: Awaited<ReturnType<typeof stagingFi
   expect(snapshot(fixture.tmp)).toEqual(fixture.temporaryBefore);
 }
 
-export function registerMacWorkerMaterializationTests() {
-  describe.skipIf(process.platform !== "darwin")("Mac worker materialization", () => {
+export function registerMacRuntimeMaterializationTests() {
+  describe.skipIf(process.platform !== "darwin")("Mac runtime materialization", () => {
     const it = createMacScriptTest();
     it.for(
       ["standard", "elevation-host"].flatMap((variant) =>
-        [false, true].map((overrideBudgets) => ({ variant, overrideBudgets })),
+        [false, true].map((overrideBudgets) => ({
+          variant,
+          overrideBudgets,
+          architectures: overrideBudgets
+            ? ["arm64", "x86_64"]
+            : [variant === "standard" ? "arm64" : "x86_64"],
+        })),
       ),
     )(
-      "isolates $variant worker staging and preserves package budgets ($overrideBudgets)",
-      ({ variant, overrideBudgets }, { mac }) =>
+      "isolates $variant $architectures staging and preserves package budgets ($overrideBudgets)",
+      ({ variant, overrideBudgets, architectures }, { mac }) =>
         mac.lifetime.run(async () => {
-          const fixture = await stagingFixture(mac);
+          const fixture = await stagingFixture(mac, architectures);
           const before = snapshot(path.join(fixture.root, "canonical"));
           const result = await fixture.run(
             variant,
@@ -356,11 +425,20 @@ export function registerMacWorkerMaterializationTests() {
           const observations = fixture.readScratchObservations();
           expect(observations.map(({ phase }) => phase)).toEqual([
             "pack",
-            "install",
-            "verify",
-            "install",
-            "verify",
+            ...architectures.flatMap(() => ["driver", "install"]),
+            ...fixture.supportedArchitectures.map(() => "verify"),
           ]);
+          expect(
+            observations.filter(({ phase }) => phase === "install").map(({ cpu }) => cpu),
+          ).toEqual(architectures.map((arch) => (arch === "x86_64" ? "x64" : arch)));
+          const drivers = observations.filter(({ phase }) => phase === "driver");
+          expect(drivers.map(({ cpu }) => cpu)).toEqual(
+            architectures.map((arch) => (arch === "x86_64" ? "x64" : arch)),
+          );
+          expect(new Set(drivers.map(({ product }) => product)).size).toBe(architectures.length);
+          expect(drivers.map(({ product }) => product)).toEqual(
+            observations.filter(({ phase }) => phase === "install").map(({ product }) => product),
+          );
           expect(new Set(observations.map(({ privateRoot }) => privateRoot)).size).toBe(1);
           for (const observation of observations) {
             expect(observation.packageTimeouts).toEqual(
@@ -375,7 +453,7 @@ export function registerMacWorkerMaterializationTests() {
               );
             }
             expect(observation.createdDirectory.startsWith(`${observation.temporary}/`)).toBe(true);
-            if (observation.phase === "pack") {
+            if (observation.phase !== "verify") {
               expect(observation.product.startsWith(`${observation.privateRoot}/`)).toBe(true);
             } else {
               expect(observation.product.startsWith(`${fixture.tmp}/`)).toBe(false);
@@ -384,37 +462,53 @@ export function registerMacWorkerMaterializationTests() {
               );
             }
           }
-          const calls = readFileSync(fixture.calls, "utf8").trim().split("\n");
-          expect(calls).toHaveLength(2);
-          for (const [index, call] of calls.entries()) {
-            const arch = index === 0 ? "arm64" : "x86_64";
-            const [node, runtime, expected] = call.split("|");
-            expect(node).toBe(`${runtime}/bin/node`);
-            expect(runtime).toContain(`/${arch}/runtime`);
+          const calls = existsSync(fixture.calls)
+            ? readFileSync(fixture.calls, "utf8").trim().split("\n")
+            : [];
+          expect(calls).toHaveLength(fixture.supportedArchitectures.length);
+          for (const call of calls) {
+            const [bun, runtime, expected] = call.split("|");
+            expect(bun).toBe(`${runtime}/bin/bun`);
             expect(expected).toBe(path.join(fixture.root, "dist/build-info.json"));
-            const scratch = path.resolve(runtime!, "../..");
-            expect(path.dirname(scratch)).toBe(path.dirname(fixture.destination));
-            expect(existsSync(scratch)).toBe(false);
+            const staging = path.dirname(runtime!);
+            expect(path.dirname(staging)).toBe(path.dirname(fixture.destination));
+            expect(existsSync(staging)).toBe(false);
             const verified = observations.find(
               ({ phase, product }) => phase === "verify" && product === runtime,
             );
             expect(verified).toBeDefined();
-            expect(
-              statSync(path.join(fixture.destination, arch), { bigint: true }).ino.toString(),
-            ).toBe(verified!.productInode);
-            expect(snapshot(path.join(fixture.destination, arch))).toEqual(
-              snapshot(path.join(fixture.root, "canonical", arch)).filter(
-                (entry) =>
-                  !["foreign.node", "opposite.node"].includes(entry.path) &&
-                  !entry.path.startsWith("lib/node_modules/openclaw/dist/control-ui"),
-              ),
+            expect(statSync(fixture.destination, { bigint: true }).ino.toString()).toBe(
+              verified!.productInode,
             );
           }
-          expectWorkerScratchCleaned(fixture);
+          expect(snapshot(fixture.destination)).toEqual(
+            before.filter(
+              ({ path: name }) =>
+                name !== "lib/node_modules/openclaw/foreign.node" &&
+                !/^lib\/node_modules\/openclaw\/node_modules\/npm\/bin\/(?:npm|npx)(?:\.cmd|\.ps1)?$/.test(
+                  name,
+                ) &&
+                ![
+                  ".bin",
+                  "native-linux-arm64",
+                  "native-win32-x64",
+                  "@fixture/native-linux-arm64",
+                  ...(!architectures.includes("arm64")
+                    ? ["native-darwin-arm64", "@fixture/native-darwin-arm64"]
+                    : []),
+                  ...(!architectures.includes("x86_64") ? ["native-darwin-x64"] : []),
+                ].some(
+                  (packageName) =>
+                    name === `lib/node_modules/openclaw/node_modules/${packageName}` ||
+                    name.startsWith(`lib/node_modules/openclaw/node_modules/${packageName}/`),
+                ),
+            ),
+          );
+          expectRuntimeScratchCleaned(fixture);
         }),
     );
 
-    it("rejects unavailable worker scratch before publication", ({ mac }) =>
+    it("rejects unavailable runtime scratch before publication", ({ mac }) =>
       mac.lifetime.run(async () => {
         const fixture = await stagingFixture(mac);
         const before = snapshot(fixture.root);
@@ -425,7 +519,7 @@ export function registerMacWorkerMaterializationTests() {
         expect(snapshot(fixture.root)).toEqual(before);
       }));
 
-    it("cleans worker scratch and product staging after pack failure", ({ mac }) =>
+    it("cleans runtime scratch and product staging after pack failure", ({ mac }) =>
       mac.lifetime.run(async () => {
         const fixture = await stagingFixture(mac);
         await write(path.join(fixture.root, "reject-pack"), "");
@@ -435,7 +529,7 @@ export function registerMacWorkerMaterializationTests() {
         expect(fixture.readScratchObservations().map(({ phase }) => phase)).toEqual(["pack"]);
         expect(existsSync(fixture.calls)).toBe(false);
         expect(existsSync(fixture.destination)).toBe(false);
-        expectWorkerScratchCleaned(fixture);
+        expectRuntimeScratchCleaned(fixture);
         expect(
           readdirSync(fixture.root)
             .filter((name) => name !== path.basename(fixture.scratchLog))
@@ -444,68 +538,223 @@ export function registerMacWorkerMaterializationTests() {
       }));
 
     it.for(["verification", "occupied", "occupied-link"])(
-      "publishes neither architecture on second %s failure",
+      "preserves the existing runtime after %s failure",
       (failure, { mac }) =>
         mac.lifetime.run(async () => {
           const fixture = await stagingFixture(mac);
           if (failure === "verification") {
             await write(path.join(fixture.root, "reject-verification"), "");
           } else if (failure === "occupied") {
-            await write(path.join(fixture.destination, "x86_64/sentinel"), "owner");
+            await write(path.join(fixture.destination, "sentinel"), "owner");
           } else {
-            await mkdir(fixture.destination);
-            await symlink("missing", path.join(fixture.destination, "x86_64"));
+            await symlink("missing", fixture.destination);
           }
-          const before = existsSync(fixture.destination) ? snapshot(fixture.destination) : [];
+          const occupied = failure !== "verification";
+          const before = occupied ? snapshot(fixture.destination) : [];
           const result = await fixture.run("standard");
           expect(result.status, result.stderr).toBe(failure === "verification" ? 42 : 1);
           const calls = readFileSync(fixture.calls, "utf8").trim().split("\n");
-          expect(calls).toHaveLength(2);
+          const verifiedCount =
+            failure === "verification" ? 1 : fixture.supportedArchitectures.length;
+          expect(calls).toHaveLength(verifiedCount);
           for (const call of calls) {
-            expect(existsSync(path.resolve(call.split("|")[1]!, "../.."))).toBe(false);
+            expect(existsSync(path.dirname(call.split("|")[1]!))).toBe(false);
           }
-          expect(existsSync(path.join(fixture.destination, "arm64"))).toBe(false);
-          expect(existsSync(fixture.destination) ? snapshot(fixture.destination) : []).toEqual(
-            before,
-          );
-          expect(fixture.readScratchObservations()).toHaveLength(5);
-          expectWorkerScratchCleaned(fixture);
+          expect(occupied ? snapshot(fixture.destination) : []).toEqual(before);
+          expect(fixture.readScratchObservations()).toHaveLength(5 + verifiedCount);
+          expectRuntimeScratchCleaned(fixture);
         }),
     );
 
-    it.for(["arm64", "x86_64"])(
-      "omits the Gateway Control UI subtree from the %s private worker",
-      (arch, { mac }) =>
+    it.for(["resource", "native", "mode", "symlink", "kind"])(
+      "rejects a conflicting shared %s before mutating the merged runtime",
+      (kind, { mac }) =>
         mac.lifetime.run(async () => {
           const fixture = await materializationFixture(mac);
-          const uiRoot = path.join(fixture.source, "lib/node_modules/openclaw/dist/control-ui");
-          await write(path.join(uiRoot, "index.html"), "<!doctype html>\n");
-          await write(path.join(uiRoot, "assets/app.js"), "// Gateway-owned UI\n");
+          const shared = path.join(fixture.source, "shared");
+          if (kind === "symlink") {
+            await symlink("engine.wasm", shared);
+          } else {
+            await write(shared, kind === "native" ? fixture.binaries.arm64 : "shared resource\n");
+          }
+          const first = await fixture.run("arm64");
+          expect(first.status, first.stderr).toBe(0);
+          if (kind === "mode") {
+            await chmod(shared, 0o600);
+          } else {
+            await unlink(shared);
+            if (kind === "symlink") {
+              await symlink("Example.class", shared);
+            } else if (kind === "kind") {
+              await mkdir(shared);
+            } else {
+              await write(
+                shared,
+                kind === "native"
+                  ? Buffer.concat([fixture.binaries.arm64, Buffer.from("different same-CPU bytes")])
+                  : "different resource\n",
+              );
+            }
+          }
           await write(
-            path.join(fixture.source, "lib/node_modules/openclaw/dist/entry.js"),
-            "// private worker entry\n",
+            path.join(fixture.source, "000-new-architecture/addon.node"),
+            fixture.binaries.x86_64,
           );
-          const before = snapshot(fixture.source);
-
-          const result = await fixture.run(arch);
-
-          expect(result.status, result.stderr).toBe(0);
-          expect(snapshot(fixture.source)).toEqual(before);
-          expect(
-            existsSync(path.join(fixture.destination, "lib/node_modules/openclaw/dist/entry.js")),
-          ).toBe(true);
-          expect(
-            existsSync(path.join(fixture.destination, "lib/node_modules/openclaw/dist/control-ui")),
-          ).toBe(false);
-          expect(result.stderr).toContain("unused Control UI entries");
+          const incoming = path.join(fixture.parent, "second");
+          const second = await fixture.run(kind === "native" ? "arm64" : "x86_64", {
+            destination: incoming,
+          });
+          expect(second.status, second.stderr).toBe(0);
+          const destinationBefore = snapshot(fixture.destination);
+          const sourceBefore = snapshot(incoming);
+          const result = await mac.run(
+            "/usr/bin/python3",
+            ["-B", materializer, "--merge", incoming, fixture.destination],
+            {
+              encoding: "utf8",
+              env: { HOME: fixture.root, TMPDIR: fixture.root, PATH: systemPath },
+            },
+          );
+          expect(result.status, result.stderr).not.toBe(0);
+          expect(result.stderr).toContain("Conflicting shared runtime entry");
+          expect(snapshot(fixture.destination)).toEqual(destinationBefore);
+          expect(snapshot(incoming)).toEqual(sourceBefore);
         }),
     );
 
-    it.for(["arm64", "x86_64"])(
+    it.for([false, true])(
+      "merges shared disjoint native slices only after full output verification (corrupt=%s)",
+      (corrupt, { mac }) =>
+        mac.lifetime.run(async () => {
+          const fixture = await materializationFixture(mac);
+          const relative = "node_modules/esbuild/bin/esbuild";
+          await write(path.join(fixture.source, relative), fixture.binaries.arm64, 0o755);
+          const first = await fixture.run("arm64");
+          expect(first.status, first.stderr).toBe(0);
+          await write(path.join(fixture.source, relative), fixture.binaries.x86_64, 0o755);
+          const incoming = path.join(fixture.parent, "second");
+          const second = await fixture.run("x86_64", { destination: incoming });
+          expect(second.status, second.stderr).toBe(0);
+          const before = snapshot(fixture.destination);
+          const sourceBefore = snapshot(incoming);
+          const result = await mac.run(
+            "/usr/bin/python3",
+            [
+              "-B",
+              "-c",
+              `
+import os, runpy, shutil, subprocess, sys
+original_run = subprocess.run
+def run(args, **kwargs):
+    result = original_run(args, **kwargs)
+    if ${corrupt ? "True" : "False"} and args[:2] == ["/usr/bin/lipo", "-create"]:
+        os.lseek(kwargs["pass_fds"][0], 0, os.SEEK_SET)
+        shutil.copyfile(args[2], args[args.index("-output") + 1])
+    return result
+subprocess.run = run
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+`,
+              materializer,
+              "--merge",
+              incoming,
+              fixture.destination,
+            ],
+            {
+              encoding: "utf8",
+              env: { HOME: fixture.root, TMPDIR: fixture.root, PATH: systemPath },
+            },
+          );
+          expect(snapshot(incoming)).toEqual(sourceBefore);
+          expect(readdirSync(fixture.parent).toSorted()).toEqual(["derived", "second"]);
+          if (corrupt) {
+            expect(result.status, result.stderr).not.toBe(0);
+            expect(result.stderr).toContain("Incomplete merged runtime slices");
+            expect(snapshot(fixture.destination)).toEqual(before);
+            return;
+          }
+          expect(result.status, result.stderr).toBe(0);
+          const merged = path.join(fixture.destination, relative);
+          expect(
+            (await runMacFixtureTool("/usr/bin/lipo", ["-archs", merged], fixture.root, mac))
+              .split(" ")
+              .toSorted(),
+          ).toEqual(["arm64", "x86_64"]);
+          expect(statSync(merged).mode & 0o777).toBe(0o755);
+          for (const arch of ["arm64", "x86_64"] as const) {
+            const thin = path.join(fixture.root, `merged-${arch}`);
+            await runMacFixtureTool(
+              "/usr/bin/lipo",
+              [merged, "-thin", arch, "-output", thin],
+              fixture.root,
+              mac,
+            );
+            expect(readFileSync(thin)).toEqual(fixture.binaries[arch]);
+          }
+          expect(
+            snapshot(fixture.destination).filter(({ path: name }) => name !== relative),
+          ).toEqual(before.filter(({ path: name }) => name !== relative));
+        }),
+    );
+
+    it("rejects merge source substitution while copying only descriptor-bound bytes", ({ mac }) =>
+      mac.lifetime.run(async () => {
+        const fixture = await materializationFixture(mac);
+        const first = await fixture.run("arm64");
+        expect(first.status, first.stderr).toBe(0);
+        const name = "new-architecture/addon.node";
+        await write(path.join(fixture.source, name), fixture.binaries.x86_64);
+        const incoming = path.join(fixture.parent, "second");
+        const second = await fixture.run("x86_64", { destination: incoming });
+        expect(second.status, second.stderr).toBe(0);
+        const outside = path.join(fixture.root, "outside");
+        await write(outside, "outside bytes must not be copied");
+        const result = await mac.run(
+          "/usr/bin/python3",
+          [
+            "-B",
+            "-c",
+            `
+import os, runpy, shutil, sys
+source = ${JSON.stringify(path.join(incoming, name))}
+outside = ${JSON.stringify(outside)}
+expected_inode = os.stat(source).st_ino
+original_copy = shutil.copyfileobj
+def copy(source_stream, destination, *args):
+    if os.fstat(source_stream.fileno()).st_ino == expected_inode:
+        os.rename(source, source + "-held")
+        os.symlink(outside, source)
+    return original_copy(source_stream, destination, *args)
+shutil.copyfileobj = copy
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+`,
+            materializer,
+            "--merge",
+            incoming,
+            fixture.destination,
+          ],
+          { encoding: "utf8", env: { HOME: fixture.root, TMPDIR: fixture.root, PATH: systemPath } },
+        );
+        expect(result.status, result.stderr).not.toBe(0);
+        expect(result.stderr).toMatch(/Inventory.*changed/);
+        expect(readFileSync(path.join(fixture.destination, name))).toEqual(fixture.binaries.x86_64);
+        expect(readFileSync(outside, "utf8")).toBe("outside bytes must not be copied");
+      }));
+
+    it.for(["arm64", "x86_64", "arm64,x86_64"])(
       "retains every resource and eligible native image for %s without changing canonical input",
       (arch, { mac }) =>
         mac.lifetime.run(async () => {
           const fixture = await materializationFixture(mac, true);
+          await write(
+            path.join(fixture.source, "lib/node_modules/openclaw/dist/control-ui/index.html"),
+            "<!doctype html>\n",
+          );
+          await write(
+            path.join(fixture.source, "lib/node_modules/openclaw/dist/control-ui/assets/app.js"),
+            "// bundled Control UI\n",
+          );
           for (const fat64 of [false, true]) {
             const bytes = await macFatContainerFixture(
               fixture.root,
@@ -586,9 +835,11 @@ export function registerMacWorkerMaterializationTests() {
               "coff",
               "pe",
               "elf",
-              ...(arch === "arm64"
-                ? ["x86_64", "intelLibrary", "intelArchive"]
-                : ["arm64", "armLibrary", "armArchive"]),
+              ...(arch === "arm64,x86_64"
+                ? []
+                : arch === "arm64"
+                  ? ["x86_64", "intelLibrary", "intelArchive"]
+                  : ["arm64", "armLibrary", "armArchive"]),
             ].map((name) => (name === "arm64" ? oddNative : `images/${name}`)),
           );
           expect(snapshot(fixture.destination)).toEqual(
@@ -615,7 +866,7 @@ export function registerMacWorkerMaterializationTests() {
           expect(statSync(path.join(fixture.destination, "0-hardlink-alias")).ino).toBe(
             outputSecond.ino,
           );
-          expect(result.stderr).toContain("omitted 6 native images");
+          expect(result.stderr).toContain(`omitted ${omitted.size} native images`);
           for (const name of omitted) {
             expect(result.stderr).toContain(JSON.stringify(name));
           }
@@ -626,7 +877,7 @@ export function registerMacWorkerMaterializationTests() {
               fixture.root,
               mac,
             ),
-          ).toContain(arch);
+          ).toContain(arch.split(",")[0]);
         }),
     );
 
@@ -899,7 +1150,7 @@ def verify_closed():
         });
         expect(result.status, result.stderr).not.toBe(0);
         expect(result.stderr).toMatch(
-          /injected|Incomplete worker|Invalid worker|Uncertain worker|Unclassified worker|equivalent output target/,
+          /injected|Incomplete runtime|Invalid runtime|Uncertain runtime|Unclassified runtime|equivalent output target/,
         );
         expect(result.stderr).not.toContain("leaked source stream");
         expect(existsSync(fixture.destination)).toBe(false);
@@ -1133,44 +1384,34 @@ def evidence():
         );
         const result = await fixture.run();
         expect(result.status, result.stderr).not.toBe(0);
-        expect(result.stderr).toContain("Unsupported worker filesystem entry");
+        expect(result.stderr).toContain("Unsupported runtime filesystem entry");
         expect(existsSync(fixture.destination)).toBe(false);
       }));
 
-    it("feeds freshly derived worker pairs to the real portable consumer", async ({ mac }) =>
+    it("feeds the freshly derived universal runtime to the real portable consumer", async ({
+      mac,
+    }) =>
       mac.lifetime.run(async () => {
         const harness = await artifactFixture(mac);
-        for (const arch of ["arm64", "x86_64"] as const) {
-          const worker = harness.at(`Contents/Resources/node-worker/${arch}`);
-          const canonical = path.join(harness.home, `canonical-${arch}`);
-          await rename(worker, canonical);
-          await write(
-            path.join(canonical, "nested/win32/README.md"),
-            "Windows source is retained\n",
-          );
-          await write(path.join(canonical, "nested/win32/foreign.node"), harness.binaries.pe);
-          await write(
-            path.join(canonical, "opposite-mac.node"),
-            harness.binaries[arch === "arm64" ? "x86_64" : "arm64"],
-          );
-          const before = snapshot(canonical);
-          const result = await mac.run(
-            "/usr/bin/python3",
-            ["-B", materializer, canonical, worker, path.dirname(worker), arch],
-            {
-              encoding: "utf8",
-              env: { HOME: harness.home, TMPDIR: harness.home, PATH: systemPath },
-            },
-          );
-          expect(result.status, result.stderr).toBe(0);
-          expect(snapshot(canonical)).toEqual(before);
-          expect(snapshot(worker)).toEqual(
-            before.filter(
-              ({ path: name }) =>
-                !["nested/win32/foreign.node", "opposite-mac.node"].includes(name),
-            ),
-          );
-        }
+        const runtime = harness.at("Contents/Resources/runtime");
+        const canonical = path.join(harness.home, "canonical");
+        await rename(runtime, canonical);
+        await write(path.join(canonical, "nested/win32/README.md"), "Windows source is retained\n");
+        await write(path.join(canonical, "nested/win32/foreign.node"), harness.binaries.pe);
+        const before = snapshot(canonical);
+        const materialized = await mac.run(
+          "/usr/bin/python3",
+          ["-B", materializer, canonical, runtime, path.dirname(runtime), "arm64,x86_64"],
+          {
+            encoding: "utf8",
+            env: { HOME: harness.home, TMPDIR: harness.home, PATH: systemPath },
+          },
+        );
+        expect(materialized.status, materialized.stderr).toBe(0);
+        expect(snapshot(canonical)).toEqual(before);
+        expect(snapshot(runtime)).toEqual(
+          before.filter(({ path: name }) => name !== "nested/win32/foreign.node"),
+        );
         const result = await harness.verify();
         expect(result.status, result.stderr).toBe(0);
         expect(result.stdout).toContain("Elevation artifact verified");

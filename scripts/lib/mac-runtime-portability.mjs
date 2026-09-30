@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The verifier owns containment and loader policy; inventory only observes types.
-export function auditMacWorkerPortability(runtime, node) {
+export function auditMacRuntimePortability(runtime, executable) {
   const inside = (candidate) => candidate === runtime || candidate.startsWith(`${runtime}/`);
   const systemLibrary = (candidate) => {
     // A system-looking prefix must not hide a load path that escapes with ../.
@@ -14,7 +14,7 @@ export function auditMacWorkerPortability(runtime, node) {
   function expandLoaderPath(value, filename) {
     return value
       .replace(/^@loader_path(?=\/|$)/u, path.dirname(filename))
-      .replace(/^@executable_path(?=\/|$)/u, path.dirname(node));
+      .replace(/^@executable_path(?=\/|$)/u, path.dirname(executable));
   }
   function loadSlices(filename) {
     const flags = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
@@ -90,42 +90,42 @@ export function auditMacWorkerPortability(runtime, node) {
   );
   const records = output.split("\0");
   if (records.pop() !== "" || records.length % 2 !== 0) {
-    throw new Error("Incomplete worker native inventory");
+    throw new Error("Incomplete runtime native inventory");
   }
   const native = [];
   for (let index = 0; index < records.length; index += 2) {
     const kind = records[index];
     const filename = records[index + 1];
     if (!filename || !inside(filename)) {
-      throw new Error("Invalid worker inventory path");
+      throw new Error("Invalid runtime inventory path");
     }
     if (kind === "symlink") {
       if (!inside(fs.realpathSync(filename))) {
-        throw new Error(`Worker symlink escapes bundle: ${filename}`);
+        throw new Error(`Runtime symlink escapes bundle: ${filename}`);
       }
     } else if (kind === "executable" || kind === "library") {
       native.push(filename);
     } else {
-      throw new Error(`Invalid worker inventory kind: ${kind}`);
+      throw new Error(`Invalid runtime inventory kind: ${kind}`);
     }
   }
-  const resolvedNode = fs.realpathSync(node);
-  if (!inside(resolvedNode)) {
-    throw new Error("Worker executable escapes bundle");
+  const resolvedExecutable = fs.realpathSync(executable);
+  if (!inside(resolvedExecutable)) {
+    throw new Error("Runtime executable escapes bundle");
   }
-  const nodeSlices = loadSlices(resolvedNode);
-  const nodeRpaths = new Map(
-    nodeSlices.map(({ architecture, commands }) => [
+  const executableSlices = loadSlices(resolvedExecutable);
+  const executableRpaths = new Map(
+    executableSlices.map(({ architecture, commands }) => [
       architecture,
       commands.filter(({ command }) => command === "LC_RPATH"),
     ]),
   );
   for (const filename of native) {
-    const slices = filename === resolvedNode ? nodeSlices : loadSlices(filename);
+    const slices = filename === resolvedExecutable ? executableSlices : loadSlices(filename);
     for (const { architecture, commands } of slices) {
       // A working slice must not supply missing loader paths to another slice.
       const rpaths = [
-        ...(nodeRpaths.get(architecture) ?? []),
+        ...(executableRpaths.get(architecture) ?? []),
         ...commands.filter(({ command }) => command === "LC_RPATH"),
       ];
       for (const { command, value } of commands) {

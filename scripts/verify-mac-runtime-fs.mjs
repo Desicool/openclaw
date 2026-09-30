@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 const [packageArg, home] = process.argv.slice(2);
 if (!packageArg || !home) {
-  throw new Error("Usage: verify-mac-node-worker-fs.mjs <package-root> <proof-home>");
+  throw new Error("Usage: verify-mac-runtime-fs.mjs <package-root> <proof-home>");
 }
 assert.equal(process.env.HOME, home);
 assert.equal(process.env.TMPDIR, home);
@@ -17,8 +17,8 @@ const { root } = await import(
   pathToFileURL(path.join(packageRoot, "dist/plugin-sdk/memory-core-host-engine-fs.js")).href
 );
 const scoped = await root(home);
-const written = "bundled worker write proof\n";
-const created = "bundled worker create proof\n";
+const written = "bundled runtime write proof\n";
+const created = "bundled runtime create proof\n";
 fs.writeFileSync(path.join(home, "native-write-proof"), "before replacement\n");
 await scoped.write("native-write-proof", written);
 await scoped.create("native-create-proof", created);
@@ -35,7 +35,7 @@ const nativeModule = requireFromFsSafe.resolve(
 );
 assert(
   nativeModule.startsWith(packageRoot + path.sep),
-  "fs-safe native package is outside the worker payload",
+  "fs-safe native package is outside the runtime payload",
 );
 const loaded = Object.keys(createRequire(import.meta.url).cache).filter(
   (file) => path.basename(file) === "fs-safe-native.node",

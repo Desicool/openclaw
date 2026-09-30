@@ -12,28 +12,28 @@ import path from "node:path";
 import { afterEach, describe, expect, it as baseIt } from "vitest";
 import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
-import { registerMacWorkerMaterializationTests } from "./mac-node-worker-materialization.test-support.js";
+import { registerMacRuntimeMaterializationTests } from "./mac-runtime-materialization.test-support.js";
 import { createMacScriptTest } from "./mac-script-fixture.test-support.js";
 
-registerMacWorkerMaterializationTests();
+registerMacRuntimeMaterializationTests();
 
 const temps = useAutoCleanupTempDirTracker(afterEach);
 const testNodeExecPath = resolveTestNodeExecPath();
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
-describe("Mac app worker publication", () => {
+describe("Mac app runtime publication", () => {
   baseIt.each([undefined, "", "26.8.2"])(
-    "preserves the requested installer Node version in the isolated worker (%s)",
+    "preserves the requested build-time installer Node version (%s)",
     (version) => {
-      const root = temps.make("openclaw-worker-version-");
+      const root = temps.make("openclaw-runtime-version-");
       const scripts = path.join(root, "scripts");
       const bin = path.join(root, "bin");
       mkdirSync(scripts);
       mkdirSync(bin);
       symlinkSync(process.execPath, path.join(bin, "node"));
       writeFileSync(
-        path.join(scripts, "stage-mac-node-worker.sh"),
-        readFileSync("scripts/stage-mac-node-worker.sh"),
+        path.join(scripts, "stage-mac-runtime.sh"),
+        readFileSync("scripts/stage-mac-runtime.sh"),
       );
       writeFileSync(
         path.join(scripts, "package-openclaw-for-docker.mjs"),
@@ -56,7 +56,7 @@ install_node() {
       );
       const result = spawnSync(
         "/bin/bash",
-        [path.join(scripts, "stage-mac-node-worker.sh"), path.join(root, "worker"), "arm64"],
+        [path.join(scripts, "stage-mac-runtime.sh"), path.join(root, "runtime"), "arm64"],
         {
           encoding: "utf8",
           env: {
@@ -75,28 +75,30 @@ install_node() {
       expect(requested).toBe(version ? "1" : "0");
       expect(config).toBe("");
       expect(token).toBe("");
-      expect(existsSync(path.join(root, "worker"))).toBe(false);
+      expect(existsSync(path.join(root, "runtime"))).toBe(false);
     },
   );
 
-  baseIt.each(["sign", "worker", "seal", "stage", "success"])(
+  baseIt
+    .skipIf(process.platform !== "darwin")
+    .each(["sign", "runtime", "seal", "stage", "success"])(
     "publishes only a verified replacement (%s)",
     (failure) => {
-      const root = temps.make("openclaw-worker-publication-");
+      const root = temps.make("openclaw-runtime-publication-");
       const target = path.join(root, "OpenClaw.app");
       const staged = path.join(root, "candidate.app");
       mkdirSync(target);
       mkdirSync(staged);
-      writeFileSync(path.join(target, "worker"), "old signed worker");
-      writeFileSync(path.join(staged, "worker"), "new signed worker");
+      writeFileSync(path.join(target, "runtime"), "old signed runtime");
+      writeFileSync(path.join(staged, "runtime"), "new signed runtime");
       const packageScript = readFileSync("scripts/package-mac-app.sh", "utf8");
       const publication = packageScript.slice(
         packageScript.indexOf('if [[ -n "${SIGN_IDENTITY:-}" ]]'),
       );
-      const worker = path.join(staged, "Contents/Resources/node-worker/arm64/bin/node");
-      mkdirSync(path.dirname(worker), { recursive: true });
-      writeFileSync(worker, `#!/bin/bash\nexit ${failure === "worker" ? 6 : 0}\n`);
-      chmodSync(worker, 0o755);
+      const bun = path.join(staged, "Contents/Resources/runtime/bin/bun");
+      mkdirSync(path.dirname(bun), { recursive: true });
+      writeFileSync(bun, `#!/bin/bash\nexit ${failure === "runtime" ? 6 : 0}\n`);
+      chmodSync(bun, 0o755);
       const scripts = path.join(root, "scripts");
       mkdirSync(scripts);
       writeFileSync(
@@ -114,7 +116,7 @@ install_node() {
       ROOT_DIR=${quote(root)}
       APP_ROOT=${quote(staged)}
       APP_STAGE_DIR=${quote(root)}
-      BUILD_ARCHS=(arm64)
+      BUILD_ARCHS=(${process.arch === "arm64" ? "arm64" : "x86_64"})
       APP_DESTINATION=${quote(target)}
       codesign_calls=0
       codesign() {
@@ -133,10 +135,10 @@ install_node() {
         { encoding: "utf8", env: { HOME: root, PATH: "/usr/bin:/bin" } },
       );
       expect(result.status, result.stderr).toBe(
-        failure === "success" ? 0 : failure === "worker" ? 6 : failure === "sign" ? 9 : 1,
+        failure === "success" ? 0 : failure === "runtime" ? 6 : failure === "sign" ? 9 : 1,
       );
-      expect(readFileSync(path.join(target, "worker"), "utf8")).toBe(
-        failure === "success" ? "new signed worker" : "old signed worker",
+      expect(readFileSync(path.join(target, "runtime"), "utf8")).toBe(
+        failure === "success" ? "new signed runtime" : "old signed runtime",
       );
     },
   );
@@ -144,7 +146,7 @@ install_node() {
   baseIt(
     "provisions packages without invoking the service owner or changing operator state",
     () => {
-      const root = temps.make("openclaw-worker-provision-");
+      const root = temps.make("openclaw-runtime-provision-");
       const home = path.join(root, "home");
       const prefix = path.join(root, "private");
       const sentinel = path.join(root, "operator", ".openclaw", "state", "sentinel");
@@ -204,15 +206,15 @@ esac
   );
 });
 
-describe.runIf(process.platform === "darwin")("Mac worker portability inventory", () => {
+describe.runIf(process.platform === "darwin")("Mac runtime portability inventory", () => {
   const it = createMacScriptTest();
   it("audits supported thin and fat formats through real otool", async () => {
-    const { auditMacWorkerPortability } =
-      await import("../../scripts/lib/mac-worker-portability.mjs");
+    const { auditMacRuntimePortability } =
+      await import("../../scripts/lib/mac-runtime-portability.mjs");
     const { machoFixture } = await import("../helpers/mac-native.js");
     const root = temps.make("openclaw-portability-native-");
-    const node = path.join(root, "node");
-    writeFileSync(node, machoFixture());
+    const bun = path.join(root, "bun");
+    writeFileSync(bun, machoFixture());
     for (const bits of [32, 64]) {
       for (const little of [false, true]) {
         for (const fat of [false, true]) {
@@ -224,23 +226,23 @@ describe.runIf(process.platform === "darwin")("Mac worker portability inventory"
         }
       }
     }
-    symlinkSync("node", path.join(root, "internal-link"));
-    expect(auditMacWorkerPortability(root, node)).toBe(7);
+    symlinkSync("bun", path.join(root, "internal-link"));
+    expect(auditMacRuntimePortability(root, bun)).toBe(7);
   });
 
   it.for(["Java", "fat32 archive", "fat64 archive", "thin object", "fat32 object", "fat64 object"])(
     "preserves %s resources without treating them as loadable images",
     (kind, { mac }) =>
       mac.lifetime.run(async () => {
-        const { auditMacWorkerPortability } =
-          await import("../../scripts/lib/mac-worker-portability.mjs");
+        const { auditMacRuntimePortability } =
+          await import("../../scripts/lib/mac-runtime-portability.mjs");
         const { machoFixture, nativeObjectFixture, universalArchiveFixture } =
           await import("../helpers/mac-native.js");
         const parent = mac.createTempDir("openclaw-portability-resource-");
         const root = path.join(parent, "runtime");
         mkdirSync(root);
-        const node = path.join(root, "node");
-        writeFileSync(node, machoFixture());
+        const bun = path.join(root, "bun");
+        writeFileSync(bun, machoFixture());
         const filename = path.join(root, "opaque-resource");
         const format = kind.startsWith("fat32")
           ? "fat32"
@@ -255,7 +257,7 @@ describe.runIf(process.platform === "darwin")("Mac worker portability inventory"
               ? await universalArchiveFixture(inputs, format === "fat64", false, mac)
               : await nativeObjectFixture(inputs, format, mac);
         writeFileSync(filename, bytes);
-        expect(auditMacWorkerPortability(root, node)).toBe(1);
+        expect(auditMacRuntimePortability(root, bun)).toBe(1);
         expect(readFileSync(filename)).toEqual(bytes);
       }),
   );
@@ -690,16 +692,16 @@ print('held-file-copy-ok')
   );
 
   it.each(["file", "directory", "dangling"])(
-    "rejects %s symlinks outside the worker",
+    "rejects %s symlinks outside the runtime",
     async (kind) => {
-      const { auditMacWorkerPortability } =
-        await import("../../scripts/lib/mac-worker-portability.mjs");
+      const { auditMacRuntimePortability } =
+        await import("../../scripts/lib/mac-runtime-portability.mjs");
       const { machoFixture } = await import("../helpers/mac-native.js");
       const parent = temps.make("openclaw-portability-link-");
       const root = path.join(parent, "runtime");
       mkdirSync(root);
-      const node = path.join(root, "node");
-      writeFileSync(node, machoFixture());
+      const bun = path.join(root, "bun");
+      writeFileSync(bun, machoFixture());
       const external = path.join(parent, "external");
       if (kind === "directory") {
         mkdirSync(external);
@@ -708,19 +710,19 @@ print('held-file-copy-ok')
         writeFileSync(external, "outside");
       }
       symlinkSync(external, path.join(root, "link"));
-      expect(() => auditMacWorkerPortability(root, node)).toThrow(
+      expect(() => auditMacRuntimePortability(root, bun)).toThrow(
         kind === "dangling" ? /ENOENT/ : /symlink escapes/,
       );
     },
   );
 
   it("does not borrow loader paths from a different architecture", async () => {
-    const { auditMacWorkerPortability } =
-      await import("../../scripts/lib/mac-worker-portability.mjs");
+    const { auditMacRuntimePortability } =
+      await import("../../scripts/lib/mac-runtime-portability.mjs");
     const { machoFixture } = await import("../helpers/mac-native.js");
     const root = temps.make("openclaw-portability-slices-");
-    const node = path.join(root, "node");
-    writeFileSync(node, machoFixture());
+    const bun = path.join(root, "bun");
+    writeFileSync(bun, machoFixture());
     const command = (id: number, value: string, offset: number) => {
       const name = Buffer.from(value + "\0");
       const bytes = Buffer.alloc(Math.ceil((offset + name.length) / 8) * 8);
@@ -762,7 +764,7 @@ print('held-file-copy-ok')
     mkdirSync(path.join(root, "valid"));
     writeFileSync(path.join(root, "valid/libdemo.dylib"), machoFixture(64, true, false, 6));
     expect(spawnSync("/usr/bin/lipo", ["-archs", addon]).status).toBe(0);
-    expect(() => auditMacWorkerPortability(root, node)).toThrow(/Nonportable LC_LOAD_DYLIB/);
+    expect(() => auditMacRuntimePortability(root, bun)).toThrow(/Nonportable LC_LOAD_DYLIB/);
   });
 
   it.each([
@@ -774,12 +776,12 @@ print('held-file-copy-ok')
     ["fat64", "/usr/lib/libSystem.B.dylib"],
     ["fat64", "/opt/homebrew/lib/nonportable.dylib"],
   ] as const)("audits load dependencies after inventory (%s, %s)", async (format, library) => {
-    const { auditMacWorkerPortability } =
-      await import("../../scripts/lib/mac-worker-portability.mjs");
+    const { auditMacRuntimePortability } =
+      await import("../../scripts/lib/mac-runtime-portability.mjs");
     const { machoFixture } = await import("../helpers/mac-native.js");
     const root = temps.make("openclaw-portability-load-");
-    const node = path.join(root, "node");
-    writeFileSync(node, machoFixture());
+    const bun = path.join(root, "bun");
+    writeFileSync(bun, machoFixture());
     const addon = path.join(root, "addon");
     const header = machoFixture(64, true, false, 6);
     const name = Buffer.from(library + "\0");
@@ -804,9 +806,9 @@ print('held-file-copy-ok')
     expect(load.status, load.stderr).toBe(0);
     expect(load.stdout).toContain(`name ${library} (offset 24)`);
     if (library === "/usr/lib/libSystem.B.dylib") {
-      expect(auditMacWorkerPortability(root, node)).toBe(2);
+      expect(auditMacRuntimePortability(root, bun)).toBe(2);
     } else {
-      expect(() => auditMacWorkerPortability(root, node)).toThrow(/Nonportable LC_LOAD_DYLIB/);
+      expect(() => auditMacRuntimePortability(root, bun)).toThrow(/Nonportable LC_LOAD_DYLIB/);
     }
   });
 });

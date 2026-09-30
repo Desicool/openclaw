@@ -4,7 +4,7 @@ import Testing
 @testable import OpenClaw
 
 @Suite(.serialized)
-struct BundledNodeWorkerTests {
+struct BundledRuntimeTests {
     private func makeBundle(at root: URL, builtAt: String, command: String) throws -> URL {
         let info: [String: Any] = [
             "CFBundleIdentifier": "ai.openclaw.mac.debug",
@@ -14,39 +14,37 @@ struct BundledNodeWorkerTests {
             "CFBundleVersion": "1",
             "OpenClawGitCommit": String(repeating: "a", count: 40),
             "OpenClawBuildTimestamp": builtAt,
-            "OpenClawWorkerBuildID": builtAt,
+            "OpenClawRuntimeBuildID": builtAt,
         ]
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("Contents/MacOS"),
             withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: root.appendingPathComponent("Contents/Info.plist"))
-        #if arch(arm64)
-        let arch = "arm64"
-        #else
-        let arch = "x86_64"
-        #endif
-        let runtime = root.appendingPathComponent("Contents/Resources/node-worker/\(arch)")
+        let runtime = root.appendingPathComponent("Contents/Resources/runtime")
         let dist = runtime.appendingPathComponent("lib/node_modules/openclaw/dist")
         try FileManager.default.createDirectory(at: dist, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: runtime.appendingPathComponent("bin"),
             withIntermediateDirectories: true)
-        // A real child process protects selection/lifecycle; package proof runs actual Node separately.
+        // A real child process protects selection/lifecycle; package proof runs actual Bun separately.
         try "#!/bin/sh\nexec /bin/sh \"$@\"\n".write(
-            to: runtime.appendingPathComponent("bin/node"),
+            to: runtime.appendingPathComponent("bin/bun"),
             atomically: true,
             encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
-            ofItemAtPath: runtime.appendingPathComponent("bin/node").path)
+            ofItemAtPath: runtime.appendingPathComponent("bin/bun").path)
+        try Data().write(to: runtime.appendingPathComponent("lib/libsqlite3.dylib"))
         try JSONSerialization.data(withJSONObject: [
             "version": "2026.8.1", "commit": String(repeating: "a", count: 40),
             "builtAt": builtAt, "buildId": builtAt,
         ]).write(to: dist.appendingPathComponent("build-info.json"))
         try """
-        printf '%s\\n' '{"type":"ready","version":"2026.8.1","manifest":{"caps":["system"],"commands":["\(
-            command)"],"pathEnv":"/usr/bin:/bin"}}'
+        runtime="${0%/lib/node_modules/openclaw/dist/mac-node-worker.js}"
+        [ "${PATH%%:*}" = "$runtime/bin" ] || exit 91
+        printf '{"type":"ready","version":"2026.8.1","manifest":{"caps":["system"],"commands":["\(
+            command)"],"pathEnv":"%s"}}\\n' "$OPENCLAW_SQLITE_LIBRARY"
         while IFS= read -r line; do :; done
         """.write(to: dist.appendingPathComponent("mac-node-worker.js"), atomically: true, encoding: .utf8)
         let browser = dist.appendingPathComponent("extensions/browser")
@@ -60,7 +58,9 @@ struct BundledNodeWorkerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let external = root.appendingPathComponent("external/openclaw")
         try makeExecutableForTests(at: external)
-        let defaults = try #require(UserDefaults(suiteName: "BundledNodeWorkerTests.\(UUID().uuidString)"))
+        let suiteName = "BundledRuntimeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(external.path, forKey: cliValidatedExecutableKey)
         defaults.set("2026.8.1", forKey: cliValidatedVersionKey)
         #expect(CommandResolver.validatedOpenClawExecutable(
@@ -83,7 +83,10 @@ struct BundledNodeWorkerTests {
             do {
                 let manifest = try await worker.start(launch: launch)
                 #expect(manifest.commands == [command])
-                #expect(launch.command[0].hasPrefix(relocated.path + "/"))
+                #expect(launch.command[0] == relocated.appendingPathComponent("Contents/Resources/runtime/bin/bun")
+                    .path)
+                #expect(manifest.pathEnv == relocated
+                    .appendingPathComponent("Contents/Resources/runtime/lib/libsqlite3.dylib").path)
                 #expect(!launch.command.contains(external.path))
             } catch {
                 await worker.stop()
@@ -93,7 +96,7 @@ struct BundledNodeWorkerTests {
         await worker.stop()
     }
 
-    @Test(arguments: ["missing", "mismatched"])
+    @Test(arguments: ["missing", "bun", "sqlite", "version", "commit", "builtAt", "buildId"])
     func `incomplete payload never falls back to development source`(failure: String) async throws {
         let root = try makeTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -102,9 +105,12 @@ struct BundledNodeWorkerTests {
         let info = dist.appendingPathComponent("build-info.json")
         if failure == "missing" {
             try FileManager.default.removeItem(at: info)
+        } else if failure == "bun" || failure == "sqlite" {
+            let path = failure == "bun" ? "bin/bun" : "lib/libsqlite3.dylib"
+            try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/Resources/runtime/\(path)"))
         } else {
             var payload = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: info)) as? [String: String])
-            payload["builtAt"] = "2026-08-26T00:00:00.000Z"
+            payload[failure] = "mismatched"
             try JSONSerialization.data(withJSONObject: payload).write(to: info)
         }
         let bundle = try #require(Bundle(url: app))
@@ -112,7 +118,7 @@ struct BundledNodeWorkerTests {
             try await CommandResolver.nodeHostWorkerLaunch(bundle: bundle, projectRoot: root, searchPaths: [])
         }
         #expect(throws: MacNodeHostWorker.WorkerError.self) {
-            try BundledNodeWorker.browserSetupLaunch(bundle: bundle)
+            try BundledRuntime.browserSetupLaunch(bundle: bundle)
         }
     }
 
@@ -125,17 +131,26 @@ struct BundledNodeWorkerTests {
         try FileManager.default.moveItem(at: app, to: relocated)
         let bundle = try #require(Bundle(url: relocated))
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": "browser-fixture"])
-        let worker = try BundledNodeWorker.launch(bundle: bundle, profile: profile)
-        let setup = try BundledNodeWorker.browserSetupLaunch(bundle: bundle, profile: profile)
+        let runtime = try BundledRuntime.resolve(bundle: bundle)
+        let worker = try BundledRuntime.launch(bundle: bundle, profile: profile)
+        let setup = try BundledRuntime.browserSetupLaunch(bundle: bundle, profile: profile)
         #expect(setup.command[0] == worker.command[0])
         #expect(setup.command[1].hasSuffix("/dist/extensions/browser/setup-entry.js"))
         #expect(worker.command[1].hasSuffix("/dist/mac-node-worker.js"))
-        #expect(setup.command[0].hasPrefix(relocated.path + "/"))
+        #expect(runtime.root == relocated.appendingPathComponent("Contents/Resources/runtime"))
+        #expect(runtime.bun == runtime.root.appendingPathComponent("bin/bun"))
+        #expect(runtime.packageRoot == runtime.root.appendingPathComponent("lib/node_modules/openclaw"))
+        #expect(setup.command[0] == runtime.bun.path)
         #expect(Array(setup.command.dropFirst(2)) == [
             "--action", "install", "--wait-ms", "1000",
         ])
         #expect(setup.currentDirectoryURL == worker.currentDirectoryURL)
+        #expect(setup.currentDirectoryURL == runtime.packageRoot)
         #expect(setup.environment["PATH"] == worker.environment["PATH"])
+        #expect(setup.environment["PATH"] == runtime.root.appendingPathComponent("bin").path)
+        #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == worker.environment["OPENCLAW_SQLITE_LIBRARY"])
+        #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.root
+            .appendingPathComponent("lib/libsqlite3.dylib").path)
         #expect(setup.environment["OPENCLAW_PROFILE"] == "browser-fixture")
     }
 }
