@@ -1883,9 +1883,8 @@ describe("grouped chat rendering", () => {
     });
 
     const summary = expectElement(view, ".chat-tool-msg-summary", HTMLButtonElement);
-    expect(summary.querySelector(".chat-tool-msg-summary__label")?.textContent).toBe(
-      "Heartbeat Respond",
-    );
+    expect(summary.querySelector(".chat-tool-msg-summary__label")).toBeNull();
+    expect(summary.querySelector("[role=img]")?.ariaLabel).toBe("heartbeat_respond");
     expect(summary.querySelector(".chat-tool-msg-summary__names")).toBeNull();
   });
 
