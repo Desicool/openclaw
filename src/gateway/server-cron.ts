@@ -556,12 +556,7 @@ export function buildGatewayCronService(params: {
   };
 
   // Built after cron so watcher exit callbacks can call back into the service.
-  const exitWatchersRef: { current: ReturnType<typeof createCronExitWatchers> | undefined } = {
-    current: undefined,
-  };
-  const streamWatchersRef: {
-    current: ReturnType<typeof createCronStreamWatchers> | undefined;
-  } = { current: undefined };
+  let exitWatchers: CronExitWatchers | undefined;
   let exitWatcherReconciliations = 0;
   let streamWatcherReconciliations = 0;
   const terminalExitCompletionTokens = new Map<
@@ -592,7 +587,7 @@ export function buildGatewayCronService(params: {
     const generation = exitWatcherGeneration;
     exitWatcherReconciliations += 1;
     try {
-      if (!exitWatchersRef.current || exitWatchersStopped) {
+      if (!exitWatchers || exitWatchersStopped) {
         return;
       }
       const jobs = await cron.list({ includeDisabled: true });
@@ -603,11 +598,11 @@ export function buildGatewayCronService(params: {
       ) {
         return;
       }
-      reconcileCronExitWatchers({
-        cronEnabled,
-        exitWatchers: exitWatchersRef.current,
-        jobs,
-      });
+      if (cronEnabled) {
+        exitWatchers.reconcile(jobs);
+      } else {
+        void exitWatchers.cancelAll();
+      }
     } catch (err) {
       cronLogger.warn({ err: String(err) }, "cron-exit: reconcile failed");
     } finally {
@@ -618,7 +613,7 @@ export function buildGatewayCronService(params: {
     const generation = streamWatcherGeneration;
     streamWatcherReconciliations += 1;
     try {
-      const watchers = streamWatchersRef.current;
+      const watchers = streamWatchers;
       if (!watchers || streamWatchersStopped) {
         return;
       }
@@ -653,7 +648,7 @@ export function buildGatewayCronService(params: {
     job: CronJob | undefined,
     action: "added" | "updated" | "removed" | "finished",
   ) => {
-    const watchers = streamWatchersRef.current;
+    const watchers = streamWatchers;
     if (!watchers || streamWatchersStopped) {
       return;
     }
@@ -1176,8 +1171,8 @@ export function buildGatewayCronService(params: {
       }, "cron:watcher-state"),
     logger: cronServiceLogger,
   } satisfies CronExitWatcherHandlers;
-  exitWatchersRef.current = createCronExitWatchers(exitWatcherHandlers, params.scheduler);
-  streamWatchersRef.current = createCronStreamWatchers({
+  exitWatchers = createCronExitWatchers(exitWatcherHandlers, params.scheduler);
+  const streamWatchers = createCronStreamWatchers({
     scheduler: params.scheduler,
     getProcessSupervisor,
     updateState: async (jobId, patch, streamScheduleKey, streamSourceIdentity) => {
@@ -1241,7 +1236,7 @@ export function buildGatewayCronService(params: {
     }
     // Close admission synchronously, but drain outside the cron store lock.
     // The caller observes rejection now and joins it after mutation settlement.
-    return streamWatchersRef.current?.stop(
+    return streamWatchers?.stop(
       current.id,
       patch.schedule !== undefined ? "schedule-update" : "disabled",
     );
@@ -1252,7 +1247,7 @@ export function buildGatewayCronService(params: {
     }
     // An operator disable wins over a completion retained during owner handoff.
     exitWatcherMutationRevision += 1;
-    exitWatchersRef.current?.cancel(job.id);
+    exitWatchers?.cancel(job.id);
   };
   const addCron = cron.add.bind(cron);
   cron.add = async (input, options) => {
@@ -1338,7 +1333,7 @@ export function buildGatewayCronService(params: {
     const previous = cron.getJob(jobId);
     try {
       if (previous?.schedule.kind === "stream") {
-        await streamWatchersRef.current?.stop(jobId, "removed", previous);
+        await streamWatchers?.stop(jobId, "removed", previous);
       }
       const result = await removeCron(jobId, opts);
       if (!result.removed) {
@@ -1356,8 +1351,8 @@ export function buildGatewayCronService(params: {
     getCronSuspensionBlockerCount() +
     exitWatcherReconciliations +
     streamWatcherReconciliations +
-    (exitWatchersRef.current?.activeJobIds().length ?? 0) +
-    (streamWatchersRef.current?.activeJobIds().length ?? 0);
+    (exitWatchers?.activeJobIds().length ?? 0) +
+    (streamWatchers?.activeJobIds().length ?? 0);
   // cron.stop begins cancellation synchronously; stopAndDrain joins this same
   // settlement so a replacement owner cannot start over live predecessors.
   let exitWatchersStopPromise: Promise<void> | undefined;
@@ -1366,7 +1361,7 @@ export function buildGatewayCronService(params: {
     // Fence new requests before cancellation so stopped children cannot respawn.
     exitWatchersStopped = true;
     exitWatcherGeneration += 1;
-    exitWatchersStopPromise ??= exitWatchersRef.current?.cancelAll() ?? Promise.resolve();
+    exitWatchersStopPromise ??= exitWatchers?.cancelAll() ?? Promise.resolve();
   };
   // cron.stop launches this teardown asynchronously and stopAndDrain awaits
   // it; memoizing keeps that one drain instead of queueing every owner a
@@ -1379,7 +1374,7 @@ export function buildGatewayCronService(params: {
     const stopPromise = (async () => {
       streamWatcherGeneration += 1;
       streamWatchersStopped = true;
-      await streamWatchersRef.current?.stopAll("shutdown");
+      await streamWatchers?.stopAll("shutdown");
     })();
     streamWatchersStopPromise = stopPromise;
     void stopPromise.catch(() => {
@@ -1516,7 +1511,7 @@ export function buildGatewayCronService(params: {
     // A restart owns a fresh watcher lifecycle; the next stop must drain it.
     exitWatchersStopPromise = undefined;
     streamWatchersStopPromise = undefined;
-    streamWatchersRef.current?.resume();
+    streamWatchers?.resume();
     if (lifecycleChanged()) {
       return;
     }
@@ -1549,14 +1544,14 @@ export function buildGatewayCronService(params: {
     storePath,
     cronEnabled,
     prepareExitWatcherHandoff: async () => ({
-      current: () => exitWatchersRef.current!,
+      current: () => exitWatchers!,
       adopt: (watchers) => {
-        if (watchers !== exitWatchersRef.current) {
+        if (watchers !== exitWatchers) {
           settleExitWatcherHandoff(false);
           exitWatcherHandoffReady = { result: createDeferredCore<boolean>(), settled: false };
           exitWatcherGeneration += 1;
         }
-        exitWatchersRef.current = watchers;
+        exitWatchers = watchers;
         return watchers.updateHandlers(exitWatcherHandlers);
       },
       stopOwner: async () => {
