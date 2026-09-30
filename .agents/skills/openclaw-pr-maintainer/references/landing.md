@@ -239,6 +239,16 @@ list. Matrix cancellation names it only when it is an inspected causal member.
 Extra failed steps, absent or changed qualification, and mismatched sources refuse
 admission. This does not qualify the underlying test failure by itself.
 
+The same failure entry can bind a cancelled `check-prod-types` job with
+`failedStep: { number: 16, workflowJob: "check-shard" }`, using the actual step
+number. This route recognizes only the audited `Run check shard` command and its
+task/matrix bindings. Every declared workflow step must appear at its source
+position; all step timestamps must be ordered within the job and cleanup must
+succeed. The retained proof includes the full steps and cancelled conclusion.
+Matrix membership and the underlying type failure still require independent
+inspection. The same source, security, review, and exhaustive cancellation gates
+apply.
+
 An explicitly attributed Node job that exhausted its execution deadline may appear
 as `cancelled` in GitHub's job API. Keep it in `failures`, with the actual observed
 cases and incomplete coverage recorded. The verifier requires the matching live
