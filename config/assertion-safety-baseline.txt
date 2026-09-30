@@ -2127,7 +2127,7 @@ src/daemon/schtasks-install.ts	2
 src/daemon/schtasks-process.ts	1
 src/daemon/schtasks-runtime.ts	4
 src/daemon/systemd-exec.ts	2
-src/daemon/systemd-install.ts	2
+src/daemon/systemd-install.ts	1
 src/daemon/systemd-lifecycle.ts	2
 src/daemon/systemd-runtime.ts	1
 src/entry.compile-cache.ts	2
@@ -2552,7 +2552,7 @@ src/model-catalog/bundled-catalog-stamp.ts	1
 src/model-catalog/remote-overlay.ts	1
 src/model-picker/apply-session-model-selection.ts	1
 src/node-host/config.ts	1
-src/node-host/invoke-agent-cli-claude-params.ts	4
+src/node-host/invoke-agent-cli-claude-params.ts	1
 src/node-host/invoke-agent-cli-claude.ts	1
 src/node-host/invoke-payload.ts	3
 src/node-host/invoke.ts	1
