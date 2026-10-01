@@ -26,6 +26,10 @@ import type {
   ArchivedSessionEvictionBatch,
   ArchivedSessionEvictionQuery,
 } from "./disk-budget.types.js";
+import type {
+  SessionGoalOperationLookup,
+  SessionGoalOperationLookupResult,
+} from "./goals-operations.types.js";
 import type { SessionLifecycleTimestamps } from "./lifecycle.types.js";
 import type { SessionTranscriptBoundedActiveContext } from "./session-accessor.sqlite-active-context.js";
 import type { TranscriptArchivePresenceRead } from "./session-accessor.sqlite-archive-types.js";
@@ -294,6 +298,12 @@ type SessionPendingInputReceiptsWorkerInput = {
   env: NodeJS.ProcessEnv;
 };
 
+type SessionGoalOperationReceiptWorkerInput = SessionGoalOperationLookup & {
+  kind: "goal-operation-receipt";
+  database: { agentId: string; path: string };
+  env: NodeJS.ProcessEnv;
+};
+
 type SessionUsageCacheWorkerInput = {
   kind: "usage-cache";
   database: { agentId: string; path: string };
@@ -506,6 +516,7 @@ export type SessionHistoryWorkerInput =
   | SessionMembershipFactsWorkerInput
   | SessionProgressCardWorkerInput
   | SessionPendingInputReceiptsWorkerInput
+  | SessionGoalOperationReceiptWorkerInput
   | SessionEntryListWorkerInput
   | SessionEntryReadWorkerInput
   | SessionEntryCurrentWorkerInput
@@ -567,6 +578,10 @@ export type SessionTranscriptWorkerValues = {
   "session-members": SessionMember[];
   "session-membership-facts": SessionMembershipFacts;
   "session-progress-card": { kind: "session-progress-card"; card: ProgressCard | null };
+  "goal-operation-receipt": {
+    kind: "goal-operation-receipt";
+    result: SessionGoalOperationLookupResult;
+  };
   "session-pending-input-receipts": {
     kind: "session-pending-input-receipts";
     receipts: ReturnType<typeof listSessionPendingInputReceipts>;
@@ -717,6 +732,10 @@ export type SessionHistoryWorkerDatabase = {
   readMembers: SessionHistoryReader<SessionMembersWorkerInput>;
   readMembershipFacts: SessionHistoryReader<SessionMembershipFactsWorkerInput>;
   readProgressCard: SessionHistoryReader<SessionProgressCardWorkerInput, ProgressCard | null>;
+  readGoalOperationReceipt: SessionHistoryReader<
+    SessionGoalOperationReceiptWorkerInput,
+    SessionGoalOperationLookupResult
+  >;
   readPendingInputReceipts: SessionHistoryReader<
     SessionPendingInputReceiptsWorkerInput,
     ReturnType<typeof listSessionPendingInputReceipts>

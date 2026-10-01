@@ -3,7 +3,6 @@ import type {
   UsageCostWorkerInput,
   UsageCostWorkerReply,
 } from "../../infra/session-cost-usage-worker.types.js";
-import { withSqliteReaderOwner } from "../../infra/sqlite-reader-lifecycle.js";
 import { serveOwnedWorkerTasks } from "../../infra/worker-task-server.js";
 import { cloneEnvWithPlatformSemantics } from "../config-env-vars.js";
 import type { SessionIdentityEvidenceResult } from "./session-accessor.sqlite-entry-availability.js";
@@ -11,68 +10,17 @@ import { readSessionColdTranscript } from "./session-cold-storage-state.js";
 import {
   encodeSessionTranscriptWorkerError,
   SessionHistoryDeltaPreparationError,
-  sessionHistoryCleanupError,
 } from "./session-history-worker-errors.js";
 import { runWithSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
+import {
+  withHistoryDatabase,
+  pruneClosedHistoryDatabaseScopes,
+} from "./session-transcript-worker-scopes.js";
 import type {
-  SessionTranscriptHistoryWorkerInput,
   SessionTranscriptWorkerInput,
   SessionTranscriptWorkerReply,
-  SessionTranscriptWorkerSuccess,
   SessionTranscriptWorkerValues,
 } from "./session-transcript-worker.types.js";
-
-// Keep target switching within the existing serialized worker; no read snapshot survives a task.
-const MAX_RETAINED_HISTORY_DATABASES = 64;
-const historyDatabaseScopes = new Map<
-  string,
-  {
-    database: SessionTranscriptHistoryWorkerInput["database"];
-    scope: import("../../state/openclaw-agent-db-readonly-scope.js").OpenClawAgentDatabaseReadOnlyScope;
-  }
->();
-
-async function withHistoryDatabase<T>(
-  database: SessionTranscriptHistoryWorkerInput["database"],
-  operationLabel: string,
-  operation: () => T | Promise<T>,
-): Promise<SessionTranscriptWorkerSuccess<T>> {
-  const key = JSON.stringify(database);
-  let retained = historyDatabaseScopes.get(key);
-  if (!retained) {
-    const { OpenClawAgentDatabaseReadOnlyScope } =
-      await import("../../state/openclaw-agent-db-readonly-scope.js");
-    retained = { database, scope: new OpenClawAgentDatabaseReadOnlyScope() };
-  }
-  const { scope } = retained;
-  try {
-    const value = await withSqliteReaderOwner(
-      { operation: `sessions.${operationLabel}`, ownerKind: "worker" },
-      () => scope.run(database, operation),
-    );
-    historyDatabaseScopes.delete(key);
-    // Tasks without retained connections must not evict useful connections or retain empty scopes.
-    if (!scope.hasRetainedConnection) {
-      return { ok: true, value, closedHistoryDatabase: database };
-    }
-    historyDatabaseScopes.set(key, retained);
-    if (historyDatabaseScopes.size > MAX_RETAINED_HISTORY_DATABASES) {
-      const oldest = historyDatabaseScopes.entries().next().value!;
-      oldest[1].scope.close();
-      historyDatabaseScopes.delete(oldest[0]);
-      return { ok: true, value, closedHistoryDatabase: oldest[1].database };
-    }
-    return { ok: true, value };
-  } catch (error) {
-    // The parent joins worker retirement on failure, including a failed native close.
-    try {
-      scope.close();
-    } catch (cleanupError) {
-      throw sessionHistoryCleanupError(error, cleanupError, "database close");
-    }
-    throw error;
-  }
-}
 
 let closeReadOnlyCandidates:
   | typeof import("../../state/openclaw-agent-db-readonly-scope.js").closeOpenClawAgentDatabaseReadOnlyCandidates
@@ -483,6 +431,34 @@ serveOwnedWorkerTasks(
           ),
         };
       }
+      if (request.kind === "goal-operation-receipt") {
+        const { withOpenClawAgentDatabaseReadOnly } =
+          await import("../../state/openclaw-agent-db-readonly.js");
+        const {
+          assertSessionGoalOperationTime,
+          readSessionGoalOperationInDatabase,
+          SessionGoalOperationError,
+        } = await import("./goals-operations.js");
+        try {
+          assertSessionGoalOperationTime(request.operation, Date.now());
+          const result = withOpenClawAgentDatabaseReadOnly(
+            (database) => readSessionGoalOperationInDatabase(database, request),
+            { ...request.database, env: cloneEnvWithPlatformSemantics(request.env) },
+          );
+          return {
+            kind: "goal-operation-receipt",
+            result: { receipt: result.found ? result.value : undefined },
+          };
+        } catch (error) {
+          if (!(error instanceof SessionGoalOperationError)) {
+            throw error;
+          }
+          return {
+            kind: "goal-operation-receipt",
+            result: { error: { code: error.code, message: error.message } },
+          };
+        }
+      }
       if (request.kind === "session-progress-card") {
         const { withOpenClawAgentDatabaseReadOnly } =
           await import("../../state/openclaw-agent-db-readonly.js");
@@ -702,11 +678,7 @@ serveOwnedWorkerTasks(
       );
       closeReadOnlyCandidates?.(candidates);
       releaseReadValidation?.(candidates);
-      for (const [identity, retained] of historyDatabaseScopes) {
-        if (!retained.scope.hasRetainedConnection) {
-          historyDatabaseScopes.delete(identity);
-        }
-      }
+      pruneClosedHistoryDatabaseScopes();
     },
   },
 );
