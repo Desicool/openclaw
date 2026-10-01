@@ -1515,7 +1515,6 @@ src/agents/runtime-plan/tools.ts	3
 src/agents/runtime/proxy.ts	6
 src/agents/sandbox-paths.ts	1
 src/agents/sandbox-tool-policy.ts	1
-src/agents/sandbox/backend.ts	1
 src/agents/sandbox/container-engine.ts	1
 src/agents/sandbox/podman-runtime.ts	1
 src/agents/sandbox/test-args.ts	1
@@ -2091,7 +2090,7 @@ src/cron/persisted-shape.ts	3
 src/cron/retry-hint.ts	3
 src/cron/run-diagnostics-normalize.ts	2
 src/cron/run-diagnostics.ts	3
-src/cron/runtime-authority.ts	3
+src/cron/runtime-authority.ts	2
 src/cron/schedule-identity.ts	2
 src/cron/service/active-run-cancellation.ts	1
 src/cron/service/jobs.ts	4
