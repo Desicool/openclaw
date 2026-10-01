@@ -1,4 +1,4 @@
-name: Blacksmith Testbox
+name: Blacksmith High-Memory Testbox
 on:
   workflow_dispatch:
     inputs:
@@ -8,52 +8,16 @@ on:
         required: true
       timeout_minutes:
         type: number
-        description: "GitHub job runtime; explicit long-proof requests may use up to 240 minutes"
-        default: 60
-  pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - "scripts/ci-testbox-budget.mjs"
-      - ".github/workflows/ci-check-testbox.yml"
-      - ".github/actions/prepare-testbox-shell/**"
-      - ".github/actions/setup-node-env/**"
-      - ".github/actions/setup-pnpm-store-cache/**"
-      - ".github/actions/ensure-base-commit/**"
-      - ".github/actions/git-owner/**"
-      - "scripts/ci-hydrate-testbox-env.sh"
-      - "scripts/ci-hydrate-live-auth.sh"
-      - "scripts/lib/merge-head-diff-base.mjs"
-      - "scripts/lib/pnpm-lockfile-documents.mjs"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "patches/**"
-      - ".npmrc"
-      - ".pnpmfile.*"
-      - "pnpmfile.cjs"
-      - "node-version.mjs"
-      - "**/package.json"
-      - "scripts/check-install-dependency-ownership.mjs"
-      - "scripts/postinstall-bundled-plugins.mjs"
-      - "scripts/lib/package-dist-imports.mjs"
-      - "scripts/lib/javascript-statements.mjs"
-      - "scripts/lib/package-lifecycle-marker.mjs"
-      - "scripts/lib/fs-safe-prebuild.mjs"
-      - "scripts/windows-cmd-helpers.mjs"
-      - "scripts/preinstall-package-manager-warning.mjs"
-      - "scripts/prepare-git-hooks.mjs"
+        description: "Maximum GitHub job runtime for long Testbox commands"
+        default: 240
 
 permissions:
   contents: read
 
+# Explicit memory-heavy exception; ordinary proof uses ci-check-testbox.yml.
 concurrency:
-  # Admission precedes job skips: isolate passive drafts before they can cancel useful work.
-  # Keep conversion events in the PR group where subscribed, as an intentional cancellation signal.
-  group: >-
-    ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && github.event.action != 'converted_to_draft'
-      && format('{0}-passive-draft-{1}', github.workflow, github.run_id)
-      || (github.event_name == 'pull_request' && format('{0}-pr-v1-{1}', github.workflow, github.event.pull_request.number) || format('{0}-manual-v1-{1}', github.workflow, github.run_id)) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-manual-v1-${{ github.run_id }}
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -61,7 +25,6 @@ env:
 
 jobs:
   admission:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -83,32 +46,28 @@ jobs:
         id: budget
         env:
           GH_TOKEN: ${{ github.token }}
-          TESTBOX_PROFILE: check
+          TESTBOX_PROFILE: check-memory
           TESTBOX_ID: ${{ inputs.testbox_id }}
           TESTBOX_MINUTES: ${{ inputs.timeout_minutes }}
         run: node scripts/ci-testbox-budget.mjs admit
 
   check:
     needs: admission
-    if: ${{ !cancelled() && ((github.event_name == 'pull_request' && !github.event.pull_request.draft) || needs.admission.result == 'success') }}
+    if: ${{ !cancelled() && needs.admission.result == 'success' }}
     concurrency:
-      group: ${{ github.event_name == 'workflow_dispatch' && needs.admission.outputs.group || format('testbox-validation-{0}-{1}', github.workflow, github.run_id) }}
+      group: ${{ needs.admission.outputs.group }}
       cancel-in-progress: false
     permissions:
       contents: read
     name: "check"
-    # Pull requests only validate the hydration steps; real Testbox leases arrive via dispatch.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || needs.admission.outputs.runner }}
-    timeout-minutes: ${{ fromJSON(needs.admission.outputs.minutes || '60') }}
+    runs-on: ${{ needs.admission.outputs.runner }}
+    timeout-minutes: ${{ fromJSON(needs.admission.outputs.minutes || '240') }}
     steps:
-      # Testbox lifecycle actions require Blacksmith VM metadata; PRs validate our setup steps only.
       - name: Begin Testbox
-        if: github.event_name == 'workflow_dispatch'
         uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043
         with:
           testbox_id: ${{ inputs.testbox_id }}
       - name: Reject expired Testbox admission
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           TESTBOX_EXPIRES_AT: ${{ needs.admission.outputs.expires_at }}
@@ -122,12 +81,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Dispatch hydrates the pinned workflow ref; changed-gate sync later
-          # reconstructs its exact base and final tree. PR validation keeps both commits.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+          fetch-depth: 1
           persist-credentials: false
       - name: Bound Testbox idle lifetime
-        if: github.event_name == 'workflow_dispatch'
         env:
           TESTBOX_EXPIRES_AT: ${{ needs.admission.outputs.expires_at }}
         run: node scripts/ci-testbox-budget.mjs configure
@@ -143,7 +99,7 @@ jobs:
       - name: Prepare Testbox shell
         uses: ./.github/actions/prepare-testbox-shell
         with:
-          base-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD' }}
+          base-ref: HEAD
           go-version: "1.27.1"
 
       - name: Hydrate Testbox provider env helper
@@ -202,12 +158,12 @@ jobs:
         # Temporary local-listener fix: https://github.com/useblacksmith/run-testbox/pull/15
         # Return to useblacksmith/run-testbox after the fix lands upstream.
         uses: steipete/run-testbox@2b6b1be536ec7f3c73757fedf5460a27ab4856b4
-        if: github.event_name == 'workflow_dispatch' && always()
+        if: always()
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
       - name: Close Testbox SSH sessions
-        if: github.event_name == 'workflow_dispatch' && always()
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
