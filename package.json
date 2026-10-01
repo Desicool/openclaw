@@ -415,6 +415,7 @@
     "scripts/lib/bun-cli-launcher.mjs",
     "scripts/lib/javascript-statements.mjs",
     "scripts/install-cli.sh",
+    "scripts/install-policy.sh",
     "scripts/install.ps1",
     "scripts/prepare-git-hooks.mjs",
     "scripts/prepare-native-protocol.mjs",
