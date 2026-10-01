@@ -2822,7 +2822,6 @@ src/state/openclaw-state-db-schema-additive.ts	1
 src/state/openclaw-state-db-schema-helpers.ts	1
 src/state/openclaw-state-db-schema-repair.ts	2
 src/state/openclaw-state-ownership.ts	1
-src/state/user-profiles.ts	1
 src/status/summary.runtime.ts	1
 src/system-agent/agent-turn.ts	2
 src/system-agent/greeting.ts	1
