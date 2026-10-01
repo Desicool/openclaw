@@ -344,7 +344,6 @@ src/auto-reply/reply/get-reply-inline-actions.skip-when-config-empty.test.ts
 src/auto-reply/reply/get-reply-run.media-only.test.ts
 src/auto-reply/reply/get-reply.ts
 src/auto-reply/reply/inbound-meta.test.ts
-src/auto-reply/reply/model-selection.test.ts
 src/auto-reply/reply/queue.collect.test.ts
 src/auto-reply/reply/queue/drain.ts
 src/auto-reply/reply/reply-run-registry.test.ts
@@ -536,7 +535,6 @@ src/infra/outbound/delivery-queue.recovery.test.ts
 src/infra/outbound/outbound-send-service.test.ts
 src/infra/outbound/targets.test.ts
 src/infra/package-update-steps.ts
-src/infra/restart-stale-pids.test.ts
 src/infra/restart.ts
 src/infra/run-node.test.ts
 src/infra/session-cost-usage.test.ts
@@ -571,7 +569,6 @@ src/plugin-sdk/provider-stream-shared.test.ts
 src/plugin-sdk/test-helpers/plugin-runtime-mock.ts
 src/plugin-sdk/test-helpers/provider-discovery-contract.ts
 src/plugin-sdk/test-helpers/provider-runtime-contract.ts
-src/plugins/capability-provider-runtime.test.ts
 src/plugins/channel-plugin-ids.test.ts
 src/plugins/clawhub.test.ts
 src/plugins/clawhub.ts
