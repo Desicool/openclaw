@@ -15,7 +15,6 @@ export CELL_DEADLINE_EPOCH_SECONDS
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT_DIR/scripts/lib/docker-e2e-image.sh"
-source "$ROOT_DIR/scripts/lib/docker-e2e-package.sh"
 
 PACKAGE_TGZ="$(docker_e2e_prepare_package_tgz published-driver-update "${1:-${OPENCLAW_CURRENT_PACKAGE_TGZ:-}}")"
 RUNTIME_VOLUME=""
