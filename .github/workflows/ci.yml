@@ -6361,6 +6361,7 @@ jobs:
       - android
       - android-access-native
       - docker-seed-e2e
+      - published-driver-update
       - pr-fail-fast
       - ci-gate
     if: ${{ always() && !cancelled() && github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') }}
