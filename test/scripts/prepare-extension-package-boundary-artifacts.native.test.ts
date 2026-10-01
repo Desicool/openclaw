@@ -53,8 +53,6 @@ function createPreparationFixture(mode: "package-boundary" | "all", signal: Abor
     "scripts/tsx.mjs",
     "scripts/windows-cmd-helpers.mjs",
     "scripts/lib",
-    "src/plugins/package-entrypoints.ts",
-    "src/shared/non-packaged-plugin-dirs.ts",
     "packages/normalization-core/src",
     "packages/normalization-core/package.json",
   ]) {
@@ -122,6 +120,22 @@ function createPreparationFixture(mode: "package-boundary" | "all", signal: Abor
 }
 
 function writeSelectedConsumer(f: ReturnType<typeof createPreparationFixture>) {
+  for (const file of [
+    "scripts/check-file-utils.ts",
+    "src/plugins/package-entrypoints.ts",
+    "src/shared/non-packaged-plugin-dirs.ts",
+  ]) {
+    const target = path.join(f.root, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.resolve(file), target);
+  }
+  f.write(
+    "packages/plugin-sdk/tsconfig.json",
+    JSON.stringify({
+      extends: "../../tsconfig.json",
+      include: ["../../src/plugin-sdk/**/*.ts", "../../src/**/*.d.ts"],
+    }),
+  );
   const sourceAliases = {
     "openclaw/plugin-sdk/*": ["./src/plugin-sdk/*.ts"],
     "@openclaw/memory-core/api.js": ["./extensions/memory-core/api.ts"],
