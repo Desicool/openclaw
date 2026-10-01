@@ -668,7 +668,7 @@ async function inspectOrMigrateTarget(params: {
     archivedLegacyStoreFiles: [],
     issues,
   });
-  const retained = prepareRetainedSessionImport(params, issues);
+  const retained = await prepareRetainedSessionImport(params, report);
   if (!retained) {
     return report;
   }
