@@ -17,6 +17,7 @@ import {
   type OpenClawDatabaseMaintenanceScope,
 } from "./openclaw-state-maintenance-context.js";
 
+export type { OpenClawDatabaseMaintenanceScope } from "./openclaw-state-maintenance-context.js";
 export {
   captureOpenClawDatabaseMaintenanceResource,
   getOpenClawDatabaseMaintenanceResourceScope,
