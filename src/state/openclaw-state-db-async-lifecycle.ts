@@ -25,7 +25,6 @@ export {
   isOpenClawDatabaseMaintenanceResourceOwned,
   observeOpenClawDatabaseMaintenanceResource,
   runOutsideOpenClawDatabaseMaintenanceScope,
-  type OpenClawDatabaseMaintenanceScope,
 } from "./openclaw-state-maintenance-context.js";
 
 const STATE_DATABASE_READ_ADMISSION_INVALIDATED = "STATE_DATABASE_READ_ADMISSION_INVALIDATED";
