@@ -194,8 +194,7 @@ export function resolveExtensionBoundaryPreparation(
     extensionIds,
   ).map(({ config }) => ({ config }));
   const visited = new Set<string>();
-  for (let index = 0; index < queue.length; index += 1) {
-    const { config: candidate, producerId } = queue[index]!;
+  for (const { config: candidate, producerId } of queue) {
     const config = boundary.assert(candidate);
     if (visited.has(config)) {
       continue;
