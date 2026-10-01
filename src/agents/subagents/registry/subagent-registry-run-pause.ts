@@ -23,7 +23,7 @@ export async function markSubagentMessageWaitInRuns(params: {
   context: OpenClawStateWorkerContext;
   assertCurrent: () => void;
   persist: Parameters<typeof publishSubagentRunPostimages>[0]["persist"];
-}): Promise<void> {
+}): Promise<boolean> {
   params.assertCurrent();
   const entry = params.runs.get(params.runId);
   if (
@@ -34,10 +34,12 @@ export async function markSubagentMessageWaitInRuns(params: {
     entry.execution.status !== "running" ||
     entry.killIntent ||
     entry.killReconciliation ||
-    entry.suppressCompletionDelivery ||
-    entry.requesterSettleWake?.pauseNotice
+    entry.suppressCompletionDelivery
   ) {
-    return;
+    return false;
+  }
+  if (entry.requesterSettleWake?.pauseNotice) {
+    return true;
   }
   const previous = captureSubagentRunMutationSnapshot(entry);
   entry.requesterSettleWake = {
@@ -66,6 +68,7 @@ export async function markSubagentMessageWaitInRuns(params: {
   } catch (error) {
     throw new SubagentRegistryWriteError("committed", error, result.publication);
   }
+  return true;
 }
 
 export function markSubagentRunPausedAfterYield(params: {
