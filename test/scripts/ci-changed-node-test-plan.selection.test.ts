@@ -1,17 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-  createChangedNodeTestShards,
-  resolveChangedNodeTestTargets,
-} from "../../scripts/lib/ci-changed-node-test-plan.mts";
+import { resolveChangedNodeTestTargets } from "../../scripts/lib/ci-changed-node-test-plan.mts";
 import { resolveCiCheckFamilyScope } from "../../scripts/lib/ci-check-family-scope.mts";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 it.each(["added", "renamed", "deleted", "import-edge"])(
-  "retains non-import inventories and architecture for an %s source module",
+  "retains non-import inventories and architecture for %s source modules",
   (change) => {
     const cwd = tempDirs.make("node-source-inventory-");
     const source = "src/infra/new-module.ts";
@@ -32,17 +29,15 @@ it.each(["added", "renamed", "deleted", "import-edge"])(
       writeFileSync(path.join(cwd, "src/infra/dependency.ts"), "export {};\n");
     }
     const paths = change === "renamed" ? ["src/infra/old-module.ts", source] : [source];
-    const shards = createChangedNodeTestShards(paths, { cwd, selectionMode: "aggressive" });
-    expect(shards).not.toBeNull();
-    expect(
-      shards
-        ?.flatMap((shard) => [
-          ...(shard.targets ?? []),
-          ...(shard.includePatterns ?? []),
-          ...(shard.groups ?? []).flatMap((group) => group.includePatterns ?? []),
-        ])
-        .toSorted(),
-    ).toEqual(guards.toSorted());
+    expect(resolveChangedNodeTestTargets(paths, { cwd, selectionMode: "aggressive" })).toEqual(
+      guards.toSorted(),
+    );
+    const testOnly = "src/infra/own.test.ts";
+    mkdirSync(path.dirname(path.join(cwd, testOnly)), { recursive: true });
+    writeFileSync(path.join(cwd, testOnly), "export {};\n");
+    expect(resolveChangedNodeTestTargets([testOnly], { cwd, selectionMode: "aggressive" })).toEqual(
+      [testOnly],
+    );
     expect(resolveCiCheckFamilyScope(paths).additionalGroups).toContain(
       "runtime-topology-architecture",
     );

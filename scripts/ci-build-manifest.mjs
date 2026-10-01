@@ -1784,6 +1784,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     );
   }
   if (selectedTestTargets) {
+    /** @type {Map<string, Set<string>>} */
     const reasons = new Map();
     for (const { rule, targets } of nodeSelectionReasons) {
       for (const file of targets) {
@@ -1802,7 +1803,11 @@ if (process.env.GITHUB_STEP_SUMMARY) {
         "Set repository variable `OPENCLAW_CI_NODE_SELECTION=full` to restore the previous selection.\n\n" +
         "<details><summary>Selected files and selection rules</summary>\n<pre>" +
         selectedTestTargets
-          .map((file) => escape(`${file}\t${[...(reasons.get(file) ?? [])].sort().join(", ")}`))
+          .map((file) =>
+            escape(
+              `${file}\t${[...(reasons.get(file) ?? [])].toSorted((left, right) => left.localeCompare(right)).join(", ")}`,
+            ),
+          )
           .join("\n") +
         "</pre>\n</details>\n\n",
     );

@@ -33,6 +33,7 @@ const policyTestWatches: readonly PolicyTestWatch[] = [
     "test/scripts/plugin-sdk-surface-report.test.ts",
   ].map((testFile): PolicyTestWatch => ({
     testFile,
+    sourceOnly: true,
     watchGlobs: ["{src,extensions,packages,scripts,ui/src}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
   })),
   {
