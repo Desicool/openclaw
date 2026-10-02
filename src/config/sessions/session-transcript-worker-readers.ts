@@ -252,6 +252,18 @@ export function createSessionHistoryWorkerReaders(
       (input) => ({ kind: "current-turn-entry", ...input }),
       (value) => value,
     ),
+    readRecentActiveEvents: reader(
+      "recent-active-events",
+      "recent active events",
+      (input) => ({ kind: "recent-active-events", ...input }),
+      (value) => value.events,
+    ),
+    readLatestActiveMessage: reader(
+      "latest-active-message",
+      "the latest active message",
+      (input) => ({ kind: "latest-active-message", ...input }),
+      (value) => value.message,
+    ),
     readUsageCache: reader(
       "usage-refresh-lock",
       "usage cache",

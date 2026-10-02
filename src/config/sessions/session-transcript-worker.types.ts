@@ -31,6 +31,7 @@ import type {
 } from "./goals-operations.types.js";
 import type { SessionLifecycleTimestamps } from "./lifecycle.types.js";
 import type { SessionTranscriptBoundedActiveContext } from "./session-accessor.sqlite-active-context.js";
+import type { SessionTranscriptMessageEvent } from "./session-accessor.sqlite-active-events.js";
 import type { TranscriptArchivePresenceRead } from "./session-accessor.sqlite-archive-types.js";
 import type {
   SessionBranchSummaryReadRequest,
@@ -54,7 +55,6 @@ import type {
   SessionEntryReplacementSelection,
   SessionEntryReplacementState,
 } from "./session-accessor.sqlite-replacement-read.js";
-import type { ResolvedTranscriptReadScope } from "./session-accessor.sqlite-scope.js";
 import type { SessionTranscriptWatermark } from "./session-accessor.sqlite-transcript-watermark-read.js";
 import type {
   SessionAccessScope,
@@ -90,11 +90,19 @@ import type {
   SessionStoreTargetReadResult,
 } from "./session-store-target-inventory.js";
 import type {
+  SessionTranscriptHydrationWorkerInput,
+  SessionTranscriptCurrentTurnEntryWorkerInput,
+  SessionTranscriptRecentActiveEventsWorkerInput,
+  SessionTranscriptLatestActiveMessageWorkerInput,
+} from "./session-transcript-hydration.types.js";
+import type {
   SessionTranscriptSearchParams,
   SessionTranscriptSearchResult,
 } from "./session-transcript-search.types.js";
 import type { SessionTranscriptWorkerReadError } from "./session-transcript-worker-error.types.js";
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
+
+export type { SessionTranscriptCurrentTurnEntryRequest } from "./session-transcript-hydration.types.js";
 
 type SessionTranscriptMatchWorkerInput = {
   kind: "transcript-match";
@@ -124,12 +132,6 @@ export type SessionTranscriptHydrationChunk = {
   kind: "transcript-hydration-chunk";
   encoding: string;
   frames: Array<{ data: Uint8Array; endOfEvent: boolean }>;
-};
-
-export type SessionTranscriptCurrentTurnEntryRequest = {
-  entryId: string;
-  version: SessionTranscriptContextVersion;
-  includeEntry: boolean;
 };
 
 export type SessionTranscriptCurrentTurnEntryRead = {
@@ -227,21 +229,6 @@ type SessionRowBackfillWorkerInput = {
   database: { agentId: string; path: string };
   params: SessionRowTranscriptReadParams;
 };
-
-type SessionTranscriptHydrationWorkerInput = {
-  kind: "transcript-hydration";
-  database: { agentId: string; path: string };
-  target: SessionTranscriptRuntimeTarget & { env?: NodeJS.ProcessEnv };
-  resolvedScope: ResolvedTranscriptReadScope;
-  limits?: { maxBytes: number; maxEvents: number };
-  admission?: UserTurnTranscriptAdmissionReceipt;
-};
-
-type SessionTranscriptCurrentTurnEntryWorkerInput = Omit<
-  SessionTranscriptHydrationWorkerInput,
-  "kind" | "limits"
-> &
-  SessionTranscriptCurrentTurnEntryRequest & { kind: "current-turn-entry" };
 
 export type SessionColdMetadataWorkerInput = {
   kind: "cold-metadata";
@@ -510,6 +497,8 @@ export type SessionHistoryWorkerInput =
   | SessionColdStorageInventoryWorkerInput
   | SessionTranscriptHydrationWorkerInput
   | SessionTranscriptCurrentTurnEntryWorkerInput
+  | SessionTranscriptRecentActiveEventsWorkerInput
+  | SessionTranscriptLatestActiveMessageWorkerInput
   | SessionTranscriptHistoryWorkerInput
   | SessionPreviewWorkerInput
   | SessionTitleFieldsWorkerInput
@@ -574,6 +563,11 @@ export type SessionTranscriptWorkerValues = {
   };
   "transcript-hydration": SessionTranscriptHydrationWorkerResult;
   "current-turn-entry": SessionTranscriptCurrentTurnEntryRead;
+  "recent-active-events": { kind: "recent-active-events"; events: TranscriptEvent[] };
+  "latest-active-message": {
+    kind: "latest-active-message";
+    message: SessionTranscriptMessageEvent | undefined;
+  };
   "sqlite-target": { target: ResolvedSqliteStoreTarget };
   "branch-summaries": SessionBranchSummaryReadResult;
   "history-page": SessionHistoryWorkerResult;
@@ -717,6 +711,14 @@ export type SessionHistoryWorkerDatabase = {
     PreparedSessionTranscriptHydration
   >;
   readCurrentTurnEntry: CancellableSessionHistoryReader<SessionTranscriptCurrentTurnEntryWorkerInput>;
+  readRecentActiveEvents: CancellableSessionHistoryReader<
+    SessionTranscriptRecentActiveEventsWorkerInput,
+    TranscriptEvent[]
+  >;
+  readLatestActiveMessage: CancellableSessionHistoryReader<
+    SessionTranscriptLatestActiveMessageWorkerInput,
+    SessionTranscriptMessageEvent | undefined
+  >;
   readExactEntries: (
     input: SessionExactEntriesWorkerRequest,
     signal?: AbortSignal,
