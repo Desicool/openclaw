@@ -2449,7 +2449,7 @@ src/infra/windows-shell-command.ts	1
 src/interactive/payload.ts	1
 src/llm/providers/stream-wrappers/google-thinking-payload.ts	3
 src/llm/providers/stream-wrappers/moonshot-thinking.ts	2
-src/llm/providers/stream-wrappers/openai.ts	12
+src/llm/providers/stream-wrappers/openai.ts	11
 src/llm/providers/stream-wrappers/stream-payload-utils.ts	1
 src/llm/utils/node-http-proxy.ts	1
 src/llm/utils/oauth/anthropic.ts	2
