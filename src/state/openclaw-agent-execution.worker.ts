@@ -367,6 +367,7 @@ function openAgentDatabaseBackend(
     "session.reaction.set": loadAgentReactionOperations,
     "session.pendingInputs.withdraw": loadAgentPendingInputOperations,
     "session.archivePruning.deletePublished": loadAgentArchivePruningOperations,
+    "session.archivePruning.pruneRetention": loadAgentArchivePruningOperations,
     "session.archivePruning.removeLegacy": loadAgentArchivePruningOperations,
     "session.archivePruning.reclaimPages": loadAgentArchivePruningOperations,
   });
