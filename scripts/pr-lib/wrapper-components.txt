@@ -1644,3 +1644,8 @@ scripts/github/security-sensitive-guard.mjs
 scripts/lib/bounded-response.mjs
 scripts/pr-lib/merge-prior-ci-cancellation.mjs
 scripts/pr-lib/merge-prior-ci-security.mjs
+src/config/sessions/supported-session-store.ts
+src/plugin-sdk/channel-route.ts
+src/utils/delivery-context.shared.ts
+src/utils/message-channel-constants.ts
+src/utils/message-channel-core.ts
