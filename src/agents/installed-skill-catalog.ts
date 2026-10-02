@@ -205,7 +205,9 @@ export async function searchInstalledSkills(
     }
   }
   const ranked = [...scores].map(([value, score]) => ({ value, score }));
-  const exact = skills.find((skill) => skill.name.toLowerCase() === needle.toLowerCase());
+  const exact =
+    skills.find((skill) => skill.name === needle) ??
+    skills.find((skill) => skill.name.toLowerCase() === needle.toLowerCase());
   if (exact && !ranked.some(({ value }) => value === exact)) {
     ranked.push({ value: exact, score: 0 });
   }

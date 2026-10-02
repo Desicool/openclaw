@@ -37,6 +37,26 @@ describe("installed skill catalog", () => {
     });
   });
 
+  it.each([
+    [["deploy", "Deploy"], "Deploy", "Deploy"],
+    [["Deploy", "deploy"], "deploy", "deploy"],
+    [["Deploy", "deploy"], "Deploy", "Deploy"],
+    [["deploy", "Deploy"], "deploy", "deploy"],
+    [["deploy"], "DEPLOY", "deploy"],
+  ] as const)(
+    "preserves exact identity with catalog %j and query %s",
+    async (names, query, expected) => {
+      const skills = names.map((name) =>
+        skill(name, "Deployment workflow", `${name} instructions`),
+      );
+      const result = await searchInstalledSkills(skills, query, 1);
+      expect(result.skills[0]?.name).toBe(expected);
+      expect(await readInstalledSkill(skills, result.skills[0]?.name ?? "")).toBe(
+        `${expected} instructions`,
+      );
+    },
+  );
+
   it("bounds metadata and uses deterministic ties without tool-specific expansions", async () => {
     const skills = Array.from({ length: 25 }, (_, i) =>
       skill(`guide-${String(i).padStart(2, "0")}`, `Deploy ${"x".repeat(1_000)}`),
