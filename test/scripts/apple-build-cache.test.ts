@@ -153,7 +153,7 @@ echo built >> "$FIXTURE_BUILDS"
     expect(run()).toBe(1);
     writeFileSync(path.join(crate, "src/lib.rs"), "changed source");
     expect(run()).toBe(2);
-    for (const file of readdirSync(cache).filter((file) => file.endsWith(".a"))) {
+    for (const file of readdirSync(cache).filter((entry) => entry.endsWith(".a"))) {
       writeFileSync(path.join(cache, file), "damaged");
     }
     expect(run()).toBe(3);

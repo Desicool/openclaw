@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPnpmRunnerSpawnSpec } from "./pnpm-runner.mts";
@@ -14,14 +14,9 @@ async function hashFiles(paths, base = root) {
   const hash = createHash("sha256");
   async function visit(relative) {
     const absolute = path.join(base, relative);
-    const entries = await readdir(absolute, { withFileTypes: true }).catch((error) => {
-      if (error.code === "ENOTDIR") {
-        return null;
-      }
-      throw error;
-    });
-    if (entries) {
-      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, "en"))) {
+    if ((await stat(absolute)).isDirectory()) {
+      const entries = await readdir(absolute, { withFileTypes: true });
+      for (const entry of entries.toSorted((a, b) => a.name.localeCompare(b.name, "en"))) {
         if (!["node_modules", "dist"].includes(entry.name)) {
           await visit(path.join(relative, entry.name));
         }
