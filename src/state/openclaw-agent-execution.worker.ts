@@ -41,8 +41,10 @@ import {
 } from "./openclaw-agent-db.js";
 import { createAgentDatabaseExecutionCloser } from "./openclaw-agent-execution-close.js";
 import type {
-  AgentDatabaseExecutionIdentity,
+  AgentDatabaseFileExecutionIdentity,
   AgentDatabaseExecutionOpen,
+  AgentDatabaseFileExecutionOpen,
+  AgentDatabaseIncognitoOperations,
   AgentDatabaseOperations,
 } from "./openclaw-agent-execution-contract.js";
 import {
@@ -50,6 +52,7 @@ import {
   requestRestrictedAgentDatabaseAdmission,
   type AgentDatabaseAdmissionRestriction,
 } from "./openclaw-agent-execution-domain.js";
+import { createIncognitoAgentDatabaseBackend } from "./openclaw-agent-execution-incognito.worker.js";
 import {
   loadAgentTranscriptOperations,
   loadAgentReplacementOperations,
@@ -76,7 +79,12 @@ import { createWorkerOperationRegistry } from "./worker-operation-registry.js";
 export function createSqliteWorkerBackend(
   input: AgentDatabaseExecutionOpen,
   opening: { databasePath: string },
-): SqliteWorkerPreparedBackend<AgentDatabaseOperations> {
+):
+  | SqliteWorkerPreparedBackend<AgentDatabaseOperations>
+  | SqliteWorkerPreparedBackend<AgentDatabaseIncognitoOperations> {
+  if (input.kind === "ephemeral") {
+    return createIncognitoAgentDatabaseBackend(input, opening);
+  }
   const backend = openAgentDatabaseBackend(input, opening);
   try {
     backend.execute({ type: "database.prepareWrite", input: undefined });
@@ -98,12 +106,12 @@ export function createSqliteWorkerBackend(
 
 /** The broker supplies a private admission channel before invoking this native factory. */
 export const openExistingSqliteWorkerBackend: (
-  input: AgentDatabaseExecutionOpen,
+  input: AgentDatabaseFileExecutionOpen,
   opening: { databasePath: string; existingIdentity?: string },
 ) => SqliteWorkerPreparedBackend<AgentDatabaseOperations> = openAgentDatabaseBackend;
 
 function openAgentDatabaseBackend(
-  input: AgentDatabaseExecutionOpen,
+  input: AgentDatabaseFileExecutionOpen,
   opening: { databasePath: string; existingIdentity?: string },
 ): SqliteWorkerPreparedBackend<AgentDatabaseOperations> & { closeAfterFailedOpen(): void } {
   if (opening.databasePath !== input.databasePath) {
@@ -158,7 +166,7 @@ function openAgentDatabaseBackend(
   let shared: ReturnType<typeof openOpenClawStateDatabase> | undefined;
   let sharedBorrow: ReturnType<typeof retainOpenClawStateDatabase> | undefined;
   let releaseBorrow: (() => void) | undefined;
-  let identity: AgentDatabaseExecutionIdentity | undefined;
+  let identity: AgentDatabaseFileExecutionIdentity | undefined;
   let openingFailure: { error: unknown } | undefined;
   let startupJournalRequested = false;
   let publicationStartupJournal: boolean | undefined;
