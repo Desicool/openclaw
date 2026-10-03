@@ -39,7 +39,7 @@ import {
   tryResolveSessionCompatibilityOwnerAgentId,
 } from "../session-request-agent.js";
 import { SessionMutationAuthorizationChangedError } from "../session-sharing.js";
-import { asWorkerInferenceControl } from "../worker-environments/inference-control.js";
+import { getWorkerInferenceSessionControl } from "../worker-environments/inference-control-internal.js";
 import { resolveSessionWorkerPlacementMutationError } from "../worker-environments/session-placement-lifecycle.js";
 import { forkSessionRepositoryWorkspace } from "../worker-environments/session-repository-checkpoints.js";
 import { resolveVisibleActiveSessionRunState } from "./session-active-runs.js";
@@ -303,7 +303,7 @@ async function mutateSessionAtMessage(
       // Reject live work before transcript mutation instead of interrupting it.
       blockedByActiveRun =
         isCompetingSessionWorkAdmissionActive(initial.storePath, lifecycleIdentities) ||
-        (asWorkerInferenceControl(context.workerEnvironmentService)?.hasInferenceForSession(
+        (getWorkerInferenceSessionControl(context.workerEnvironmentService)?.hasSession(
           initialSessionId,
         ) ??
           false) ||
