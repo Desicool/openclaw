@@ -2761,7 +2761,6 @@ src/state/openclaw-agent-db-session-migrations.ts	1
 src/state/openclaw-quarantine-store.ts	2
 src/state/openclaw-state-db-delivery-queue-backfill.ts	1
 src/state/openclaw-state-db-legacy-backfills.ts	4
-src/state/openclaw-state-db-schema-additive.ts	1
 src/state/openclaw-state-db-schema-helpers.ts	1
 src/state/openclaw-state-db-schema-repair.ts	2
 src/state/openclaw-state-ownership.ts	1
