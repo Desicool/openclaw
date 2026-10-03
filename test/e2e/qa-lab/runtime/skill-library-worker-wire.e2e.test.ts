@@ -100,12 +100,7 @@ describe("skill library mock-provider E2E through real Gateway and node worker",
           await instance.state.writeConfig({
             ...config,
             gateway: authConfig.gateway,
-            tools: {
-              ...config.tools,
-              codeMode: false,
-              toolSearch: false,
-              exec: { mode: "full" },
-            },
+            tools: { ...config.tools, codeMode: false, toolSearch: false, exec: { mode: "full" } },
             nodeHost: { workerRuns: { enabled: true } },
           });
           console.info("[skill-library-wire] starting isolated Gateway");
@@ -360,15 +355,13 @@ describe("skill library mock-provider E2E through real Gateway and node worker",
               idempotencyKey: authorRunId,
             }),
           ).resolves.toMatchObject({ runId: authorRunId, status: "started" });
-          const authorResult = await bob.request<{ status: string }>(
-            "agent.wait",
-            { runId: authorRunId, timeoutMs: PROOF_TIMEOUT_MS },
-            PROOF_TIMEOUT_MS + 5_000,
-          );
-          expect(
-            authorResult.status,
-            JSON.stringify({ authorResult, providerErrors: provider.errors.map(String) }),
-          ).toBe("ok");
+          await expect(
+            bob.request(
+              "agent.wait",
+              { runId: authorRunId, timeoutMs: PROOF_TIMEOUT_MS },
+              PROOF_TIMEOUT_MS + 5_000,
+            ),
+          ).resolves.toMatchObject({ status: "ok" });
           const authorOutput = provider.authorOutputs.get("bob-worker");
           if (!authorOutput?.created || !authorOutput.read || !authorOutput.updated) {
             throw new Error("Worker did not return real Workshop create, read and update results");

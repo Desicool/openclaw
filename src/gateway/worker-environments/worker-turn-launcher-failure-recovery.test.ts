@@ -248,7 +248,7 @@ describe("worker turn launcher failure recovery", () => {
     });
     const context = bindSessionRowProjection(requestContext(cfg), () => projection);
     const respond = vi.fn();
-    const describe = async () => {
+    const describeSession = async () => {
       respond.mockClear();
       await sessionByKeyReadHandlers["sessions.describe"]!({
         req: { type: "req", id: "failed-worker-placement", method: "sessions.describe" },
@@ -288,7 +288,7 @@ describe("worker turn launcher failure recovery", () => {
         cleanup,
         "Failed worker did not enter teardown",
       );
-      await describe();
+      await describeSession();
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
         session: expect.objectContaining({
           placement: expect.objectContaining({ state: "draining" }),
@@ -305,7 +305,7 @@ describe("worker turn launcher failure recovery", () => {
       expect(failed?.recoveryError).not.toContain("\n");
       expect(failed?.recoveryError?.length).toBeLessThanOrEqual(1_024);
       expect(failed?.terminalReason).toBe(failed?.recoveryError);
-      await describe();
+      await describeSession();
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
         session: expect.objectContaining({
           placement: expect.objectContaining({
