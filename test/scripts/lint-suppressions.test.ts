@@ -216,7 +216,9 @@ describe("production lint suppressions", () => {
         "src/agents/sessions/session-manager-persistence-entry.ts|unicorn/prefer-structured-clone|1",
         "src/channels/plugins/channel-runtime-surface.types.ts|typescript/no-unnecessary-type-parameters|1",
         "src/channels/plugins/contracts/test-helpers.ts|typescript/no-unnecessary-type-parameters|1",
-        "src/channels/plugins/types.plugin.ts|typescript/no-explicit-any|1",
+        // Account defaults and heterogeneous registries erase plugin-specific callback families;
+        // unknown rejects concrete account/probe/audit callbacks. Gateway versions remain checked.
+        "src/channels/plugins/types.plugin.ts|typescript/no-explicit-any|2",
         "src/cli/cli-utils.ts|typescript/no-unnecessary-type-parameters|1",
         "src/cli/command-options.ts|typescript/no-unnecessary-type-parameters|1",
         "src/cli/plugins-cli-test-helpers.ts|typescript/no-unnecessary-type-parameters|1",
