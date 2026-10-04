@@ -65,14 +65,19 @@ vi.mock("../../config/sessions.js", () => ({
   resolveSessionFilePathOptions: vi.fn(),
 }));
 
+// mock-isolation: Skill-refresh cases control persistence acknowledgments without opening SQLite.
 vi.mock("../../config/sessions/session-accessor.js", () => ({
-  loadSessionEntry: loadSessionEntryMock,
   patchSessionEntryCore: vi.fn(),
   updateSessionEntry: async (...args: unknown[]) => {
     const entry = await updateSessionEntryMock(...args);
     loadSessionEntryMock.mockReturnValue(entry ?? undefined);
     return entry;
   },
+}));
+
+// mock-isolation: Skill-refresh cases read the fixture's acknowledged row without starting workers.
+vi.mock("../../config/sessions/session-entry-read-runtime.js", () => ({
+  readSessionEntryInWorker: loadSessionEntryMock,
 }));
 
 const { ensureSkillSnapshot } = await import("./session-updates.js");

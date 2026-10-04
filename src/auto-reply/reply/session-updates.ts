@@ -8,11 +8,11 @@ import {
 } from "../../agents/exec-defaults.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import {
-  loadSessionEntry,
   patchSessionEntryCore,
   updateSessionEntry,
 } from "../../config/sessions/session-accessor.js";
 import { projectCompactionAccountingPatch } from "../../config/sessions/session-entry-projection.js";
+import { readSessionEntryInWorker } from "../../config/sessions/session-entry-read-runtime.js";
 import type { InternalSessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { isFastTestRuntimeEnv } from "../../infra/env.js";
@@ -247,7 +247,7 @@ export async function ensureSkillSnapshot(params: {
     // Even a reusable snapshot crosses an await. Return the current row so the
     // reply caller cannot restore stale metadata or a retired session generation.
     const current = storePath
-      ? loadSessionEntry({ storePath, sessionKey })
+      ? await readSessionEntryInWorker({ storePath, sessionKey })
       : sessionEntryHandle
         ? sessionEntryHandle.get(sessionKey)
         : sessionStore?.[sessionKey];
