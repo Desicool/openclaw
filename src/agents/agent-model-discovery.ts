@@ -90,8 +90,7 @@ function createOpenClawModelRegistry(
   registry.getAll = () => getAll().map(normalizeEntry);
   registry.getAvailable = () => getAvailable().map(normalizeEntry);
   registry.find = (provider: string, modelId: string) => {
-    const normalizedProvider = normalizeProviderId(provider);
-    const key = `${normalizedProvider}\0${modelId}`;
+    const key = `${provider}\0${modelId}`;
     if (findCache.has(key)) {
       return findCache.get(key);
     }
