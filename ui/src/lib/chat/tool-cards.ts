@@ -380,7 +380,12 @@ function extractToolCards(message: unknown): ToolCard[] {
         inputText: serializeToolInput(args),
         ...(details !== undefined ? { details } : {}),
         ...(isLiveToolStream
-          ? { live: true, completed: m["__openclawToolStreamResultReceived"] === true }
+          ? {
+              live: true,
+              completed:
+                m["__openclawToolStreamResultReceived"] === true ||
+                m["__openclawToolStreamItemEnded"] === true,
+            }
           : {}),
         ...(liveDiffStat ? { liveDiffStat } : {}),
         messageId: transcriptMessageId,
@@ -437,7 +442,7 @@ function extractToolCards(message: unknown): ToolCard[] {
         existing.parentToolCallId ??= parentToolCallId;
         // Live tool-stream messages emit a toolresult block for partial
         // `update` output too; completion there is owned by the stream's
-        // resultReceived marker (set at card creation), not block presence —
+        // terminal markers (set at card creation), not block presence —
         // otherwise a running tool flips to "succeeded" mid-execution.
         if (!isLiveToolStream) {
           existing.completed = true;
