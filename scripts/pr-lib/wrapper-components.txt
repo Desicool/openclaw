@@ -681,6 +681,7 @@ src/gateway/control-ui-session-prs-landing.ts
 src/gateway/github-publication-base.ts
 src/gateway/github-remote.ts
 src/gateway/github-repository-publication-snapshot.ts
+src/gateway/model-account-connect-errors.ts
 src/gateway/operator-scopes.ts
 src/gateway/security-path.ts
 src/gateway/server-methods/workspace-fs.ts
@@ -1167,6 +1168,7 @@ src/plugins/compat/channel-pairing-record.ts
 src/plugins/compat/deprecation-marking.ts
 src/plugins/compat/media-legacy-projection.ts
 src/plugins/compat/mention-inbox-record.ts
+src/plugins/compat/model-account-connect-record.ts
 src/plugins/compat/plugin-sdk-subpath-records.ts
 src/plugins/compat/registry-records.ts
 src/plugins/compat/registry.ts
