@@ -264,6 +264,7 @@ function decodeSqliteWorkerReplyError(
   });
   if (job.request.stateContext && error.code !== "outcome-unknown" && error.sharedState) {
     retainOpenClawStateWorkerErrorPayload(failure, error.sharedState);
+    return hydrateOpenClawStateWorkerError(failure, { includeOrdinary: true });
   }
   return failure;
 }
