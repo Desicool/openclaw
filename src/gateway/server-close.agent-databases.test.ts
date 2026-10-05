@@ -11,6 +11,7 @@ import { openContextEngineTurnOutboxWorkerStore } from "../agents/harness/contex
 import { isAgentRunRestartAbortReason } from "../agents/run-termination.js";
 import type { ReplyOperation } from "../auto-reply/reply/reply-run-registry.js";
 import { admitReplyTurn } from "../auto-reply/reply/reply-turn-admission.js";
+import { SqliteBoardStore } from "../boards/sqlite-board-store.js";
 import { runGatewayLoop } from "../cli/gateway-cli/run-loop.js";
 import {
   loadSessionEntry,
@@ -107,6 +108,7 @@ it("keeps accepted terminal writes and the clean-close receipt ahead of process 
   });
   let heldWriter: ReturnType<typeof patchSessionEntryCore> | undefined;
   let terminalWrite: Promise<void> | undefined;
+  let boardWrite: ReturnType<SqliteBoardStore["putWidget"]> | undefined;
   let closing: Promise<unknown> | undefined;
   try {
     const options = { agentId: "main", env: state.env };
@@ -138,6 +140,16 @@ it("keeps accepted terminal writes and the clean-close receipt ahead of process 
       { skipMaintenance: true, workerGuard: {} },
     );
     await withinTest(writerEntered.promise, signal);
+    const boards = new SqliteBoardStore({
+      env: state.env,
+      resolveSession: () => ({ agentId: "main", path: agent.path, sessionKey }),
+    });
+    boardWrite = boards.putWidget({
+      sessionKey,
+      name: "accepted",
+      content: { kind: "html", html: "<p>Accepted before close</p>" },
+    });
+    void boardWrite.catch(() => {});
     terminalWrite = terminalOwner.observe({ ...target, event });
     closing = prepareGatewayClose(params, {
       reason: "gateway restarting",
@@ -156,7 +168,14 @@ it("keeps accepted terminal writes and the clean-close receipt ahead of process 
     expect(onProcessExitReady).not.toHaveBeenCalled();
     expect(agent.db.isOpen).toBe(true);
     releaseWriter.resolve();
-    await withinTest(Promise.all([heldWriter, terminalWrite, terminalDrained.promise]), signal);
+    await withinTest(
+      Promise.all([heldWriter, boardWrite, terminalWrite, terminalDrained.promise]),
+      signal,
+    );
+    expect(await boardWrite).toMatchObject({
+      resolvedWidgetName: "accepted",
+      widgets: [{ name: "accepted" }],
+    });
     expect(onProcessExitReady).not.toHaveBeenCalled();
     expect(agent.db.isOpen).toBe(true);
     releaseMemory.resolve();
@@ -184,7 +203,7 @@ it("keeps accepted terminal writes and the clean-close receipt ahead of process 
     releaseWriter.resolve();
     releaseMemory.resolve();
     releaseExit.resolve();
-    await Promise.allSettled([heldWriter, terminalWrite, closing]);
+    await Promise.allSettled([heldWriter, boardWrite, terminalWrite, closing]);
     await scheduler.stop();
     await state.cleanup();
   }
