@@ -5994,7 +5994,6 @@
 ["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor-session-transcripts.js","b7a139c6456a03a999c845573b67774c334ba9bcfde958442cfc45c0fcc7e615",1]
 ["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor/cron/legacy-repair.js","a9a86d72cba2bb01e1d1437215c886a656c03156cb95a23951c86c618c805ff4",1]
 ["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor/shared/legacy-config-issues.js","ad7e390ef47374a43d0d56a3eac897964bbb879093bff596dba9f9b762708178",1]
-["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor/shared/plugin-metadata-snapshot-scope.js","e9fed487fd2bbce5526f99c4fa14759f7a02460b5ebe75b6e559d4ef816cf082",1]
 ["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor/shared/plugin-migration-availability.js","8114c3a79dc72c4f75c37ec579e7df2787ee41dd85adde2987a7fba5d7b39211",1]
 ["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor/shared/post-core-plugin-convergence.js","01e4b6d0f0df6402ecf3514046d7c4bf4ed683f3100ea7c2476e25a08758ddb7",1]
 ["src/commands/doctor-config-preflight.state-migration.test-harness.ts","./doctor/shared/startup-plugin-convergence-plan.js","d7b3e634eda2a2b1db8c8d557453292bf5ee30cf903176f1d85065284646c194",1]
