@@ -2286,6 +2286,12 @@ export const en: TranslationMap & {
     confirm: "Confirm original publication",
     check: "Check publication",
     refresh: "Refresh publication",
+    statusFailed: "Publication failed",
+    statusConfirm: "Confirmation needed",
+    statusRequested: "Publication queued",
+    statusPublishing: "Publication in progress",
+    statusUnavailable: "Publication status unavailable",
+    statusUnknown: "Outcome unknown",
     unknown:
       "The outcome is unknown. Retry keeps the original account and request; it does not switch accounts.",
     target: "Pull request: {repository} \u2192 {base}",
