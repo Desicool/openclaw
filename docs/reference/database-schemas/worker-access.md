@@ -199,7 +199,9 @@ source against the same snapshot. Foreign-store transcript rewrites retain the
 original source owner's live host assertion; the destination cannot supply its facts.
 Accepted persistence keeps its existing settlement
 and close owner. Released synchronous custody callbacks retain their compatibility
-contract; no schema, permission, retention, or update migration is required.
+contract. Process-held Incognito input keeps its native source identity and live
+permission checks through staging, dispatch, and transcript writes. No schema,
+permission, retention, or update migration is required.
 
 ### Incognito worker ownership (P1, inactive)
 
