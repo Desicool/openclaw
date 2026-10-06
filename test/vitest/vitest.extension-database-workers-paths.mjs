@@ -6,6 +6,7 @@ export const databaseWorkerExtensionTestRoots = [
 ];
 
 export const databaseWorkerExtensionTestFiles = [
+  "extensions/litellm/index.test.ts",
   "extensions/qa-lab/src/codex-plugin-lifecycle.test.ts",
   "extensions/qa-lab/src/gateway-child-artifacts.test.ts",
   "extensions/qa-lab/src/gateway-child-auth-handoff.test.ts",

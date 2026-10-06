@@ -529,7 +529,7 @@ describe("projects vitest config", () => {
     },
   );
 
-  it.each(["extensions/agentsapi/agentsapi-attempt.test.ts"])(
+  it.each(["extensions/agentsapi/agentsapi-attempt.test.ts", "extensions/litellm/index.test.ts"])(
     "routes real extension database consumer %s to its fork owner",
     (file) => {
       const project = "test/vitest/vitest.extension-database-workers.config.ts";
