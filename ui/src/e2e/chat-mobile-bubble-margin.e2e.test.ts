@@ -110,6 +110,8 @@ suite.define(() => {
                   ).toBeGreaterThanOrEqual(-1);
                 }
                 await chevron.click();
+                // A click that navigates away removes the row, which also satisfies the next count.
+                await expectBrowser(activity, label).toHaveJSProperty("open", false);
                 await expectBrowser(activity.locator(".chat-bubble"), label).toHaveCount(0);
               } else if (!("excluded" in testCase)) {
                 await expect
