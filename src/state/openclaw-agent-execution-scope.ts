@@ -1,3 +1,4 @@
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import {
   assertExistingDatabaseIdentity,
   readDatabasePathIdentitySync,
@@ -16,6 +17,24 @@ import type {
   AgentDatabaseExecutionFileIdentity,
 } from "./openclaw-agent-execution-contract.js";
 import { getOpenClawDatabaseMaintenanceScope } from "./openclaw-state-db-async-lifecycle.js";
+import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
+import { captureOpenClawStateReadContext } from "./openclaw-state-worker-context.js";
+
+export function assertAgentDatabaseExecutionSharedState(
+  options: OpenClawAgentDatabaseOptions,
+  sharedDatabaseKey: string,
+): void {
+  const env =
+    process.platform === "win32"
+      ? cloneEnvWithPlatformSemantics(options.env ?? process.env)
+      : options.env;
+  const state = captureOpenClawStateReadContext(resolveOpenClawStateSqlitePath(env));
+  if (sharedDatabaseKey !== state.admission.identity.key) {
+    throw new Error(
+      "Agent database execution belongs to another shared-state database; drain its existing resources before changing the state directory.",
+    );
+  }
+}
 
 export function supportsAgentDatabaseExecutionScope(
   options: OpenClawAgentDatabaseOptions,
