@@ -9728,7 +9728,6 @@
 ["src/plugins/web-provider-resolution-candidates.test.ts","./manifest-registry-installed.js","00d226e066bf6681f1cd74c7e01b2da2a55ef9224bc797cade4b4be4cb0174e7",1]
 ["src/plugins/web-provider-resolution-candidates.test.ts","./plugin-metadata-snapshot.js","0631adc7b9d3c5790b44d82a61901ddfafcc027fddbbed714f98e7db0ddb03fe",1]
 ["src/plugins/web-provider-resolution-candidates.test.ts","./plugin-registry.js","f282b00673ebd20f0bdf9111b30f987f75332e2782f87f785c13dc3f5d64ee7f",1]
-["src/plugins/web-provider-runtime-shared.test.ts","./active-runtime-registry.js","1adb116185a637df7d5dbfcee89239fb228bacdacb94e03690b44c51b003f6ef",1]
 ["src/plugins/web-provider-runtime-shared.test.ts","./loader.js","8e584d264b7170e3f86647416d9f3349f97bba430b8185a3024b71be9cf2858c",1]
 ["src/plugins/web-provider-runtime-shared.test.ts","./runtime.js","509c6a1ba2ffeeff8d9480213e2fdd289fcd4fb87b15bf7ccf55c3da7f971be6",1]
 ["src/plugins/web-provider-runtime-shared.test.ts","./runtime/load-context.js","9357987610fe409bfbe3cd61112f3f299a0ee7494629c2cc9ea7120a32aff150",1]
