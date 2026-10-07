@@ -1566,7 +1566,6 @@
 ["extensions/slack/src/monitor/message-handler/dispatch.preview-fallback.test.ts","./preview-finalize.js","7b74a6167792ac32a8e3b131ecc7dccc044aeb19c0f6b162c59e2c81ec057dbd",1]
 ["extensions/slack/src/monitor/message-handler/dispatch.preview-fallback.test.ts","openclaw/plugin-sdk/agent-runtime","5cb3802027eaf295356067a4133008a53621b63308f209435269eb78fb190412",1]
 ["extensions/slack/src/monitor/message-handler/dispatch.preview-fallback.test.ts","openclaw/plugin-sdk/channel-feedback","cc1f4c16b42e941569b5d1d0c3fd1fa417443f6a605fae9dfdb1263bf7b2cedc",1]
-["extensions/slack/src/monitor/message-handler/dispatch.preview-fallback.test.ts","openclaw/plugin-sdk/runtime-env","460f92e5ab7616213ddad69e913ae78af05a9ab45075861d6bd566150f52ad5a",1]
 ["extensions/slack/src/monitor/message-handler/dispatch.preview-fallback.test.ts","openclaw/plugin-sdk/security-runtime","83b2af1e1de47a21e50a94c5c724eced9e62356aa6577805a37abe50123257fc",1]
 ["extensions/slack/src/monitor/message-handler/dispatch.visible-work-links.test.ts","../../draft-stream.js","896465a308beb982de440e31ac507240660126ce1597c54d2b5dfba0f2184ae5",1]
 ["extensions/slack/src/monitor/message-handler/dispatch.visible-work-links.test.ts","./preview-finalize.js","f287423c91875163352adb1784f1aeb1129e26c3b9278a241a09256d4f7c702e",1]
