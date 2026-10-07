@@ -326,7 +326,11 @@ function captureValidationTransfer(
               : [],
           )
         : [];
-    invalidateOpenClawAgentDatabaseValidation(pathname);
+    // Revocation before capture already fenced this receipt. Repeating it would
+    // invalidate an alias's later capture or an acknowledged successor receipt.
+    if (wasValid !== 0) {
+      invalidateOpenClawAgentDatabaseValidation(pathname);
+    }
     validatedPaths.set(pathname, { validation, integrityVerified: true });
     // A verified replacement is one physical receipt, including its already-admitted aliases.
     for (const alias of aliases) {

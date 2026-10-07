@@ -208,6 +208,30 @@ it("publishes freshly verified proof to a previously admitted alias after stale 
   }
 });
 
+it("recreates a closed database through its directory alias without revoking fresh publication", async () => {
+  const env = { OPENCLAW_STATE_DIR: fs.realpathSync(tempDirs.make("agent-alias-recreation-")) };
+  const canonicalPath = resolveOpenClawAgentSqlitePath({ agentId: "main", env });
+  fs.mkdirSync(path.dirname(canonicalPath), { recursive: true });
+  const alias = path.join(env.OPENCLAW_STATE_DIR, "alias");
+  fs.symlinkSync(
+    path.dirname(canonicalPath),
+    alias,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const options = { agentId: "main", env, path: path.join(alias, path.basename(canonicalPath)) };
+  await withOpenClawAgentDatabaseWrite(options, ({ db }) => {
+    db.exec("INSERT INTO auth_profile_state VALUES ('previous-file', '{}', 1)");
+  });
+  await closeOpenClawAgentDatabaseByPathAsync(options.path, options.agentId);
+  fs.unlinkSync(canonicalPath);
+  await expect(
+    withOpenClawAgentDatabaseWrite(
+      options,
+      ({ db }) => db.prepare("SELECT COUNT(*) AS count FROM auth_profile_state").get()?.count,
+    ),
+  ).resolves.toBe(0);
+});
+
 it.each([
   "eviction",
   "additive-table",
