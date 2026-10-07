@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, assert, expect, it, vi } from "vitest";
 import { observeHostDataSql } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { readSessionNodesGeneration } from "../config/sessions/session-accessor.sqlite-entry-revision.js";
@@ -164,6 +164,12 @@ it("admits cold storage in its worker and lends facts to every later native hand
     });
   expect(await Promise.all([read(), read()])).toEqual([0, 0]);
   expect(inspections).toEqual([]);
+  const freshValidation = getOpenClawAgentDatabaseValidationForTransfer({
+    agentId: options.agentId,
+    path: pathname,
+  });
+  assert(freshValidation);
+  expect(Atomics.load(new Int32Array(freshValidation.canonicalReady), 0)).toBe(1);
 
   // The next synchronous caller and an idle-reopened handle consume the same worker admission.
   expectAdmittedSchemaObjects(openOpenClawAgentDatabase(options).db);

@@ -338,7 +338,10 @@ export function createAgentDatabaseNativeGeneration(
                 : !expectedIdentity &&
                   readDatabasePathIdentitySync(pathname).key.startsWith("path:"));
             if (creating) {
-              if (!lease) {
+              if (
+                !lease &&
+                getOpenClawAgentDatabaseValidationForTransfer({ agentId, path: pathname })
+              ) {
                 // Absence ends retained proof even if Linux reuses the inode. Later open
                 // checkpoints must preserve the publication captured by the lease handoff.
                 invalidateOpenClawAgentDatabaseValidation(pathname);

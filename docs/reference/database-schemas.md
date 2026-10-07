@@ -52,10 +52,11 @@ The agent-database execution owner retains up to four idle physical-agent execut
 
 Creating an agent database at an admitted absent path revokes the previous file's
 retained validation before worker preparation. A recreated file cannot borrow that
-proof even if Linux reuses its inode. Ordinary reopen still reuses live proof;
-fresh publication preserves alias captures made after revocation, while later
-revocation still refuses publication. Schemas, stored bytes, and update behavior
-are unchanged.
+proof even if Linux reuses its inode. Ordinary reopen still reuses live proof,
+and fresh stores keep their canonical certification. Receipt identifiers survive
+worker transfers so alias publication revokes superseded proof while preserving
+acknowledged copies. Later revocation still refuses publication. Schemas, stored
+bytes, and update behavior are unchanged.
 
 Retaining an already-open agent handle holds its lifetime without querying SQLite. Its read or transaction owner refreshes schema facts when consuming data; canonical readiness owns the freshness check before reusing its clean-store decision.
 
