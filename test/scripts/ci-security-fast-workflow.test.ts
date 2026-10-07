@@ -299,8 +299,8 @@ describe("security-fast workflow", () => {
         repos: Array<{ hooks: Array<{ id: string; entry: string; verbose?: boolean }> }>;
       };
       const hook = hooks.repos
-        .flatMap((repo) => repo.hooks)
-        .find((hook) => hook.id === "pnpm-audit-prod");
+        .flatMap((entry) => entry.hooks)
+        .find((candidate) => candidate.id === "pnpm-audit-prod");
       expect(hook).toBeDefined();
       expect(hook?.verbose).toBe(true);
       for (const step of [audit, { run: hook!.entry }]) {
