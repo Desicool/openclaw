@@ -3578,6 +3578,7 @@ export const en: TranslationMap & {
       disconnected: "Not connected. Try again after reconnecting.",
     },
     imageLightbox: {
+      actions: "Image actions",
       previous: "Previous image",
       next: "Next image",
       position: "{current} / {total}",
