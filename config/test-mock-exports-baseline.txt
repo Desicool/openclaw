@@ -7902,7 +7902,6 @@
 ["src/gateway/server-methods/web-search-status.auth.test.ts","../server-model-catalog-auth.js","174125ff43ce5363266a9029136f665071215c83bfded2edd1f8fe6a3d01b000",1]
 ["src/gateway/server-methods/web-search-status.auth.test.ts","./model-auth-agent-scope.js","79b45e32c72608845e937b64bc34705dfdc00b5cb13f53c11ed4f5d3500e7457",1]
 ["src/gateway/server-methods/web-search-status.test.ts","../../agents/auth-profiles/store.js","669963a1a039a618e68257c5690e496ecb6e5986cde0ac2f79e9844d316c5add",1]
-["src/gateway/server-methods/web-search-status.test.ts","../../agents/model-catalog-decisions.js","400f6daf6f1d54c124665f513a7c94887cf14732615ca7084304915ba8fa0f1e",1]
 ["src/gateway/server-methods/web-search-status.test.ts","../../agents/model-selection.js","cf9e1715ec4f1c51e18cb54c650d5af39821ab06a1ec57a55051e9b02812bef6",1]
 ["src/gateway/server-methods/web-search-status.test.ts","../../agents/native-web-search.js","9923e4710672951501503e19e8194d4ab3673508dd2a8ed3361eb4fc97e17348",1]
 ["src/gateway/server-methods/web-search-status.test.ts","../../agents/tools/model-config.helpers.js","437edc6855ea6461d34bcf5690b087be2f13e73f6ba86552e3d8b01ce8345d99",1]

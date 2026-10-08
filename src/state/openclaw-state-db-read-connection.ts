@@ -13,7 +13,11 @@ import {
 } from "../infra/sqlite-lifecycle-errors.js";
 import { retainSnapshotTempDirectory } from "../infra/sqlite-readonly-location-cleanup.js";
 import type { PreparedSqliteReadOnlyLocation } from "../infra/sqlite-readonly-location.types.js";
-import { admitSqliteSchema, runSqliteReadOperationSync } from "../infra/sqlite-schema-facts.js";
+import {
+  admitSqliteSchema,
+  isSqliteSchemaAdmissionCold,
+  runSqliteReadOperationSync,
+} from "../infra/sqlite-schema-facts.js";
 import { acquireSqliteSnapshotReadToken } from "../infra/sqlite-snapshot-staging.js";
 import { assertTransactionUsable } from "../infra/sqlite-transaction.js";
 import {
@@ -299,7 +303,25 @@ export function readOpenClawStateReadOnlyLocation<T>(
       result = {
         status: "available",
         value: runSqliteReadOperationSync(opened.database.db, () => {
+          const coldAdmission = !existingSchema && isSqliteSchemaAdmissionCold(opened.database.db);
           admitStateReadSchemaFacts(opened.database.db, pathname);
+          if (coldAdmission) {
+            // A peer can upgrade after catalog capture releases its SQLite snapshot.
+            return runSqliteReadOperationSync(
+              opened.database.db,
+              () => {
+                assertStateReadSchemaForPolicy(
+                  opened.database.db,
+                  pathname,
+                  existingSchema,
+                  undefined,
+                  readContentVersionRow,
+                );
+                return operation(opened.database);
+              },
+              "fresh",
+            );
+          }
           assertStateReadSchemaForPolicy(
             opened.database.db,
             pathname,
