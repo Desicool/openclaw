@@ -358,6 +358,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/bash-tools.exec-cron-grant.test.ts",
   "src/agents/bash-tools.exec-host-gateway.test.ts",
   "src/agents/tools/gateway.hosted-routing.test.ts",
+  "src/agents/tools/gateway.test.ts",
   "src/agents/cli-runner.prepare-fixture.test.ts",
   "src/agents/cli-runner.context-engine.test.ts",
   "src/agents/cli-runner.reliability.test.ts",
