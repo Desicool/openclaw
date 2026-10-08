@@ -584,7 +584,7 @@ export function handleMessageUpdate(
           text: currentSourcePartial.text,
           delta: releaseHeldSnapshot ? currentSourcePartial.text : deltaText,
           replace: releaseHeldSnapshot || replace || undefined,
-          phase: deliveryPhase ?? assistantPhase,
+          phase: deliveryPhase,
         },
         { emitPartialReply: !currentSourcePartial.hold },
       );
