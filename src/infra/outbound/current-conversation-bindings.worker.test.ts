@@ -19,6 +19,7 @@ import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel-constants.
 import { requireNodeSqlite } from "../node-sqlite.js";
 import { SQLITE_WORKER_MAX_MESSAGE_BYTES } from "../sqlite-worker-contract.js";
 import * as admission from "../sqlite-worker-operation-admission.js";
+import { sqliteWorkerOwnerProbe as probe } from "../sqlite-worker-owner-probe.test-support.js";
 import { createAccountScopedConversationBindingManager } from "./account-scoped-conversation-bindings.js";
 import { resolveBoundDeliveryDestination } from "./bound-delivery-router.js";
 import {
@@ -279,16 +280,12 @@ it.each(["transaction", "commit"] as const)(
       const row = db.prepare("SELECT * FROM current_conversation_bindings WHERE binding_id = ?");
       const before = row.get(current.bindingId);
       let active = true;
-      const createAdmission = admission.createSqliteWorkerOperationAdmission;
-      vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation(
-        (admit, attachment) =>
-          createAdmission((request, grant) => {
-            if (request.stage === stage) {
-              active = false;
-            }
-            admit(request, grant);
-          }, attachment),
-      );
+      probe.admission(admission, (request, grant, admit) => {
+        if (request.stage === stage) {
+          active = false;
+        }
+        admit(request, grant);
+      });
       await expect(
         touchCurrentConversationBindingRecordAsync(
           { conversation: current.conversation, bindingId: current.bindingId, at: 99 },
@@ -398,21 +395,17 @@ it.each([
           const before = query.get(bound.bindingId);
           expect(before).toBeDefined();
           let retirements = 0;
-          const createAdmission = admission.createSqliteWorkerOperationAdmission;
-          vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation(
-            (admit, attachment) =>
-              createAdmission((request, grant) => {
-                if (request.stage === stage) {
-                  retirements += 1;
-                  if (manager) {
-                    manager.stop();
-                  } else {
-                    setActivePluginRegistry(createTestRegistry([]));
-                  }
-                }
-                admit(request, grant);
-              }, attachment),
-          );
+          probe.admission(admission, (request, grant, admit) => {
+            if (request.stage === stage) {
+              retirements += 1;
+              if (manager) {
+                manager.stop();
+              } else {
+                setActivePluginRegistry(createTestRegistry([]));
+              }
+            }
+            admit(request, grant);
+          });
           await expect(
             resolveBoundDeliveryDestination({
               targetSessionKey: bound.targetSessionKey,
@@ -605,16 +598,12 @@ it.each(["transaction", "commit"] as const)(
         targetKind: "session",
       });
       let active = true;
-      const createAdmission = admission.createSqliteWorkerOperationAdmission;
-      vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation(
-        (admit, attachment) =>
-          createAdmission((request, grant) => {
-            if (request.stage === stage) {
-              active = false;
-            }
-            admit(request, grant);
-          }, attachment),
-      );
+      probe.admission(admission, (request, grant, admit) => {
+        if (request.stage === stage) {
+          active = false;
+        }
+        admit(request, grant);
+      });
       await expect(
         service.bind({
           conversation,
