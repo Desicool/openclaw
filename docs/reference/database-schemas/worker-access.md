@@ -16,6 +16,24 @@ paths are migration debt, not a pattern to extend. The
 [migration inventory](/reference/database-schemas/worker-access-inventory) separates
 candidate main-thread paths from SQL already executing in workers.
 
+Meeting transcript downloads and JSONL artifacts stream through the existing
+shared-state read worker. One private read-only transaction owns the cursor,
+entry metadata, and optional summary until the consumer and cleanup settle.
+Bounded chunks wait for consumption; later appends and row replacements cannot
+change that export's snapshot. New exports observe foreign commits through normal
+read admission. Artifact rows use one cursor below the captured sequence head,
+instead of a SELECT for each batch. Download limits, stored bytes, schemas,
+retention, and update behavior are unchanged.
+
+Artifact file publication retains a synchronous final-authority guard:
+`OpenClawStateLeaseContext.assertOwned()` checks the current durable export lease
+inside the filesystem owner's mutation callback. Native and foreign-process
+writers can revoke that lease without complete owner publication, so a prepared
+read or heartbeat cannot replace this check. Its retirement requires complete
+lease revocation publication and removal of raw synchronous writers at the next
+Plugin SDK major. Accepted manifest writes retain their existing worker FIFO and
+settlement owner; a failed stream never retries on caller-thread SQLite.
+
 Exec policy edits, usage recording, socket initialization, and agent policy
 removal and restoration use the existing shared-state writer. Typed edits retain
 their physical source before yielding, and each transaction reads the current
@@ -366,6 +384,18 @@ borrow before returning. Read-only and pre-admission discovery keep their existi
 owners and do not create storage. Reply settlement and database close join accepted
 phases, including those still waiting for foreground admission. Schemas, stored
 bytes, retention, SDK signatures, and update behavior are unchanged.
+
+Transcript preparation carries that selected physical owner into history reads.
+Bounded metadata phases combine current session, replay validation, anchors, and
+watermarks through the same cohort contract. Replay prepares a fresh bounded
+history view and its metadata together; a manager's mutable entries never certify
+persisted history. Payload hydration and reply tail decoding remain on the history
+lane. Delivery can reuse its inspected tail
+when the final cohort confirms the same generation and sequence; otherwise it
+reads the changed tail there. Each phase closes its snapshot before returning,
+and synchronous acceptance retains the existing FIFO and native mutation witness.
+No schema, transcript bytes, cursor, read limit, retention, or update migration
+changes are required.
 
 Embedded run preparation reads its admission entry and retained transcript-window
 mapping in the same cohort. The window mapping remains authoritative even when

@@ -21,7 +21,8 @@ import type {
   SessionSourcePredicate,
   SessionSourcePredicateFacts,
 } from "./session-source-authority.js";
-import type { SessionTranscriptAnchorFacts } from "./session-transcript-anchor-read.kernel.js";
+import type { SessionTranscriptAnchorSelection } from "./session-transcript-anchor-read.kernel.js";
+import type { SessionTranscriptAnchorFacts } from "./session-transcript-anchor-read.types.js";
 import type { SessionTranscriptWorkerReadError } from "./session-transcript-worker-error.types.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
@@ -117,10 +118,10 @@ export type SessionEntryCohortRequest = Pick<
       lifecycleRevision: string | undefined;
     }[];
   };
-  transcript?: {
+  transcript?: Omit<SessionTranscriptAnchorSelection, "afterSeq"> & {
     sessionKey: string;
-    entryIds: readonly string[];
-    includeHeader?: boolean;
+    /** Captured logical owner; the executor still selects the physical database. */
+    agentId?: string;
   };
 };
 
@@ -153,7 +154,7 @@ export type SessionExactEntriesWorkerResult = {
     members: Array<{ sessionKey: string; identityIds: string[] }>;
     placeholders: Array<{ sessionKey: string; sessionId: string }>;
   };
-  transcript?: Pick<SessionTranscriptAnchorFacts, "anchors" | "header">;
+  transcript?: SessionTranscriptAnchorFacts;
 };
 
 export type SessionEntryCohortResult = SessionExactEntriesWorkerResult & {
