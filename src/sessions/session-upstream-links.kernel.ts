@@ -35,7 +35,7 @@ function parseJson(value: string | null): SessionUpstreamJsonValue | null {
   return (safeParseJson(value) as SessionUpstreamJsonValue | undefined) ?? null;
 }
 
-export function rowToSessionUpstreamLink(row: SessionUpstreamLinkRow): SessionUpstreamLink {
+function rowToSessionUpstreamLink(row: SessionUpstreamLinkRow): SessionUpstreamLink {
   return {
     sessionKey: row.session_key,
     agentId: row.agent_id,
@@ -190,26 +190,18 @@ export function deleteSessionUpstreamLinkInDatabase(
   agentId: string,
   expected?: SessionUpstreamLink,
 ): "deleted" | "absent" | "changed" {
-  const kysely = getSessionUpstreamKysely(db);
   if (expected) {
-    const row = executeSqliteQuerySync(
-      db,
-      kysely
-        .selectFrom("session_upstream_links")
-        .selectAll()
-        .where("session_key", "=", sessionKey)
-        .where("agent_id", "=", agentId),
-    ).rows[0];
-    if (!row) {
+    const current = readSessionUpstreamLinkInDatabase(db, sessionKey, agentId);
+    if (!current) {
       return "absent";
     }
-    if (!isDeepStrictEqual(rowToSessionUpstreamLink(row), expected)) {
+    if (!isDeepStrictEqual(current, expected)) {
       return "changed";
     }
   }
   executeSqliteQuerySync(
     db,
-    kysely
+    getSessionUpstreamKysely(db)
       .deleteFrom("session_upstream_links")
       .where("session_key", "=", sessionKey)
       .where("agent_id", "=", agentId),
