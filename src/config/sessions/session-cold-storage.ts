@@ -58,6 +58,7 @@ import type {
 import type { SessionColdMutationResult } from "./session-cold-storage.types.js";
 import { reclaimSqliteFreePages } from "./session-history-archive-pruning.js";
 import { captureIncognitoSessionBinding } from "./session-incognito-binding.js";
+import type { SessionSourceValidation } from "./session-source-authority.js";
 import { prepareSessionStoreTargetInventory } from "./session-store-target-inventory.js";
 import {
   projectionLane,
@@ -103,7 +104,25 @@ async function runColdMutation(
   plan: SessionColdMutationPlan,
   assertCurrent?: () => void,
   callerSignal?: AbortSignal,
+  acceptSourceValidation?: SessionColdReadPreparation["acceptSourceValidation"],
 ): Promise<SessionColdMutationResult> {
+  const sourceMatches =
+    plan.kind === "cold-restore"
+      ? plan.guard?.sources?.flatMap((source, index) =>
+          source.conversationAlternatives
+            ? [
+                {
+                  index,
+                  matches: new Int32Array(
+                    new SharedArrayBuffer(
+                      (source.conversationAlternatives.length + 1) * Int32Array.BYTES_PER_ELEMENT,
+                    ),
+                  ),
+                },
+              ]
+            : [],
+        )
+      : undefined;
   return await withSqliteMutationWorkerLifetime(
     plan.databaseOptions,
     async ({ assertCurrent: assertRequestCurrent, commitGate, signal }) => {
@@ -155,7 +174,38 @@ async function runColdMutation(
         const [completed] = await withSqliteReclamationAuthorization(
           commitGate,
           retained?.found ? retained.database.db : plan.databaseOptions.path,
-          assertAllowed,
+          () => {
+            if (sourceMatches?.length) {
+              if (!acceptSourceValidation) {
+                throw new Error("Cold restoration requires source validation acceptance");
+              }
+              const validation: SessionSourceValidation = {
+                conversationMatches: sourceMatches.map(({ index, matches }) => {
+                  if (Atomics.load(matches, 0) !== 1) {
+                    throw new Error("Cold restoration source alternatives are not ready");
+                  }
+                  return {
+                    index,
+                    alternatives: Array.from(
+                      { length: matches.length - 1 },
+                      (_, alternative) => alternative,
+                    ).filter((alternative) => Atomics.load(matches, alternative + 1) === 1),
+                  };
+                }),
+              };
+              acceptSourceValidation(validation);
+              assertAllowed();
+              for (const match of validation.conversationMatches) {
+                const matches = sourceMatches.find(({ index }) => index === match.index)!.matches;
+                const accepted = match.acceptedAlternatives ?? match.alternatives;
+                for (let alternative = 0; alternative < matches.length - 1; alternative++) {
+                  Atomics.store(matches, alternative + 1, accepted.includes(alternative) ? 1 : 0);
+                }
+              }
+              return;
+            }
+            assertAllowed();
+          },
           (authorize) =>
             runSqliteTranscriptArchiveWorkerOperation<{
               result: SessionColdMutationResult;
@@ -192,6 +242,7 @@ async function runColdMutation(
                 operation: "cold-mutate",
                 plan,
                 commitGate,
+                sourceMatches,
               } satisfies SessionColdWorkerData,
             }),
         );
@@ -537,6 +588,7 @@ export async function restoreSessionColdTranscript(
         },
         assertCurrent,
         signal,
+        preparation?.acceptSourceValidation,
       );
       if (result.turnRebound) {
         throw new SessionColdTurnReboundError(result.turnRebound);
