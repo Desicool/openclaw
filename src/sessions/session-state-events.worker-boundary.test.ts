@@ -65,7 +65,8 @@ import {
 } from "./session-state-events.test-support.js";
 import { acknowledgeSessionStateNoticesInWorker } from "./session-state-notice-acknowledgment.js";
 import * as notices from "./session-state-notices.js";
-import { readSessionUpstreamLink, upsertSessionUpstreamLink } from "./session-upstream-links.js";
+import { upsertSessionUpstreamLink } from "./session-upstream-links.js";
+import { readSessionUpstreamLinkInDatabase } from "./session-upstream-links.kernel.js";
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -127,9 +128,11 @@ it("keeps queued signal cleanup on its captured store and removes newly committe
     await withinTest(Promise.all([blocking, resetting, deleting]), signal);
     expect(readCursor(database, watcher, "late-target")).toBeUndefined();
     expect(await getSessionStateVersion(child, "main", database)).toBe(0);
-    expect(readSessionUpstreamLink(child, "main", database)).toBeUndefined();
+    expect(readSessionUpstreamLinkInDatabase(db, child, "main")).toBeUndefined();
     expect(readCursor(replacement, watcher, "late-target")).toBeDefined();
-    expect(readSessionUpstreamLink(child, "main", replacement)?.threadId).toBe("late-link");
+    expect(readSessionUpstreamLinkInDatabase(replacementDb, child, "main")?.threadId).toBe(
+      "late-link",
+    );
   } finally {
     read.release();
     release.resolve();
