@@ -40,7 +40,8 @@ vi.mock("../infra/sqlite-worker-identity.js", async () => ({
     canonicalPath,
   }),
 }));
-vi.mock("./openclaw-state-worker-store.js", () => ({
+vi.mock("./openclaw-state-worker-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./openclaw-state-worker-store.js")>()),
   openOpenClawStateWorkerCleanupStore: async (
     databasePath: string,
     context: SqliteWorkerStateContext,
