@@ -9,9 +9,6 @@ import { useSingleAttachmentPicker } from "./chat-attachment-picker-policy.ts";
 import { appendChatAttachmentFiles } from "./chat-attachments.ts";
 import "./chat-camera-capture.ts";
 
-const CHAT_ATTACHMENT_ACCEPT =
-  "image/*,audio/*,video/*,application/pdf,text/*,.csv,.json,.md,.txt,.zip," +
-  ".doc,.docx,.xls,.xlsx,.ppt,.pptx";
 function clickComposerInput(target: HTMLElement, selector: string) {
   target.closest("details")?.removeAttribute("open");
   target
@@ -55,7 +52,7 @@ export function renderChatAttachmentInputs(props: ChatAttachmentControlsProps) {
       (kind) => html`
         <input
           type="file"
-          accept=${kind === "file" ? CHAT_ATTACHMENT_ACCEPT : "image/*"}
+          accept=${kind === "file" ? nothing : "image/*"}
           ?multiple=${kind !== "camera"}
           capture=${kind === "camera" ? "environment" : nothing}
           class=${`agent-chat__${kind}-input`}
