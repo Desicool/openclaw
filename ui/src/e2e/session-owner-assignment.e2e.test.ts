@@ -234,6 +234,11 @@ suite.define(() => {
           Array.from({ length: 40 }, (_, index) => `Teammate ${index + 1}`),
         );
         if (surface === "sidebar") {
+          // Assignment to another human starts from the explicitly selected All scope.
+          await page
+            .locator(".sidebar-navigation-scope")
+            .getByRole("button", { name: "All", exact: true })
+            .click();
           const row = page.locator(`[data-session-key="${sessionKey}"]`);
           await row.hover();
           await row.click({ button: "right" });
@@ -335,6 +340,11 @@ suite.define(() => {
         );
         const gateway = await installOwnerGateway(page);
         await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dash");
+        // Assignment to another human starts from the explicitly selected All scope.
+        await page
+          .locator(".sidebar-navigation-scope")
+          .getByRole("button", { name: "All", exact: true })
+          .click();
         const row = page.locator(`[data-session-key="${sessionKey}"]`);
         await row.hover();
         const trigger = row.locator(".sidebar-recent-session__link");
@@ -472,6 +482,11 @@ suite.define(() => {
             "This session is archived.",
           );
           if (surface === "sidebar") {
+            // Assignment to another human starts from the explicitly selected All scope.
+            await page
+              .locator(".sidebar-navigation-scope")
+              .getByRole("button", { name: "All", exact: true })
+              .click();
             const row = page.locator(`[data-session-key="${sessionKey}"]`);
             await row.hover();
             await row.click({ button: "right" });
@@ -625,6 +640,11 @@ suite.define(() => {
             ).toBeVisible();
             await expectBrowser(assignTo.getByRole("menuitemradio")).toHaveCount(4);
           } else {
+            // Assignment to another human starts from the explicitly selected All scope.
+            await page
+              .locator(".sidebar-navigation-scope")
+              .getByRole("button", { name: "All", exact: true })
+              .click();
             await row.hover();
             await row.click({ button: "right" });
             await page.getByRole("menuitem", { name: "Assign to…", exact: true }).hover();
