@@ -205,7 +205,7 @@ suite.define(() => {
           expect(await action.getAttribute("disabled")).not.toBeNull();
           await action.click({ force: true });
         }
-        await openSessionMenuSubmenu(page, "Session settings");
+        await openSessionMenuSubmenu(page, "Advanced");
         const appearance = menu.getByRole("menuitem", { name: "Icon & color", exact: true });
         expect(await appearance.getAttribute("disabled")).not.toBeNull();
         await appearance.click({ force: true });
@@ -239,6 +239,7 @@ suite.define(() => {
             .filter({ hasText: "Organized workspace" });
           await archivedRow.waitFor();
           await archivedRow.getByRole("button", { name: "Open session menu", exact: true }).click();
+          await openSessionMenuSubmenu(page, "Advanced");
           const remove = menu.locator('wa-dropdown-item[value="delete"]');
           await remove.waitFor();
           expect(await remove.getAttribute("disabled")).not.toBeNull();
@@ -250,6 +251,7 @@ suite.define(() => {
             menu.locator('[part="menu"]'),
             [remove, archive],
           );
+          await page.keyboard.press("ArrowLeft");
           await activateSelfRemovingControl(archive);
           await waitForPatch(
             gateway,
