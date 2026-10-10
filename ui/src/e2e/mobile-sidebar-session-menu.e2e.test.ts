@@ -5,7 +5,6 @@ import { takeControlUiScreenshotFrame } from "../test-helpers/control-ui-e2e-scr
 import {
   controlUiBundledGatewayUrl,
   controlUiBundledSettingsStorageKey,
-  createControlUiMockSameOriginGatewayScript,
   captureControlUiE2eFailureDiagnostics,
   createControlUiMockSameOriginGatewayScript,
 } from "../test-helpers/control-ui-e2e.ts";
