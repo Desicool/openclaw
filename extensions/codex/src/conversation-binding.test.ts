@@ -229,27 +229,6 @@ import {
 } from "./conversation-binding.test-helpers.js";
 import { readCodexConversationActiveTurn } from "./conversation-control.js";
 
-function testConversationIdentity(sessionFile: string) {
-  return {
-    kind: "conversation" as const,
-    bindingId: legacyCodexConversationBindingId(sessionFile),
-  };
-}
-
-async function writeTestConversationBinding(
-  sessionFile: string,
-  binding: CodexAppServerThreadBinding,
-): Promise<void> {
-  await testCodexAppServerBindingStore.mutate(testConversationIdentity(sessionFile), {
-    kind: "set",
-    binding: { clientId: "test-client", ...binding },
-  });
-}
-
-async function readTestConversationBinding(sessionFile: string) {
-  return testCodexAppServerBindingStore.readAsync(testConversationIdentity(sessionFile));
-}
-
 async function createSameThreadClientMigrationFixture(
   sessionFile: string,
   options: { rejectOldRelease: boolean },
