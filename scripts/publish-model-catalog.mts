@@ -41,6 +41,7 @@ type ModelCatalogManifestInput = {
     modelCatalog?: {
       providers?: Record<string, unknown>;
       modelsDev?: Record<string, unknown>;
+      discovery?: Record<string, unknown>;
       suppressions?: Array<{ provider?: string; model?: string; when?: unknown }>;
     };
     modelPricing?: { providers?: Record<string, unknown> };
@@ -199,6 +200,15 @@ export async function assembleModelCatalogBundle(options: {
         throw new Error(`provider ${providerId} is declared by more than one plugin manifest`);
       }
       if (isRecord(provider)) {
+        const discovery = entry.manifest.modelCatalog?.discovery?.[providerId];
+        if (
+          (discovery === "refreshable" || discovery === "runtime") &&
+          Array.isArray(provider.models) &&
+          provider.models.length === 0
+        ) {
+          // Native discovery owns these rows; the hosted catalog has no seeds to publish.
+          continue;
+        }
         // Manifests shipped since 2026.9.7 may still carry the retired authoring field.
         const { recommendedModels: _retired, ...v1Provider } = provider;
         providers[providerId] = v1Provider;
