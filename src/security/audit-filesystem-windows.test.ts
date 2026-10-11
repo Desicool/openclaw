@@ -1,7 +1,6 @@
 // Covers Windows filesystem security audit behavior.
 import fs from "node:fs/promises";
 import path from "node:path";
-import { configureFsSafeNative, getFsSafeNativeConfig } from "@openclaw/fs-safe/config";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
@@ -67,10 +66,6 @@ describe("security audit filesystem Windows findings", () => {
 
   beforeAll(async () => {
     await tempCases.setup();
-    const nativeConfig = getFsSafeNativeConfig();
-    // Exercise the injected PowerShell responses even when a native addon is installed.
-    configureFsSafeNative({ mode: "off" });
-    return () => configureFsSafeNative(nativeConfig);
   });
 
   afterAll(async () => {
