@@ -672,9 +672,19 @@ describe("personal GitHub through authenticated Gateway RPC", () => {
 
   it("does not let an older start overwrite a newer start or disconnected generation", async () => {
     const old = createDeferredCore<Awaited<ReturnType<typeof network.start>>>();
-    network.start.mockReturnValueOnce(old.promise);
+    const entered = createDeferredCore<void>();
+    network.start.mockImplementationOnce(() => {
+      entered.resolve();
+      return old.promise;
+    });
     const pending = rpc(alice, "users.github.authorize.start");
-    await vi.waitFor(() => expect(network.start).toHaveBeenCalledOnce());
+    expect(
+      await Promise.race([
+        entered.promise.then(() => ({ started: true })),
+        pending.then((response) => ({ response: response.mock.calls })),
+      ]),
+    ).toEqual({ started: true });
+    expect(network.start).toHaveBeenCalledOnce();
     await rpc(alice, "users.github.disconnect");
     const newer = await start();
     old.resolve({
