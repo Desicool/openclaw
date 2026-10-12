@@ -33,6 +33,7 @@
   - **pre-existing, job name only:** signatures not compared; inspect failing tests against main run before attribution.
   - **unknown** (scope differs/no comparable main job) or **new:** treat as PR-caused until shown otherwise.
 - Proven inherited-only reds may land via native admin exception; name failures in PR. Table changes evidence form only: no automatic gate waiver. New/unknown failures require investigation; PR-caused failure does not select inherited-failure exception.
+- Exception: tiny PR-caused failure (lint, types, stale test expectation) may land same way only if lander pushes fix to `main` immediately after. Anything larger stays blocked.
 
 ## Review, prepare, merge
 
