@@ -539,6 +539,22 @@ inventory debt, including config health, pairing allowlists, skill-library
 selection, upstream links, and native session reset. Schema, stored formats,
 retention, and update behavior are unchanged.
 
+Bundled ACP readers use the existing metadata worker. Session patches reuse one
+metadata result, and sends reuse their prepared result unless they create a new
+target. The worker applies lifecycle filtering once. Model catalog creation,
+refresh, and disk-backed provider removal have asynchronous SDK replacements;
+captured in-memory catalogs keep their immediate behavior. Auth profile batch
+updates and compensation use the auth worker, while ordinary labels and CLI
+fingerprints await prepared reads.
+
+Native binding leases pin committed plugin-state facts for their lifetime and
+consume writer receipts at their final effect checks. A confirmed compound
+rollback refreshes those facts once through the existing settlement path.
+Claw config preparation similarly reuses committed provenance until lifecycle
+invalidation. External database writes while the Gateway owns state are not
+observed. Deprecated SDK adapters, native incognito, and atomic credential or
+deletion effects retain their explicitly inventoried synchronous paths.
+
 Config set, patch, and unset commands require exclusive offline ownership. Stop
 the Gateway through its service owner before editing config with these commands.
 Basic agent creation uses the existing `agents.create` Gateway method; advanced
