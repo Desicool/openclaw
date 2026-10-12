@@ -23,7 +23,7 @@ import {
   hasSettledTranscriptAssistant,
   TranscriptReportNavigation,
 } from "./session-transcript-report-policy.js";
-import { isSteerConfirmationRewrite } from "./session-transcript-rewrite-effects.js";
+import { transcriptRewritePreservesAdmission } from "./session-transcript-rewrite-effects.js";
 import { sessionMatchesExpectedTranscriptTurn } from "./session-transcript-turn-state.js";
 import { SessionTranscriptWriterClaimReboundError } from "./session-transcript-writer-claim-error.js";
 import { canonicalizeTranscriptEventMedia } from "./transcript-event-media.js";
@@ -241,7 +241,10 @@ export function executeSessionActorMemoryReportCommand(
               throw new SqliteTranscriptMutationConflictError(entry.sessionId);
             }
             const eventJson = JSON.stringify(canonicalizeTranscriptEventMedia(row.event));
-            preserveGeneration &&= isSteerConfirmationRewrite(row.expectedEventJson, eventJson);
+            preserveGeneration &&= transcriptRewritePreservesAdmission(
+              row.expectedEventJson,
+              eventJson,
+            );
             return [existing.rawSeq, { ...existing, eventJson, event: JSON.parse(eventJson) }];
           }),
         );
