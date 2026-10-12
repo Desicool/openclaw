@@ -1750,6 +1750,17 @@ the full description. They do not construct another comparison database for that
 subset. The full maintenance policy still validates present lazy objects, and
 physical schema creation and migration SQL are unchanged.
 
+Shared-state restart admission captures the header and catalog before version,
+table, and column checks consume them. Newer headers still refuse before catalog
+inspection; the content-version marker still handles delayed updater publication.
+Current content skips historical migration discovery and shares one table-contract
+reader between maintenance and runtime validation. Canonical shape and index
+checks remain required even at the current version. Shared state has no durable
+clean-close integrity receipt, so restarting still checks physical integrity and
+foreign keys; an agent database's clean-close proof does not certify shared state.
+Updates keep their existing migrations and publication policy, and explicit
+Doctor integrity inspection remains uncached.
+
 Runtime canonical-session readiness carries the pending work's captured physical
 source into the existing reclamation worker. The worker rereads current rows and
 certifies them in synchronous transactions, retaining the existing FIFO, live host
