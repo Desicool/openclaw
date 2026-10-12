@@ -9334,10 +9334,11 @@ describe("ci workflow guards", () => {
           mixedOwnerPullRequest.outputs.checks_node_core_nondist_matrix,
           "mixed owner PR node matrix output",
         ),
-      ).include.map((row: { requires_dist?: boolean }) => ({
-        ...row,
-        requires_dist: row.requires_dist === undefined ? false : row.requires_dist,
-      })),
+      ).include.map((row: { requires_dist?: boolean }) =>
+        Object.assign(row, {
+          requires_dist: row.requires_dist === undefined ? false : row.requires_dist,
+        }),
+      ),
     ).toEqual([
       expect.objectContaining({ check_name: "changed-extension-owner-plan" }),
       expect.objectContaining({ check_name: "changed-owner-plan", requires_dist: false }),
