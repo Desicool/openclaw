@@ -317,6 +317,7 @@ export function prepareSessionCostUsageRefreshLock(
   const writer = createCacheWriter(options);
   let acquiring: Promise<boolean> | undefined;
   let releasing: Promise<void> | undefined;
+  let lockReleased = false;
   let closed = false;
   let acquired = false;
   const assertCurrent = () => {
@@ -329,7 +330,7 @@ export function prepareSessionCostUsageRefreshLock(
     closed = true;
     releasing ??= (async () => {
       await acquiring?.catch(() => undefined);
-      try {
+      if (!lockReleased) {
         if (writer.lockWriteStarted) {
           await writer.write(
             "usageCache.releaseLock",
@@ -338,10 +339,14 @@ export function prepareSessionCostUsageRefreshLock(
             "session-cost-usage.refresh-lock.delete",
           );
         }
-      } finally {
-        await writer.close();
+        lockReleased = true;
       }
-    })();
+      await writer.close();
+    })().catch((error: unknown) => {
+      // Keep the writer after a failed DELETE; retry only the unfinished cleanup stage.
+      releasing = undefined;
+      throw error;
+    });
     return releasing;
   };
   return {
