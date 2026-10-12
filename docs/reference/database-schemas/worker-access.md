@@ -92,6 +92,15 @@ cache refreshes. Row receipts do not grant permission, and a missing receipt is
 not proof of absence. Outside processes use the Gateway or exclusive offline
 ownership; ordinary readers do not poll for foreign commits.
 
+Transcript readers retain bounded hot/cold facts under the existing session write
+receipts. Archive, restore, session deletion, and native writes invalidate those
+facts; an unknown receipt falls back to the durable marker. Consecutive read pages
+reuse the fact, while an already-open snapshot keeps its own local result.
+Participant projections carry an autocommit read into the metadata CAS owner's
+unchanged immediate write transaction. Ordinary readers establish their own native
+snapshot. Concurrent participant updates remain independent of metadata CAS. These
+caches change no schema, retention, stored format, or update behavior.
+
 ## Session and ancillary worker operations
 
 Parent forks use the existing session-entry worker for both transcript copying
