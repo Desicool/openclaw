@@ -131,6 +131,7 @@ export type ChannelConfigAdapter<ResolvedAccount> = {
 };
 
 export type ChannelSecretsAdapter = {
+  /** Channel credentials may also live in this plugin's plugins.entries.<id>.config schema. */
   secretTargetRegistryEntries?: readonly SecretTargetRegistryEntry[];
   unsupportedSecretRefSurfacePatterns?: readonly string[];
   collectUnsupportedSecretRefConfigCandidates?: (raw: unknown) => Array<{
