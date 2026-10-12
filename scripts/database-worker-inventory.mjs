@@ -150,15 +150,6 @@ const reviewed = new Map([
     },
   ],
   [
-    "src/gateway/operator-approval-store.boot.ts",
-    {
-      tier: "T2",
-      priority: 99,
-      evidence:
-        "Only server-aux-handlers.ts calls orphan closure and terminal pruning during Gateway boot admission; ordinary approval operations use the worker.",
-    },
-  ],
-  [
     "src/gateway/worker-environments/store.ts",
     { priority: 7, evidence: "Environment access listing and prepared-pool maintenance" },
   ],
@@ -1245,17 +1236,6 @@ const reviewedOperations = new Map([
         operations: ["embedSessionColdArchivesInSnapshot"],
         evidence:
           "infra/backup-sqlite-snapshot.ts:292 via backup-create.ts:320,332,352; snapshot/openclaw-snapshot-copy.ts:72 via local-repository.ts:148 and git-backup.ts:310. Roots are commands/backup.ts:52, backup-sqlite.ts:80, backup-git.ts:131, Doctor/update backup and developer reliability scripts; SQL targets a temporary snapshot.",
-      },
-    ],
-  ],
-  [
-    "src/gateway/config-revision-token.ts",
-    [
-      {
-        tier: "T2",
-        operations: ["loadOrCreateConfigRevisionKey", "loadGatewayConfigRevisionKey"],
-        evidence:
-          "Gateway construction at server-kernel-request-runtime.ts:48; local-request-context.ts:107 also initializes it via agents/agent-command-local.ts:61 for standalone commands/boot. Existing Gateway scopes return before local allocation at local-request-context.ts:237. Request hashing captures the key and performs no SQL.",
       },
     ],
   ],
@@ -2397,6 +2377,7 @@ const reviewedOperations = new Map([
   ],
 ]);
 const workerModules = new Set([
+  "src/claws/provenance-runtime-read.kernel.ts", // Only openclaw-state-worker-runtime.ts reads consent rows; host imports are types.
   "src/state/user-profiles.worker.ts", // Registered profile operations; Gateway submits commands through user-profile-operations.ts.
   "src/state/user-profile-writes.worker.ts", // Shared-state profile mutation implementation; loaded by the profile worker only.
   "src/state/user-profile-read.worker.ts", // Shared-state read registry owns catalog identity and channel identity reads.

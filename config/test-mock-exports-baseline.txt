@@ -8011,7 +8011,6 @@
 ["src/hooks/bundled/session-memory/handler.test.ts","../../../logging/subsystem.js","fc4434c1911dc1d112b82ef46c4a3919466eccead33d01159189ea8383c21407",1]
 ["src/hooks/bundled/session-memory/handler.test.ts","../../../memory/memory-artifact-provenance.js","a4e36f0eabae215d7f2c3844b037191f3b086c291d7dc51b1109da307db10f0c",1]
 ["src/hooks/bundled/session-memory/handler.test.ts","../../llm-slug-generator.js","1f9924912c613ec867a8aeaa701723c8a360f6ebfb9251a5bde3c775a1ecfbbd",1]
-["src/hooks/configured.test.ts","../state/config-machine-state.js","cd26a45eda526581d7f0767ef38c32007bd61c346698abadaed661e8cebec8bb",1]
 ["src/hooks/gmail-ops.test.ts","../infra/executable-path.js","625aee5af957f1060d67195ea629eaa08e6317f57859fcd289b13270c345ed72",1]
 ["src/hooks/gmail-ops.test.ts","../logging/subsystem.js","d17c3862508ffbacdbe6e956bf308efc72f675b1371cfc49a6009b39826fa074",1]
 ["src/hooks/gmail-ops.test.ts","../process/exec.js","9b2760bd00b95d267693514302d2ed3e0abb9b84db383b6fa2f260e8a84dbed4",1]
