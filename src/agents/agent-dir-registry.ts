@@ -5,12 +5,22 @@ import { resolveIdentityPathViaExistingAncestorSync } from "../infra/boundary-pa
 import { observeOwnedDirectory } from "../infra/owned-directory-observation.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { normalizeAgentId } from "../routing/session-key.js";
+import { resolveGlobalMap } from "../shared/global-singleton.js";
 import { resolveUserPath } from "../utils.js";
 
 // Process-local registry mapping resolved agent directories back to agent ids.
 // It lets later runtime paths recover scope from an already-prepared agent dir.
 const agentIdsByDir = new Map<string, Set<string>>();
-const preparedPaths = new Map<string, { key: string; close(): void }>();
+const preparedPaths = resolveGlobalMap<string, { key: string; close(): void }>(
+  Symbol.for("openclaw.agentDirPreparedPaths"),
+  (paths) => {
+    for (const prepared of paths.values()) {
+      prepared.close();
+    }
+    paths.clear();
+  },
+  "shared-state",
+);
 
 function forgetPreparedPaths(key: string) {
   for (const [pathname, prepared] of preparedPaths) {

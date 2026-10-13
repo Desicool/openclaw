@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
 import {
   isPathOwnedByAnotherRegisteredAgent,
   normalizeAgentDirRegistryPath,
@@ -150,6 +151,30 @@ describe("agent directory registry", () => {
     } finally {
       close.mockRestore();
       unregisterResolvedAgentDir({ agentId: "main", agentDir });
+      watch.mockRestore();
+    }
+  });
+
+  it("retires ancestor watches on shutdown without losing registered ownership", async () => {
+    const agentDir = tempDirs.make("openclaw-agent-dir-shutdown-");
+    const watch = vi.spyOn(fs, "watch");
+    registerResolvedAgentDir({ agentId: "main", agentDir });
+    const closes = watch.mock.results.map((result) => {
+      if (result.type !== "return") {
+        throw new Error("Missing agent directory ancestor watch");
+      }
+      return vi.spyOn(result.value, "close");
+    });
+    try {
+      expect(closes.length).toBeGreaterThan(0);
+      await drainGlobalSingletonLifecycleState("restart", { retainSharedState: true });
+      expect(closes.every((close) => close.mock.calls.length === 0)).toBe(true);
+      await drainGlobalSingletonLifecycleState("shared-state");
+      expect(closes.every((close) => close.mock.calls.length === 1)).toBe(true);
+      expect(resolveRegisteredAgentIdForDir(agentDir)).toBe("main");
+    } finally {
+      unregisterResolvedAgentDir({ agentId: "main", agentDir });
+      closes.forEach((close) => close.mockRestore());
       watch.mockRestore();
     }
   });
