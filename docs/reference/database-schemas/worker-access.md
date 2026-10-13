@@ -431,8 +431,14 @@ and retirement, while the retrieval worker owns read-only capability probing.
 These paths add no schema, retention, or update contract.
 
 Scheduled cron runs reuse the job and receipt loaded by their queue transaction
-when claiming and activating work. Activation commits ownership and start time
-together. Isolated preparation persists skills with the pre-run metadata, and
+when claiming and activating work. The scheduler claims and activates due runs
+in one worker command using its loaded job postimages. Fresh claims persist the
+running state directly; capacity-limited runs retain their queued state and FIFO
+order. Activation commits ownership and start time together. Job mutations return
+their committed postimage without rereading the store. Finalization uses the
+conditional receipt completion write for idempotency, committing history and job
+state in the same transaction; terminal retention runs on completion, not claim.
+Isolated preparation persists skills with the pre-run metadata, and
 continuation synchronization includes its selected CLI provider in the same
 write. The first unchanged embedded candidate reuses the successfully persisted
 pre-run model and harness plus its initialized continuation; failed preparation
