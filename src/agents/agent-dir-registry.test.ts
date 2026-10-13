@@ -11,6 +11,8 @@ import {
   unregisterResolvedAgentDir,
 } from "./agent-dir-registry.js";
 
+vi.mock("node:worker_threads", () => ({ isMainThread: true }));
+
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("agent directory registry", () => {
@@ -124,6 +126,31 @@ describe("agent directory registry", () => {
     } finally {
       realpath.mockRestore();
       unregisterResolvedAgentDir({ agentId: "main", agentDir });
+    }
+  });
+
+  it("retains ancestor watches when a named notification leaves directory identity unchanged", () => {
+    const agentDir = tempDirs.make("openclaw-agent-dir-unchanged-");
+    const watch = vi.spyOn(fs, "watch");
+    registerResolvedAgentDir({ agentId: "main", agentDir });
+    const count = watch.mock.calls.length;
+    const parentIndex = watch.mock.calls.findIndex(
+      ([directory]) => directory === path.dirname(agentDir),
+    );
+    const parent = watch.mock.results[parentIndex];
+    if (parent?.type !== "return") {
+      throw new Error("Missing agent directory ancestor watch");
+    }
+    const close = vi.spyOn(parent.value, "close");
+    try {
+      parent.value.emit("change", "change", path.basename(agentDir));
+      expect(close).not.toHaveBeenCalled();
+      expect(resolveRegisteredAgentIdForDir(agentDir)).toBe("main");
+      expect(watch).toHaveBeenCalledTimes(count);
+    } finally {
+      close.mockRestore();
+      unregisterResolvedAgentDir({ agentId: "main", agentDir });
+      watch.mockRestore();
     }
   });
 

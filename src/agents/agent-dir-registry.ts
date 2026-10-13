@@ -1,5 +1,6 @@
 /** Process-local reverse registry from prepared agent directories to agent ids. */
 import path from "node:path";
+import { isMainThread } from "node:worker_threads";
 import { resolveIdentityPathViaExistingAncestorSync } from "../infra/boundary-path.js";
 import { observeOwnedDirectory } from "../infra/owned-directory-observation.js";
 import { isPathInside } from "../infra/path-guards.js";
@@ -27,7 +28,7 @@ function registryPath(agentDir: string, env?: NodeJS.ProcessEnv, registering = f
     return cached.key;
   }
   const key = normalizeAgentDirRegistryPath(pathname, env);
-  if (!registering && !agentIdsByDir.has(key)) {
+  if (!isMainThread || (!registering && !agentIdsByDir.has(key))) {
     return key;
   }
   const observations: Array<{ close(): void }> = [];
@@ -44,10 +45,7 @@ function registryPath(agentDir: string, env?: NodeJS.ProcessEnv, registering = f
         path.dirname(child),
         (filename) => {
           if (filename === undefined || filename === basename) {
-            if (
-              filename === undefined &&
-              resolveIdentityPathViaExistingAncestorSync(pathname) === key
-            ) {
+            if (resolveIdentityPathViaExistingAncestorSync(pathname) === key) {
               return;
             }
             preparedPaths.delete(pathname);
