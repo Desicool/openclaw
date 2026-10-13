@@ -883,6 +883,8 @@ const config = {
       ignoreBinaries: [
         "lsattr",
         "mint",
+        // Muse E2E setup installs this CLI outside npm (scripts/e2e/lib/muse-runtime/setup.sh).
+        "muse",
         "ngrok",
         "open",
         "openclaw",
