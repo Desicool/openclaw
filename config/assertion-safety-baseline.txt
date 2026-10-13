@@ -256,7 +256,7 @@ extensions/discord/src/monitor/gateway-supervisor.ts	1
 extensions/discord/src/monitor/ingress.ts	6
 extensions/discord/src/monitor/message-channel-info.ts	3
 extensions/discord/src/monitor/message-forwarded.ts	7
-extensions/discord/src/monitor/message-handler.preflight-helpers.ts	5
+extensions/discord/src/monitor/message-handler.preflight-helpers.ts	2
 extensions/discord/src/monitor/message-handler.preflight.ts	2
 extensions/discord/src/monitor/message-text.ts	3
 extensions/discord/src/monitor/model-picker-preferences.ts	1
@@ -356,7 +356,6 @@ extensions/github-copilot/runtime-auth.ts	2
 extensions/github-copilot/usage.ts	1
 extensions/google-meet/index.ts	1
 extensions/google-meet/src/calendar.ts	1
-extensions/google-meet/src/cli-runtime-commands.ts	1
 extensions/google-meet/src/cli-space-commands.ts	2
 extensions/google-meet/src/meet-api.ts	1
 extensions/google-meet/src/transports/chrome-create.ts	1
@@ -990,7 +989,6 @@ extensions/zalo/setup-api.ts	3
 extensions/zalo/src/accounts.ts	3
 extensions/zalo/src/proxy.ts	1
 extensions/zalo/src/token.ts	1
-extensions/zalo/src/webhook-spool.ts	1
 extensions/zalouser/src/accounts.ts	1
 extensions/zalouser/src/group-policy.ts	2
 extensions/zalouser/src/ingress.ts	2
