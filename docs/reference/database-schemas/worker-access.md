@@ -252,8 +252,12 @@ watches retain the existing membership preparation and visibility filtering.
 Profile authority preparation reuses the resident catalog's role, display,
 GitHub login, and merge aliases. Committed profile writes update these facts
 before subsequent connections read them; existing authority revocation still
-applies at access boundaries. Standalone reads and requests for the full profile
-continue through the shared-state read worker.
+applies at access boundaries. The catalog also retains the canonical Gateway
+owner's exact local identity binding. A named owner can connect directly from
+those facts, without another ensure request or host-account lookup. Missing,
+unbound, or merged owners and blank-name adoption still use the profile writer.
+Standalone reads and requests for the full profile continue through the
+shared-state read worker.
 
 Runtime database access belongs in workers. The Gateway main thread owns live
 projections, caches, and caller authority; it awaits prepared facts and installs
