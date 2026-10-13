@@ -152,6 +152,7 @@ describe("Codex participant native admission", () => {
           nativeHookRelay: hooks === "disabled" ? { enabled: false } : undefined,
         },
       });
+      using _ = { [Symbol.dispose]: connection.releaseBindingAuthority };
       try {
         const runtime = await prepareCodexAttemptRuntime(connection);
         const tools = await prepareCodexAttemptTools(runtime);
