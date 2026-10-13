@@ -430,6 +430,10 @@ export function installEmbeddedAttemptStreamGuards(
     onStarted: (callId) => {
       activeModelCallId = callId;
       modelResponseTerminal = false;
+      if (diagnosticModelCallSeq === 1) {
+        input.setup.prepStages.mark("model-dispatch");
+        input.setup.emitPrepStageSummary("model-dispatch");
+      }
       attempt.onExecutionPhase?.({
         phase: "model_call_started",
         provider: attempt.provider,
