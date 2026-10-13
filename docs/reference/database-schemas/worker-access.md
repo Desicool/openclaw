@@ -454,6 +454,12 @@ participant facts through the same retained-fact owner as native writers, then
 release pending publication before notifying row and lifecycle observers. Live
 sharing authority is still checked by the worker's transaction and commit admission.
 
+Entry-only current-source checks prepare their selected fields in the read worker
+and retain them with the existing entry-publication owner. Native and worker writes
+invalidate changed predicates before the next effect check, so those checks need no
+SQLite read on the Gateway. Conversation-bound checks still read the authoritative
+binding until every binding writer publishes its complete derived postimage.
+
 Reply-initialization cohorts reuse those entry facts only when the selected entry
 and its parent are both covered. Cold-archive absence requires a complete actor
 snapshot; entry-only facts do not prove it. Archive/restore receipts invalidate
