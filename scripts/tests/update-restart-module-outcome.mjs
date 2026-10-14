@@ -267,6 +267,7 @@ async function fixture({
     "update-command-mutable-signals",
     "update-command-execution-guards",
     "update-command-result",
+    "../../infra/acquire-with-wait",
     "../../infra/update-failure-result",
     "../../infra/package-update-refusal",
     "../../infra/update-failure-public-codes",
