@@ -1217,6 +1217,7 @@ src/infra/update-runtime-staging.ts
 src/infra/update-snapshot-capacity-schema.ts
 src/infra/update-step-identity.ts
 src/infra/warning-filter.ts
+src/infra/windows-appcontainer-spawn.ts
 src/infra/windows-encoding.ts
 src/infra/windows-install-roots.ts
 src/infra/windows-port-pids.ts
