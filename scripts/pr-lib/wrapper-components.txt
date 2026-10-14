@@ -1537,6 +1537,7 @@ src/plugins/plugin-source-references.ts
 src/plugins/plugin-source-verification.ts
 src/plugins/portable-icon-paths.ts
 src/plugins/prepared-message-tool-catalog.ts
+src/plugins/provider-availability-policy.ts
 src/plugins/provider-config-owner.ts
 src/plugins/provider-model-routes.ts
 src/plugins/provider-owner-index.ts
