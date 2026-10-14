@@ -14,6 +14,33 @@ const context = {
 const action = readWorkflow(".github/actions/detect-scheduled-changes/action.yml");
 const script = action.runs.steps[0].with.script;
 
+describe("native locale refresh event scope", () => {
+  it.each([
+    [["apps/ios/README.md"], false],
+    [["apps/ios/AGENTS.md"], false],
+    [["apps/ios/README.md", "apps/ios/AGENTS.md"], false],
+    [["apps/ios/README.md", "apps/ios/Sources/App.swift"], true],
+    [["apps/ios/Info.plist"], true],
+    [["apps/ios/Localizable.xcstrings"], true],
+    [["apps/.i18n/native-source.json"], true],
+    [["scripts/native-app-i18n.ts"], true],
+    [[".github/workflows/native-app-locale-refresh.yml"], true],
+  ] as const)("routes %j", (files, expected) => {
+    const workflow = readWorkflow(".github/workflows/native-app-locale-refresh.yml");
+    const accepts = files.some((file) =>
+      workflow.on.push.paths.reduce(
+        (selected: boolean, pattern: string) =>
+          pattern.startsWith("!")
+            ? selected && !matchesGlob(file, pattern.slice(1))
+            : selected || matchesGlob(file, pattern),
+        false,
+      ),
+    );
+    expect(accepts).toBe(expected);
+    expect(workflow.on.workflow_dispatch).toBeDefined();
+  });
+});
+
 describe("plugin scaffold event scope", () => {
   it.each([
     [["src/plugin-sdk/AGENTS.md"], false],
