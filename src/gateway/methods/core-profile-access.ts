@@ -17,6 +17,7 @@ const PROFILE_DEPENDENT_CORE_METHODS = new Set([
   // Voice catalogs authorize participation in the call's chat.
   "talk.voice.get",
   "ui.command",
+  "ui.command.result",
   "users.linkAuthProfile",
   "users.linkEmail",
   "users.merge",
