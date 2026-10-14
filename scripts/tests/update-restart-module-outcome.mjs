@@ -212,6 +212,7 @@ async function fixture({
       return verification;
     },
     withOwnedManagedUpdateEnv: async (_env, action) => action(),
+    acquireWithWait: ({ acquire }) => acquire(),
     readConfigFileSnapshot: async () => ({}),
     prepareUpdateRestart: async () => restartContext,
     convergeUpdatePlugins: async (params) => ({ resultWithPostUpdate: params.result }),
