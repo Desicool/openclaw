@@ -36,6 +36,7 @@ import {
 } from "./session-cold-storage-worker.js";
 import { readRetainedSessionEntryFacts } from "./session-entry-read-facts.js";
 import type { PreparedSessionTranscriptHydration } from "./session-history-read.types.js";
+import { readSessionTranscriptAnchorFactsInDatabase } from "./session-transcript-anchor-read.kernel.js";
 import { readPreparedSessionTranscriptChange } from "./session-transcript-authority.js";
 
 // mock-isolation: The fixture owns its database and transcript maintenance lifetime.
@@ -128,6 +129,12 @@ function contextFixture(f: Fixture) {
         { entryIds: ["question", "answer"], includeWatermark: true },
       );
     },
+    canonicalAnchors() {
+      return readSessionTranscriptAnchorFactsInDatabase(f.database, f.scope, {
+        entryIds: ["question", "answer"],
+        includeWatermark: true,
+      });
+    },
     summary() {
       return readActivitySummaryBatchFromReplica({ scope: f.scope });
     },
@@ -192,7 +199,7 @@ it("keeps settled append bodies in receipts and storage without evicting navigat
         expect(outcome.receipt.transcript.appendedEvents?.[0]?.event).toEqual(event);
       }
     }
-    const expectedBytes = [question, answer, ...events].reduce(
+    const expectedBytes = [...transcript(f), ...events].reduce(
       (bytes, event) => bytes + Buffer.byteLength(JSON.stringify(event)) + 1,
       0,
     );
@@ -205,7 +212,7 @@ it("keeps settled append bodies in receipts and storage without evicting navigat
       reads.counts.history = 0;
       warm = f.read();
       expect(reads.counts.history).toBe(0);
-      expect(warm.transcript.projection?.contextMetadata?.sizeBytes).toBe(expectedBytes);
+      expect(warm.transcript.projection?.contextMetadata).toBeUndefined();
     } finally {
       reads.restore();
     }
@@ -217,9 +224,13 @@ it("keeps settled append bodies in receipts and storage without evicting navigat
     f.restartActor();
     const cold = f.read();
     expect(cold.transcript.modelContext).toEqual(warm.transcript.modelContext);
-    expect(cold.transcript.projection?.contextMetadata).toEqual(
-      warm.transcript.projection?.contextMetadata,
-    );
+    expect(cold.transcript.projection?.contextMetadata).toBeUndefined();
+    expect(
+      readSessionTranscriptBoundedActiveContextCore(f.scope, {
+        maxBytes: expectedBytes,
+        maxEvents: 100,
+      }).serializedBytes,
+    ).toBe(expectedBytes);
   });
 });
 
@@ -302,7 +313,10 @@ it("advances retained context through native actor appends and preserves it thro
         ),
       ).toBe(true);
       expect(context.read()?.snapshot.events).toHaveLength(5);
-      expect(context.anchors()?.watermark).toEqual(context.replica.read()!.transcript.watermark);
+      expect(context.anchors()).toBeUndefined();
+      expect(context.canonicalAnchors().watermark).toEqual(
+        context.replica.read()!.transcript.watermark,
+      );
       expect(context.summary()?.page.events).toHaveLength(4);
       expect(context.summary()?.page.events.at(-1)?.event).toMatchObject({
         id: "next-answer",
@@ -356,7 +370,8 @@ it("settles a resident correlation rewrite once and leaves rollback payloads unc
       runSqliteImmediateTransactionSync(f.database.db, rewrite);
       expect(publications).toHaveLength(1);
       expect(context.read()?.snapshot.events).toEqual([transcript(f)[0], rewritten, answer]);
-      expect(context.anchors()?.anchors.map((anchor) => anchor.entryId)).toEqual([
+      expect(context.anchors()).toBeUndefined();
+      expect(context.canonicalAnchors().anchors.map((anchor) => anchor.entryId)).toEqual([
         "question",
         "answer",
       ]);
@@ -420,7 +435,8 @@ it("invalidates retained context for nonactor content and topology writer classe
         replace(f);
         const before = context.seed();
         expect(context.read()?.snapshot.events).toEqual(transcript(f));
-        expect(context.anchors()?.anchors.map((anchor) => anchor.entryId)).toEqual([
+        expect(context.anchors()).toBeUndefined();
+        expect(context.canonicalAnchors().anchors.map((anchor) => anchor.entryId)).toEqual([
           "question",
           "answer",
         ]);
@@ -604,7 +620,8 @@ it("drops retained context on cold archival and leaves restoration to a fresh bo
       context.seed();
       expect(readColdMetadata()?.coldArchives).toEqual([]);
       expect(context.read()?.snapshot.events).toEqual(transcript(f));
-      expect(context.anchors()?.anchors.map((anchor) => anchor.entryId)).toEqual([
+      expect(context.anchors()).toBeUndefined();
+      expect(context.canonicalAnchors().anchors.map((anchor) => anchor.entryId)).toEqual([
         "question",
         "answer",
       ]);

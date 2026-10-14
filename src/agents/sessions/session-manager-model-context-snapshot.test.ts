@@ -281,7 +281,7 @@ it.each(["unchanged", "append", "rewrite"] as const)(
   },
 );
 
-it("uses resident actor anchors for replay and rejects a rewritten hydrated turn", async () => {
+it("replays a durable current turn and rejects it after a rewrite", async () => {
   await withOpenClawTestState({ label: "actor-replay-validation" }, async (state) => {
     const target = {
       agentId: "main",
@@ -296,38 +296,18 @@ it("uses resident actor anchors for replay and rejects a rewritten hydrated turn
     await withSelectedTranscriptReader(
       target,
       async () => {
-        const validated = vi.fn();
-        const prepare = transcriptHydration.prepareSessionTranscriptHydration;
-        const spy = vi
-          .spyOn(transcriptHydration, "prepareSessionTranscriptHydration")
-          .mockImplementation((...args) => {
-            const reader = prepare(...args);
-            return {
-              ...reader,
-              readCurrentTurnEntry: (request) => {
-                validated();
-                return reader.readCurrentTurnEntry(request);
-              },
-            };
-          });
         const replay = () =>
           replayView[sessionManagerPrepareCurrentTurnReplay](
             () => false,
             (entry) => entry?.type === "message" && entry.message.role === "user",
           );
-        try {
-          expect(await replay()).toMatchObject({ entryId: userId });
-          expect(validated).not.toHaveBeenCalled();
-          runWithoutOwnedSessionTranscriptWrites(() =>
-            source.removeTrailingEntries((entry) => entry.type === "message"),
-          );
-          await expect(replay()).rejects.toThrow(
-            /Persisted user turn changed|Session transcript projection is rebuilding/,
-          );
-          expect(validated).toHaveBeenCalledOnce();
-        } finally {
-          spy.mockRestore();
-        }
+        expect(await replay()).toMatchObject({ entryId: userId });
+        runWithoutOwnedSessionTranscriptWrites(() =>
+          source.removeTrailingEntries((entry) => entry.type === "message"),
+        );
+        await expect(replay()).rejects.toThrow(
+          /Persisted user turn changed|Session transcript projection is rebuilding/,
+        );
       },
       true,
     );
