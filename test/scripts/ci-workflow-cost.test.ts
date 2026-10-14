@@ -199,6 +199,10 @@ describe("bounded scheduled proof reuse", () => {
 
 describe("node runtime event scope", () => {
   it.each([
+    [["patches/README.md"], false],
+    [["patches/vitest@5.0.1.patch"], true],
+    [["patches/README.md", "patches/vitest@5.0.1.patch"], true],
+    [["patches/runtime-fixture.md"], true],
     [["crates/openclaw-node-host/SIDECAR_PROTOCOL.md"], false],
     [
       ["crates/openclaw-node-host/SIDECAR_PROTOCOL.md", "crates/openclaw-node-host/src/main.rs"],
