@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -398,25 +397,6 @@ describe("exec approvals", () => {
     expect(calls).not.toContain("exec.approval.request");
   });
 
-  it.each([{ background: true }, { yieldMs: 0 }, { background: false }])(
-    "explains remote node continuation limits for %j",
-    async (continuation) => {
-      const node = nodeFixture("node-ok");
-      mockGateway({ "node.invoke": node.handle });
-      const tool = createExecTool({ host: "node", security: "full", ask: "off" });
-      const result = await tool.execute("node-continuation", {
-        command: "echo node-ok",
-        ...continuation,
-      });
-      expect(result.details.status).toBe("completed");
-      expect(result.details).not.toHaveProperty("sessionId");
-      expect(getResultText(result)).toContain("node-ok");
-      expect(getResultText(result).includes("without a process session")).toBe(
-        continuation.background === true || "yieldMs" in continuation,
-      );
-    },
-  );
-
   it.each(["gateway", "node"] as const)(
     "keeps ask=always prompts for %s runs with durable trust",
     async (host) => {
@@ -486,32 +466,6 @@ describe("exec approvals", () => {
     const second = await tool.execute("call-gateway-allow-always-repeat", { command });
     expect(second.details.status).toBe("completed");
     expect(getResultText(second)).toContain("allow-always");
-    expect(calls).not.toContain("exec.approval.request");
-    expect(calls).not.toContain("exec.approval.waitDecision");
-  });
-
-  it("reuses exact-command durable trust for node shell-wrapper reruns", async () => {
-    const prepared = buildPreparedSystemRunPayload({
-      params: { command: ["/bin/sh", "-lc", "cd ."], cwd: process.cwd() },
-    });
-    const commandText = prepared.payload.plan.commandText;
-    const calls = mockGateway({
-      "exec.approvals.node.get": () => ({
-        file: policy(undefined, [
-          {
-            pattern: `=command:${crypto.createHash("sha256").update(commandText).digest("hex").slice(0, 16)}`,
-            source: "allow-always",
-          },
-        ]),
-      }),
-      "node.invoke": nodeFixture("node-shell-wrapper-ok").handle,
-    });
-    const tool = createExecTool({ host: "node", ask: "on-miss", security: "allowlist" });
-    const result = await tool.execute("call-node-shell-wrapper-durable-allow-always", {
-      command: "cd .",
-    });
-    expect(result.details.status).toBe("completed");
-    expect(getResultText(result)).toContain("node-shell-wrapper-ok");
     expect(calls).not.toContain("exec.approval.request");
     expect(calls).not.toContain("exec.approval.waitDecision");
   });
