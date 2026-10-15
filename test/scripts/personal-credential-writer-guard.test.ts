@@ -101,6 +101,7 @@ it.each([
   "(await import('./state/user-model-accounts.js'))['SELECT']();",
   "const [{ SELECT: selected }] = await Promise.all([import('./state/user-model-accounts.js')]); selected();",
   "import('./state/user-model-accounts.js').then(({ SELECT: selected }) => selected());",
+  "import('./state/user-model-accounts.js').then(({ SELECT: selected }: { SELECT: () => void }) => selected());",
   "Promise.all([import('./state/user-model-accounts.js')]).then(([accounts]) => accounts.SELECT());",
 ])("checks a selected dynamic import without charging unused sibling exports: %s", (consumer) => {
   const source = `${owner}\nexport function listUserProfileAuthLinksAsync() {}`;
@@ -924,4 +925,27 @@ it("keeps session membership writes with the worker and canonical entry owners",
     expect.stringContaining("unreviewed session membership writer reference"),
     expect.stringContaining("raw authority-table write"),
   ]);
+});
+
+it.each([
+  "import selected from './state/user-model-accounts.js'; selected();",
+  "import { default as selected } from './state/user-model-accounts.js'; selected();",
+  "export { default as selected } from './state/user-model-accounts.js';",
+  "import * as accounts from './state/user-model-accounts.js'; accounts.default();",
+])("checks default writer bindings without charging unrelated exports: %s", (consumer) => {
+  expect(
+    inspect(
+      { "src/consumer.ts": consumer },
+      `${owner}\nexport default function listUserProfileAuthLinksAsync() {}`,
+    ),
+  ).toEqual([]);
+  expect(
+    inspect(
+      { "src/consumer.ts": consumer },
+      owner.replace(
+        "export function connectUserModelAccount",
+        "export default function connectUserModelAccount",
+      ),
+    ),
+  ).toEqual([expect.stringContaining("unreviewed personal credential writer reference")]);
 });
