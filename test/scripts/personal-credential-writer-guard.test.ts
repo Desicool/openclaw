@@ -491,15 +491,19 @@ it("requires the host publication adapter for direct and aliased machine-state c
       "machineState.write credential writes require the host publication adapter",
     ),
   ]);
-  expect(
-    inspect({
-      "src/new-writer.ts": source.replace("type: command", "type: 'machineState.write'"),
-    }),
-  ).toEqual([
-    expect.stringContaining(
-      "machineState.write credential writes require the host publication adapter",
-    ),
-  ]);
+  for (const command of [
+    "'machineState.write'",
+    "`machineState.write`",
+    "'machineState\\u002ewrite'",
+  ]) {
+    const direct = source.replace("type: command", `type: ${command}`);
+    expect(inspect({ "src/state/config-machine-state-async.ts": direct })).toEqual([]);
+    expect(inspect({ "src/new-writer.ts": direct })).toEqual([
+      expect.stringContaining(
+        "machineState.write credential writes require the host publication adapter",
+      ),
+    ]);
+  }
 });
 
 const authRuntime = "src/agents/auth-profiles/store-runtime.ts";

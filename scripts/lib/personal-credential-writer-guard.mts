@@ -1155,17 +1155,20 @@ export function inspectPersonalCredentialWriters(
         (ts.isIdentifier(node.name) || ts.isStringLiteralLikeNode(node.name)) &&
         node.name.text === "type"
       ) {
-        const type = checker.getTypeAtLocation(
-          ts.isPropertyAssignment(node) ? node.initializer : node.name,
-        );
-        const variants = type.isUnionType() ? type.getTypes() : [type];
-        for (const value of variants) {
-          if (!value.isStringLiteralType()) {
-            continue;
-          }
-          const owner = credentialCommandOwners.get(value.value);
+        const initializer = ts.isPropertyAssignment(node) ? node.initializer : node.name;
+        // Literal command values are already exact; only expressions need semantic resolution.
+        const type = ts.isStringLiteralLikeNode(initializer)
+          ? undefined
+          : checker.getTypeAtLocation(initializer);
+        const commands = ts.isStringLiteralLikeNode(initializer)
+          ? [initializer.text]
+          : (type?.isUnionType() ? type.getTypes() : type ? [type] : [])
+              .filter((value) => value.isStringLiteralType())
+              .map((value) => value.value);
+        for (const command of commands) {
+          const owner = credentialCommandOwners.get(command);
           if (owner && key(file, operation(node)) !== owner) {
-            fail(node, `${value.value} credential writes require the host publication adapter`);
+            fail(node, `${command} credential writes require the host publication adapter`);
           }
         }
       }

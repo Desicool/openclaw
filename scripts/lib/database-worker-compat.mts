@@ -318,6 +318,7 @@ export function inspectDatabaseWorkerBoundaries(
   isNonRuntime: (file: string, operation: string) => boolean = (file) =>
     /\.worker\.[cm]?[jt]s$/.test(file),
   classifyEntry: (file: string, operation: string) => NonRuntimeTier | undefined = () => undefined,
+  validateCredentialWriters = true,
 ): {
   operations: Map<string, Set<string>>;
   callLocations: Map<string, Set<string>>;
@@ -520,7 +521,9 @@ export function inspectDatabaseWorkerBoundaries(
     }
     return { file, source };
   });
-  violations.push(...inspectPersonalCredentialWriters(sources, checker));
+  if (validateCredentialWriters) {
+    violations.push(...inspectPersonalCredentialWriters(sources, checker));
+  }
   // Follow named kernels from the reviewed boundaries. A symbol reference from
   // outside this closure (or an escaped callback) will make that kernel live.
   // A returned receiver exists only through its factory. Keep its methods in
