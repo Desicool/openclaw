@@ -644,7 +644,7 @@ describe("external shared-state ownership", () => {
     const pending = openOpenClawStateDatabase({ env: fixture.externalEnv });
     pending.db.exec(`
       ALTER TABLE worktrees DROP COLUMN run_end_cleanup_json;
-      DROP INDEX idx_task_runs_status;
+      DROP INDEX idx_task_runs_runtime_run;
     `);
     closeOpenClawStateDatabaseForTest();
     if (process.platform !== "win32") {
@@ -671,7 +671,7 @@ describe("external shared-state ownership", () => {
     expect(
       repaired.db
         .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?")
-        .get("idx_task_runs_status"),
+        .get("idx_task_runs_runtime_run"),
     ).toBeDefined();
   });
 

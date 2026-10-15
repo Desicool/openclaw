@@ -148,7 +148,7 @@ it("checks integrity once before index repair and once after rebuilding the inde
   copyFileSync(pathname, replacement);
   {
     using database = new DatabaseSync(replacement);
-    database.exec("DROP INDEX idx_task_runs_status");
+    database.exec("DROP INDEX idx_task_runs_runtime_run");
   }
   renameSync(replacement, pathname);
   const observation = observeSqliteReadSql(StatementSync.prototype);
@@ -156,10 +156,10 @@ it("checks integrity once before index repair and once after rebuilding the inde
     const repaired = openOpenClawStateDatabase({ env });
     expect(
       repaired.db
-        .prepare("PRAGMA index_info(idx_task_runs_status)")
+        .prepare("PRAGMA index_info(idx_task_runs_runtime_run)")
         .all()
         .map((row) => row.name),
-    ).toEqual(["status"]);
+    ).toEqual(["runtime", "run_id", "source_id", "created_at", "task_id"]);
     repaired.db.exec("CREATE TABLE checkonce_later (value TEXT)");
     assertExistingOpenClawStateRuntimeSchema(requireNativeSqliteDatabase(repaired.db), pathname);
     expect(observation.queries.filter((sql) => sql === "PRAGMA integrity_check;")).toHaveLength(2);
