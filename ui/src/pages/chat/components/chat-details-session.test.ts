@@ -2,11 +2,14 @@
 import { createComponent } from "solid-js";
 import { expect, it, vi } from "vitest";
 import { fnv1aUtf16 } from "../../../lib/fnv1a.ts";
+import type { SolidBridgeElement } from "../../../lit/solid-bridge.ts";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
 import { flush } from "../../../test-helpers/solid-settle.ts";
 import { ChatDetailsSession } from "./chat-details-session.tsx";
 import type { ChatDetailsProps } from "./chat-details-types.ts";
-import type { ChatSubagentActivityLive } from "./chat-subagent-activity-live.ts";
+import type { SubagentActivityProps } from "./chat-subagent-activity.ts";
+
+type ChatSubagentActivityLive = SolidBridgeElement<SubagentActivityProps>;
 
 async function mount(overrides: Partial<ChatDetailsProps> = {}) {
   const value: ChatDetailsProps = {
