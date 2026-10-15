@@ -2452,7 +2452,6 @@ src/shared/node-presence.ts	1
 src/shared/node-resolve.ts	1
 src/shared/pid-alive.ts	2
 src/shared/runtime-import.ts	1
-src/shared/safe-record.ts	1
 src/shared/store-writer-queue.ts	1
 src/shared/worker-bundle-archive.ts	1
 src/skills/lifecycle/clawhub-install-core.ts	1
