@@ -997,6 +997,7 @@ src/infra/net/proxy/managed-proxy-undici.ts
 src/infra/net/proxy/proxy-tls.ts
 src/infra/net/redirect-headers.ts
 src/infra/net/runtime-fetch.ts
+src/infra/net/ssrf-trusted-host-linklocal-exemptions.ts
 src/infra/net/ssrf.ts
 src/infra/net/undici-dispatcher-options.ts
 src/infra/net/undici-error-diagnostics.ts
