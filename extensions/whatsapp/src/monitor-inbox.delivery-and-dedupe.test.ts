@@ -1,4 +1,5 @@
 // WhatsApp monitor inbox behavior split by ownership.
+import { WAMessageStubType } from "baileys";
 import { observeChannelIngressQueueWrite } from "openclaw/plugin-sdk/channel-ingress-test-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { setLoggerOverride } from "openclaw/plugin-sdk/runtime-env";
@@ -335,6 +336,35 @@ describe("web monitor inbox delivery and dedupe", () => {
     await vi.waitFor(() => expect(sock.readMessages).toHaveBeenCalledTimes(1));
 
     expect(onMessage).toHaveBeenCalledTimes(1);
+    await listener.close();
+  });
+
+  it("delivery coordinator delivers a decrypted message after its ciphertext stub", async () => {
+    const onMessage = vi.fn(async () => undefined);
+    const { listener, sock } = await startInboxMonitor(onMessage as InboxOnMessage);
+    const messageId = nextMessageId("ciphertext-stub");
+    const upsert = dmUpsert(messageId, "decrypted");
+
+    sock.ev.emit("messages.upsert", {
+      type: "notify",
+      messages: [
+        {
+          key: { id: messageId, fromMe: false, remoteJid: "999@s.whatsapp.net" },
+          messageStubType: WAMessageStubType.CIPHERTEXT,
+          messageTimestamp: 1_700_000_000,
+        },
+      ],
+    });
+    await settleInboundWork();
+
+    sock.ev.emit("messages.upsert", upsert);
+    await waitForMessageCalls(onMessage, 1);
+
+    sock.ev.emit("messages.upsert", upsert);
+    await settleInboundWork();
+
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(inboundMessage(onMessage).payload.body).toBe("decrypted");
     await listener.close();
   });
 
