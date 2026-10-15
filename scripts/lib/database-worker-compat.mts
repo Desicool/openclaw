@@ -889,8 +889,13 @@ export function inspectDatabaseWorkerBoundaries(
       edges.set(member, memberEdges);
     }
   }
+  const compiledAccesses = new Map<ts.Expression, Symbol | undefined>();
+  const compilerSymbol = (expression: ts.Expression): Symbol | undefined =>
+    compiledAccesses.has(expression)
+      ? compiledAccesses.get(expression)
+      : checker.getSymbolAtLocation(expression);
   const accessSymbol = (expression: ts.Expression): Symbol | undefined => {
-    const known = resolveSymbol(checker.getSymbolAtLocation(expression));
+    const known = resolveSymbol(compilerSymbol(expression));
     if (known) {
       return known;
     }
@@ -902,7 +907,7 @@ export function inspectDatabaseWorkerBoundaries(
       expression.expression.kind === ts.SyntaxKind.ImportKeyword &&
       expression.arguments[0]
     ) {
-      return resolveSymbol(checker.getSymbolAtLocation(expression.arguments[0]));
+      return resolveSymbol(compilerSymbol(expression.arguments[0]));
     }
     if (ts.isPropertyAccessExpression(expression)) {
       const base = accessSymbol(expression.expression);
@@ -968,6 +973,40 @@ export function inspectDatabaseWorkerBoundaries(
     };
     source.forEachChild(visit);
     const symbols = references.length ? checker.getSymbolAtLocation(references) : [];
+    compiledAccesses.clear();
+    const pendingAccesses = new Set<ts.Expression>();
+    for (const [index, node] of references.entries()) {
+      if (symbols[index]) {
+        continue;
+      }
+      const parent = node.parent;
+      let receiver: ts.Expression | undefined =
+        ts.isPropertyAccessExpression(parent) && parent.name === node
+          ? parent
+          : ts.isElementAccessExpression(parent) && ts.isStringLiteral(node)
+            ? parent.expression
+            : undefined;
+      while (receiver && !pendingAccesses.has(receiver)) {
+        pendingAccesses.add(receiver);
+        receiver =
+          ts.isAwaitExpression(receiver) ||
+          ts.isParenthesizedExpression(receiver) ||
+          ts.isPropertyAccessExpression(receiver)
+            ? receiver.expression
+            : ts.isCallExpression(receiver) &&
+                receiver.expression.kind === ts.SyntaxKind.ImportKeyword
+              ? receiver.arguments[0]
+              : undefined;
+      }
+    }
+    // Query the same receiver nodes as the fallback, without a round trip per access.
+    const accessLocations = [...pendingAccesses];
+    const accessSymbols = accessLocations.length
+      ? checker.getSymbolAtLocation(accessLocations)
+      : [];
+    for (const [index, expression] of accessLocations.entries()) {
+      compiledAccesses.set(expression, accessSymbols[index]);
+    }
     for (const [index, node] of references.entries()) {
       const bindingMember =
         ts.isIdentifier(node) &&
