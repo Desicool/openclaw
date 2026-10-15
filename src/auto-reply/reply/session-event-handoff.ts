@@ -28,6 +28,7 @@ import { createDeferredCore } from "../../shared/deferred.js";
 import type { ReplyPayload } from "../../shared/reply-payload.types.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
+import type { MsgContext } from "../templating.js";
 import type { NormalizeReplySkipReason } from "./normalize-reply-skip-reason.js";
 import type { ReplyOperation } from "./reply-run-registry.contracts.js";
 import type {
@@ -46,6 +47,8 @@ import {
   readSessionEventTargetEnvironment,
   resolveSessionEventKey,
 } from "./session-event-target.js";
+import { setChannelSourceTurnId } from "./source-turn-id.js";
+
 export {
   assertSessionEventTargetCurrent,
   captureSessionEventTargetForHost,
@@ -70,6 +73,8 @@ export function enqueueSessionEventForHost(
     sessionKey: string;
     source: SessionEventSource;
     contextKey?: string;
+    /** Stable identity for durable host producers across restart handoffs. */
+    sourceTurnId?: string;
     deliveryContext?: DeliveryContext;
     abortSignal?: AbortSignal;
     expectedTarget?: SessionEventTarget;
@@ -407,30 +412,32 @@ export function enqueueSessionEventForHost(
       settings = narrowSessionEventSettings(settings, generationLease.readSessionSettings());
       settingsAdmitted = true;
       assertCurrent();
+      const ctx: MsgContext = {
+        AgentId: agentId,
+        SessionKey: sessionKey,
+        Body: eventText,
+        BodyForAgent: eventText,
+        InternalTurnSource: "event",
+        BodyForCommands: "",
+        CommandBody: "",
+        RawBody: "",
+        CommandAuthorized: false,
+        InputProvenance: { kind: "internal_system", sourceTool: options.source },
+        ChatType: channelRouteTargetsMatchExact({ left: route, right: target.deliveryContext })
+          ? target.chatType
+          : undefined,
+        Surface: route?.channel ?? INTERNAL_MESSAGE_CHANNEL,
+        Provider: route?.channel ?? INTERNAL_MESSAGE_CHANNEL,
+        OriginatingChannel: route?.channel,
+        OriginatingTo: route?.to,
+        AccountId: route?.accountId,
+        MessageThreadId: route?.threadId,
+        MessageSid: occurrence.id,
+      };
+      setChannelSourceTurnId(ctx, options.sourceTurnId);
       const result = await dispatchInboundMessageWithRoutedChannelDispatcher({
         cfg: { ...cfg, session: { ...cfg.session, store: storePath } },
-        ctx: {
-          AgentId: agentId,
-          SessionKey: sessionKey,
-          Body: eventText,
-          BodyForAgent: eventText,
-          InternalTurnSource: "event",
-          BodyForCommands: "",
-          CommandBody: "",
-          RawBody: "",
-          CommandAuthorized: false,
-          InputProvenance: { kind: "internal_system", sourceTool: options.source },
-          ChatType: channelRouteTargetsMatchExact({ left: route, right: target.deliveryContext })
-            ? target.chatType
-            : undefined,
-          Surface: route?.channel ?? INTERNAL_MESSAGE_CHANNEL,
-          Provider: route?.channel ?? INTERNAL_MESSAGE_CHANNEL,
-          OriginatingChannel: route?.channel,
-          OriginatingTo: route?.to,
-          AccountId: route?.accountId,
-          MessageThreadId: route?.threadId,
-          MessageSid: occurrence.id,
-        },
+        ctx,
         dispatcherOptions: {
           deliver: (payload, info) => deliver(payload, info.kind),
           onError: (error) => {
