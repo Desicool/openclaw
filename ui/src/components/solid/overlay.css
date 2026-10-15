@@ -267,6 +267,10 @@ a.oc-menu-item[href] {
   min-width: 0;
 }
 
+.oc-menu-item--submenu > .oc-menu-item__label {
+  display: contents;
+}
+
 .oc-menu-item__icon,
 .oc-menu-item__details,
 .oc-menu-item__check,
