@@ -40,6 +40,7 @@
   "files": [
     "CHANGELOG.md",
     "LICENSE",
+    "cli-invocation.mjs",
     "cli-root-options.mjs",
     "gateway-run-argv.mjs",
     "gateway-shutdown-budget.mjs",
