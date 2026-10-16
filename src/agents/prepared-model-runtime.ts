@@ -137,11 +137,7 @@ const replyDispatchPublication = new PreparedReplyDispatchPublicationOwner({
   retainOwner: retainPublishedModelRuntimeOwner,
   isGatewayLifecycleActive: () => gatewayLifecycleActive,
   getConfiguredOwner: (agentId) =>
-    resolveConfiguredOwner(owners, {
-      agentId,
-      agentDir: ".",
-      config: {},
-    }),
+    resolveConfiguredOwner(owners, { agentId, agentDir: ".", config: {} }),
   getPendingReplacement: (agentId) =>
     getAdmissionReplacement({ agentId, agentDir: ".", config: {} })?.promise,
   isStartupPending: () => pendingModelRuntimeReplacement?.degraded === true,
