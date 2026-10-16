@@ -377,7 +377,7 @@ describe("context-engine turn outbox", () => {
   it.each(["accepted", "admission-only"] as const)(
     "recovers %s prior work before recording the next dispatch",
     async (state) => {
-      const accepted = state === "accepted";
+      const accepted = state !== "admission-only";
       const {
         target,
         current: admitted,
@@ -464,6 +464,10 @@ describe("context-engine turn outbox", () => {
           database.db.prepare("SELECT advancement_key FROM context_engine_turn_outbox").all(),
         ).toHaveLength(0);
         expect(commitTurn.mock.calls[0]?.[0]).not.toHaveProperty("prePromptMessageCount");
+        expect(commitTurn.mock.calls[0]?.[0].runtimeSettings).toMatchObject({
+          model: { provider: "anthropic", resolved: "claude-sonnet-4-6" },
+          limits: { promptTokenBudget: 180_000 },
+        });
         recorder.markRuntimePersisted(currentMessage, currentAdmission);
         // The dispatch wait settles admission in the agent database worker.
         expect(recorder.hasRuntimePersistencePending()).toBe(true);
