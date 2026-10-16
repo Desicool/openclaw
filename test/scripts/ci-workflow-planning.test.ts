@@ -951,6 +951,15 @@ describe("channel detail presentation CI selection", () => {
   });
 });
 
+describe("curated plugin settings CI selection", () => {
+  it("selects the actual consumer proof for a presentation-only change", () => {
+    expect(
+      detectChangedScope(["extensions/memory-core/control-ui.settings-presentation.json"])
+        .runUiTests,
+    ).toBe(true);
+  });
+});
+
 describe("changed-path transport", () => {
   it("plans current PR tests from the complete manifest above the output size limit", () => {
     const changedPaths = [
