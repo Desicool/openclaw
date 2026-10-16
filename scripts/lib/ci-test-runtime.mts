@@ -309,6 +309,12 @@ const nodeRequiredFiles = new Set([
   // Node's trace-exit, diagnostic reports, and native process/SQLite lifecycle.
   "src/cli/cli-process-diagnostics.test.ts",
   "test/scripts/bench-session-history.test.ts",
+  // Bun's node:module SourceMap.findOrigin returns {} for valid mappings.
+  "test/scripts/control-ui-cold-load-trace.test.ts",
+  // Bun's os.availableParallelism reads mutable navigator.hardwareConcurrency.
+  "test/talk-browser-defaults.test.ts",
+  // Bun's HTTP ServerResponse sends body bytes before an explicit uncork.
+  "src/gateway/artifact-downloads.test.ts",
   // These proofs require V8 heap instrumentation or Node worker heap flags.
   "src/infra/worker-heap-flag.test.ts",
   "src/logging/diagnostic-heap-profile.test.ts",
