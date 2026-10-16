@@ -1,7 +1,4 @@
-import {
-  embeddedAgentLog,
-  type AgentHarnessRuntimeArtifactBinding,
-} from "openclaw/plugin-sdk/agent-harness-runtime";
+import type { AgentHarnessRuntimeArtifactBinding } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { captureSessionEntryCurrentCheckAsync } from "openclaw/plugin-sdk/session-binding-runtime";
 import { isIncognitoSessionKey } from "openclaw/plugin-sdk/session-key-runtime";
 import {
@@ -173,17 +170,6 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
     }
     state.sharedCodexClientRetiredForOneShotCleanup = true;
     const retired = clearSharedCodexAppServerClientIfCurrentAndUnclaimed(state.client);
-    // Runs on every one-shot attempt teardown; routine retirement checks are
-    // diagnostic detail, not operator-facing info.
-    embeddedAgentLog.debug("codex app-server one-shot cleanup checked shared client retirement", {
-      runId: params.runId,
-      sessionId: params.sessionId,
-      sessionKey: params.sessionKey,
-      activeLeases: retired.activeLeases,
-      pendingAcquires: retired.pendingAcquires,
-      closed: retired.closed,
-      matchedSharedClient: retired.found,
-    });
     // Retained peers prevent retirement; preserve their client without treating
     // missing close evidence as a completed one-shot cleanup.
     const result = retired.closed
