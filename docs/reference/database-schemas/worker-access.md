@@ -4988,8 +4988,10 @@ bound to the captured owner, and shutdown joins accepted work. The existing
 update behavior are unchanged. Drain inspection reads pending and claimed rows in
 one snapshot so a concurrent release cannot hide a lane head between reads.
 Shutdown joins deferred settlement even when it starts before dispatch returns.
-The drain selects each lane head from that ordered snapshot and passes its ID and
-resolved lane to the existing claim writer. The pending-only update arbitrates
+The drain selects each lane head from that ordered snapshot and passes its ID to
+the existing claim writer. Derived scheduling lanes preserve stored transport
+identity unless the channel's reconciliation policy permits replacing it.
+The pending-only update arbitrates
 competing owners; a refused claim leaves its lane blocked until the next pass.
 The drain does not repeat the backlog read or revalidate the entire selection
 window. A lane-policy change during the write wait takes effect on the next pass;
