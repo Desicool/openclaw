@@ -162,10 +162,8 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
     release?.();
   };
   const retireSharedCodexClientForOneShotCleanup = async () => {
-    if (
-      params.cleanupBundleMcpOnRunEnd !== true ||
-      state.sharedCodexClientRetiredForOneShotCleanup
-    ) {
+    // Gateway background turns release their own resources, not the shared process.
+    if (!params.oneShotCliRun || state.sharedCodexClientRetiredForOneShotCleanup) {
       return;
     }
     state.sharedCodexClientRetiredForOneShotCleanup = true;
@@ -175,7 +173,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
     const result = retired.closed
       ? await state.client.closeAndWait({ exitTimeoutMs: 2_000, forceKillDelayMs: 250 })
       : undefined;
-    if (params.oneShotCliRun && result?.cleanup !== "closed") {
+    if (result?.cleanup !== "closed") {
       throw new Error("Codex one-shot client cleanup could not be confirmed");
     }
   };
