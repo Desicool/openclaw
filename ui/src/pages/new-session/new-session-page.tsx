@@ -14,7 +14,6 @@ import { defineSolidBridge } from "../../lit/solid-bridge.ts";
 import { LitContent } from "../../lit/solid-content.tsx";
 import { chatStartupStatusLabel } from "../chat/chat-run-startup.ts";
 import { ChatPermissionPicker } from "../chat/components/chat-permission-picker.tsx";
-import type { SidebarContent } from "../chat/components/chat-sidebar-content-types.ts";
 import { CatalogBar } from "./catalog-target-view.tsx";
 import * as catalog from "./catalog-target.ts";
 import { NewSessionDictationStatus, NewSessionDictationView } from "./composer-dictation-view.tsx";
@@ -376,17 +375,11 @@ defineSolidBridge<
   },
 });
 
-// These hosts remain custom elements so the detail panel keeps its lazy registration.
 declare module "@solidjs/web" {
   namespace JSX {
     interface IntrinsicElements {
       "openclaw-new-session-page": HTMLAttributes<PageHost> & {
         "prop:data"?: NewSessionRouteData | undefined;
-      };
-      "openclaw-chat-detail-panel": HTMLAttributes<
-        HTMLElementTagNameMap["openclaw-chat-detail-panel"]
-      > & {
-        "prop:content"?: SidebarContent | null;
       };
     }
   }
