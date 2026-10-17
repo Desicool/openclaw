@@ -59,7 +59,10 @@ export function writeCodexAuth(codexHome: string, marker: string): void {
 const waitTimeoutMs = 30_000;
 
 export function usePreparedCatalogWorkerFixtures(
-  fixtureOptions: { observeCatalogWork?: boolean } = {},
+  fixtureOptions: {
+    observeCatalogWork?: boolean;
+    onCatalogWorker?: (worker: Worker) => void;
+  } = {},
 ) {
   const retirements = new Set<() => void | Promise<void>>();
   const workers = new Set<Worker>();
@@ -87,6 +90,7 @@ export function usePreparedCatalogWorkerFixtures(
       // Compiler services also use Worker threads; this fixture owns only catalog computation.
       if (String(args[0]) === catalogWorkerUrl) {
         workers.add(worker);
+        fixtureOptions.onCatalogWorker?.(worker);
       }
       return worker;
     });

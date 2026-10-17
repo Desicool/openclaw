@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { finished } from "node:stream/promises";
 import { setImmediate as checkpoint } from "node:timers/promises";
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import {
   afterAll,
@@ -68,8 +68,10 @@ vi.mock("../logging/subsystem.js", async (importOriginal) => {
   };
 });
 
+let recordCatalogWorker: ((worker: Worker) => void) | undefined;
 const { makeTempDir, observeCatalogEntry: observeEntry } = usePreparedCatalogWorkerFixtures({
   observeCatalogWork: true,
+  onCatalogWorker: (worker) => recordCatalogWorker?.(worker),
 });
 
 let receipts: FixtureReceiptChannel;
@@ -89,24 +91,22 @@ function observeCatalogEntry(marker: string, agentDir: string) {
 function observeWorkers(onWorker?: (worker: Worker) => void) {
   const spawned: Worker[] = [];
   let peakWorkers = 0;
-  const workerChannel = channel("worker_threads");
-  const recordWorker = (message: unknown) => {
-    if (isRecord(message) && message.worker instanceof Worker) {
-      spawned.push(message.worker);
-      onWorker?.(message.worker);
-      peakWorkers = Math.max(
-        peakWorkers,
-        spawned.filter((worker) => worker.threadId !== -1).length,
-      );
-    }
+  const recordWorker = (worker: Worker) => {
+    spawned.push(worker);
+    onWorker?.(worker);
+    peakWorkers = Math.max(peakWorkers, spawned.filter((entry) => entry.threadId !== -1).length);
   };
   return {
     spawned,
     get peakWorkers() {
       return peakWorkers;
     },
-    subscribe: () => workerChannel.subscribe(recordWorker),
-    close: () => workerChannel.unsubscribe(recordWorker),
+    subscribe: () => {
+      recordCatalogWorker = recordWorker;
+    },
+    close: () => {
+      recordCatalogWorker = undefined;
+    },
   };
 }
 const workerFailureWarnings = () =>
