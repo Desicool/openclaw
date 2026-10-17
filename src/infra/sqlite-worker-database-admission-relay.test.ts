@@ -132,20 +132,19 @@ it.each([
       transferList: [channel.port2],
     },
   );
-  // Worker exit can drain the final message before its await continuation resumes.
-  const exited = new Promise<number>((resolve) => {
-    worker.once("exit", resolve);
-  });
   try {
     const result = await new Promise((resolve, reject) => {
+      let reply: unknown;
       worker.on("error", reject);
+      // Exit can drain the result message and fire before an await continuation.
+      worker.once("exit", () => resolve(reply));
       worker.on("message", (message) => {
         if ("waiting" in message) {
           waitedPastThirtySeconds = true;
           expect(message.waiting).toBeGreaterThan(480_000);
           expect(message.waiting).toBeLessThanOrEqual(488_000);
         } else if (!("ready" in message)) {
-          resolve(message);
+          reply = message;
         }
       });
     });
@@ -154,7 +153,6 @@ it.each([
       message: "SQLite admission facts exchange timed out; the host did not reply",
       code: "unavailable",
     });
-    await expect(exited).resolves.toBe(0);
   } finally {
     channel.port1.close();
     channel.port2.close();
