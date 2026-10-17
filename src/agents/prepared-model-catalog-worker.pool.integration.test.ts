@@ -68,10 +68,12 @@ vi.mock("../logging/subsystem.js", async (importOriginal) => {
   };
 });
 
-let recordCatalogWorker: ((worker: Worker) => void) | undefined;
-const { makeTempDir, observeCatalogEntry: observeEntry } = usePreparedCatalogWorkerFixtures({
+const {
+  makeTempDir,
+  observeCatalogEntry: observeEntry,
+  observeWorkers,
+} = usePreparedCatalogWorkerFixtures({
   observeCatalogWork: true,
-  onCatalogWorker: (worker) => recordCatalogWorker?.(worker),
 });
 
 let receipts: FixtureReceiptChannel;
@@ -88,27 +90,6 @@ function observeCatalogEntry(marker: string, agentDir: string) {
   return observeEntry(receipts, { marker, agentDir });
 }
 
-function observeWorkers(onWorker?: (worker: Worker) => void) {
-  const spawned: Worker[] = [];
-  let peakWorkers = 0;
-  const recordWorker = (worker: Worker) => {
-    spawned.push(worker);
-    onWorker?.(worker);
-    peakWorkers = Math.max(peakWorkers, spawned.filter((entry) => entry.threadId !== -1).length);
-  };
-  return {
-    spawned,
-    get peakWorkers() {
-      return peakWorkers;
-    },
-    subscribe: () => {
-      recordCatalogWorker = recordWorker;
-    },
-    close: () => {
-      recordCatalogWorker = undefined;
-    },
-  };
-}
 const workerFailureWarnings = () =>
   runtimeWarnings.filter((message) => message.startsWith("model catalog worker failed"));
 
