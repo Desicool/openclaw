@@ -704,7 +704,6 @@
 ["extensions/googlechat/src/targets.outbound-session.test.ts","openclaw/plugin-sdk/ssrf-runtime","f4468e09d98ffebbdd49e69e54c6feb26f950b34f36c47d7b386ac5e81e8ae42",1]
 ["extensions/googlechat/src/targets.test.ts","openclaw/plugin-sdk/ssrf-runtime","051335dc17ab015051a4bdb42ad08a45f24aeb9719d5278252ca5229678972c0",1]
 ["extensions/imessage/src/actions.test.ts","./actions.runtime.js","a75559d5f8b97452751b53c9c6a514e68ccd0f0c8b7c67fdf1bd3c216bb939fb",1]
-["extensions/imessage/src/actions.test.ts","./probe.js","eaff83a7f71ca75252bbc06ae60843d5d0c59f6baaf6d0f8fee6447931264e03",1]
 ["extensions/imessage/src/actions.test.ts","./remote-host.js","deb36083b2fe5adcf543482f5d491a6471b354c34ce2d9e4c6da9dca0ac7b724",1]
 ["extensions/imessage/src/cli-output.test.ts","openclaw/plugin-sdk/process-runtime","1e5f1467d456bbf2dc8faea2aae647e2742e3d4838107bd194194ac91f4ff8db",1]
 ["extensions/imessage/src/install-imsg.test.ts","openclaw/plugin-sdk/run-command","2727ef6729675602332f03dcbfc7eb3e1727afafaf5b056390d550af7d5e14e4",1]
