@@ -624,7 +624,7 @@ async function verifySnapshotDatabaseFile(
     throw new Error(`Snapshot artifact changed before SQLite verification: ${artifactPath}`);
   }
 
-  const validationRootIdentity = await lstatIfExists(validationRootPath, { bigint: true });
+  const validationRootIdentity = await lstatIfExists(validationRootPath);
   if (!validationRootIdentity) {
     throw new Error(
       `SQLite validation root does not exist: ${validationRootPath}. Create a private directory there or pass an existing directory with \`--scratch\`.`,
@@ -707,7 +707,7 @@ function buildDatabaseManifest(
 async function ensurePrivateDirectory(directoryPath: string, scopeLabel: string) {
   let expectedExistingIdentity: BigIntStats | undefined;
   if (process.platform !== "win32") {
-    expectedExistingIdentity = await lstatIfExists(directoryPath, { bigint: true });
+    expectedExistingIdentity = await lstatIfExists(directoryPath);
     if (expectedExistingIdentity) {
       assertDirectory(expectedExistingIdentity, directoryPath, scopeLabel);
       // Repair only after ownership and ancestors prove another user cannot
@@ -985,12 +985,9 @@ function readPendingSnapshotIdentity(pendingPath: string): BigIntStats | undefin
   return identity;
 }
 
-async function lstatIfExists(
-  pathname: string,
-  options?: { bigint: true },
-): Promise<BigIntStats | undefined> {
+async function lstatIfExists(pathname: string): Promise<BigIntStats | undefined> {
   try {
-    return await fs.lstat(pathname, options ?? { bigint: true });
+    return await fs.lstat(pathname, { bigint: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return undefined;
