@@ -270,11 +270,12 @@ it("drains memory before stalled connection cleanup while preserving terminal cl
 });
 
 it("closes one managed memory runtime exactly once across repeated owner close calls", async () => {
-  using _discoveryEnv = {
-    [Symbol.dispose]: captureEnv([
-      "OPENCLAW_DISABLE_BUNDLED_PLUGINS",
-      "OPENCLAW_BUNDLED_PLUGINS_DIR",
-    ]).restore,
+  const discoveryEnv = captureEnv([
+    "OPENCLAW_DISABLE_BUNDLED_PLUGINS",
+    "OPENCLAW_BUNDLED_PLUGINS_DIR",
+  ]);
+  using _ = {
+    [Symbol.dispose]: () => discoveryEnv.restore(),
   };
   setTestEnvValue("OPENCLAW_DISABLE_BUNDLED_PLUGINS", "0");
   const originalDiscoveryEnv = {
