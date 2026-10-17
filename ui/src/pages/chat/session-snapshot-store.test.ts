@@ -623,7 +623,6 @@ describe("persistent chat session snapshots", () => {
   it("retains persisted snapshots through a temporary database open failure", async () => {
     const sessionKey = key("agent:main:temporary-open-failure");
     const value = snapshot("Retained conversation");
-    const writer = new SessionSnapshotStore();
     writer.write(sessionKey, value);
     await writer.flush();
     vi.spyOn(indexedDB, "open").mockImplementationOnce(() => {
@@ -636,9 +635,9 @@ describe("persistent chat session snapshots", () => {
   });
 
   it("rebuilds a missing snapshot store after a non-fatal read failure", async () => {
-    const request = indexedDB.open(CHAT_SNAPSHOT_DB_NAME, 8);
+    const request = indexedDB.open(DB, 8);
     request.addEventListener("upgradeneeded", () => {
-      for (const name of [CHAT_SNAPSHOT_METADATA_STORE_NAME, SIDEBAR_SNAPSHOT_STORE_NAME]) {
+      for (const name of [METADATA, SIDEBAR]) {
         request.result.createObjectStore(name, { keyPath: "sessionKey" });
       }
     });
