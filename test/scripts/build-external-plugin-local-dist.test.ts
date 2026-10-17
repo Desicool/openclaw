@@ -390,7 +390,7 @@ fs.writeFileSync("assets/generated.txt", "generated asset");
     expect((await build(steps.slice(0, 1))).exitCode).toBe(0);
     expect(readText(repoRoot, "extensions/external-cjs/asset-builds.txt")).toBe("built\nbuilt\n");
     copyMetadata(repoRoot);
-    expect(fs.readdirSync(path.join(repoRoot, "dist"))).toEqual(["extensions"]);
+    expect(fs.readdirSync(path.join(repoRoot, "dist")).toSorted()).toEqual(["extensions"]);
     for (const { id, runtimeFormat, bundledDist } of plugins) {
       const pluginRoot = path.join(repoRoot, "dist/extensions", id);
       const metadata = readJson(pluginRoot, "package.json");
