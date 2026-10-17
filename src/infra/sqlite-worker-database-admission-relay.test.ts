@@ -132,6 +132,10 @@ it.each([
       transferList: [channel.port2],
     },
   );
+  // Worker exit can drain the final message before its await continuation resumes.
+  const exited = new Promise<number>((resolve) => {
+    worker.once("exit", resolve);
+  });
   try {
     const result = await new Promise((resolve, reject) => {
       worker.on("error", reject);
@@ -150,7 +154,7 @@ it.each([
       message: "SQLite admission facts exchange timed out; the host did not reply",
       code: "unavailable",
     });
-    await once(worker, "exit");
+    await expect(exited).resolves.toBe(0);
   } finally {
     channel.port1.close();
     channel.port2.close();
