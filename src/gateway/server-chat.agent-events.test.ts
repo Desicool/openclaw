@@ -1354,6 +1354,12 @@ describe("agent event handler", () => {
   it("does not duplicate tool events to clients subscribed by run and session", async () => {
     const runId = "provider-tool";
     const sessionKey = "session-dedupe";
+    loadGatewaySessionRow.mockReturnValue({
+      key: sessionKey,
+      sessionId: "session-dedupe-id",
+      label: "Tool session",
+      lastAssistantMessage: "Previous answer",
+    });
     const h = createHarness({ resolveSessionKeyForRun: () => sessionKey });
     h.register(runId, sessionKey, "client-tool", { agentId: "work" });
     registerAgentRunContext(runId, { sessionKey, verboseLevel: "off" });
@@ -1383,7 +1389,74 @@ describe("agent event handler", () => {
       ["agent", "client-tool", "work", new Set(["conn-overlap", "conn-run-only"])],
       ["session.tool", "client-tool", "work", new Set(["conn-session-only"])],
     ]);
+    const mirror = h.broadcastToConnIds.mock.calls.find(([event]) => event === "session.tool")?.[1];
+    expect(mirror).toMatchObject({
+      sessionKey,
+      runId: "client-tool",
+      agentId: "work",
+      stream: "tool",
+      data: { phase: "start", args: { command: "echo hi" } },
+    });
+    // Roster publications own metadata; live tool mirrors carry only tool activity.
+    expect(mirror).not.toHaveProperty("session");
+    expect(mirror).not.toHaveProperty("label");
+    expect(mirror).not.toHaveProperty("lastAssistantMessage");
   });
+
+  it.each(["dispatch_action", "mcp_report"])(
+    "preserves %s display output while omitting only the dispatcher's raw result mirror",
+    async (name) => {
+      const runId = "run-dispatch-result";
+      const h = createHarness({ resolveSessionKeyForRun: () => "session-dispatch" });
+      h.toolEventRecipients.add(runId, "conn-run");
+      h.sessionEventSubscribers.subscribe("conn-session");
+      const rawResult = {
+        content: [{ type: "image", data: "raw-image-data", mimeType: "image/png" }],
+        structuredContent: { report: "full structured report" },
+      };
+      const result = {
+        content: [
+          { type: "text", text: "bounded display output" },
+          { type: "image", bytes: 123, omitted: true, mimeType: "image/png" },
+        ],
+        details: {
+          tool: { id: "mcp_report", name: "mcp_report", source: "mcp" },
+          result: rawResult,
+          status: "error",
+          permissionMissing: "screenRecording",
+        },
+      };
+      await h.emit(runId, "tool", {
+        phase: "result",
+        name,
+        toolCallId: "dispatch-result-1",
+        result,
+        isError: true,
+      });
+      expect(h.broadcastToConnIds.mock.calls.map(([event]) => event)).toEqual([
+        "agent",
+        "session.tool",
+      ]);
+      for (const [, payload] of h.broadcastToConnIds.mock.calls) {
+        expect(payload.data).toMatchObject({
+          phase: "result",
+          name,
+          toolCallId: "dispatch-result-1",
+          isError: true,
+        });
+        expect(payload.data.result).toEqual({
+          content: result.content,
+          details:
+            name === "dispatch_action"
+              ? { status: "error", permissionMissing: "screenRecording" }
+              : result.details,
+        });
+      }
+      // Internal consumers and transcript publication retain the original envelope.
+      expect(result.details.result).toBe(rawResult);
+      expect(result.details.tool.id).toBe("mcp_report");
+    },
+  );
 
   it("suppresses heartbeat tool events for Control UI and verbose node subscribers", async () => {
     const h = createHarness({
