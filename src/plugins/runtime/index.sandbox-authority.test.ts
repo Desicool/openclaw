@@ -1,4 +1,5 @@
 import "../../test-utils/prepare-compiled-subprocesses.js";
+import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { awaitGateBeforeSettlement } from "../../../test/helpers/promise.js";
 import { observeHostDataSql } from "../../../test/helpers/sqlite-statement-execution-counter.js";
@@ -14,7 +15,6 @@ import {
 } from "../../config/sessions/session-accessor.sqlite-entry.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createDeferredCore } from "../../shared/deferred.js";
-import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
 import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 
 const sandboxContextMocks = vi.hoisted(() => ({ resolveSandboxContext: vi.fn() }));
@@ -37,22 +37,25 @@ afterEach(async () => {
 });
 
 it.each([false, true])(
-  "checks published session policy at the sandbox effect without synchronous SQL (changed=%s)",
+  "checks configured session policy at the sandbox effect without synchronous SQL (changed=%s)",
   async (changed) => {
     const stateDir = tempDirs.make("plugin-sandbox-authority-");
     vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+    const storePath = path.join(stateDir, "configured-sessions.sqlite");
     const config: OpenClawConfig = {
       agents: {
         defaults: { sandbox: { mode: "all", scope: "session", workspaceAccess: "rw" } },
         entries: { main: { workspace: "/workspace" } },
       },
       tools: { elevated: { enabled: false }, sandbox: { tools: { allow: ["read"] } } },
+      session: { store: storePath },
     };
-    setRuntimeConfigSnapshot(config);
+    // Standalone SDK config selects its store independently of the ambient runtime snapshot.
+    setRuntimeConfigSnapshot({ ...config, session: {} });
     const scope = {
       agentId: "main",
       sessionKey: "agent:main:subagent:sandbox-policy",
-      storePath: resolveOpenClawAgentSqlitePath({ agentId: "main", env: process.env }),
+      storePath,
     };
     replaceSessionEntrySync(scope, { sessionId: "sandbox-policy", updatedAt: 1 });
     const runtime = createPluginRuntime();
@@ -82,7 +85,8 @@ it.each([false, true])(
     );
     const preparation = runtime.sandbox.prepareWorkspaceAuthority({
       config,
-      ...scope,
+      agentId: scope.agentId,
+      sessionKey: scope.sessionKey,
       workspaceDir: "/workspace",
     });
     const result = changed

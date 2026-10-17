@@ -229,16 +229,22 @@ function createRuntimeSandbox(agent: PluginRuntime["agent"]): PluginRuntime["san
     },
     async prepareWorkspaceAuthority(input) {
       const params = { ...input };
-      const { captureSessionEntryCurrentCheckAsyncInternal } =
-        await import("../../config/sessions/session-entry-current-check.js");
-      const prepared = await captureSessionEntryCurrentCheckAsyncInternal({
-        agentId: resolveSessionAgentId({
-          agentId: params.agentId,
-          sessionKey: params.sessionKey,
-          config: params.config,
-        }),
+      const [
+        { captureSessionEntryCurrentCheckAsyncInternal },
+        { resolveSessionStorePathForScope },
+      ] = await Promise.all([
+        import("../../config/sessions/session-entry-current-check.js"),
+        import("../../config/sessions/session-store-path.js"),
+      ]);
+      const agentId = resolveSessionAgentId({
+        agentId: params.agentId,
         sessionKey: params.sessionKey,
-        storePath: params.storePath,
+        config: params.config,
+      });
+      const prepared = await captureSessionEntryCurrentCheckAsyncInternal({
+        agentId,
+        sessionKey: params.sessionKey,
+        storePath: resolveSessionStorePathForScope({ ...params, agentId }, params.config),
         fields: [
           "sandbox",
           "sandboxMode",
