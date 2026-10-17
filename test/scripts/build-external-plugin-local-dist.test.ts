@@ -404,7 +404,7 @@ fs.writeFileSync("assets/generated.txt", "generated asset");
       const sourceRoot = path.join(repoRoot, "extensions", id);
       if (id === "external-only") {
         expect(readText(sourceRoot, browserEntry)).toBe(browserSource);
-        expect(fs.readdirSync(path.join(sourceRoot, "dist"))).toEqual([
+        expect(fs.readdirSync(path.join(sourceRoot, "dist")).toSorted()).toEqual([
           "control-ui",
           "openclaw.plugin.json",
         ]);
