@@ -117,6 +117,7 @@ export function createChatPaneView(runtime: ChatPaneRuntime) {
   function MountedPane() {
     const context = runtime.context;
     const gateway = projectGateway(context.gateway);
+    const composerCapabilities = projectOwner(runtime.composerCapabilities, (owner) => owner);
     const realtimeOwner = createMemo(() => {
       revision();
       return runtime.realtimeTalk;
@@ -192,6 +193,7 @@ export function createChatPaneView(runtime: ChatPaneRuntime) {
       read: () => {
         revision();
         progress.read();
+        composerCapabilities.read();
         realtime()?.read();
         projects.read();
         resources.read();
