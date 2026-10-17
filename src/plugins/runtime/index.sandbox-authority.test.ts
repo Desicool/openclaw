@@ -15,6 +15,7 @@ import {
 } from "../../config/sessions/session-accessor.sqlite-entry.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createDeferredCore } from "../../shared/deferred.js";
+import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
 import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 
 const sandboxContextMocks = vi.hoisted(() => ({ resolveSandboxContext: vi.fn() }));
@@ -36,26 +37,51 @@ afterEach(async () => {
   sandboxContextMocks.resolveSandboxContext.mockReset();
 });
 
+it("uses the supplied session store without a prepared global config", async () => {
+  const stateDir = tempDirs.make("plugin-sandbox-config-");
+  vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+  const storePath = path.join(stateDir, "custom", "sessions.sqlite");
+  const config: OpenClawConfig = {
+    agents: { defaults: { sandbox: { mode: "all", workspaceAccess: "rw" } } },
+    session: { store: storePath },
+  };
+  setRuntimeConfigSnapshot(config);
+  const scope = { agentId: "main", sessionKey: "agent:main:custom-sandbox", storePath };
+  replaceSessionEntrySync(scope, {
+    sessionId: "custom-sandbox",
+    updatedAt: 1,
+    sandboxMode: "off",
+  });
+  clearRuntimeConfigSnapshot();
+
+  await expect(
+    createPluginRuntime().sandbox.prepareWorkspaceAuthority({
+      config,
+      agentId: scope.agentId,
+      sessionKey: scope.sessionKey,
+      workspaceDir: path.join(stateDir, "workspace"),
+    }),
+  ).resolves.toEqual({ sandboxed: false, workspaceAccess: "rw" });
+  expect(sandboxContextMocks.resolveSandboxContext).not.toHaveBeenCalled();
+});
+
 it.each([false, true])(
-  "checks configured session policy at the sandbox effect without synchronous SQL (changed=%s)",
+  "checks published session policy at the sandbox effect without synchronous SQL (changed=%s)",
   async (changed) => {
     const stateDir = tempDirs.make("plugin-sandbox-authority-");
     vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
-    const storePath = path.join(stateDir, "configured-sessions.sqlite");
     const config: OpenClawConfig = {
       agents: {
         defaults: { sandbox: { mode: "all", scope: "session", workspaceAccess: "rw" } },
         entries: { main: { workspace: "/workspace" } },
       },
       tools: { elevated: { enabled: false }, sandbox: { tools: { allow: ["read"] } } },
-      session: { store: storePath },
     };
-    // Standalone SDK config selects its store independently of the ambient runtime snapshot.
-    setRuntimeConfigSnapshot({ ...config, session: {} });
+    setRuntimeConfigSnapshot(config);
     const scope = {
       agentId: "main",
       sessionKey: "agent:main:subagent:sandbox-policy",
-      storePath,
+      storePath: resolveOpenClawAgentSqlitePath({ agentId: "main", env: process.env }),
     };
     replaceSessionEntrySync(scope, { sessionId: "sandbox-policy", updatedAt: 1 });
     const runtime = createPluginRuntime();
@@ -85,8 +111,7 @@ it.each([false, true])(
     );
     const preparation = runtime.sandbox.prepareWorkspaceAuthority({
       config,
-      agentId: scope.agentId,
-      sessionKey: scope.sessionKey,
+      ...scope,
       workspaceDir: "/workspace",
     });
     const result = changed
