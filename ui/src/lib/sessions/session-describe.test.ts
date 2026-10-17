@@ -85,6 +85,24 @@ describe("session descriptor reads", () => {
     expect(h.read).toHaveBeenCalledTimes(10);
   });
 
+  it("reuses a descriptor across unchanged row observations without a time limit", async () => {
+    const h = harness();
+    const first = { ...initial, snapshotAt: 1 };
+    h.setRow(first);
+    await h.sessions.refresh({ agentId: "main" });
+    const described = await h.sessions.describe({ key });
+    for (let step = 1; step <= 12; step += 1) {
+      await vi.advanceTimersByTimeAsync(31_000);
+      const observed = { ...first, snapshotAt: step + 1 };
+      h.setRow(observed);
+      await h.sessions.refresh({ agentId: "main", force: true });
+      expect(h.sessions.state.result?.sessions[0]?.snapshotAt).toBe(step + 1);
+      await h.sessions.describe({ key });
+    }
+    expect(h.read).toHaveBeenCalledTimes(1);
+    expect(await h.sessions.describe({ key })).toEqual(described);
+  });
+
   it.each([
     { cause: "observed revision", phase: "completed" },
     { cause: "sessions.changed", phase: "pending" },
