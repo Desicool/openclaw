@@ -563,10 +563,13 @@ describe("doctor lint state isolation", () => {
               await collectDoctorFindings(runtime);
             }
             expect(observed).toEqual(Array.from({ length: 4 }, () => [{ value }]));
-            const uniqueLocations = new Set(locations);
+            // SQLite adds the Windows namespace prefix; compare one spelling of each file.
+            const uniqueLocations = new Set(
+              locations.map((location) => path.toNamespacedPath(location)),
+            );
             expect(uniqueLocations.size).toBe(1);
             for (const location of uniqueLocations) {
-              expect(location).not.toBe(databasePath);
+              expect(location).not.toBe(path.toNamespacedPath(databasePath));
               expect(previousLocations.has(location)).toBe(false);
               expect(fs.existsSync(location)).toBe(false);
               previousLocations.add(location);
