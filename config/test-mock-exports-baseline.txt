@@ -1750,7 +1750,6 @@
 ["src/agents/auth-profiles/oauth-file-lock-passthrough.test-support.ts","../../plugin-sdk/file-lock.js","d05c4479554f9dcf67fa6cb076efba043771f47e185331e7e1834adfbb4771cd",1]
 ["src/agents/auth-profiles/oauth-manager.settlement-validation.test.ts","../../llm/oauth.js","c061af9753771a2efc273a40344d4624e41fa5a4f8caffc9c05e2897fbc0dbe1",1]
 ["src/agents/auth-profiles/oauth-refresh-queue.test.ts","../../llm/oauth.js","c061af9753771a2efc273a40344d4624e41fa5a4f8caffc9c05e2897fbc0dbe1",1]
-["src/agents/auth-profiles/oauth.cancellation.test.ts","./oauth-manager.js","7ceb966a1477e0b5dfc98e58c24ed4c4a812cb1d890ff051e8a5d8cd829cb798",1]
 ["src/agents/auth-profiles/oauth.concurrent-agents.test.ts","../../llm/oauth.js","65c03c3932f5471d2dee22a45b3165bc2344b0da2f72e11d9f890478468d3b6a",1]
 ["src/agents/auth-profiles/oauth.fallback-to-main-agent.test.ts","../../llm/oauth.js","b47ebfd8dcf276f416e9c32fd8561049413835d83016e860d5ac6731c43b5356",1]
 ["src/agents/auth-profiles/oauth.fallback-to-main-agent.test.ts","../../plugins/provider-runtime.js","a90ebd573a79b9698c009ceb9c019fd569357b29c57b770161e06f94721d37a4",1]
