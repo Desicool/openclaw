@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import {
   awaitGateBeforeSettlement,
   createDeferred,
@@ -21,6 +21,7 @@ import { historyLane } from "../../config/sessions/session-transcript-worker-res
 import { rotateAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import * as transcriptPersistence from "../../sessions/user-turn-transcript.persistence.js";
 import * as skillSelection from "../../skills/library/selection.js";
+import { prepareUserProfileCatalog } from "../../state/user-profile-list.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import { refusePendingInputCommit } from "../pending-input-commit.test-support.js";
 import { bindSessionRowProjection } from "../session-row-projection-access.js";
@@ -296,6 +297,7 @@ it.for(["dispatch", "failure", "cancel"] as const)(
     await using fixture = await createFixture({ active: false });
     const runId = fixture.params.idempotencyKey;
     const profile = ensureProfileForEmail("preparation-ack@example.test");
+    onTestFinished((await prepareUserProfileCatalog()).release);
     setClientProfile(fixture.client, profile, "Preparation fixture");
     const entered = createDeferred();
     const release = createDeferred();
