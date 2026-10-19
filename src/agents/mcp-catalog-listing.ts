@@ -3,7 +3,7 @@ import { asPositiveFiniteNumber } from "@openclaw/normalization-core/number-coer
 import { asOptionalObjectRecord } from "@openclaw/normalization-core/record-coerce";
 import { collectMcpPaginatedItems } from "./mcp-pagination.js";
 
-export const MCP_CATALOG_LIST_LIMITS = {
+const MCP_CATALOG_LIST_LIMITS = {
   maxPages: 128,
   maxItems: 16_384,
   maxBytes: 10 * 1024 * 1024,
