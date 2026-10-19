@@ -10,6 +10,8 @@ import {
   SettingsNavRow,
   LearnMoreLink,
 } from "../../components/solid/settings-ui.tsx";
+import { registerPluginManagementEnglish } from "../../i18n/locales/en-plugin-management.ts";
+import { registerSettingsEnglish } from "../../i18n/locales/en-settings.ts";
 import { buildAgentContext } from "../../lib/agents/display.ts";
 import "../../styles/agents.css";
 import "../../styles/sidebar-markdown.css";
@@ -18,7 +20,7 @@ import {
   currentConfigObject,
   type RuntimeConfigState,
 } from "../../lib/config/config-state-model.ts";
-import { t } from "../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
 import { ReasonedDisabledControl } from "../plugins/reasoned-disabled-control.tsx";
 import type { AgentConfigActions } from "./config-actions.tsx";
 import type { AgentMemoryTarget } from "./memory/memory-panel-state.ts";
@@ -28,6 +30,9 @@ import { AgentOverview } from "./panels-overview.tsx";
 import { AgentSkills } from "./panels-skills.tsx";
 import { AgentChannels, AgentCron } from "./panels-status-files.tsx";
 import { AgentTools } from "./panels-tools-skills.tsx";
+
+registerEnglishCatalog(registerSettingsEnglish);
+registerEnglishCatalog(registerPluginManagementEnglish);
 
 const AGENTS_DOCS_URL = "https://docs.openclaw.ai/concepts/multi-agent";
 
