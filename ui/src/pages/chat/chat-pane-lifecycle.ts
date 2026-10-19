@@ -49,7 +49,6 @@ import { resolveSidebarLayoutForBoard } from "./chat-pane-sidebar-layout.ts";
 import { subscribeChatPaneSnapshotInvalidation } from "./chat-pane-startup-subscriptions.ts";
 import type { ChatPaneInputChanges } from "./chat-pane-state-owner.ts";
 import { getChatPendingInputs } from "./chat-pending-inputs.ts";
-import { resumeStoredChatOutboxes } from "./chat-send-actions.ts";
 import { cancelChatModelRecovery } from "./chat-session.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import { createPageState } from "./chat-state-page.ts";
@@ -310,7 +309,6 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionObservation {
     }
     pageState.sidebarLayout = this.restorePaneSidebarLayout(pageState.sidebarLayout);
     pageState.getWorkContext = () => this.workContext;
-    pageState.isRouteSessionPending = () => this.routeResolutionPending;
     // Task tabs can precede main chat in DOM order; viewport reads and commands
     // must resolve through the same transcript owner.
     pageState.chatIsProgrammaticScroll = () => this.transcript.isProgrammaticScroll;
@@ -611,9 +609,6 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionObservation {
     }
     this.syncSessionReactions();
     this.syncRetainedBoardSession(this.resolveBoardView());
-    if (changes.routeResolutionPending && !this.routeResolutionPending && this.state) {
-      void resumeStoredChatOutboxes(this.state);
-    }
   }
 
   override afterRender(focusComposerChanged: boolean) {
