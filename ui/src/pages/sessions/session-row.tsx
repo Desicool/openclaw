@@ -20,6 +20,7 @@ import { handleContextMenuEvent } from "../../lib/keyboard-shortcuts.ts";
 import { shouldHandleNavigationClick } from "../../lib/navigation-click.ts";
 import { formatSessionTokens } from "../../lib/presenter.ts";
 import { t } from "../../lib/reactive/i18n.ts";
+import { liveValue as createLiveValue } from "../../lib/reactive/live-value.ts";
 import { resolveSessionDisplayKind } from "../../lib/session-display.ts";
 import { formatGoalDetail, formatGoalSummary } from "../../lib/session-goal.ts";
 import { SESSION_DRAG_MIME } from "../../lib/sessions/drag.ts";
@@ -367,6 +368,8 @@ export function SessionRows(props: SessionsProps & { row: GatewaySessionRow }) {
   function SessionDetails() {
     const labelDisabledReason = createMemo(() => props.labelDisabledReason?.(row()));
     const labelValue = createMemo(() => row().label ?? "");
+    // Commit-on-change drafts belong to the native input until the label itself changes.
+    const labelRef = createLiveValue(labelValue);
     const rawThinking = createMemo(() => row().thinkingLevel ?? "");
     const thinking = createMemo(() =>
       rawThinking() ? normalizeThinkingOptionValue(rawThinking()) : "",
@@ -445,7 +448,7 @@ export function SessionRows(props: SessionsProps & { row: GatewaySessionRow }) {
                   <span class="session-override-field__label">{t("sessionsView.label")}</span>
                   <input
                     class="settings-input"
-                    value={labelValue()}
+                    ref={labelRef}
                     disabled={props.loading || Boolean(labelDisabledReason())}
                     title={labelDisabledReason() ?? undefined}
                     placeholder={t("sessionsView.optionalPlaceholder")}
