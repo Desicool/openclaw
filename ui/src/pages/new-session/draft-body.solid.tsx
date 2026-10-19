@@ -7,6 +7,7 @@ import "../../styles/chat/grouped.css";
 import "../../styles/chat/working-indicator.css";
 import { beginNativeWindowDragFromTopInset } from "../../app/native-window-drag.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.types.ts";
+import { createBackgroundLayoutRef } from "../../components/session-background-layout-context.tsx";
 import { Icon } from "../../components/solid/icon.tsx";
 import { LazyViewError } from "../../components/solid/lazy-view-error.tsx";
 import { LoadingState } from "../../components/solid/loading-state.tsx";
@@ -73,6 +74,7 @@ export function DraftError(props: DraftErrorProps) {
 }
 
 export function NewSessionBody(props: NewSessionBodyProps) {
+  const scrollRef = createBackgroundLayoutRef("scroll");
   const avatarPlacement = createMemo(() =>
     resolveChatDefaultAvatarPlacement(
       true,
@@ -86,6 +88,7 @@ export function NewSessionBody(props: NewSessionBodyProps) {
         {newSessionAnnouncement(props)}
       </div>
       <div
+        ref={scrollRef}
         class={[
           props.inChat ? "" : "new-session-page__scroll",
           {
