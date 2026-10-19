@@ -482,7 +482,6 @@ describe("controlUi.sessionPullRequests.subscribe", () => {
       prepareRead: async () => {
         throw new Error("session reader unavailable");
       },
-      load: vi.fn(),
     });
     try {
       const { respond, send } = fixture("sessionPullRequests.subscribe");
