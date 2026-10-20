@@ -260,7 +260,6 @@
 ["extensions/codex/harness.test.ts","openclaw/plugin-sdk/simple-completion-runtime","26c2a759f4434c5619f29fc26d087159c4dacc0bd973a48ae45d55396a996287",1]
 ["extensions/codex/index.test.ts","./src/app-server/run-attempt.js","dc68a11b9fddc51f19e2c0c1f961d2cfc33c5235efab55480687aaf1ffebb9f3",1]
 ["extensions/codex/index.test.ts","./src/app-server/side-question.js","146d823cf00624e8cbaacacd47238bb90372e66fdf41982327f92b23a8927ff8",1]
-["extensions/codex/src/account-usage.test.ts","./app-server/auth-profile.js","586589faf5c598de66c19ac2ac7f78a8081b5e5139c5269ade0fe1904711e71c",1]
 ["extensions/codex/src/account-usage.test.ts","./app-server/request.js","82d0559c109a26b56c361284a175c1b669c7ffb84a12bcd995f3f63d642651eb",1]
 ["extensions/codex/src/app-server/auth-bridge-computer-use-cache.test.ts","./computer-use-cache.js","1b4221a1500ca221367f6d15ec0cc7cc8d03612087fb277338e99661034007d4",1]
 ["extensions/codex/src/app-server/auth-bridge-computer-use-cache.test.ts","./computer-use-marketplace.js","096289295b4e98039f89380b034ed94ab29695057c558eda0c27cf43bc0ef95e",1]
