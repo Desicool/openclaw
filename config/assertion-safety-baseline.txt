@@ -1703,7 +1703,6 @@ src/config/sessions/skill-prompt-blobs.ts	5
 src/config/sessions/store-entry-shape.ts	1
 src/config/sessions/transcript-assistant-message.ts	2
 src/config/sessions/transcript-replay.ts	1
-src/config/sessions/transcript-stream.ts	1
 src/config/sessions/transcript-tree.ts	3
 src/config/sessions/transcript.ts	8
 src/config/sessions/types.ts	1
