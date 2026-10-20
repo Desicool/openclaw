@@ -398,12 +398,7 @@ export async function resolveNextcloudTalkAuthenticatedMediaSource(params: {
   if (!credentials) {
     return { ok: false, reason: "media_auth_unavailable" };
   }
-  let base: URL;
-  try {
-    base = new URL(params.baseUrl);
-  } catch {
-    return { ok: false, reason: "media_fetch_failed" };
-  }
+  const base = new URL(params.baseUrl);
   const authorization = buildBasicAuthorization(credentials.apiUser, credentials.apiPassword);
   const userUrl = buildSameOriginUrl(base, "/ocs/v1.php/cloud/user");
   userUrl.searchParams.set("format", "json");
