@@ -105,9 +105,6 @@ declare module "@solidjs/web" {
         };
       "openclaw-message-reaction-picker": HTMLAttributes<HTMLElement> & {
         compact?: boolean;
-        placement?: "bottom-start" | "bottom-end";
-        "prop:activeEmoji"?: ReadonlySet<string>;
-        "prop:onSelect"?: (emoji: string, remove: boolean) => void;
       };
       "openclaw-chat-clawhub-card": HTMLAttributes<HTMLElement> & {
         "prop:recommendation"?: ClawHubRecommendation;
