@@ -522,6 +522,13 @@ export function redactPublicSupportDiagnosticLine(
   context: SupportRedactionContext,
 ): string {
   const line = redactSupportDiagnosticLine(value, context);
+  if (
+    /^Client credential socket material is invalid\.(?: Failed migrating shared state database schema at \[redacted-path\])?$/u.test(
+      line,
+    )
+  ) {
+    return "Client credential socket material is invalid.";
+  }
   const startupSignal = /^startup crash with signal (SIG[A-Z0-9]+)$/u.exec(line)?.[1];
   if (
     !/[\r\n\u2028\u2029]/u.test(value) &&
