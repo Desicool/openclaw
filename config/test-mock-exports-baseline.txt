@@ -2195,7 +2195,6 @@
 ["src/agents/harness/native-hook-relay.approval-wait.test.ts","../tools/gateway.js","88f5c83ec236b816d42dcc9f38161e4f25a10f9a557acb8c851434c71f0ef6e0",1]
 ["src/agents/harness/registry.test.ts","../../plugins/provider-model-routes.js","a57bd121a55a7c9675c823ca71c6dfd9263fda64099ea8faa194d2d5a16bbd85",1]
 ["src/agents/harness/registry.test.ts","../../plugins/providers.js","d651a744aca63ec706e0fdde4d22751b6677792fbd0248554da7717cf9529a2f",1]
-["src/agents/harness/runtime-plugin.test.ts","../../plugins/activation-planner.js","13b807eff36d3054f116d988e03d64fc5ad2f5cc133b388a6cbe32335e2752e1",1]
 ["src/agents/harness/runtime-plugin.test.ts","../../plugins/providers.js","3e53510566af25644055d2e1162b8afa8cb6ac2f7756796c23e964be999ca5a3",1]
 ["src/agents/harness/selection.test.ts","../../plugins/providers.js","91ebaff6002526213dcbad78063ebeb3993380236c76c364301972562ca38cec",1]
 ["src/agents/harness/selection.test.ts","../embedded-agent-runner/model.js","faa6afa1462881a239a371856f48bc124e31cbd6fae99f6870cd7e2128f4d10f",1]
