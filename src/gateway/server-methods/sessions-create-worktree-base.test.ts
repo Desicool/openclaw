@@ -21,6 +21,7 @@ import {
   initializeRepository,
   settleWorkspaceRuns,
 } from "../server.sessions.create.projects.test-support.js";
+import { sessionTitleRequests } from "../session-title-state.js";
 import { dispatchInboundMessageMock, testState } from "../test-helpers.js";
 import {
   directSessionReq,
@@ -282,7 +283,16 @@ test("sessions.create recovers a failed worktree in the same session with an exp
   const target = { agentId: "main", sessionKey, storePath };
   try {
     await settleWorkspaceRuns(context, storePath, sessionKey);
+    const beforeTitle = loadSessionEntry(target)!;
+    // Automatic naming is independent of the failed worktree run's settlement.
+    await sessionTitleRequests.get({ ...target, sessionId: beforeTitle.sessionId });
     const failed = loadSessionEntry(target)!;
+    expect(failed).toEqual({
+      ...beforeTitle,
+      displayName: expect.stringMatching(/^[a-z]+-[a-z]+$/),
+      updatedAt: expect.any(Number),
+    });
+    expect(failed.updatedAt).toBeGreaterThanOrEqual(beforeTitle.updatedAt);
     expect(failed).toMatchObject({
       status: "failed",
       lastRunError: expect.stringContaining("has no commits"),
@@ -305,10 +315,12 @@ test("sessions.create recovers a failed worktree in the same session with an exp
     const bound = loadSessionEntry(target)!;
     expect(bound).toMatchObject({
       sessionId: failed.sessionId,
+      displayName: failed.displayName,
       projectId: project.id,
       lastRunError: failed.lastRunError,
       worktree: { repoRoot: repository },
     });
+    expect(bound.updatedAt).toBeGreaterThanOrEqual(failed.updatedAt);
     expect(bound).not.toHaveProperty("pendingWorktree");
     expect(bound).not.toHaveProperty("pendingProjectGitUrl");
     expect(loadTranscriptEventsSync(transcriptScope)).toEqual(history);
