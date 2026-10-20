@@ -172,9 +172,7 @@ export function shouldTreatEmptyAssistantReplyAsSilent(params: {
  * Builds the retry instruction for reasoning-only turns that consumed provider
  * output budget but produced no visible assistant text.
  */
-export function resolveReasoningOnlyRetryInstruction(
-  params: IncompleteTurnRecoveryParams,
-): string | null {
+function resolveReasoningOnlyRetryInstruction(params: IncompleteTurnRecoveryParams): string | null {
   if (shouldSkipNonVisibleTurnRetry(params) || !shouldApplyNonVisibleTurnRetryGuard(params)) {
     return null;
   }
@@ -414,7 +412,7 @@ export function resolveSettledToolTerminalContinuation(
  * Builds the retry instruction for empty assistant turns when the provider/model
  * is eligible for non-visible turn recovery.
  */
-export function resolveEmptyResponseRetryInstruction(
+function resolveEmptyResponseRetryInstruction(
   params: IncompleteTurnRecoveryParams & {
     payloadCount: number;
     replyDeliveryState: ReplyDeliveryState;
