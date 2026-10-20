@@ -14,7 +14,7 @@ type TitleOwner = {
   applySessionsState(publication: ChatPageHost["sessions"]["state"]): void;
 };
 
-export type ColdLoadTitleTrace = {
+type ColdLoadTitleTrace = {
   mark(phase: string): void;
   read(): {
     attribution: string;
