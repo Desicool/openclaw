@@ -51,7 +51,7 @@ import { resolveProviderTransport } from "./model.provider-transport.js";
 import type { ManifestModelCatalogProviderAliasMetadata } from "./model.static-catalog.js";
 
 /** A native transport change needs support from its model or provider route owner. */
-export function hasConfiguredModelRouteSupport(params: {
+function hasConfiguredModelRouteSupport(params: {
   provider: string;
   modelId: string;
   cfg?: OpenClawConfig;
@@ -204,7 +204,7 @@ export function resolveConfiguredProviderConfig(
 }
 
 /** Merge authored rates after discovery; runtime defaults must not become price pins. */
-export function mergeConfiguredModelCost(params: {
+function mergeConfiguredModelCost(params: {
   provider: string;
   cfg?: OpenClawConfig;
   configuredModel?: NonNullable<InlineProviderConfig["models"]>[number];
@@ -321,7 +321,7 @@ function findConfiguredAgentModelParams(params: {
   return undefined;
 }
 
-export function clampModelMaxTokensToContextWindow(
+function clampModelMaxTokensToContextWindow(
   maxTokens: number | undefined,
   contextWindow: number | undefined,
 ): number | undefined {
