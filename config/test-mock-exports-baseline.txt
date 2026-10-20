@@ -6397,7 +6397,6 @@
 ["src/gateway/server-startup-web-fetch-bind.test.ts","../agents/main-session-recovery/main-session-restart-recovery-marking.js","52bea49c709dd5db55f08c7adb6ff299e78cf381e262c708a5b33a05784de789",1]
 ["src/gateway/server-startup-web-fetch-bind.test.ts","../agents/prepared-model-runtime.js","a4926b6d37b78de1c57f8c5008888c6f447905dcf7c621521363923166071d7e",1]
 ["src/gateway/server-startup-web-fetch-bind.test.ts","./server-chat-metadata-lifecycle.js","bb80e688b552a1ecd5cdbde9f36c926c87fdb70205aaee31fd43437c273d447a",1]
-["src/gateway/server-startup.test.ts","../agents/agent-scope.js","94f002f08dbc3357cd76f8d111f8180dddd182d8748d116eecfa9b8a66c1a567",1]
 ["src/gateway/server-startup.test.ts","../agents/prepared-model-runtime.js","42804b8060291696dcf9b02b370041a544030ba5b6addd4ac84a63e2ddcd0b41",1]
 ["src/gateway/server-tailscale.test.ts","../infra/tailscale.js","f98be7299e99a3e837aef0003a075eae59d6317004b2e004b8b9e987684e3b24",1]
 ["src/gateway/server-tls-renewal.test.ts","../infra/tls/gateway.js","e46704192d8ff451fcb26b7dcc7239923be8eb7142dda0a4d424ff1ff6662929",1]
