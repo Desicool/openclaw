@@ -117,6 +117,7 @@ export function sidebarPanelDefinitions(
     definePanel("portal", "globe"),
     definePanel("workspace", "fileText"),
     definePanel("companion", "messageSquarePlus", true, {
+      // The main pane has no closable tab, so it keeps its native reset action.
       headerActionView:
         params?.presentation === "desktop" &&
         state &&
@@ -125,10 +126,9 @@ export function sidebarPanelDefinitions(
           : params,
     }),
     definePanel("desktop", "monitor", Boolean(params?.desktopAvailable), {
-      headerLink:
-        params?.presentation === "desktop"
-          ? undefined
-          : panelExternalLink(params?.desktopFocusHref, t("desktop.openWindow")),
+      headerLink: params?.presentation
+        ? undefined
+        : panelExternalLink(params?.desktopFocusHref, t("desktop.openWindow")),
     }),
     definePanel("discussion", "messageSquare", Boolean(params?.discussion), {
       headerLink: panelExternalLink(

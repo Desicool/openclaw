@@ -279,21 +279,11 @@
   flex: 1;
   min-height: 0;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
   margin: 0;
   border: 0;
   border-radius: 0;
   box-shadow: none;
-}
-
-/* Native Session/Progress content keeps its inset inside the full-bleed host. */
-.sidebar-region--mobile-host
-  > .chat-mobile-host
-  > .chat-mobile-host__details
-  > div
-  > .chat-details
-  > :is(openclaw-chat-details-session, openclaw-chat-details-progress) {
-  padding-inline: var(--mobile-content-inset);
 }
 
 .sidebar-region--mobile-host > .chat-mobile-host[hidden],
@@ -391,6 +381,8 @@
     [data-details-page="task-progress"],
     [data-details-page="pull-requests"],
     [data-details-page="pull-request"],
+    [data-details-page="pull-request-checks"],
+    [data-details-page="pull-request-monitoring"],
     [data-details-page="outputs"],
     [data-details-page="versions"],
     [data-details-page="publication"]

@@ -2,11 +2,7 @@ import { Buffer } from "node:buffer";
 import path from "node:path";
 import type { Page } from "playwright";
 import { expect, it } from "vitest";
-import {
-  closeChatLayoutMenu,
-  openChatLayoutMenu,
-  selectChatLayoutAction,
-} from "../test-helpers/chat-layout-menu.ts";
+import { selectChatLayoutAction } from "../test-helpers/chat-layout-menu.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import {
@@ -218,7 +214,7 @@ async function openColdSidebar(page: Page, scenario = coldOpenScenario()) {
   await gateway.waitForRequest("sessions.companion.state");
   expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
   await selectChatLayoutAction(page, "Side panel");
-  const choices = page.locator(".side-panel-launcher button");
+  const choices = page.locator(".side-panel-launcher").getByRole("button");
   await choices.first().waitFor();
   expect(await gateway.getRequests("sessions.files.list")).toHaveLength(0);
   return choices;
@@ -341,7 +337,11 @@ async function readSlotColdOpenOutcome(
     if (label === "Subagents") {
       const subagents = page.locator("openclaw-chat-subagents-panel");
       if (expectedOutcome === "content") {
-        await subagents.getByRole("button", { name: "Check panel content", exact: true }).waitFor();
+        const row = subagents.locator('[data-session-key="agent:main:subagent:panel-content"]');
+        await row.getByText("Check panel content", { exact: true }).waitFor();
+        expect(await row.getByRole("button", { name: /^Check panel content/ }).isEnabled()).toBe(
+          true,
+        );
       } else {
         await subagents.getByText("No subagents in this conversation.", { exact: true }).waitFor();
       }
@@ -731,8 +731,8 @@ suite.define(() => {
     });
     await page.goto(controlUiSessionUrl(suite.server.baseUrl, mainCompanionKey));
     await waitForControlUiGatewayReady(page);
-    await page.locator(`[data-panel-slot="companion"][data-region="main"]`).waitFor();
-    const contentActions = await openChatLayoutMenu(page);
+    await page.locator('[data-panel-slot="companion"][data-region="main"]').waitFor();
+    const contentActions = page.locator(".chat-pane__header-trailing");
     const clearAction = contentActions.getByRole("button", {
       name: "Clear side chat",
       exact: true,
@@ -753,9 +753,7 @@ suite.define(() => {
       "Clear side chat",
     );
 
-    await closeChatLayoutMenu(page);
-
-    const tab = page.locator(`.side-panel__header .tabstrip-tab[aria-selected="true"]`);
+    const tab = page.locator('.side-panel__header .tabstrip-tab[aria-selected="true"]');
     for (const direction of ["ltr", "rtl"] as const) {
       const tabPadding = await tab.evaluate((node, dir) => {
         const panel = node.closest<HTMLElement>(".side-panel")!;
@@ -794,14 +792,14 @@ suite.define(() => {
     }
     await tab.evaluate((node) => node.closest(".side-panel")!.removeAttribute("dir"));
 
-    const sideHeader = page.locator(`[data-region-header="side"]`);
+    const sideHeader = page.locator('[data-region-header="side"]');
     await sideHeader.getByRole("button", { name: "New tab", exact: true }).click();
     await page
       .locator(".side-panel-launcher")
       .getByRole("button")
       .filter({ has: page.locator(".side-panel-type-option__label", { hasText: /^Discussion$/ }) })
       .click();
-    const discussionAction = sideHeader.locator(`a.rail-header__action[target="_blank"]`);
+    const discussionAction = sideHeader.locator('a.rail-header__action[target="_blank"]');
     await discussionAction.waitFor();
     expect(await discussionAction.getAttribute("href")).toBe("https://discussion.example/session");
 

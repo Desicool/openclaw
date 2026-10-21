@@ -43,6 +43,20 @@ export type ChatDetailsEnvironmentDesktopProps = ChatDetailsEnvironmentProps & {
   placement?: ChatPanePlacementProps;
 };
 
+type ChatDetailsDesktopDisclosures = {
+  /** Restored by the preference owner before the first render, scoped to this session. */
+  expanded: Partial<Record<ChatDetailsDesktopSectionId, boolean>>;
+  onExpandedChange: (section: ChatDetailsDesktopSectionId, expanded: boolean) => void;
+};
+
+type ChatDetailsDesktopPresentation = {
+  /** Localized section labels supplied by the host's copy owner. */
+  peopleLabel: string;
+  outputsLabel: string;
+  /** Localized Working, without the ellipsis in common.working. */
+  subagentsWorkingLabel: string;
+};
+
 type ChatDetailsEnvironmentData = Pick<
   ChatDetailsEnvironmentDesktopProps,
   | "onOpenProject"
@@ -72,14 +86,19 @@ export type ChatDetailsProps = ChatSessionProgressProps &
     | "subagentSessionsRead"
     | "onOpenSubagent"
     | "onOpenSubagents"
+    | "personActivity"
     | "onScrollPortRef"
   > & {
+    desktopPresentation?: ChatDetailsDesktopPresentation;
+    desktopDisclosures?: ChatDetailsDesktopDisclosures;
     environment?: ChatDetailsEnvironmentData;
     outputs?: ChatDetailsOutputs;
     /** Stable per native resource identity; acquire only while Details is presented. */
     retainOutputs?: () => (() => void) | undefined;
     /** Details consumes the unfiltered progress projection, independently of Show in chat. */
     progressCardError?: "access-denied" | "unavailable";
+    showTaskProgress?: boolean;
+    onShowTaskProgressChange?: (shown: boolean) => void;
     onSessionSelect?: (sessionKey: string) => void;
     detailsWorkspace?: ChatDetailsWorkspace;
     onHideTaskProgress?: () => void;
