@@ -14,8 +14,6 @@ import type { ProviderSystemPromptContribution } from "../system-prompt-contribu
 import type { TranscriptPolicy } from "../transcript-policy.types.js";
 import type { AgentRuntimeCredentialSource } from "./credential-source.types.js";
 
-export type { AgentRuntimeCredentialSource } from "./credential-source.types.js";
-
 export type AgentRuntimeTransport = "sse" | "websocket" | "websocket-cached" | "auto";
 
 type AgentRuntimeThinkLevel = ModelThinkingLevel | "adaptive";

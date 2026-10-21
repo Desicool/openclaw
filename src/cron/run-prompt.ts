@@ -14,7 +14,7 @@ const cronExternalContentRuntimeLoader = createLazyImportLoader(
   () => import("./isolated-agent/run-external-content.runtime.js"),
 );
 
-export function appendCronUnattendedRunPreamble(
+function appendCronUnattendedRunPreamble(
   commandBody: string,
   opts: { externalHook: boolean; restartContinuation?: boolean },
 ) {

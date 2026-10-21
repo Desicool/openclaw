@@ -16,7 +16,6 @@ export type {
   EmbeddedAgentRunMeta,
   EmbeddedRunFailureSignal,
   EmbeddedRunLivenessState,
-  EmbeddedRunTerminalToolFailure,
   ToolSummaryTrace,
   TraceAttempt,
 } from "./result.types.js";
