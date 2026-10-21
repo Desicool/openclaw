@@ -370,10 +370,7 @@ suite.define(() => {
       expect(await fileView.locator(".file-view__line--target").getAttribute("data-line")).toBe(
         "2",
       );
-      await page
-        .locator('[data-region-header="side"]')
-        .getByRole("button", { name: "Files", exact: true })
-        .click();
+      await selectFileAction(fileView, "Show in Files");
       const search = page.locator('.chat-workspace-rail input[type="search"]');
       await search.fill("README");
       await expect
@@ -401,6 +398,7 @@ suite.define(() => {
       });
       expect(await fileView.isVisible()).toBe(true);
       await exactButton(page, "Close tab: README.md").click();
+      await openChatSidePanelType(page, "Files");
       await search.waitFor({ state: "visible" });
       expect(await search.inputValue()).toBe("README");
       const metadata = page.locator(".chat-workspace-rail__file-meta");
@@ -460,6 +458,7 @@ suite.define(() => {
         },
       });
       const openPreview = async (filePath: string) => {
+        await openChatSidePanelType(page, "Files");
         const fileRow = page
           .locator(".chat-workspace-rail__list--browser .chat-workspace-rail__file")
           .filter({ hasText: filePath });
@@ -471,8 +470,6 @@ suite.define(() => {
       };
 
       await page.goto(`${suite.server.baseUrl}chat`);
-      await openChatSidePanelType(page, "Files");
-      await page.getByRole("complementary", { name: "Session workspace" }).waitFor();
 
       await openPreview("notes.txt");
       await page.locator(".sidebar-file-view").waitFor({ state: "visible" });

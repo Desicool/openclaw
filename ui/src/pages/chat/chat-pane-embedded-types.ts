@@ -34,6 +34,8 @@ export type ChatDetailSlotProps = {
 };
 
 export type SidebarPanelDefinitionParams = {
+  onScrollPortRef?: ChatProps["onScrollPortRef"];
+  presentation?: "desktop" | "mobile";
   panePresentation?: PresentationValue;
   detailPresented?: PresentationValue;
   state: ChatPageHost;
@@ -86,7 +88,7 @@ export type SidebarPanelDefinitionParams = {
   onCompanionDraftChange: (draft: string) => void;
   onCompanionAttachmentsChange?: (attachments: ChatAttachment[]) => boolean | void;
   connected: boolean;
-  onClearCompanion: () => void;
+  onClearCompanion: () => Promise<boolean>;
   onCreateClaw?: () => void;
   discussion: SessionDiscussionPanelConfig | null;
   discussionAvailable: boolean;

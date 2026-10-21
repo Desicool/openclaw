@@ -181,6 +181,7 @@ function SubagentsPanel(props: Props) {
   const presented = usePanePresentation(() => props.subagentsPresented);
   return (
     <openclaw-chat-subagents-panel
+      prop:onScrollPortRef={props.onScrollPortRef}
       data-sidebar-panel-host
       ref={[elementRef(props.registerPanelHost)]}
       prop:sessionKey={props.state.sessionKey}
@@ -199,6 +200,7 @@ function ProcessesPanel(props: Props) {
   const presented = usePanePresentation(() => props.processesPresented ?? false);
   return (
     <openclaw-chat-processes-panel
+      prop:onScrollPortRef={props.onScrollPortRef}
       data-sidebar-panel-host
       ref={[elementRef(props.registerPanelHost)]}
       prop:sessionKey={props.state.sessionKey}
@@ -212,6 +214,7 @@ function LinkReaderPanel(props: Props) {
   const presented = usePanePresentation(() => props.linkReaderPresented ?? false);
   return (
     <openclaw-link-reader-panel
+      prop:onScrollPortRef={props.onScrollPortRef}
       data-sidebar-panel-host
       ref={[elementRef(props.registerPanelHost)]}
       prop:embedded={true}
@@ -252,34 +255,20 @@ export function ClearCompanion(
   props: Props & { actionRef?: (element: HTMLButtonElement) => void },
 ) {
   return (
-    <>
-      <Show when={props.onCreateClaw}>
-        <openclaw-tooltip prop:content={`${t("clawsDraft.title")} · ${t("clawsDraft.railHint")}`}>
-          <button
-            class="rail-header__action"
-            type="button"
-            aria-label={t("clawsDraft.title")}
-            onClick={() => props.onCreateClaw?.()}
-          >
-            <Icon name="box" />
-          </button>
-        </openclaw-tooltip>
-      </Show>
-      <openclaw-tooltip prop:content={t("chat.rail.clear")}>
-        <button
-          ref={props.actionRef}
-          class="rail-header__action chat-session-rail__clear"
-          type="button"
-          aria-label={t("chat.rail.clear")}
-          disabled={
-            !props.connected || props.companion.turns.some((turn) => turn.status === "pending")
-          }
-          onClick={() => props.onClearCompanion()}
-        >
-          <Icon name="trash" />
-        </button>
-      </openclaw-tooltip>
-    </>
+    <openclaw-tooltip prop:content={t("chat.rail.clear")}>
+      <button
+        ref={props.actionRef}
+        class="rail-header__action chat-session-rail__clear"
+        type="button"
+        aria-label={t("chat.rail.clear")}
+        disabled={
+          !props.connected || props.companion.turns.some((turn) => turn.status === "pending")
+        }
+        onClick={() => void props.onClearCompanion()}
+      >
+        <Icon name="trash" />
+      </button>
+    </openclaw-tooltip>
   );
 }
 
