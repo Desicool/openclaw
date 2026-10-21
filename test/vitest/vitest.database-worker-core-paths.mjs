@@ -1050,6 +1050,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/harness/native-hook-relay-store.test.ts",
   "src/agents/harness/native-hook-relay.approval-wait.test.ts",
   "src/agents/harness/native-hook-relay.lifecycle.test.ts",
+  "src/agents/harness/native-hook-relay.observations.test.ts",
   "src/agents/harness/native-hook-relay.test.ts",
   "src/cli/native-hook-relay-cli.locator-worker.test.ts",
   "src/cli/command-execution-startup.test.ts",
