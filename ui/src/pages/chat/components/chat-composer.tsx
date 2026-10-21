@@ -114,6 +114,7 @@ export function ChatComposer(props: ChatComposerProps & { questions: ComposerQue
     composition,
     () => props.getTranscriptElement,
   );
+  const streaming = createMemo(() => currentProps.stream !== null);
   const context = createMemo(() => {
     draftState();
     dictation.read();
@@ -125,6 +126,7 @@ export function ChatComposer(props: ChatComposerProps & { questions: ComposerQue
       voice,
       prediction,
       questionPanel(),
+      streaming(),
     );
   });
   createEffect(
