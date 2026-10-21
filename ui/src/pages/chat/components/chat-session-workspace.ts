@@ -34,24 +34,16 @@ import {
   trackSessionCheckoutSidebar,
 } from "./chat-session-workspace-state.ts";
 import type {
-  SessionWorkspaceFilter,
   SessionWorkspaceHost,
   SessionWorkspaceState,
 } from "./chat-session-workspace-types.ts";
-import type { SidebarContent } from "./chat-sidebar-content-types.ts";
+import type { SessionWorkspaceFilter, SidebarContent } from "./chat-sidebar-content-types.ts";
 import { hasUniformLineEndings } from "./chat-sidebar-file-view.tsx";
 
 registerFilePreviewEnglish();
 
 export { retireSessionWorkspaceCheckout } from "./chat-session-workspace-state.ts";
 export type { SessionWorkspaceHost } from "./chat-session-workspace-types.ts";
-
-type SessionWorkspaceView = ReturnType<typeof createSessionWorkspaceProps>;
-export type SessionWorkspaceProps = Omit<
-  SessionWorkspaceView,
-  "connectionEpoch" | "onDownloadFile" | "onOpenDiff"
-> &
-  Partial<Pick<SessionWorkspaceView, "connectionEpoch" | "onDownloadFile" | "onOpenDiff">>;
 
 function formatMarkdownCodeSpan(value: string): string {
   // Markdown finds block boundaries before inline spans, so filenames must

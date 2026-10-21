@@ -8,8 +8,8 @@ import { getSessionWorkspace, loadSessionWorkspace } from "./chat-session-worksp
 import {
   createSessionWorkspaceProps,
   type SessionWorkspaceHost,
-  type SessionWorkspaceProps,
 } from "./chat-session-workspace.ts";
+import type { SessionWorkspaceProps } from "./chat-sidebar-view-types.ts";
 
 type List = NonNullable<SessionWorkspaceProps["list"]>;
 type WorkspaceFixture = Omit<Partial<SessionWorkspaceProps>, "list"> & {
