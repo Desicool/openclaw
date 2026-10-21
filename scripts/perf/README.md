@@ -1934,6 +1934,22 @@ workload below before drawing an end-to-end conclusion.
 
 ## Allocated bytes per RPC or turn
 
+For a bounded chat-owner replay, run:
+
+```sh
+node --import ./scripts/tsx.mjs scripts/perf/gateway-agent-event-measure.ts \
+  --output /path/to/owned-benchmark/replay.json --samples 5 --turns 1000
+```
+
+This replays a lifecycle, read tool, 100 assistant deltas, and completion through
+the real chat handler with a deterministic clock. It records serialized frames,
+lifecycle-generation lookup demand, elapsed time, and sampled allocated bytes
+including collected objects after 100 warmup turns. Compare the frame artifacts
+byte-for-byte across revisions. Persistence and network delivery are disabled;
+the lookup callback only counts demand, so registry allocation and whole-Gateway
+cost still require the workload below. Run baseline/candidate pairs under the
+benchmark host's measurement policy; keep import/startup outside these samples.
+
 Use the same owned Gateway driver with `--allocations` and a named `--scenario`:
 
 ```sh
