@@ -7,9 +7,8 @@ import { createLayoutMeasurement } from "../../lib/reactive/layout-measurement.t
 import { createResizeObserver } from "../../lib/reactive/observers.ts";
 import { Icon } from "../solid/icon.tsx";
 import { Menu, type MenuEntry, type MenuItem } from "../solid/menu.tsx";
-import type { DesktopSizingMode } from "./desktop-client.ts";
 import { DesktopIcon } from "./desktop-icon.tsx";
-import type { DesktopPanelState } from "./desktop-panel-state.ts";
+import type { DesktopPanelState, DesktopSizingMode } from "./desktop-panel-state.ts";
 import "../../styles/session-panel-rail.css";
 
 registerEnglishCatalog(registerDesktopEnglish);
@@ -71,8 +70,16 @@ export function DesktopConnectionRail(
 ) {
   const id = createUniqueId();
   const mobile = createMemo(() => props.options.platform === "mobile");
+  const axisModes = () =>
+    mobile()
+      ? []
+      : [
+          { mode: "fit-height" as const, label: t("desktop.fitHeight") },
+          { mode: "fit-width" as const, label: t("desktop.fitWidth") },
+        ];
   const sizingMenu = createDesktopSizingMenu(() => ({
     ...props.sizing,
+    additionalModes: axisModes(),
     icons: !mobile(),
   }));
   let rail!: HTMLDivElement;
@@ -317,6 +324,7 @@ export function DesktopConnectionRail(
               <DesktopSizing
                 {...props.sizing}
                 presentation="menu"
+                additionalModes={axisModes()}
                 placement={props.options.fullscreen ? "top-end" : "bottom-end"}
               />
             </div>
