@@ -1346,6 +1346,28 @@ results do not establish natural steady-state GC behavior. Sampling retains
 native sample metadata and adds stack-capture overhead; confirm marginal
 GC/latency results with a matching soak without allocation profiling.
 
+For allocation work that executes in a worker, add `--worker-allocations` to
+`memory-soak --allocations`. It uses the existing private inspector channel and
+the same collected-object sampling interval in every isolate. The
+`wholeSoakAllocation.workerManifestPath` artifact lists each worker's native
+thread ID, registry script identity, inspector title, acknowledged sampling boundaries, completion/error,
+and profile path. Live workers absent from the initialized Gateway registry are
+marked separately; Gateway-owned worker pools register synchronously. Join native IDs to the existing memory samples' `workerHeaps`
+and `workerMemoryMissing` script identities before attributing bytes to an owner.
+Read successful worker profiles with `readGatewayHeapProfile` and report main,
+owner-worker, all-worker, and combined bytes per completed foreground turn
+separately. During profiling, intentional worker termination first exports its
+active profiles, waiting at most five seconds for an unresponsive worker.
+Unexpected exits, failed exports, or unidentified workers are missing evidence,
+never zero allocation. Worker profiling also samples worker resource usage every 100 ms;
+enable it identically on both sides of a comparison.
+
+`--soak-rounds <n>` runs exactly that many measured cohorts instead of admitting
+cohorts until the duration deadline. The continuous diagnostics/allocation window
+still lasts at least `--duration-ms`, including any final idle gap. Use equal
+cohort counts and session-reset counts when comparing promotion and GC, and size
+the workload for at least 200 observations per side for p95 (1,000 for p99).
+
 Run at least twenty measured minutes per side and compare at least two concurrent
 pairs with swapped CPU halves. Compare B minus A within each pair for allocation,
 promotion, minor/major GC, loop p99/max, every RPC tail, and turn latency. A lower
@@ -1960,6 +1982,25 @@ byte-for-byte across revisions. Persistence and network delivery are disabled;
 the lookup callback only counts demand, so registry allocation and whole-Gateway
 cost still require the workload below. Run baseline/candidate pairs under the
 benchmark host's measurement policy; keep import/startup outside these samples.
+
+For provider request preparation alone, run the source owner directly:
+
+```sh
+node --expose-gc --import ./scripts/tsx.mjs scripts/perf/provider-request-prepare-measure.ts \
+  --messages 500 --iterations 300 --mode prepare --output /path/to/result
+```
+
+Use `--mode transport` to isolate standalone request-body serialization. The
+driver compares wire bytes with native JSON, including a custom `toJSON` and
+ordered getters, then counts JSON serialization/parsing, UTF-8 encoding, and
+hash calls and bytes for one request. `wholeRequestCalls` counts operations
+whose byte size equals the full request; field and prefix hashes remain in the
+totals. Counting runs separately from allocation/timing capture. The profile
+includes objects collected by both minor and major GC. These measurements cover
+the owner in the driver's isolate, excluding worker transport and the Gateway;
+use the Gateway `chat.send --allocations` workload for main-isolate turn cost.
+Compare baseline and candidate serially in interleaved ABAB order, with at least
+five samples per revision.
 
 Use the same owned Gateway driver with `--allocations` and a named `--scenario`:
 
