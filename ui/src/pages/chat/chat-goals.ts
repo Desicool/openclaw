@@ -117,7 +117,7 @@ export function chatGoalOperations(host: ChatHost): GoalOperationOwner {
   return owner;
 }
 
-export type ChatGoalPresentation = {
+type ChatGoalPresentation = {
   value: SessionGoal;
   executionConfirmed: boolean;
   confirmedRunId?: string;

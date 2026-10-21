@@ -266,7 +266,7 @@ export function ChatPanePlacement(
   );
 }
 
-export type ChatMachinePresentation = NonNullable<
+type ChatMachinePresentation = NonNullable<
   ReturnType<ReturnType<typeof createChatMachinePresentation>>
 >;
 
