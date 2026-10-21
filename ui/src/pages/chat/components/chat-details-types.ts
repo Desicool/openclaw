@@ -11,6 +11,16 @@ import type { ChatThreadProps } from "./chat-thread-interactions.ts";
 
 type ChatDetailsWorkspace = { root: string | null; label: string | null; branch?: string };
 
+export type ChatDetailsDesktopSectionId =
+  | "people"
+  | "environment"
+  | "context"
+  | "pull-requests"
+  | "automations"
+  | "subagents"
+  | "processes"
+  | "outputs";
+
 /** Published assistant-artifact/dashboard facts and real destination/icon operations. */
 export type ChatDetailsOutputs = ChatOutputsDesktopProps;
 export type ChatDetailsOutputsIcons = Pick<
