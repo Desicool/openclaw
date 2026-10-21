@@ -2673,9 +2673,10 @@ export const en: TranslationMap & {
       tooLargeToast: "File too large. Try a smaller file.",
       openOriginal: "Open original",
       compressToFit: "Compress to fit",
+      retryCompression: "Retry compression",
       compressionHint:
         "Video is too large. Compress a copy on this device; the original stays unchanged.",
-      compressing: "Compressing… {progress}%",
+      compressing: "Compressing · {progress}%",
       compressionUnsupported: "This browser cannot compress this video.",
       compressionTooLarge: "Video is still too large. Try a smaller file.",
       compressionFailed: "Could not compress video. Try again.",
