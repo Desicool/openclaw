@@ -98,6 +98,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/infra/database-engine/usage-cost-partitions.postgres.test.ts",
   "src/infra/worker-task-pool.sqlite-idle.test.ts",
   "src/state/openclaw-state-db.postgres.test.ts",
+  "src/state/openclaw-state.worker.settlement.test.ts",
   "src/state/openclaw-state-read.worker.test.ts",
   "src/state/openclaw-agent-db.postgres.test.ts",
   "src/state/openclaw-agent-doctor-media.postgres.test.ts",
