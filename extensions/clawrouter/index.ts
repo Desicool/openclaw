@@ -49,6 +49,7 @@ import {
   resolveFastModeSupport,
   resolveServiceTiers,
 } from "./provider-policy-api.js";
+import { buildClawRouterSpeechProvider } from "./speech-provider.js";
 import { fetchClawRouterUsage } from "./usage.js";
 
 const PERPLEXITY_UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
@@ -406,6 +407,7 @@ export default defineSingleProviderPluginEntry({
   description: "Managed multi-provider model routing and quotas",
   manifest,
   register(api) {
+    api.registerSpeechProvider(buildClawRouterSpeechProvider);
     api.registerDecisionProvider(buildClawRouterDecisionProvider());
     api.registerGatewayMethod(
       "clawrouter.pool.get",

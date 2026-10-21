@@ -1,5 +1,6 @@
 {
   "id": "clawrouter",
+  "capabilityCatalogEntry": "./capability-catalog.ts",
   "categories": [
     "models"
   ],
@@ -14,6 +15,7 @@
     "clawrouter"
   ],
   "contracts": {
+    "speechProviders": ["clawrouter"],
     "usageProviders": [
       "clawrouter"
     ],
