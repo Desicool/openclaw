@@ -42,9 +42,9 @@ async function nextMessageTurn() {
 }
 
 it.each([
-  ["completion", "./run-worker.test-support.ts"],
-  ["sqlite", "./run-worker.collection.test-support.ts"],
-])("joins accepted %s settlement after worker exit", (kind, workerFile) =>
+  ["completion", new URL("./run-worker.test-support.ts", import.meta.url)],
+  ["sqlite", new URL("./run-worker.collection.test-support.ts", import.meta.url)],
+] as const)("joins accepted %s settlement after worker exit", (kind, workerUrl) =>
   withTempDir("team-reports-worker-settlement-", async (directory) => {
     const sqlite = kind === "sqlite";
     const entered = createDeferred<void>();
@@ -52,7 +52,7 @@ it.each([
     const released = createDeferred<void>();
     const exited = createDeferred<void>();
     workerExit.notify = () => exited.resolve();
-    const runner = new TeamReportsRunner(new URL(workerFile, import.meta.url));
+    const runner = new TeamReportsRunner(workerUrl);
     const controller = new AbortController();
     const observeAbort = (signal?: AbortSignal) =>
       signal?.addEventListener("abort", () => cancelled.resolve(), { once: true });
