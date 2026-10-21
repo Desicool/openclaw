@@ -1507,6 +1507,7 @@
   "ui/src/i18n/locales/en-board.ts",
   "ui/src/i18n/locales/en-browser.ts",
   "ui/src/i18n/locales/en-chat-goals.ts",
+  "ui/src/i18n/locales/en-chat-session.ts",
   "ui/src/i18n/locales/en-code-blocks.ts",
   "ui/src/i18n/locales/en-file-preview.ts",
   "ui/src/i18n/locales/en-github.ts",
