@@ -1136,7 +1136,6 @@ export const databaseWorkerCoreTestFiles = [
   "src/plugins/management-service.install.test.ts",
 
   "src/plugins/installed-plugin-index-generation-precedence.test.ts",
-  "src/plugins/installed-plugin-index-read-state.test.ts",
   "src/plugins/installed-plugin-index-store.availability.test.ts",
   "src/plugins/installed-plugin-index-store.test.ts",
   "src/plugins/install-record-commit.sqlite.test.ts",
