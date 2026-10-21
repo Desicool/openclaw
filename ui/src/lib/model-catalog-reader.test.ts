@@ -20,7 +20,7 @@ const main = { agentId: "main" },
 function fixture() {
   const { gateway, current } = createGatewayStoreTestStore();
   gateway.start();
-  current().opts.onHello?.(gatewayHelloForMethods([]));
+  current().testOptions.onHello?.(gatewayHelloForMethods([]));
   const client = gateway.snapshot.client;
   if (!client) {
     throw new Error("Expected connected fixture client");
