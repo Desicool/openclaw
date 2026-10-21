@@ -75,6 +75,8 @@ export const databaseWorkerExtensionTestFiles = [
   "extensions/openai/realtime-voice-provider-routing.test.ts",
   "extensions/openai/tts.test.ts",
   "extensions/clawrouter/speech-provider.test.ts",
+  "extensions/clawrouter/audio-transcription.test.ts",
+  "extensions/clawrouter/media-compatibility.test.ts",
   "extensions/microsoft/speech-provider.test.ts",
   "extensions/minimax/speech-provider.test.ts",
   "extensions/minimax/tts.test.ts",
