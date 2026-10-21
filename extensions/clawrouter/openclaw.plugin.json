@@ -71,6 +71,9 @@
           {
             "id": "openai/gpt-6-luna",
             "name": "GPT-6 Luna via ClawRouter",
+            "compat": {
+              "codeMode": "capable"
+            },
             "inference": {
               "chat": false,
               "decision": {
