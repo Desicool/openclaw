@@ -172,6 +172,10 @@ suite.define(() => {
             },
           ],
         });
+        // Request capture precedes completion of the board's serialized mutation.
+        await expect
+          .poll(() => page.locator(".board-announcer").textContent())
+          .toBe("Resized Release status.");
         expect(await frame.evaluate((element, previous) => element === previous, original)).toBe(
           true,
         );
