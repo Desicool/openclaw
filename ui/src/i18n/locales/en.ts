@@ -171,6 +171,7 @@ export const en: TranslationMap & {
   commandPalette: TranslationMap;
   palette: TranslationMap & {
     placeholder: string;
+    attachmentPrompt: string;
     categories: TranslationMap & { navigation: string };
   };
   sessionsView: TranslationMap &
@@ -1906,6 +1907,7 @@ export const en: TranslationMap & {
   commandPalette: {},
   palette: {
     placeholder: "Search or start a task…",
+    attachmentPrompt: "What would you like to do with these files?",
     categories: { navigation: "Navigation" },
   },
   dreaming: {},
