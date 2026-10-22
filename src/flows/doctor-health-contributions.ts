@@ -36,6 +36,7 @@ import {
 } from "./doctor-health-contribution-utils.js";
 import {
   recordDoctorHealthWarnings,
+  reportDoctorHealthFinding,
   renderStructuredHealthFindings,
 } from "./doctor-health-contribution.js";
 import { resolveFinalDoctorHealthContributions } from "./doctor-health-contributions-final.js";
@@ -403,14 +404,7 @@ async function runGatewayHealthChecks(ctx: DoctorHealthFlowContext): Promise<voi
   const { healthOk, authenticated, status } = await checkGatewayHealth({
     runtime: ctx.runtime,
     cfg: ctx.cfg,
-    onFinding: (finding) => {
-      recordDoctorHealthWarnings(
-        ctx,
-        [finding],
-        finding.severity === "error" ? [`${finding.checkId}: ${finding.message}`] : [],
-      );
-      renderStructuredHealthFindings(ctx, [finding]);
-    },
+    onFinding: (finding) => reportDoctorHealthFinding(ctx, finding),
   });
   ctx.gatewayHealthSkipped = false;
   ctx.healthOk = healthOk;
