@@ -244,13 +244,14 @@ To measure a mix of bundled and external plugins, pass
 `--bundled-plugin-fixture /path/to/plugins.json` to both the seed and run commands.
 The file is an OpenClaw config fragment with `plugins.allow` selecting 1–44
 bundled IDs and `plugins.entries.<id>.config` supplying any required synthetic
-configuration. For example, `{ "plugins": { "allow": ["openai", "google"] } }`
+configuration. For example, `{ "plugins": { "allow": ["memory-core", "openai", "google"] } }`
 uses plugin defaults. Optional `models`, `tools`, and `channels` sections select
 the corresponding startup capabilities; enabling a plugin alone does not
 override its lazy activation policy. Other root sections and `plugins.load`
 are rejected, preserving the benchmark's state, workspaces, auth, and disabled
 background jobs. Each bundled ID replaces one synthetic external plugin,
-keeping the total at 44. Include only synthetic configuration and credentials,
+keeping the total at 44. Include default slot plugins such as `memory-core` in
+the requested inventory. Include only synthetic configuration and credentials,
 disable scheduled external work, and deny external network access for the run.
 Channels remain suppressed even when configured for plugin activation.
 The fixture metadata and result contain the full config fragment and external
@@ -258,6 +259,27 @@ count; a run rejects configuration that differs from its seed or a loaded
 inventory that is not 44 plugins including every requested bundled ID. Use the
 bundled IDs from the target deployment's startup log and build their artifacts
 before measuring. Omit the flag to retain the all-synthetic fixture.
+
+To reproduce startup waiting for pending GitHub publication recovery, add
+`--publication-git-delay-ms 10000` to both the seed and run commands. This keeps
+the same plugin and session inventory and binds one existing session to a tiny
+local managed worktree with a retained publication request. Its historical
+requester authority is absent, so recovery must inspect the local workspace and
+then refuse publication without credentials or network access. A fixture-only
+`git` executable delays one exact read-only config command in that worktree,
+then delegates to the real Git executable. Other Git commands run normally.
+The fixture preserves its explicit PATH so startup does not replace that Git selection.
+
+The sample's `publicationRecovery` records the delay and start/release epoch
+timestamps. Missing or incomplete boundary markers fail the measurement. The
+controller waits for that read, initial post-ready database maintenance, and the
+last handler-prewarm phase before teardown. CPU and RSS therefore cover the same
+startup work on both builds; `completionMs` includes that work while `readyz.ms`
+and `firstSessionRpc.ms` measure availability independently.
+Use a newly seeded root for each sample: completed requests and boundary markers
+make these publication fixtures intentionally single-use. Delays are bounded to
+30 seconds and must match the seed. This tests subprocess waiting at the real
+publication owner; it does not simulate GitHub response semantics.
 
 Startup results include spawn-to-`/readyz` and spawn-to-first-successful
 `sessions.list` timings. The `teamBoot` protocol handshake uses the isolated
