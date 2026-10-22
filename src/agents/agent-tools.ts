@@ -45,7 +45,7 @@ import {
   getActiveAgentRingZeroTools,
   mergeAgentRingZeroTools,
 } from "./agent-tools.ring-zero-context.js";
-import { resolveTurnToolSurface } from "./agent-tools.turn-authority.js";
+import { isSchedulerSystemTurn, resolveTurnToolSurface } from "./agent-tools.turn-authority.js";
 import type { AnyAgentTool } from "./agent-tools.types.js";
 import { registerOneShotExecScopeCleanup } from "./bash-process-control.js";
 import { resolveProcessToolScopeKey } from "./bash-process-scope.js";
@@ -561,6 +561,7 @@ function* assembleOpenClawCodingTools(
         ? completeTurnTools(messageInvocationPolicy.filter(capabilityProfile, undefined, "session"))
         : undefined,
     ownerOnlyDenied: new Set(ownerOnlyCoreToolDenylist),
+    schedulerSystemTurn: isSchedulerSystemTurn(options ?? {}),
   });
   assertMemoryFlushPersistenceToolAvailable(authorizedTools, options?.memoryFlushTools);
   authorizedTools.forEach(bindAssembledAgentToolActionDescriptor);
