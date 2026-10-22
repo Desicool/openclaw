@@ -3145,7 +3145,6 @@
       "ui/src/e2e/build-info-unicode.e2e.test.ts": 5,
       "ui/src/e2e/channel-wizard-option-contrast.e2e.test.ts": 2,
       "ui/src/e2e/channels-whatsapp-logout.e2e.test.ts": 14,
-      "ui/src/e2e/chat-active-cursor-replay.e2e.test.ts": 5,
       "ui/src/e2e/chat-active-turn-recovery.e2e.test.ts": 28,
       "ui/src/e2e/chat-agent-run-transcript.e2e.test.ts": 16,
       "ui/src/e2e/chat-async-questions.e2e.test.ts": 94,
