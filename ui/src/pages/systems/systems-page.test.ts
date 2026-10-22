@@ -580,6 +580,7 @@ describe("Systems workspace", () => {
   );
 
   it("sorts and filters the machine inventory without replacing the selected machine", async () => {
+    const warnings = vi.spyOn(console, "warn");
     // Open menus need frame boundaries instead of the sidebar fixture's recursive microtasks.
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
     const environments: EnvironmentSummary[] = [
@@ -620,6 +621,9 @@ describe("Systems workspace", () => {
       vi.advanceTimersToNextFrame();
       await sidebar.updateComplete;
       flush();
+      expect(menu?.querySelector(`[data-value="${value}"]`)?.getAttribute("aria-checked")).toBe(
+        "true",
+      );
     };
     const search = async (value: string) => {
       const input = sidebar.querySelector<HTMLInputElement>('input[type="search"]')!;
@@ -673,6 +677,11 @@ describe("Systems workspace", () => {
     await choose("status:all");
     expect(nodeNames()).toEqual(["Alpha laptop", "Delta laptop", "Beta laptop", "Zulu laptop"]);
     expect(names()).toContain("Preparing worker");
+    expect(
+      warnings.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes("[NO_OWNER_EFFECT]")),
+    ).toEqual([]);
   });
 
   it("keeps disk histories attached to mount paths through reordering, removal, and return", async () => {
