@@ -2347,14 +2347,6 @@ opt-in; the additional requests do not warm the measured workload.
 For `sessions.list` response comparisons, `--capture-responses` can run without
 allocation or CPU profiling.
 
-For a bounded owner probe without a Gateway, run
-`node --import ./scripts/tsx.mjs scripts/perf/session-list-order-measure.ts`.
-It reports five sampled allocation/thread-CPU observations for preparation per row
-and warm top-200 sorting over 5,000 rows, plus the selected keys for all three sorts.
-Use `--count-work` in a separate process for exact comparator, pin, activity, and
-key-normalization call counts. That pass enables coverage before loading the owner
-and excludes performance measurements. Run the same script on both revisions.
-
 For profile-reference filtering over 5,000 prepared sessions, run:
 
 ```sh
@@ -2372,13 +2364,6 @@ empty catalog and asserts that no SQLite file is created. Compare `responses.jso
 byte-for-byte between revisions; it contains complete 25-row filter results and
 full-roster facets. Run at least five alternating baseline/candidate processes on
 the benchmark host. This is an owner probe, not Gateway or transport evidence.
-
-Add `--archive-filters --iterations 480` to exercise `selectSessionEntries` with
-all four archive modes, people facets on/off, person selection, offset paging,
-and three viewer scopes (48 complete golden results). Ordinary requests include
-partition recomputation; each call uses a fresh partition-result map to model
-dirty roster reads. Person/facet requests consume the ordered roster. Both modes
-warm the resident selection before sampling and include collected allocations.
 
 For long RPC allocation windows, use `--warmup-operations` to warm fewer requests
 than the measured `--operations` count. For example, `--scenario sessions.list
