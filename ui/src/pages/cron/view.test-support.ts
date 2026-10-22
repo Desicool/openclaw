@@ -34,6 +34,7 @@ export function scheduledJob(id: string, overrides: Partial<CronJob> = {}): Cron
 }
 
 export function createCronViewProps(overrides: Partial<CronProps> = {}): CronProps {
+  const retired = new Promise<void>(() => {});
   return {
     loading: false,
     hasLoaded: true,
@@ -60,6 +61,7 @@ export function createCronViewProps(overrides: Partial<CronProps> = {}): CronPro
     busy: false,
     form: { ...DEFAULT_CRON_FORM },
     gateway: null,
+    getActionRetired: () => retired,
     fieldErrors: {},
     canSubmit: true,
     editingJob: null,
