@@ -1,10 +1,19 @@
-import { onSettled, Show } from "solid-js";
+import {
+  createDeferred,
+  createMemo,
+  Errored,
+  isPending,
+  latest,
+  Loading,
+  onSettled,
+  Show,
+} from "solid-js";
 import { registerModelAccountsEnglish } from "../../i18n/locales/en-model-accounts.ts";
 import { modelAuthEventInvalidates } from "../../lib/model-auth-request-state.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
 import { registerEnglishCatalog } from "../../lib/reactive/i18n.ts";
 import { projectMutableSource } from "../../lib/reactive/projection.ts";
-import { ModelAccountsSection } from "./model-accounts-section.tsx";
+import { ModelAccountInventory, ModelAccountsSection } from "./model-accounts-section.tsx";
 import { ModelAccountsState, type ModelAccountsProps } from "./model-accounts-state.ts";
 
 registerEnglishCatalog(registerModelAccountsEnglish);
@@ -14,6 +23,20 @@ export function ModelAccounts(props: ModelAccountsProps) {
   const state = new ModelAccountsState(context, props, () => view.publish());
   const view = projectMutableSource(state, (source) => source);
   const readState = view.read;
+  const inventoryScope = createMemo(() => readState().target);
+  const inventoryReceipt = createMemo(() => readState().inventoryReceipt);
+  const inventoryRead = createDeferred(() =>
+    inventoryReceipt().result.then((error) => {
+      if (error) {
+        throw new Error(error);
+      }
+    }),
+  );
+  const readInventory = () => {
+    // Retain inventory rows without holding connection controls or sign-in drafts.
+    inventoryRead();
+    return null;
+  };
   // Snapshot identity/profile at request admission; target changes retire account reads and auth polls.
   onSettled(() => {
     const target = props.target;
@@ -38,7 +61,22 @@ export function ModelAccounts(props: ModelAccountsProps) {
   return (
     <openclaw-model-accounts>
       <Show when={readState().target || readState().context.gateway.snapshot.phase === "connected"}>
-        <ModelAccountsSection readState={readState} />
+        <ModelAccountsSection
+          readState={readState}
+          inventory={
+            <Errored
+              fallback={() => <ModelAccountInventory readState={readState} pending={false} />}
+            >
+              <Loading
+                on={latest(inventoryScope)}
+                fallback={<ModelAccountInventory readState={readState} pending />}
+              >
+                {readInventory()}
+                <ModelAccountInventory readState={readState} pending={isPending(inventoryRead)} />
+              </Loading>
+            </Errored>
+          }
+        />
       </Show>
     </openclaw-model-accounts>
   );
