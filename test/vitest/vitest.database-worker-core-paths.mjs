@@ -53,7 +53,6 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/tools/terminal-tool.incognito.test.ts",
   "src/agents/interrupted-input-context.integration.test.ts",
   // Physical admission and descriptor custody belong to the application host, not an unhosted test Worker.
-  "src/test-utils/session-state-cleanup.test.ts",
   "src/infra/database-engine/backup-runs.conformance.test.ts",
   "src/infra/database-engine/goal-receipts.conformance.test.ts",
   "src/infra/database-engine/owner-fragments.conformance.test.ts",
@@ -721,7 +720,6 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/tools/skill-workshop-tool.test.ts",
   "src/skills/workshop/experience-review.test.ts",
   "src/skills/workshop/library.test.ts",
-  "src/skills/workshop/unused-archive.test.ts",
   "src/auto-reply/reply/commands-plugins.test.ts",
   "src/boards/board-store.test.ts",
   "src/boards/sqlite-board-store.worker.test.ts",
