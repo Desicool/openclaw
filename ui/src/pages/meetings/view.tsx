@@ -485,7 +485,7 @@ function Reader(props: TranscriptsViewProps) {
                   {(format) => (
                     <button
                       class="btn"
-                      disabled={props.exportState.kind === "loading"}
+                      disabled={props.exporting}
                       onClick={() => props.onDownload(format())}
                     >
                       <Icon name="download" />
@@ -494,20 +494,20 @@ function Reader(props: TranscriptsViewProps) {
                   )}
                 </For>
               </div>
-              {props.exportState.kind === "error" ? (
-                <p role="alert">
-                  {t("transcripts.exportError")} {props.exportState.message}
-                </p>
-              ) : null}
-              {props.exportState.kind === "loading" || props.exportState.kind === "done" ? (
-                <p role="status">
-                  {t(
-                    props.exportState.kind === "loading"
-                      ? "transcripts.exporting"
-                      : "transcripts.downloadStarted",
+              <Loading
+                on={props.exportCompletion}
+                fallback={<p role="status">{t("transcripts.exporting")}</p>}
+              >
+                <Errored
+                  fallback={(error) => (
+                    <p role="alert">
+                      {t("transcripts.exportError")} {formatUiError(error())}
+                    </p>
                   )}
-                </p>
-              ) : null}
+                >
+                  {props.exportRead() && <p role="status">{t("transcripts.downloadStarted")}</p>}
+                </Errored>
+              </Loading>
             </header>
             <HubTabs<TranscriptsViewProps["readerTab"]>
               id="transcript-reader"
@@ -531,7 +531,9 @@ function Reader(props: TranscriptsViewProps) {
                   {(summaryPage) => (
                     <MeetingSummary
                       page={summaryPage()}
-                      generation={props.summaryGeneration}
+                      generating={props.summaryGenerating}
+                      completion={props.summaryCompletion}
+                      read={props.summaryRead}
                       onRetry={props.onSummaryRetry}
                     />
                   )}
