@@ -376,13 +376,15 @@ const invalid = createMemo(
   () =>
     completion()?.then(
       (value) => Boolean(value),
-      () => true,
+      () => false,
     ) ?? false,
   { loadingValue: false },
 );
 ```
 
-Bind `aria-invalid` from `!saving() && invalid()` on the retained input. Inside
+A callback rejection does not mark the objective invalid; only expected returned
+validation feedback does. Bind `aria-invalid` from `!saving() && invalid()` on the
+retained input. Inside
 the narrow `Errored` slot, show a returned `message()` as ordinary validation
 feedback. The initial loading values cover first readiness; the saving checks
 avoid reading either derivation while an attempt is pending. Hide only the alert
