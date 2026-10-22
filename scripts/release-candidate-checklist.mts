@@ -194,7 +194,7 @@ Options:
   --npm-dist-tag <beta|latest>  Default: ${DEFAULT_NPM_DIST_TAG}
   --plugin-publish-scope <scope>      selected|all-publishable. Default: ${DEFAULT_PLUGIN_SCOPE}
   --plugins <names>                   Required when plugin scope is selected.
-  --output-dir <dir>                  Evidence output dir. Default: .artifacts/release-candidate/<tag>
+  --output-dir <dir>                  Evidence output dir. Default: .artifacts/release-candidate/<tag>/<target-sha>
 `;
 }
 
@@ -380,6 +380,18 @@ export function parseArgs(argv: string[]) {
     throw new Error("--telegram-provider-mode must be mock-openai or live-frontier");
   }
   return options;
+}
+
+export function resolveReleaseCandidateOutputDir({
+  outputDir,
+  tag,
+  targetSha,
+}: {
+  outputDir: string;
+  tag: string;
+  targetSha: string;
+}) {
+  return outputDir || join(".artifacts", "release-candidate", tag, targetSha);
 }
 
 export function run(
@@ -2250,8 +2262,12 @@ async function main() {
     });
     return;
   }
-  options.outputDir ||= join(".artifacts", "release-candidate", options.tag);
   const targetSha = gitRevParse(options.targetSha || "HEAD", targetRoot);
+  options.outputDir = resolveReleaseCandidateOutputDir({
+    outputDir: options.outputDir,
+    tag: options.tag,
+    targetSha,
+  });
   assertReleaseCandidateTag(options.tag, targetSha, targetRoot);
   const toolingSha = gitRevParse("HEAD", TOOLING_ROOT);
   const latestTrustedToolingSha = fetchTrustedWorkflowSha(options.workflowRef, TOOLING_ROOT);

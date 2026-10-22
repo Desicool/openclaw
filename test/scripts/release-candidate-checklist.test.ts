@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { runInNewContext } from "node:vm";
@@ -56,6 +56,7 @@ import {
   resolveEarlyPluginSdkApiBases,
   resolveEarlyPluginSdkApiReviewPaths,
   resolveArtifactName,
+  resolveReleaseCandidateOutputDir,
   requireRunIdFromDispatchOutput,
   run,
   validateCandidateChangelogProvenance,
@@ -158,6 +159,167 @@ async function withGithubApiTimeoutEnv<T>(value: string, fn: () => Promise<T>): 
 }
 
 describe("release candidate checklist", () => {
+  it("isolates and resumes coordinator state by target SHA while preserving explicit legacy paths", async () => {
+    const tag = "v2026.9.1-beta.2";
+    const first = "a".repeat(40);
+    const second = "b".repeat(40);
+    const toolingSha = "c".repeat(40);
+    const source = readFileSync("scripts/release-candidate-checklist.mts", "utf8");
+    const main = source.match(/^async function main\(\)[\s\S]*?^\}/mu)?.[0];
+
+    async function reachStateCheckpoint({
+      targetSha,
+      outputDir = "",
+      retainedState,
+      retainedRequest = false,
+      targetRoot = tempDirs.make("candidate-state-target-"),
+    }: {
+      targetSha: string;
+      outputDir?: string;
+      retainedState?: Record<string, unknown>;
+      retainedRequest?: boolean;
+      targetRoot?: string;
+    }) {
+      const toolingRoot = tempDirs.make("candidate-state-tooling-");
+      const argv = [
+        "--tag",
+        tag,
+        ...(retainedState
+          ? []
+          : ["--full-release-run", "111", "--npm-preflight-run", "222", "--skip-dispatch"]),
+        "--skip-parallels",
+        "--skip-telegram",
+        ...(outputDir ? ["--output-dir", outputDir] : []),
+      ];
+      const options = parseArgs(argv);
+      const resolvedOutputDir = resolvePath(
+        targetRoot,
+        resolveReleaseCandidateOutputDir({ outputDir, tag, targetSha }),
+      );
+      const statePath = join(resolvedOutputDir, "release-candidate-state.json");
+      if (retainedState) {
+        mkdirSync(resolvedOutputDir, { recursive: true });
+        writeFileSync(statePath, JSON.stringify(retainedState));
+      }
+      if (retainedRequest) {
+        mkdirSync(resolvedOutputDir, { recursive: true });
+        writeFileSync(join(resolvedOutputDir, "frv-request.json"), '{"phase":"observed"}');
+      }
+      const writeState = vi.fn((_path: string, _state: unknown) => {
+        throw new Error("coordinator state checkpoint");
+      });
+      const completion = runInNewContext(stripNodeTypeScriptTypes(`${main}\nmain();`), {
+        process: {
+          argv: ["node", "scripts/release-candidate-checklist.mts", ...argv],
+          cwd: () => targetRoot,
+          env: {},
+        },
+        TOOLING_ROOT: toolingRoot,
+        TRUSTED_TOOLING_SHA_ENV: "OPENCLAW_RELEASE_CANDIDATE_TRUSTED_TOOLING_SHA",
+        RELEASE_CANDIDATE_STATE_FILE: "release-candidate-state.json",
+        RELEASE_CANDIDATE_STATE_VERSION: 2,
+        parseArgs: () => options,
+        gitTopLevel: (root: string) => root,
+        gitRevParse: (_ref: string, root: string) => (root === targetRoot ? targetSha : toolingSha),
+        resolveReleaseCandidateOutputDir: (params: {
+          outputDir: string;
+          tag: string;
+          targetSha: string;
+        }) => resolvePath(targetRoot, resolveReleaseCandidateOutputDir(params)),
+        assertReleaseCandidateTag: () => {},
+        fetchTrustedWorkflowSha: () => toolingSha,
+        validateTrustedToolingPin,
+        validateCandidateCheckout,
+        gitTrackedStatus: () => "",
+        validateParallelsRegistryPackageArtifact: () => {
+          throw new Error("unexpected registry artifact");
+        },
+        buildReleaseCandidateState,
+        reconcileReleaseCandidateState,
+        existsSync,
+        readJson: (path: string) => JSON.parse(readFileSync(path, "utf8")),
+        writeReleaseCandidateState: writeState,
+        join,
+      });
+      await expect(completion).rejects.toThrow("coordinator state checkpoint");
+      expect(writeState).toHaveBeenCalledOnce();
+      const [writtenPath, writtenState] = writeState.mock.calls[0]!;
+      return {
+        statePath: writtenPath,
+        state: writtenState as Record<string, unknown>,
+        targetRoot,
+      };
+    }
+
+    const firstFresh = await reachStateCheckpoint({ targetSha: first });
+    const secondFresh = await reachStateCheckpoint({ targetSha: second });
+    expect(firstFresh.statePath).toBe(
+      join(
+        firstFresh.targetRoot,
+        ".artifacts",
+        "release-candidate",
+        tag,
+        first,
+        "release-candidate-state.json",
+      ),
+    );
+    expect(secondFresh.statePath).toBe(
+      join(
+        secondFresh.targetRoot,
+        ".artifacts",
+        "release-candidate",
+        tag,
+        second,
+        "release-candidate-state.json",
+      ),
+    );
+    expect(firstFresh.statePath).not.toBe(secondFresh.statePath);
+    expect(firstFresh.state).toMatchObject({ targetSha: first, fullReleaseRunId: "111" });
+    expect(secondFresh.state).toMatchObject({ targetSha: second, fullReleaseRunId: "111" });
+
+    const retainedFirstState = {
+      ...firstFresh.state,
+      fullReleaseRunId: "333",
+      npmPreflightRunId: "444",
+      phase: "waiting",
+    };
+    const resumed = await reachStateCheckpoint({
+      targetSha: first,
+      retainedState: retainedFirstState,
+      targetRoot: firstFresh.targetRoot,
+    });
+    expect(resumed.statePath).toBe(firstFresh.statePath);
+    expect(resumed.state).toMatchObject({
+      targetSha: first,
+      fullReleaseRunId: "333",
+      npmPreflightRunId: "444",
+      phase: "waiting",
+    });
+
+    const legacyOutputDir = join(secondFresh.targetRoot, "retained-release-request");
+    const retainedLegacyState = {
+      ...secondFresh.state,
+      fullReleaseRunId: "555",
+      npmPreflightRunId: "666",
+      phase: "waiting",
+    };
+    const legacy = await reachStateCheckpoint({
+      targetSha: second,
+      outputDir: legacyOutputDir,
+      retainedState: retainedLegacyState,
+      retainedRequest: true,
+      targetRoot: secondFresh.targetRoot,
+    });
+    expect(legacy.statePath).toBe(join(legacyOutputDir, "release-candidate-state.json"));
+    expect(legacy.state).toMatchObject({
+      targetSha: second,
+      fullReleaseRunId: "555",
+      npmPreflightRunId: "666",
+      phase: "waiting",
+    });
+    expect(existsSync(join(legacyOutputDir, "frv-request.json"))).toBe(true);
+  });
+
   it("resolves the early Plugin SDK review against the publication selectors", () => {
     expect(
       resolveEarlyPluginSdkApiBases({
@@ -684,6 +846,7 @@ describe("release candidate checklist", () => {
           RELEASE_CANDIDATE_STATE_FILE: "release-candidate-state.json",
           RELEASE_CANDIDATE_STATE_VERSION: 2,
           parseArgs: () => options,
+          resolveReleaseCandidateOutputDir,
           gitTopLevel: (root: string) => root,
           gitRevParse: (_ref: string, root: string) =>
             root === targetRoot ? targetSha : toolingSha,
