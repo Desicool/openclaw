@@ -26,6 +26,7 @@ import { useApplication } from "../../lib/reactive/context.ts";
 import { projectAgents } from "../../lib/reactive/domain-capabilities.ts";
 import { useGatewayPage } from "../../lib/reactive/gateway-page.ts";
 import { t } from "../../lib/reactive/i18n.ts";
+import { listen } from "../../lib/reactive/listener.ts";
 import { observeState } from "../../lib/reactive/observe-state.ts";
 import { searchClawHub } from "../../lib/skills/clawhub-search.ts";
 import {
@@ -50,35 +51,9 @@ import { PluginsHubHeader } from "../plugins/plugins-hub-header.tsx";
 import { PLUGINS_HUB_PANEL_ID } from "../plugins/plugins-hub.ts";
 import { createSkillLibrary } from "./library-state.ts";
 import { SkillLibrary, SkillLibraryDialogs, SkillLibraryFeedback } from "./library-view.tsx";
+import { createSkillsData } from "./skills-page-state.ts";
 import type { SkillDetailTab, SkillsPresentation } from "./view-types.ts";
 import { Skills } from "./view.tsx";
-
-function createSkillsData(): Omit<SkillsState, "client" | "connected" | "runtimeConfig"> {
-  return {
-    skillsAgentId: null,
-    skillsAgentRevision: 0,
-    skillsLoading: false,
-    skillsReport: null,
-    skillsError: null,
-    skillOperation: null,
-    skillEdits: {},
-    skillMessages: {},
-    clawhubSearchResults: null,
-    clawhubDetail: null,
-    clawhubDetailRef: null,
-    clawhubDetailError: null,
-    clawhubInstallMessage: null,
-    clawhubVerdicts: {},
-    clawhubVerdictsError: null,
-    skillCardContents: {},
-    skillCardContentKeys: {},
-    skillCardReads: {},
-    skillsRead: null,
-    clawhubVerdictsRead: null,
-    skillCardErrors: {},
-    clawhubIconUrls: {},
-  };
-}
 
 export type SkillsRouteData = {
   gateway: ApplicationContext["gateway"];
@@ -292,6 +267,9 @@ export function SkillsPage(props: SkillsPageProps) {
     }),
     (current, previous) => {
       if (!previous || current.route !== previous.route || current.surface !== previous.surface) {
+        if (previous && current.surface !== previous.surface) {
+          library.retire();
+        }
         admittedSurface = current.surface;
         syncSelection();
         if (!previous || current.route !== previous.route) {
@@ -306,6 +284,16 @@ export function SkillsPage(props: SkillsPageProps) {
     },
   );
   onSettled(() => {
+    const stopLifecycle = context.lifecycleAbortSignal
+      ? listen(context.lifecycleAbortSignal, "abort", () => library.retire(), { once: true })
+      : () => undefined;
+    let location = context.router.getState().location;
+    const stopNavigation = context.router.subscribe((state) => {
+      if (state.location !== location) {
+        library.retire();
+        location = state.location;
+      }
+    });
     // Roster receipts reconcile the request target before admitting missing skill reads.
     const stopAgents = agents.subscribe(() => {
       reconcileAgentState();
@@ -348,8 +336,11 @@ export function SkillsPage(props: SkillsPageProps) {
     syncIcons();
     return () => {
       active = false;
+      library.retire();
       retireSkillsReads(data);
-      [stopAgents, ...stopSelections, stopSkills].forEach((stop) => stop());
+      [stopLifecycle, stopNavigation, stopAgents, ...stopSelections, stopSkills].forEach((stop) =>
+        stop(),
+      );
       clearClawHubSearchTimer();
       searchRequest.cancel();
       skills.dispose();
@@ -390,9 +381,9 @@ export function SkillsPage(props: SkillsPageProps) {
   function reconcileAgentState() {
     const agentState = context.agents.state;
     const previousAgentId = data.skillsAgentId;
-    setSkillsAgentId(data, agentSelection().state.selectedId);
+    setSkillsAgentId(data, agentSelection().state.selectedId, library.retire);
     if (admittedSurface === "discovery" && agentState.agentsList) {
-      reconcileSkillsAgentId(data, agentState.agentsList);
+      reconcileSkillsAgentId(data, agentState.agentsList, library.retire);
     }
     if (previousAgentId !== data.skillsAgentId) {
       selectSkill(null);
@@ -401,6 +392,7 @@ export function SkillsPage(props: SkillsPageProps) {
   }
 
   function invalidateSkillRequests() {
+    library.invalidateRequests();
     retireSkillsReads(data);
     setDetailReceipt(null);
     data.skillsAgentRevision++;
@@ -410,7 +402,6 @@ export function SkillsPage(props: SkillsPageProps) {
     searchRequest.reset();
     clearClawHubSearchTimer();
     clawhubIcons.reconcileKeys(new Set(Object.keys(data.clawhubIconUrls)));
-    library.invalidateRequests();
   }
 
   function resetLoadedSkillState() {
@@ -447,7 +438,7 @@ export function SkillsPage(props: SkillsPageProps) {
       reconcileAgentState();
       return;
     }
-    setSkillsAgentId(data, route.selectedAgentId);
+    setSkillsAgentId(data, route.selectedAgentId, library.retire);
     if (route.selectedAgentId && selection.selectedId !== route.selectedAgentId) {
       agentSelection().set(route.selectedAgentId);
     }
@@ -627,7 +618,7 @@ export function SkillsPage(props: SkillsPageProps) {
             readClawHubSearch={readClawHubSearch}
             clawhubSearchEpoch={gateway.epoch}
             surface={surface()}
-            libraryEntries={library.state.list?.entries ?? []}
+            libraryEntries={library.entries()}
             onLibraryOpen={(skillId) => void library.open(skillId)}
             library={
               surface() === "discovery" ? (
