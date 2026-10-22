@@ -1096,6 +1096,7 @@ src/infra/restart-stale-pids.ts
 src/infra/retry-attempt-errors.ts
 src/infra/retry.ts
 src/infra/root-walk.ts
+src/infra/runtime-dependency-ownership.ts
 src/infra/runtime-process-entrypoints.ts
 src/infra/runtime-process-manifest.ts
 src/infra/runtime-process-url.ts
@@ -1556,6 +1557,7 @@ src/plugins/provider-thinking.ts
 src/plugins/registry-runtime-binding.ts
 src/plugins/plugin-instance-error.ts
 src/plugins/plugin-instance-invocation.ts
+src/plugins/plugin-bundled-reload.ts
 src/plugins/plugin-instance-module-loader.ts
 src/plugins/plugin-state-operation-module-loader.ts
 src/plugins/plugin-state-operation-source.ts
