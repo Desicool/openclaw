@@ -201,6 +201,7 @@ async function withCommandPlugin(
     );
     const runAgentJob = createGatewayCronAgentJobRunner({
       deps: {},
+      storePath: cronStorePath,
       resolveCronAgent: () => ({ agentId: "main", cfg }),
       resolveGatewayContext: () => gateway,
       resolvePluginRegistry: () => registry,
