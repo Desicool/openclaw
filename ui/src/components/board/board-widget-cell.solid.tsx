@@ -10,7 +10,6 @@ import {
   Switch,
   Match,
 } from "solid-js";
-import { ensureCustomElementDefined } from "../../app/lazy-custom-element.ts";
 import { registerBoardEnglish } from "../../i18n/locales/en-board.ts";
 import {
   BOARD_DOCUMENT_AUTO_MAX_ROWS,
@@ -49,7 +48,6 @@ import { CoreBoardWidget } from "./core-board-widget.tsx";
 
 registerEnglishCatalog(registerBoardEnglish);
 
-const loadMcpAppView = () => import("../mcp-app-view.tsx");
 const cells = new WeakMap<HTMLElement, BoardWidgetCellHandle>();
 
 export function boardWidgetPresentationReady(host: HTMLElement): boolean {
@@ -230,10 +228,10 @@ function BoardWidgetCellContent(
     focusWidget: () => widgetRoot()?.focus(),
     selectMenuItem,
     async teardown() {
-      await mcpElement?.teardown?.();
+      await mcpElement?.teardown();
     },
     restartAfterTeardown() {
-      mcpElement?.restartAfterTeardown?.();
+      mcpElement?.restartAfterTeardown();
     },
   });
   createEffect(
@@ -245,9 +243,6 @@ function BoardWidgetCellContent(
         frame.widgetChanged(previousWidget, widget);
       }
       frame.activityChanged();
-      if (widget?.contentKind === "mcp-app") {
-        void ensureCustomElementDefined("mcp-app-view", loadMcpAppView).catch(() => undefined);
-      }
     },
   );
   createEffect(
