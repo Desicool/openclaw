@@ -3,7 +3,11 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred } from "../../../../../test/helpers/promise.js";
 import { gatewayHelloForMethods } from "../../../test-helpers/gateway-methods.ts";
 import "./chat-detail-panel.tsx";
-import { sessionWorkspaceForHost } from "./chat-session-workspace-state.ts";
+import {
+  clearSessionWorkspacePreviews,
+  selectSessionWorkspacePreview,
+  sessionWorkspaceForHost,
+} from "./chat-session-workspace-state.ts";
 import { createSidebarContentRecorder } from "./chat-session-workspace.test-support.ts";
 import {
   createSessionWorkspaceProps,
@@ -223,6 +227,58 @@ describe("session workspace artifacts", () => {
       await fixture.panel.updateComplete;
       expect(fixture.urls.createObjectURL).not.toHaveBeenCalled();
       expect(fixture.request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["close", "background"] as const)(
+    "retires a managed image transfer only when its tab is %s",
+    async (retirement) => {
+      const fixture = createArtifactHost("image/png", "iVBORw0KGgo=", { http: true });
+      const source = "/api/chat/media/outgoing/agent%3Amain%3Acurrent/lifecycle/full";
+      fixture.request.mockResolvedValue({
+        artifact: { ...fixture.artifact, id: `managed-${retirement}` },
+        url: `${source}?mediaTicket=fixture`,
+      });
+      vi.stubGlobal(
+        "URL",
+        Object.assign(class extends URL {}, {
+          createObjectURL: vi.fn(() => `blob:managed-${retirement}`),
+          revokeObjectURL: vi.fn(),
+        }),
+      );
+      const started = createDeferred<AbortSignal>();
+      const transfer = createDeferred<Response>();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_url: unknown, options: { signal: AbortSignal }) => {
+          started.resolve(options.signal);
+          return transfer.promise;
+        }),
+      );
+      createSessionWorkspaceProps(fixture.state).onOpenArtifact("artifact-1");
+      const signal = await started.promise;
+      const preview = fixture.state.sessionWorkspaceState!.previews[0]!;
+      if (retirement === "close") {
+        clearSessionWorkspacePreviews(fixture.state);
+      } else {
+        selectSessionWorkspacePreview(fixture.state, null);
+      }
+      const aborted = signal.aborted;
+      // A transport can finish despite cancellation; closed tabs must not return.
+      transfer.resolve({
+        ok: true,
+        blob: async () => new Blob(["image bytes"], { type: "image/png" }),
+      } as Response);
+      await preview.readResult;
+      expect(aborted).toBe(retirement === "close");
+      const workspace = fixture.state.sessionWorkspaceState!;
+      expect(workspace.activePreviewId).toBeNull();
+      if (retirement === "close") {
+        expect(workspace.previews).toEqual([]);
+      } else {
+        expect(workspace.previews).toEqual([preview]);
+        expect(preview.content.kind).toBe("image");
+      }
     },
   );
 

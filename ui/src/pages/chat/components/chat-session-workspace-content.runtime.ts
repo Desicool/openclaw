@@ -14,7 +14,11 @@ import { formatUiError } from "../../../lib/format-error.ts";
 import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
 import { isTextAttachment } from "../../../lib/media-file-extension.ts";
 import { pathDisplayName } from "../../../lib/path-display.ts";
+import { listen } from "../../../lib/reactive/listener.ts";
 import { resolveSessionDisplayName } from "../../../lib/session-display.ts";
+import { isManagedOutgoingMediaSource } from "./chat-message-attachment-availability.ts";
+import { loadManagedImageBlob } from "./chat-message-image-loading.ts";
+import { releaseChatMediaResourceOwner } from "./chat-message-media.ts";
 import {
   readWorkspaceFileText,
   workspaceBrowserFilePath,
@@ -265,13 +269,14 @@ export async function loadSessionWorkspaceArtifactContent(
   state: SessionWorkspaceHost,
   workspace: SessionWorkspaceState,
   artifactId: string,
+  previewSignal: AbortSignal,
 ) {
   const query = {
     sessionKey: workspace.sessionKey,
     artifactId,
     ...(workspace.agentId ? { agentId: workspace.agentId } : {}),
   };
-  const readDownload = async (signal: AbortSignal): Promise<Blob | null> => {
+  const read = async (signal: AbortSignal, readBinary = false) => {
     const currentWorkspace = getSessionWorkspace(state);
     if (
       currentWorkspace.sessionKey !== query.sessionKey ||
@@ -283,16 +288,54 @@ export async function loadSessionWorkspaceArtifactContent(
     // transfer must never follow a reconnect to a replacement Gateway.
     const client = state.client;
     const connectionEpoch = state.connectionEpoch;
-    const result = await downloadArtifact(state, query, signal, { readBinary: true });
-    if (
-      signal.aborted ||
-      !state.connected ||
-      state.client !== client ||
-      state.connectionEpoch !== connectionEpoch ||
-      !isCurrentSessionWorkspace(state, currentWorkspace)
-    ) {
+    const current = () =>
+      !signal.aborted &&
+      state.connected &&
+      state.client === client &&
+      state.connectionEpoch === connectionEpoch &&
+      isCurrentSessionWorkspace(state, currentWorkspace);
+    const result = await downloadArtifact(state, query, signal, { readBinary });
+    if (!current() || !result) {
       return null;
     }
+    const url = result.url;
+    const mimeType = result.artifact.mimeType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    if (
+      !result.blob &&
+      url &&
+      isManagedOutgoingMediaSource(url) &&
+      BROWSER_IMAGE_MIME_TYPES.has(mimeType)
+    ) {
+      // Reuse the image owner's scoped bytes and cancellation, not an expiring URL in a tab.
+      const onMediaChange = () => {};
+      const release = () => releaseChatMediaResourceOwner(onMediaChange);
+      const stopAbort = listen(signal, "abort", release, { once: true });
+      try {
+        const blob = await loadManagedImageBlob(
+          url,
+          {
+            sessionKey: query.sessionKey,
+            agentId: workspace.agentId,
+            connectionEpoch,
+            resourceBasePath: state.resourceBasePath,
+            onMediaChange,
+            resolveArtifactDownload: async () => ({ url, expiresAt: result.expiresAt }),
+          },
+          result.artifact.id,
+        );
+        if (blob.type.split(";", 1)[0]?.trim().toLowerCase() !== mimeType) {
+          throw new Error("Artifact image returned an unexpected content type");
+        }
+        return current() ? { ...result, blob } : null;
+      } finally {
+        stopAbort();
+        release();
+      }
+    }
+    return result;
+  };
+  const readDownload = async (signal: AbortSignal): Promise<Blob | null> => {
+    const result = await read(signal, true);
     if (result?.blob) {
       return result.blob;
     }
@@ -303,7 +346,7 @@ export async function loadSessionWorkspaceArtifactContent(
       type: result.artifact.mimeType ?? "application/octet-stream",
     });
   };
-  const result = await downloadArtifact(state, query);
+  const result = await read(previewSignal);
   return result?.artifact
     ? {
         artifact: result.artifact,
