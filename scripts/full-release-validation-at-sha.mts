@@ -208,8 +208,8 @@ always performs read-only reconciliation. --reconcile-request refuses a missing 
 mutation; after a qualification POST it is observation-only, never a redispatch.
 Retain the artifact until operator cleanup; its loss never proves non-execution.
 Frozen tooling must declare FULL_RELEASE_DISPATCH_WITNESS_CONTRACT=1 before a new request.
-Prints the frozen candidate/tooling, effective profile, group, soak and redacted
-waiver selection before dispatch and when reconciling the retained request.
+Prints the frozen candidate/tooling, effective profile, group, and soak selection
+before dispatch and when reconciling the retained request.
 
 Preflights the Validation SHA with a bare-SHA fetch into a fresh temporary repository.
 Creates one immutable release-ci/* workflow ref pinned to the exact Tooling SHA,
