@@ -5,7 +5,6 @@ import type {
   ControlUiSessionPullRequestSnapshot,
 } from "../../../../../src/gateway/control-ui-contract.js";
 import type { ApplicationGateway } from "../../../app/gateway.ts";
-import { formatGitHubItemReference } from "../../../components/github-link-target.ts";
 import { SessionGitDiff } from "../../../components/session-git-diff.tsx";
 import { Icon } from "../../../components/solid/icon.tsx";
 import { createTextOverflow } from "../../../components/solid/text-overflow.ts";
@@ -14,16 +13,14 @@ import "../../../components/tooltip.ts";
 import type { PresentationValue } from "../../../lib/presentation.ts";
 import { t } from "../../../lib/reactive/i18n.ts";
 import { projectPresentation } from "../../../lib/reactive/presentation.ts";
-import {
-  orderSessionPullRequests,
-  sessionPullRequestStateIcons,
-} from "../../../lib/session-pull-request-presentation.ts";
+import { sessionPullRequestStateIcons } from "../../../lib/session-pull-request-presentation.ts";
 import type { GitHubPublicationView } from "../../../lib/sessions/github-publication-owner.ts";
 import { HoverMarquee } from "../../../lib/solid/hover-marquee.tsx";
 import { ContentPresentation } from "../../../lib/solid/presentation.ts";
 import { GitHubPublicationAction, GitHubPublicationDetails } from "./chat-github-publication.tsx";
 import { PullRequestActions } from "./chat-pull-request-actions.tsx";
 import { ChatPullRequestChecks } from "./chat-pull-request-checks.tsx";
+import { chatPullRequestRows, type PullRequestRowEntry } from "./chat-pull-request-rows.ts";
 import {
   ChecksRows,
   StatusWarning,
@@ -198,34 +195,13 @@ function WorkRow(props: {
   );
 }
 
-type PullRequestRowEntry = {
-  url: string;
-  branch: string;
-  reference: string;
-  details?: ControlUiSessionPullRequest;
-};
-
 export function ChatPullRequestsContent(props: ChatPullRequestsProps) {
   const published = () =>
     props.publication?.result?.status === "published" ? props.publication.result : undefined;
   const retained = () => retainedPublication(props.publication);
   const branch = () => (props.publishedOnly || props.branchDismissed ? undefined : props.branch);
   const workRow = () => !props.publishedOnly && showWorkRow(props);
-  const visible = createMemo(() => {
-    const rows: PullRequestRowEntry[] = orderSessionPullRequests(props.pullRequests).map(
-      (details) => ({
-        url: details.url,
-        branch: details.branch,
-        reference: formatGitHubItemReference(details),
-        details,
-      }),
-    );
-    const receipt = published();
-    if (props.publishedOnly && receipt && !rows.some((row) => row.url === receipt.url)) {
-      rows.push({ url: receipt.url, branch: receipt.branch, reference: receipt.repository });
-    }
-    return rows;
-  });
+  const visible = createMemo(() => chatPullRequestRows(props));
   const recovery = () =>
     !props.publishedOnly && retained() && (!published() || props.publication?.error)
       ? props.publication
