@@ -3036,6 +3036,20 @@ and larger text-attachment runs. Each turn sends a deterministic
 the real attachment path. The report records `chatAttachmentBytes`; zero means
 no attachment. Keep the attachment size identical within each comparison pair.
 
+Add `--chat-active-hold-ms 1500 --runs 8 --rounds 63` to measure 1,008 ACKs for
+input arriving during active turns. At the model-arrival barrier, each session
+receives an explicit `/followup` input. After its queued notice arrives, the
+driver sends two steering inputs on the same session and WebSocket connection.
+The provider releases its held responses after the configured interval,
+independently of ACK arrival, so a blocked baseline records the delay.
+`activeChatSendAck` pools only the two steering ACKs per session and reports
+count, p50/p95/p99/max, individual latencies, and `acknowledgedBeforeRelease`.
+The existing `chatSendAck` includes initial, predecessor, and steering sends.
+All extra inputs must settle successfully, leave pending custody, and appear
+exactly once in user history with the matching input identity and text;
+`consumedExactlyOnce` counts those three inputs per session. Keep the hold
+interval identical across paired runs.
+
 For entry-patch transfer measurements, prepare separate matching small fixtures
 sequentially, then run the existing driver against the source Gateway:
 
