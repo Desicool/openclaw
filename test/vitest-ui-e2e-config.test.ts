@@ -32,7 +32,7 @@ const qaLabFiles = [
   "extensions/qa-lab/src/session-host-command-state.real-gateway.e2e.test.ts",
   "extensions/qa-lab/src/control-ui-openclaw-delegation.real-gateway.e2e.test.ts",
 ] as const;
-const serialGatewayFiles = `chat-managed-media-order
+const serialGatewayFiles = `approval-lookup chat-managed-media-order
   chat-session-diff-folding chat-steer-deferred-custody chat-tts-supplement
   command-palette-search deepseek-search desktop-resize device-platform-family
   peer-followup-restart session-pr-reader-lifetime
