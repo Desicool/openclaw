@@ -14,6 +14,7 @@ import {
   assertTrustedWorkflowHarness,
   dispatchInputsDigest,
   fullReleaseConcurrencyBranchPrefix,
+  formatCandidateToolingLagWarning,
   parseArgs,
   releaseProfileForVersion,
   releaseDecisionStopsForeground,
@@ -45,6 +46,51 @@ function rejectArgs(args: string[], error: string) {
 }
 
 describe("full-release-validation-at-sha", () => {
+  it("reports patch-inequivalent main FRV tooling without changing Q=C", () => {
+    const candidateSha = "a".repeat(40);
+    const mainSha = "b".repeat(40);
+
+    expect(
+      formatCandidateToolingLagWarning(candidateSha, mainSha, 3508, 28162, [
+        "14.8% extensions/",
+        "1.3% scripts/",
+      ]),
+    ).toBe(
+      [
+        `WARNING: candidate-owned Q=C tooling ${candidateSha} is 3508 non-merge commit(s) behind main ${mainSha}, with 28162 net changed path(s). Main cannot repair this candidate harness; review and port applicable release fixes before dispatch.`,
+        "Largest changed areas (share of net changed paths):",
+        "14.8% extensions/",
+        "1.3% scripts/",
+        `Inspect every exact path: git diff --name-status ${candidateSha} ${mainSha}`,
+      ].join("\n"),
+    );
+  });
+
+  it("keeps candidate dispatch available when the tooling-lag lookup is unavailable", () => {
+    const fixture = createDispatchFixture({
+      candidateOwned: true,
+      toolingLagFetchFailure: true,
+    });
+    const result = fixture.run();
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain(
+      "candidate tooling lag is unavailable because origin/main could not be refreshed",
+    );
+  });
+
+  it("does not depend on a manually maintained release-path inventory", () => {
+    const fixture = createDispatchFixture({ candidateOwned: true });
+    const result = fixture.run();
+
+    expect(result.status, result.stderr).toBe(0);
+    const comparison = fixture.gitCalls().find((args) => args[0] === "rev-list");
+    expect(comparison).not.toContainEqual(expect.stringMatching(/^--max-count=/u));
+    expect(comparison?.at(-1)).toMatch(/\.\.\./u);
+    const treeDiffs = fixture.gitCalls().filter((args) => args[0] === "diff");
+    expect(treeDiffs).toContainEqual(expect.arrayContaining(["--no-renames", "--name-only"]));
+  });
+
   it("rejects a missing purpose before remote creation on supporting tooling", () => {
     const fixture = createDispatchFixture({ omitPurpose: true });
     const result = fixture.run();
