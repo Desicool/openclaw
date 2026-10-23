@@ -116,6 +116,41 @@ Apply the campaign's sample-count and paired-delta rules. RSS high water include
 setup. State and profile files remain in the task-owned directory for inspection
 and cleanup.
 
+## Session catalog selection
+
+`session-catalog-selection-measure.ts` invokes the real `sessions.catalog.list`
+handler with a real row projection over 5,000 persisted synthetic sessions split
+between two agents. Two synthetic providers consume the shared planning snapshot
+and return 16 rows each. Every measured call follows a committed metadata update
+and waits for the row owner to settle before reading its order;
+`--unchanged` instead measures repeated calls at one revision. This is in-process
+handler evidence, without transport, model calls, or external provider IO.
+
+```sh
+node --expose-gc --trace-gc-nvp --import ./scripts/tsx.mjs \
+  scripts/perf/session-catalog-selection-measure.ts \
+  --state-dir /path/to/new-state --operations 4000 --start-at <future-epoch-ms> \
+  --gc-log /path/to/capture.log --output /path/to/result.json > /path/to/capture.log 2>&1
+```
+
+Run on the approved benchmark host with a new state directory per process. Setup
+and warmup precede `CATALOG_READY`; use preparation CPUs until that marker, then
+the pair's interleaved measurement CPUs. Hold one quiet lock and use the shared
+production guard; swap placements in the second pair. Add `--allocations` for a
+separate paired allocation pass including objects collected by minor and major GC.
+Handler latency excludes the metadata write and row settling; allocation, GC, promotion, CPU, and
+elapsed time include the write, settling, response hashing, and the one-millisecond pacing
+yield. Selection and catalog allocation subtrees are reported separately.
+
+Compare the initial/final full ordered entry hashes and complete response-sequence
+hash across baseline and candidate: no response fields are omitted. Assertions
+check both providers ran and saw all rows and the expected selection revisions.
+Twenty unchanged warmup calls provide context; use `--unchanged --operations 4000`
+for a full unchanged comparison. GC reports totals per call, collection counts,
+maximum pauses and tails; all tails include sample counts. Apply the campaign's
+paired-delta, sample-count and absolute GC pause rules. RSS high water includes
+setup; retained state and allocation profiles are task-owned cleanup artifacts.
+
 ## Gateway startup and restart acceptance
 
 Use `scripts/bench-gateway-startup.ts` and `scripts/bench-gateway-restart.ts`

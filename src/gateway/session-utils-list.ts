@@ -286,9 +286,21 @@ export function prepareSessionRowSelection(
       }
     });
   }
-  // Catalog adoption consumes raw resident order; exact/child reads retain their narrow selector.
-  const retained = broad && prepared?.ordered && selectedScope.paths.size > 0;
+  const retained = broad && selectedScope.paths.size > 0;
   let selection = retained ? scopes.get(selectedScope)?.get(activeOnly) : undefined;
+  // Unordered readers keep the resident owner's order, including replacement and federation.
+  const rows =
+    !selection || !prepared?.ordered
+      ? (prepared?.candidateKeys
+          ? [...prepared.candidateKeys].map((key) => ({ key }))
+          : [{ key: prepared?.key, sessionIdOrKey: prepared?.sessionIdOrKey, parentSessionKey }]
+        ).flatMap((query) =>
+          projection.selectEntries(
+            { agentId: selectedScope.agentId, ...query, sortBy: null },
+            prepared?.metadataPrepared === true,
+          ),
+        )
+      : undefined;
   if (!selection) {
     selection = createSessionRowSelection(
       cfg,
@@ -296,19 +308,7 @@ export function prepareSessionRowSelection(
       activeOnly,
       () => projection.state.rowContext,
     );
-    const queries = prepared?.candidateKeys
-      ? [...prepared.candidateKeys].map((key) => ({ key }))
-      : [{ key: prepared?.key, sessionIdOrKey: prepared?.sessionIdOrKey, parentSessionKey }];
-    for (const row of queries.flatMap((query) =>
-      projection.selectEntries(
-        {
-          agentId: selectedScope.agentId,
-          ...query,
-          sortBy: null,
-        },
-        prepared?.metadataPrepared === true,
-      ),
-    )) {
+    for (const row of rows!) {
       selection.add(selectionRow(row)!);
     }
     if (retained) {
@@ -330,6 +330,7 @@ export function prepareSessionRowSelection(
   const selected = selection.read(
     prepared?.ordered ? (opts.sortBy ?? "updatedAt") : undefined,
     candidates,
+    prepared?.ordered ? undefined : rows,
   );
   const { entries } = selected;
   return {
