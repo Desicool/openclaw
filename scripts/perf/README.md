@@ -513,7 +513,8 @@ Use separate identical fixtures and ports for both sides. The common
 Add `--list-every 8` to interleave a 200-row sidebar list with every eight stored-row
 updates. The allocation window includes these requests and reports their latency
 separately. Resource snapshots include selection counts by kind and caller; the
-run must observe parent selections during the notification window. This exercises
+run must observe parent selections during setup; the notification window can
+eliminate them entirely when lineage is unchanged. This exercises
 the retained sidebar and task-PR descendant paths together, without assuming that
 their synthetic ratio is the production ratio.
 A missed scheduled phase fails the run. Compare concurrent pairs under one
@@ -526,8 +527,8 @@ per side; total GC remains the gate. Reject a mean paired regression of at least
 share and snapshot captures alongside total allocation at the matched workload.
 To compare a small owner-only change without another source tree, place candidate
 copies of `control-ui-session-task-prs.ts`, `control-ui-session-pr-read.ts`,
-`control-ui-session-pr-subscriptions.ts`,
-and `session-row-scope.ts`
+`control-ui-session-pr-subscriptions.ts`, `session-row-projection.ts`,
+`session-row-projection-revisions.ts`, and `session-row-scope.ts`
 beside the originals with a `.candidate.ts` suffix and pass `--owner-suffix candidate`.
 The child verifies all substitutions loaded; results record the owner hashes
 and the optional `--revision` label.
