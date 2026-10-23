@@ -1409,6 +1409,11 @@ node --import ./scripts/tsx.mjs scripts/perf/history-diff-measure.ts \
 one session with 64 completed tool turns (8 KiB, 64 KiB, and 256 KiB tool results),
 captures a clean checkout baseline, then changes `--tracked-files` (default 32)
 tracked files and creates `--untracked-files` (default 32) untracked files.
+Add `--dirty-baseline` when seeding to capture a pre-session edit in each tracked
+file before replacing it with the measured edit. The populated baseline overlaps
+every tracked response path, exercising baseline fingerprint comparison without
+hiding the later edits. This requires at least one tracked file and records the
+captured count in `baselineFiles`.
 `--unchanged-files` (default 0) adds small committed files to increase checkout
 size without increasing the diff. Counts are nonnegative; setting both changed
 counts to zero measures a clean checkout. For example, seed with
@@ -1426,6 +1431,10 @@ source entry. It issues small, default, and large `chat.history` requests, plus
 full `sessions.diff` requests for both `all` and `uncommitted` scopes. Summary
 requests are excluded. Repeated full requests exercise the existing diff cache
 and its checkout-revision validation.
+Add `--mutate` during measurement to rewrite identical bytes to `tracked-0.txt`
+before each diff cohort, including concurrent warmup. This advances filesystem
+freshness while preserving the exact response hash and exercises full diff
+collection after cache invalidation. It requires a changed tracked file.
 Each operation is one concurrent cohort with one request per client. Empty
 history, counts that differ from the seed, missing full patches for a nonempty
 diff, or RPC failures reject the run. Keep changed-file counts within the
@@ -1447,19 +1456,27 @@ The first request for each variant is recorded separately as warmup. Then
 `--warmup-cohorts` (default 5) warms every concurrent reader before measurement.
 With `--start-at <epoch-ms>`, those cohorts run within the final 10 seconds before
 the shared start, keeping burst readers warm. A missed readiness deadline rejects
-the run. The report records the requested start, actual per-round start and first
-dispatch skew. CPU profiling starts before the barrier, so the first profile and
-CPU totals include its short idle wait; RPC latency samples exclude that wait.
+the run. Alternatively, `--start-file <path>` requires an initially absent file
+and emits `warmed: true` after the concurrent warmup. The pair coordinator waits
+for both warmed messages, then atomically publishes a future epoch in milliseconds
+to the shared file. Each driver reads that deadline and rejects invalid or passed
+values. The two start options are mutually exclusive. The report records the
+requested start, actual per-round start and first dispatch skew. CPU profiling
+and CPU snapshots begin after the barrier, excluding its idle wait.
 Measured rounds include raw latency samples, p50/p95/p99, payload bytes, returned row
 counts, main-thread/process CPU, CPU profiles and existing worker queue, run,
 and transfer diagnostics. Each sample includes `payloadSha256`, computed after
 omitting the top-level absolute `root` and `sessionKey`; each round lists its
 distinct hashes. Compare matching diff hashes across A/B reports to establish
 identical response content despite different fixture roots. Within one run,
-every diff response must match its warmup hash because the workload does not
-modify the checkout. Payload bytes measure re-encoded JSON in the driver,
+every diff response must match its warmup hash because the workload preserves
+checkout content, including with `--mutate`. Payload bytes measure re-encoded JSON in the driver,
 not WebSocket frame overhead. Profiles sample the main isolate; worker task
-diagnostics provide worker timings. They do not count Git subprocesses.
+diagnostics provide worker timings. `gitSpawns` counts actual Git trace2 `start`
+events during each workload round; `gitSpawnsPerRpc` divides by completed RPCs.
+These are Gateway-wide workload-window counts, including any concurrent Git
+activity. Trace writes are enabled identically on both comparison sides and
+their overhead is included; trace parsing runs in the driver after capture.
 Diagnostic captures also include RPC admission/handler/response durations,
 session diff stages (scoped retention, resolution, repository access, managed
 review base, Git, and synchronous response encoding/socket enqueue), and separate
@@ -1485,9 +1502,9 @@ operation, allocation sites, and separate major/minor/incremental/weak-callback 
 summaries; `promotion` includes V8 promoted bytes and bytes per operation. The
 stdout-only GC log is parsed after the owned Gateway exits and the log is flushed,
 excluding workers and GC outside the capture. CPU totals remain available.
-Allocation mode waits at `--start-at` before starting capture, excluding barrier
-idle time; first-dispatch skew includes profiler setup. CPU mode retains its
-pre-barrier profile start. Compare matching modes and shapes. Workers, external
+Both profiling modes wait for the start barrier before starting capture, excluding
+barrier idle time; first-dispatch skew includes profiler setup.
+Compare matching modes and shapes. Workers, external
 buffers, and controller allocations are outside the main-isolate estimate.
 
 For a history-owner comparison using one source tree and dependency installation,
@@ -1498,6 +1515,16 @@ SHA-256 hashes. Keep the rest of the source fixed for both sides.
 History payload hashes normalize only `sessionInfo.snapshotAt` to zero and the
 fixture root to `<fixture>`; response content and field order remain intact.
 The first normalized response is saved as `<scenario>.json` for byte comparison.
+
+For a diff-owner comparison, pass `--entry src/entry.ts --diff-source
+/path/to/session-diff.runtime.ts`. A child-only preload substitutes that source
+at its canonical module URL, including inside Git workers, so relative imports
+retain their normal ownership. The report records the source SHA-256 and worker
+load receipts; a source that never loads fails the run. Both sides otherwise use
+the same source tree and dependency installation. Combine `--dirty-baseline`
+at seed time with `--mutate --scenario diff-uncommitted-full` during measurement
+to exercise repeated baseline filtering. Keep fixture generation sequential and
+run simultaneous pairs under the host guard with swapped interleaved CPU sets.
 
 ## Measure transcript broadcast fanout
 
