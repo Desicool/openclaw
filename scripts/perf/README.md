@@ -323,6 +323,12 @@ while raw frames preserve delivery order for inspection.
 
 Use separate identical fixtures and ports for both sides. The common
 `--start-at` starts subscribe timing; notification timing starts 30 seconds later.
+Add `--list-every 8` to interleave a 200-row sidebar list with every eight stored-row
+updates. The allocation window includes these requests and reports their latency
+separately. Resource snapshots include selection counts by kind and caller; the
+run must observe parent selections during the notification window. This exercises
+the retained sidebar and task-PR descendant paths together, without assuming that
+their synthetic ratio is the production ratio.
 A missed scheduled phase fails the run. Compare concurrent pairs under one
 host measurement lock, use interleaved physical cores, and swap sides for the
 second pair. Repeat with `--clients 1` to distinguish fixed from per-tab costs.
@@ -332,9 +338,10 @@ per side; total GC remains the gate. Reject a mean paired regression of at least
 20%, or a metric at least 10% worse in both pairs. Inspect family allocation
 share and snapshot captures alongside total allocation at the matched workload.
 To compare a small owner-only change without another source tree, place candidate
-copies of `control-ui-session-task-prs.ts` and `control-ui-session-pr-subscriptions.ts`
+copies of `control-ui-session-task-prs.ts`, `control-ui-session-pr-subscriptions.ts`,
+and `session-row-scope.ts`
 beside the originals with a `.candidate.ts` suffix and pass `--owner-suffix candidate`.
-The child verifies both substitutions loaded; results record both owner hashes
+The child verifies all substitutions loaded; results record the owner hashes
 and the optional `--revision` label.
 
 ## Async context allocation
