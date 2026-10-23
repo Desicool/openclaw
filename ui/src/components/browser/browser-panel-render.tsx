@@ -250,7 +250,7 @@ function ViewportContent(
         )}
       </Match>
       <Match when={!props.controller.view && props.controller.loading}>
-        <PanelLoadingSkeleton variant="browser" label={t("browser.loading")} />
+        <PanelLoadingSkeleton variant="browser-viewport" label={t("browser.loading")} />
       </Match>
       <Match when={!props.controller.view}>
         <PanelEmptyState
