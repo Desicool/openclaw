@@ -65,7 +65,9 @@ const controlUiPerformanceBudgets = {
   newBootJsGzipBytes: 807_612,
   startupCssRequests: 1,
   // Solid 2 action/optimistic runtime adoption; offset tracked by HF-STARTUP-BUDGET.
-  startupJsGzipBytes: 325_081,
+  // Jacob Tomlinson approved +50 B for native inline views (#173135, 2026-10-22).
+  // The separate 512 B growth and 64 B build-variance allowances are unchanged.
+  startupJsGzipBytes: 325_131,
   // Keep 45 KiB advisory: tiny integrated changes must not exhaust the budget.
   // The fixed 50 KiB ceiling bounds accumulation of small changes.
   startupCssGzipBytes: 50 * KIB,
