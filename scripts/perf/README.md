@@ -1,5 +1,29 @@
 # Team-shaped synthetic state
 
+## Limited-scope Control UI RPCs
+
+`control-ui-forbidden-rpc-measure.ts` opens the real Control UI against a synthetic,
+isolated Gateway and records the authenticated hello scopes, per-method calls and
+`FORBIDDEN` responses, connection-minutes, page errors, and a viewport screenshot.
+Use an existing limited operator fixture with `operator.sessions.write`, an open
+chat, and a transcript link to a session outside the loaded roster. Do not use a
+production Gateway or a real browser profile.
+
+```sh
+node --import ./scripts/tsx.mjs scripts/perf/control-ui-forbidden-rpc-measure.ts \
+  --url http://127.0.0.1:41629/chat/main/12345678 \
+  --proxy-user limited@example.test --duration-ms 60000 \
+  --ready-text "synthetic limited-scope conversation" --show-panels \
+  --output-dir /path/to/proof --label baseline
+```
+
+The optional proxy user supplies synthetic trusted-proxy headers; configure the
+isolated Gateway to trust them. `--browser-path` selects an installed Chromium.
+Repeat on baseline and candidate with the same fixture, duration, and role.
+Acceptance is zero denied calls for unavailable surfaces, with allowed chat reads
+still succeeding. Inspect screenshots for usable chat and absent unavailable
+controls. This is a request-count measurement, not a CPU or latency benchmark.
+
 ## Main-thread filesystem durability
 
 Use `fsync-gateway-entry.ts` as the `--entry` for
