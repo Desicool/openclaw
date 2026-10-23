@@ -1,5 +1,5 @@
 import { activityPersonLocation } from "../app-route-paths.ts";
-import { shouldHandleNavigationClick } from "../lib/navigation-click.ts";
+import { handleNavigationClick } from "../lib/navigation-click.ts";
 
 /**
  * Routing an identity surface needs to open one person's Activity feed. Hosts pass it
@@ -44,12 +44,6 @@ export function personActivityLink(
   }
   return {
     href: activityPersonLocation(id, routing.basePath, label).href,
-    open: (event: MouseEvent) => {
-      if (!shouldHandleNavigationClick(event)) {
-        return;
-      }
-      event.preventDefault();
-      routing.navigate(id, label);
-    },
+    open: (event: MouseEvent) => handleNavigationClick(event, () => routing.navigate(id, label)),
   };
 }
