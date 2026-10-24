@@ -66,9 +66,17 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
       syncSelection,
     );
     const readiness = createSubagentsPresentation(data);
+    const emptyLoading = createMemo(
+      () =>
+        !data().rows.length &&
+        !data().nativeSnapshot &&
+        !data().nativeError &&
+        !data().stopError &&
+        isPending(readiness.read),
+    );
     const createMobileStop = (key: () => string) =>
       readiness.createStop(() => data().rows.find((row) => row.session.key === key()));
-    const FallbackShell = (fallbackProps: { loading?: boolean; children: JSX.Element }) => (
+    const FallbackShell = (fallbackProps: { children: JSX.Element }) => (
       <div
         class={
           props.mobile === true
@@ -78,7 +86,7 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
               : "chat-subagents__list"
         }
         hidden={Boolean(selected()) || !props.presented}
-        aria-busy={fallbackProps.loading ? "true" : "false"}
+        aria-busy="false"
       >
         <Show when={props.mobile === false} fallback={fallbackProps.children}>
           <div class="subagents-desktop__content" tabindex="-1">
@@ -113,9 +121,9 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
         <Loading
           on={readiness.scope().retired}
           fallback={
-            <FallbackShell loading>
-              <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} compact />
-            </FallbackShell>
+            <Show when={!selected() && props.presented}>
+              <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} />
+            </Show>
           }
         >
           {(latest(readiness.read), null)}
@@ -136,7 +144,7 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
             )
           }
         >
-          <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} compact />
+          <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} />
         </Show>
       </Show>
     );
@@ -310,6 +318,7 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
                 finishedOpen={finishedOpen()}
                 onToggleFinished={() => setFinishedOpen((value) => !value)}
                 loading={isPending(readiness.read)}
+                emptyLoading={emptyLoading()}
                 onScrollPortRef={props.onScrollPortRef}
                 listRef={(element, firstButton) => {
                   mobileList = element;
@@ -358,6 +367,7 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
               agentId={props.agentId}
               rows={data().rows}
               loading={isPending(readiness.read)}
+              emptyLoading={emptyLoading()}
               error={data().stopError}
               hasResult={data().hasResult}
               nativeSnapshot={data().nativeSnapshot}

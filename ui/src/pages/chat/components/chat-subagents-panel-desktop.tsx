@@ -40,6 +40,7 @@ export type ChatSubagentsPanelDesktopProps = {
   agentId: string;
   rows: readonly SubagentsPanelRow[];
   loading: boolean;
+  emptyLoading?: boolean;
   error: string | null;
   hasResult: boolean;
   nativeSnapshot?: SubagentsPanelData["nativeSnapshot"];
@@ -248,6 +249,7 @@ export function ChatSubagentsPanelDesktop(props: ChatSubagentsPanelDesktopProps)
           content = element;
         }}
         class="subagents-desktop__content"
+        style={{ padding: props.emptyLoading ? "0" : undefined }}
         tabindex="-1"
       >
         <Show when={props.error}>
@@ -273,7 +275,7 @@ export function ChatSubagentsPanelDesktop(props: ChatSubagentsPanelDesktopProps)
                   </div>
                 }
               >
-                <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} compact />
+                <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} />
               </Show>
             )
           }
