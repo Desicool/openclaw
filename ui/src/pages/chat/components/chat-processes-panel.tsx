@@ -469,7 +469,7 @@ export const ChatProcessesPanel = defineSolidBridge<ChatProcessesPanelProps>(
                       </div>
                     }
                   >
-                    <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} compact />
+                    <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} />
                   </Show>
                 }
               >
@@ -531,7 +531,7 @@ export const ChatProcessesPanel = defineSolidBridge<ChatProcessesPanelProps>(
         <div class="chat-processes__list" aria-busy={fallbackProps.loading ? "true" : "false"}>
           {error(fallbackProps.loading, fallbackProps.retry)}
           <Show when={fallbackProps.loading}>
-            <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} compact />
+            <PanelLoadingSkeleton variant="file-list" label={t("common.loading")} />
           </Show>
         </div>
       </div>
