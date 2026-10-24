@@ -301,7 +301,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
     ["agents-home", "agents", "config"],
     ["ui/src/components/agent-select-registration.ts"],
   ),
-  pageWatch("ui/src/e2e/agent-selection-persistence.e2e.test.ts", ["chat"]),
   pageWatch("ui/src/e2e/agent-switch-roster.e2e.test.ts", ["chat"], sessionMenuOwnerRoots),
   pageWatch("ui/src/e2e/app-chrome-interaction.e2e.test.ts", ["chat", "config", "usage"]),
   pageWatch("ui/src/e2e/appearance-accent-selection.e2e.test.ts", ["config"]),
@@ -416,7 +415,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
     ["ui/src/components/login-gate-solid.tsx"],
   ),
   pageWatch("ui/src/e2e/chat-cli-history-redaction.e2e.test.ts", ["chat"]),
-  pageWatch("ui/src/e2e/chat-collaborator-scroll.e2e.test.ts", ["chat", "profile"]),
   pageWatch(
     "ui/src/e2e/chat-collapsed-reply-reveal.e2e.test.ts",
     ["chat"],
@@ -1197,11 +1195,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
   ),
   pageWatch("ui/src/e2e/link-favicons.e2e.test.ts", ["chat"]),
   pageWatch(
-    "ui/src/e2e/lobster-pet-dismiss-menu-overflow.e2e.test.ts",
-    ["chat", "new-session"],
-    ["ui/src/components/lobster-pet.tsx", "ui/src/components/menu-surface.ts"],
-  ),
-  pageWatch(
     "ui/src/e2e/lobster-pet.e2e.test.ts",
     ["chat", "new-session"],
     ["ui/src/components/lobster-pet-plans.ts", "ui/src/components/lobster-pet.tsx"],
@@ -1692,11 +1685,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
     [...sessionMenuOwnerRoots, "ui/src/pages/chat/chat-pane.ts"],
   ),
   pageWatch(
-    "ui/src/e2e/session-management.optimistic-pin.e2e.test.ts",
-    ["chat"],
-    sessionMenuOwnerRoots,
-  ),
-  pageWatch(
     "ui/src/e2e/session-management.queue.e2e.test.ts",
     ["chat"],
     ["ui/src/components/app-sidebar.ts", "ui/src/components/session-glyph.ts"],
@@ -1889,11 +1877,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
       "ui/src/lib/cron/types.ts",
     ],
     ["ui/src/styles/sidebar-update-card.css"],
-  ),
-  pageWatch(
-    "ui/src/e2e/sidebar-cached-list-stability.e2e.test.ts",
-    ["chat"],
-    [...sessionMenuOwnerRoots, "ui/src/components/app-sidebar-session-navigation.ts"],
   ),
   pageWatch(
     "ui/src/e2e/sidebar-cron-inventory.e2e.test.ts",
