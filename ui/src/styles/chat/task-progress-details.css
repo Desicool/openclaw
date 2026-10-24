@@ -518,18 +518,6 @@
   border-block-start: 1px solid var(--border);
 }
 
-.task-progress-details__empty {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.task-progress-details__empty p {
-  margin: 0;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .task-progress-details__refresh[data-pending="true"] svg {
     animation: none;
@@ -546,4 +534,9 @@
   > .chat-mobile-details-page__body {
   padding: 16px 16px calc(88px + env(safe-area-inset-bottom));
   scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom));
+
+  &:has(> .task-progress-details--mobile > openclaw-panel-empty-state) {
+    padding-block-start: 0;
+    padding-inline: 0;
+  }
 }
