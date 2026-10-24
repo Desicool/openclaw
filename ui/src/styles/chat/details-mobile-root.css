@@ -193,10 +193,6 @@
   border-top: 0;
 }
 
-.chat-details-mobile-context {
-  padding: 12px 14px 24px;
-}
-
 .chat-details-mobile-context__summary {
   display: flex;
   align-items: center;
@@ -208,10 +204,6 @@
 .chat-details-mobile-context__summary .chat-details__meter {
   flex: 1;
   min-width: 0;
-}
-
-.chat-details-mobile-context > .chat-details-mobile-context__summary {
-  margin-bottom: 10px;
 }
 
 .chat-details-mobile-root__avatars {

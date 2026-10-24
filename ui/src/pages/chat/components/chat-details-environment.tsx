@@ -10,21 +10,17 @@ import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-sessio
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { createDocumentVisibility } from "../../../lib/reactive/platform.ts";
 import { ChatBranchActions } from "./chat-branch-actions.tsx";
-import { getContextNoticeViewModel } from "./chat-composer-context.tsx";
-import { ChatDetailsContextContent, ChatDetailsContextSummary } from "./chat-details-context.tsx";
 import {
   animateDetailsDesktopEntrance,
   ChatDetailsDesktopSection,
 } from "./chat-details-desktop-section.tsx";
-import type { ChatDetailsEnvironmentDesktopProps, ChatDetailsProps } from "./chat-details-types.ts";
 import "./chat-details-environment-desktop.css";
+import type { ChatDetailsEnvironmentDesktopProps } from "./chat-details-types.ts";
 import { ChatPanePlacement, createChatMachinePresentation } from "./chat-pane-placement.tsx";
 import { retainedPublication, showWorkRow } from "./chat-pull-requests.ts";
 
 registerEnglishCatalog(registerChatSessionEnglish);
 registerEnglishCatalog(registerChatDetailsEnglish);
-
-type Props = { details: ChatDetailsProps; presented: boolean };
 
 export function EnvironmentAction(props: {
   presented: boolean;
@@ -315,27 +311,4 @@ export function ChatDetailsEnvironment(props: ChatDetailsEnvironmentDesktopProps
       }}
     </Show>,
   ];
-}
-
-export function ChatDetailsContext(props: Props) {
-  const context = createMemo(() => getContextNoticeViewModel(props.details.selectedSession));
-  const [expanded, setExpanded] = createSignal(false);
-  return (
-    <Show when={context()}>
-      <details
-        class="chat-details__group chat-details__context"
-        onToggle={(event) => setExpanded(event.currentTarget.open)}
-      >
-        <summary class="chat-details__caption">
-          {t("chat.sessionDetails.context")}
-          <ChatDetailsContextSummary details={props.details} />
-          <Icon name="chevronDown" />
-        </summary>
-        <ChatDetailsContextContent
-          details={props.details}
-          presented={props.presented && expanded()}
-        />
-      </details>
-    </Show>
-  );
 }

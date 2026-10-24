@@ -540,6 +540,8 @@ export class ChatPaneRuntime extends ChatPaneLayoutRender {
         agentsList: state.agentsList,
         hello: state.hello,
       },
+      contextGateway: this.context.gateway,
+      onOpenContext: this.openContextPanel,
       operatorAuth: state.hello?.auth ?? null,
       providerUsage: {
         basePath: state.basePath,
