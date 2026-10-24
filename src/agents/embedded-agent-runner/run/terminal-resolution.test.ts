@@ -13,6 +13,9 @@ import {
   buildEmbeddedRunnerAssistant,
   makeEmbeddedRunnerAttempt,
 } from "../../test-helpers/embedded-agent-runner-e2e-fixtures.js";
+import { makeProviderModelFixture } from "../../test-helpers/provider-model-fixture.js";
+import { transformTransportMessages } from "../../transport-message-transform.js";
+import { normalizeAssistantReplayContent } from "../replay-history.js";
 import {
   markEmbeddedRunAuthProfileSuccess,
   reportEmbeddedRunSuccessfulAuthBinding,
@@ -593,6 +596,63 @@ describe("terminal resolution", () => {
     expect(exhausted.result.meta.finalAssistantVisibleText).toBeUndefined();
     expect(exhausted.result.meta.finalAssistantRawText).toBeUndefined();
   });
+
+  it.each([
+    { provider: "anthropic", api: "anthropic-messages", thinkingSignature: "sig" },
+    { provider: "kimi", api: "anthropic-messages", thinkingSignature: "" },
+    { provider: "openai", api: "openai-responses", thinkingSignature: '{"id":"rs_1"}' },
+    { provider: "openai", api: "openai-completions", thinkingSignature: "" },
+  ] as const)(
+    "continues $provider/$api reasoning only while replay keeps the turn",
+    async ({ provider, api, thinkingSignature }) => {
+      const model = makeProviderModelFixture({
+        provider,
+        api,
+        id: "reasoning-model",
+        baseUrl: "https://example.test",
+      });
+      const user = { role: "user", content: "Answer the question.", timestamp: 0 } as const;
+      for (const stopReason of ["stop", "length"] as const) {
+        const assistant = buildEmbeddedRunnerAssistant({
+          provider,
+          api,
+          model: model.id,
+          stopReason,
+          content: [{ type: "thinking", thinking: "Partial reasoning.", thinkingSignature }],
+        });
+        // Both replay owners omit a token-limited reasoning-only turn from the next request.
+        const replay = stopReason === "stop" ? [user, assistant] : [user];
+        expect(normalizeAssistantReplayContent([user, assistant])).toEqual(replay);
+        expect(transformTransportMessages([user, assistant], model)).toEqual(replay);
+        const input = makeTerminalInput({
+          attempt: assistantAttempt(assistant, {
+            currentAttemptReplayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+          }),
+          activeErrorContext: { provider, model: model.id },
+          modelApi: api,
+        });
+
+        const resolved = await resolveEmbeddedRunTerminal(input);
+
+        if (stopReason === "stop") {
+          expect(resolved).toEqual({ action: "retry" });
+          expect(input.sessionPromptState.activateInternalPrompt).toHaveBeenCalledWith(
+            REASONING_ONLY_RETRY_INSTRUCTION,
+          );
+          continue;
+        }
+        expectComplete(resolved);
+        expect(input.sessionPromptState.activateInternalPrompt).not.toHaveBeenCalled();
+        expect(resolved.result.payloads).toEqual([
+          {
+            text: "⚠️ The model reached its output token limit before generating an answer. Please try again.",
+            isError: true,
+          },
+        ]);
+        expect(resolved.result.meta.error).toMatchObject({ kind: "incomplete_turn" });
+      }
+    },
+  );
 
   it("keeps a prepared answer when a later assistant message is reasoning-only", async () => {
     const answerText = "The operation completed successfully.";
