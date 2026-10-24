@@ -2707,6 +2707,40 @@ while Gateway state and temporary diff indexes remain owned by each side's
 and each sample's checkout index. This adds multiple-root contention without
 generating another large filesystem tree; it still does not model a whole fleet.
 
+## Worker module graphs and retained admission facts
+
+`worker-module-graphs-measure.mjs` exercises the Git, plugin-preparation,
+Code Mode, and skill-discovery worker entrypoints through their task protocol.
+It records cold and warm script inventories, retained heap after collection,
+request latency, worker GC, and worker event-loop delay with sample counts.
+Each run owns one isolate. The synthetic fixture has four workspaces with eight
+skills each and plugin admission facts for 100 roots and 5,000 files.
+
+```sh
+node --import ./scripts/tsx.mjs scripts/perf/worker-module-graphs-measure.mjs \
+  --state-dir /path/to/owned-fixture --output /path/to/result.json \
+  --worker git-operation --samples 1200 --start-at <epoch-ms> --trace-gc
+```
+
+Other worker names are `plugin-generation-preparation`, `code-mode-node`, and
+`discovery`. Use one worker per concurrent baseline/candidate pair so `--start-at`
+synchronizes the measured windows after warmup and diagnostic collection. Missed
+start deadlines fail the run; `startedAt` records the actual request-window start.
+Allow enough preparation time for snapshots. Swap CPU placement in the second pair. `--baseline-dir` loads the original versions of the five import/admission
+owners listed in the worker helper, retaining candidate URLs for dependency
+resolution. Store those files at their repository-relative paths beneath that
+directory. `--snapshots` writes warm heap snapshots outside the timed window.
+
+Git replies come from real host-side Git commands, and a newly created branch must
+appear in the worker's inventory. Plugin resolve calls must return the captured
+source bytes, and close must release the artifact. Discovery verifies every
+skill; Code Mode checks the computed result across fresh completed contexts.
+This is a worker-boundary workload, not a full Gateway benchmark. Main-isolate
+heap and total allocated bytes are not measured. GC trace markers delimit each
+workload; identify the worker isolate from the forced collection between the
+identification markers. Report worker and whole-process GC time and promoted
+bytes separately so deferred host work remains visible.
+
 ## Sandbox measurements
 
 Follow the current host policy. On Team, use only a task-owned
