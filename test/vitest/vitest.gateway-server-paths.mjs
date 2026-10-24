@@ -411,6 +411,7 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/worker-environments/placement-read-projection.snapshot.test.ts",
   "src/gateway/worker-environments/placement-read-projection.worker.test.ts",
   "src/gateway/worker-environments/placement-reclaim-acceptance.test.ts",
+  "src/gateway/worker-environments/placement-reclaim-history.test.ts",
   "src/gateway/worker-environments/placement-reclaim-lifecycle.test.ts",
   "src/gateway/worker-environments/placement-session-read.test.ts",
   "src/gateway/worker-environments/placement-session-retirement.test.ts",
