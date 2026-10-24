@@ -499,11 +499,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
   pageWatch("ui/src/e2e/chat-error-details.e2e.test.ts", ["chat"]),
   pageWatch("ui/src/e2e/chat-external-pending-input.e2e.test.ts", ["chat", "profile"]),
   pageWatch(
-    "ui/src/e2e/chat-file-copy-retirement.e2e.test.ts",
-    ["chat"],
-    ["ui/src/pages/chat/components/chat-detail-panel.ts"],
-  ),
-  pageWatch(
     "ui/src/e2e/chat-file-editor-recovery.e2e.test.ts",
     ["chat"],
     ["ui/src/pages/chat/components/chat-detail-panel.ts"],
@@ -1344,7 +1339,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
       ...pageStyles["chat"],
     ],
   },
-  pageWatch("ui/src/e2e/native-gateway-health.e2e.test.ts", ["new-session"]),
   pageWatch("ui/src/e2e/native-session-discovery-settings.e2e.test.ts", [
     "chat",
     "config",
@@ -1781,7 +1775,6 @@ const ownerWatches: readonly UiE2eOwnerWatch[] = [
   ),
   pageWatch("ui/src/e2e/session-owner-filter-header.e2e.test.ts", ["chat", "profile"]),
   pageWatch("ui/src/e2e/session-owner-first.e2e.test.ts", ["chat"]),
-  pageWatch("ui/src/e2e/session-owner-warm-refresh.e2e.test.ts", ["chat"]),
   pageWatch(
     "ui/src/e2e/session-placement.move.e2e.test.ts",
     ["chat", "device", "profile"],
