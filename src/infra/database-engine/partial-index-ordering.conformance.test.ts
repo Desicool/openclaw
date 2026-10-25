@@ -136,6 +136,8 @@ async function readJournalPlans(
   const postgresPool = createPostgresPoolEndpoints();
   let worker: Worker;
   try {
+    // The fixture shares its parent's I/O pool, like production database workers.
+    const postgresPool = createPostgresPoolEndpoints();
     worker = new Worker(
       `
     const { parentPort, workerData } = require("node:worker_threads");
@@ -205,6 +207,7 @@ async function readJournalPlans(
           supervisor: requireNodeWorkerProcessIdentity(process.pid),
           stateContext: captureSqliteWorkerStateContext(context),
           admissions: captureSqliteDatabaseAdmissions(),
+          postgresPool,
           port: admission.port,
           postgresPool,
         },
