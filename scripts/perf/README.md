@@ -4952,6 +4952,70 @@ tail includes its sample count. This simulation establishes persistence-path
 blocking behavior; it does not claim production throughput or macOS browser
 cookie-import latency.
 
+## Cron delivery read comparisons
+
+Use `transcript-broadcast-measure.ts --scenario cron.list` for full cron reads.
+`cron-delivery-gateway-entry.ts` supplies only a frozen delivery owner; the
+canonical harness owns workload validation, warmup, diagnostics, synchronization,
+and cleanup. Both baseline and candidate use this same entry and source
+installation. No production timing hooks or additional dependency installs are
+needed.
+
+Generate fresh fixtures sequentially for each side and pair:
+
+```sh
+node --import ./scripts/tsx.mjs scripts/perf/team-shape-fixture.ts \
+  --state-dir "$STATE" --sessions 5000 --runs 6000 --settled-runs \
+  --approvals 0 --projects 0 --transcript-mib 0 \
+  --cron 40 --cron-announce-last --seed 967 --now "$FIXTURE_EPOCH" \
+  --port "$PORT"
+```
+
+Enable `cron.enabled` in each generated `openclaw.json` before launching, keeping
+all 40 jobs disabled. This exercises the resident scheduler snapshot rather than
+forcing a cron-store reload on every call. Keep ordinary maintenance enabled.
+Freeze each side's owner from its exact revision into its own fixture:
+
+```sh
+git show "$OWNER_REVISION:src/cron/isolated-agent/delivery-target-context.ts" \
+  > "$STATE/cron-delivery-owner.ts"
+```
+
+Use identical owner revisions for A/A controls. The entry requires the generated
+fixture and owner file, replaces only the canonical delivery-owner module, and
+prints `CRON_OWNER_SOURCE` with the SHA-256 of the source actually loaded. The
+pair controller must verify this marker against the prepared file after warmup;
+a Gateway that exits without loading the owner fails the run. Record the shared
+source revision, owner revision, owner hash, and controller/harness hashes.
+
+```sh
+node --import ./scripts/tsx.mjs scripts/perf/transcript-broadcast-measure.ts \
+  --state-dir "$STATE" --entry scripts/perf/cron-delivery-gateway-entry.ts \
+  --scenario cron.list --clients 1 --runs 1 --rpc-concurrency 1 \
+  --operations 200 --warmup-operations 40 --rpc-interval-ms 1100 --rounds 1 \
+  --port "$PORT" --mock-port "$MOCK_PORT" --diagnostics \
+  --start-file "$PAIR_START_FILE" --revision "$SOURCE_REVISION"
+```
+
+After both sides print `PHASE warmed` and their owner hashes match, atomically
+publish a common start epoch at least five seconds ahead. This also expires the
+last warmup response. Pacing is start-to-start between requests, with no delay
+before the first or after the last request. The public one-second response cache
+therefore expires without changing cache policy or request identity. The harness
+validates all 40 disabled jobs and their announce/last delivery previews. With
+200 requests, p95 qualifies for comparison and p99 remains context. CPU, natural
+GC, and event-loop observations cover the entire paced window, including idle
+and maintenance work; RPC latency measures request-to-response time.
+
+The driver prints `RESULT` with its result path under the fixture. Validate the
+completed count and `naturalGc.timingGateEligible`, retain GC counts and maxima,
+and compare reported runtime, process age, heap spaces, actual capture times,
+and CPU affinity. Repeat promotion measurements separately by adding
+`--trace-gc`; their timing is attribution only. Follow
+[Calibrating paired GC measurements](#calibrating-paired-gc-measurements) for
+matched A/A controls, fixed workloads, synchronized starts, and inconclusive
+results. Preserve every valid observation and the campaign's declared rules.
+
 ## Managed attachment cleanup
 
 `managed-attachment-cleanup-measure.mjs` exercises the actual managed-media
