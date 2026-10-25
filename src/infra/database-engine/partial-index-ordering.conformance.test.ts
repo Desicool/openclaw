@@ -206,6 +206,7 @@ async function readJournalPlans(
           stateContext: captureSqliteWorkerStateContext(context),
           admissions: captureSqliteDatabaseAdmissions(),
           port: admission.port,
+          postgresPool,
         },
         transferList: [admission.port, ...postgresPoolTransferList(postgresPool)],
       },
