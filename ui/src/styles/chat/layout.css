@@ -947,7 +947,7 @@ openclaw-pending-session-create {
 }
 
 .context-ring__track {
-  stroke: color-mix(in srgb, currentColor 22%, transparent);
+  stroke: var(--context-ring-track, color-mix(in srgb, currentColor 22%, transparent));
 }
 
 .context-ring__fill {
@@ -3022,6 +3022,13 @@ openclaw-chat-ci-details {
     color: var(--muted);
     opacity: var(--chat-mobile-row-mic-opacity);
     stroke-width: var(--chat-mobile-row-mic-stroke);
+  }
+
+  .agent-chat__input--chat
+    .chat-mobile-dictation-action
+    .chat-send-btn--voice:not(:disabled, [aria-disabled="true"])
+    > svg {
+    color: inherit;
   }
 
   .agent-chat__input--chat .chat-mobile-dictation-action .chat-send-btn--voice {
