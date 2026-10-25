@@ -687,6 +687,9 @@ const rootEntries = [
   // Package-script owners invoke these generated-artifact modules directly.
   "src/config/doc-baseline.ts!",
   "src/plugins/runtime-sidecar-paths-baseline.ts!",
+  // The runtime-script asset generator bundles these sources into checked-in production modules.
+  "src/gateway/mcp-app-standalone-host.ts!",
+  "src/gateway/worker-environments/repository-node-requirement.ts!",
   // Imported by scripts/tsdown-build.mts as the AI package build configuration.
   "tsdown.ai.config.ts!",
   // Maintainer-owned compatibility data referenced by release/docs workflows.
@@ -1305,6 +1308,8 @@ const config = {
       // registration contracts rather than static imports from the entrypoint.
       "harness.ts!",
       "media-understanding-provider.ts!",
+      // The validator generator compiles this schema owner into checked-in production modules.
+      "src/app-server/protocol-validator-schemas.ts!",
     ]),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/deepgram`]: bundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/deepinfra`]: bundledPluginWorkspace(),
