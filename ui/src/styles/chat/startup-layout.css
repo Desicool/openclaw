@@ -505,7 +505,6 @@
 
     min-width: 180px;
     padding: var(--menu-padding);
-    border-color: var(--border-strong);
     font-size: calc(12px * var(--control-ui-text-scale));
     line-height: calc(18px * var(--control-ui-text-scale));
   }
