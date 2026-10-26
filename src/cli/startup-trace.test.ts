@@ -90,6 +90,41 @@ it.each(["0", "1"])(
   },
 );
 
+it("reports environment selection sub-phases without full tracing only for gateway runs", async () => {
+  const phases = [
+    "cli.environment.imports",
+    "cli.environment.config-import",
+    "cli.environment.config-read",
+    "cli.environment.config-recovery",
+    "cli.environment.config.recovery.health-read",
+    "cli.environment.config-guard",
+    "cli.environment.pin-runtime-paths",
+  ];
+  for (const command of ["gateway", "status"]) {
+    vi.spyOn(process, "argv", "get").mockReturnValue(["node", "openclaw", command]);
+    stderrWrite.mockClear();
+    const trace = makeTrace([command], "cli.main");
+    trace.setLineFormatter((message) => message);
+    await trace.measure("gateway-run-select-environment-imports", () => {});
+    for (const phase of phases) {
+      await expect(measureGatewayBootstrapStep(phase, () => "result")).resolves.toBe("result");
+    }
+    await measureGatewayBootstrapStep("cli.environment.unlisted", () => {});
+    expect(messages()).toHaveLength(command === "gateway" ? (phases.length + 1) * 2 : 0);
+    if (command === "gateway") {
+      for (const phase of ["cli.main.gateway-run-select-environment-imports", ...phases]) {
+        expect(messages()).toContainEqual(
+          expect.stringMatching(
+            new RegExp(
+              `startup phase: ${phase} \\d+\\.\\dms total=.* rssMb=\\d+\\.\\d heapUsedMb=\\d+\\.\\d`,
+            ),
+          ),
+        );
+      }
+    }
+  }
+});
+
 it("formats live worker counts and cached heap coverage without requesting samples", async () => {
   const heap = vi.fn(async () => ({ ...getHeapStatistics(), total_heap_size: 12 * 1024 * 1024 }));
   const worker = Object.assign(new EventEmitter(), {
