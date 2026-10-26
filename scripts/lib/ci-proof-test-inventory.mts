@@ -4205,7 +4205,6 @@ const PR_EXEMPT_RUNTIME_TEST_FILES = [
   "extensions/codex/src/app-server/run-attempt.notification-burst.test.ts",
   "extensions/codex/src/app-server/run-attempt.reasoning-effort.test.ts",
   "extensions/codex/src/app-server/run-attempt.skills.native.test.ts",
-  "extensions/codex/src/app-server/run-attempt.skills.test.ts",
   "extensions/codex/src/app-server/run-attempt.steering-authority.test.ts",
   "extensions/codex/src/app-server/run-attempt.steering-settlement.test.ts",
   "extensions/codex/src/app-server/session-binding.test.ts",
