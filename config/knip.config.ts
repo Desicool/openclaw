@@ -391,6 +391,7 @@ const repositoryScriptEntries = [
   "scripts/perf/agent-roster-ids-measure.ts!",
   "scripts/perf/agent-roster-validation-measure.mjs!",
   "scripts/perf/attempt-abort-retention.ts!",
+  "scripts/perf/board-get-measure.mjs!",
   "scripts/perf/board-layout-measure.mjs!",
   "scripts/perf/channel-run-admission-measure.mjs!",
   "scripts/perf/chat-history-param-validation-measure.mjs!",
