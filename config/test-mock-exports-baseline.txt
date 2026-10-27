@@ -4090,8 +4090,6 @@
 ["src/commands/status.scan.test-helpers.ts","../cli/command-secret-targets.js","7fe8c3762a4324dfdaa5077b95fe598eb96b96b9897423fc598a5cb199eaf3d9",1]
 ["src/commands/status.scan.test-helpers.ts","../cli/daemon-cli/diagnostic-readiness.js","2961131a17693f771e8097114340c039ded02f792054ad3bcfb44ebf6d6694bf",1]
 ["src/commands/status.scan.test-helpers.ts","../cli/progress.js","ea7d25282350f1bc0bd973456a4b68c82c9bd1f3496642bc729d74190cd5407b",1]
-["src/commands/status.scan.test-helpers.ts","../config/config.js","d870299906e39cb64e69352fa06e42ea1bcb9d4fc35e6781da15b2daf1b7db83",1]
-["src/commands/status.scan.test-helpers.ts","../config/io.js","4a6446a630447ce75f94b00a272e7c781fdfcec99b6751377bac436e2ff5903a",1]
 ["src/commands/status.scan.test-helpers.ts","../gateway/call.js","af54528d6659a96c92cfe063afc48ff850e106506360e10c3d7535396a38c0a7",1]
 ["src/commands/status.scan.test-helpers.ts","../gateway/connection-details.js","c96b97f94569d7e73414f08fddb91c7807573cd56f5a47f1e83abf17126b4405",1]
 ["src/commands/status.scan.test-helpers.ts","../gateway/probe-target.js","8e150957c53542013d79113fe327786c668790112f9359ab9837f0a6c60d0b22",1]
