@@ -4552,7 +4552,6 @@
 ["src/gateway/mcp-app-extension-runtime.test.ts","../agents/agent-scope.js","d3474c4a74aab2bbaa954bd307a8c122a8cbca8f748cda87054a5b0d9e6c2cd5",1]
 ["src/gateway/mcp-app-extension-runtime.test.ts","../agents/harness/registry.js","944c3be8a3dc34657585a618255c98c09381c1f55e7438a3b305deaedeca96cc",1]
 ["src/gateway/mcp-app-extension-runtime.test.ts","../agents/harness/session-preparation.js","911529b07c197c3e7594b112410c4e84b542ed105bd3bec0210b90c156a2419b",1]
-["src/gateway/mcp-app-extension-runtime.test.ts","../agents/mcp-tool-filter.js","e46baa5da8eed9462f3f2a17ebc873c117f6b4b191814d7f7ce3a48d922ccce4",1]
 ["src/gateway/mcp-app-extension-runtime.test.ts","../agents/sandbox/runtime-status.js","2a0ffbc7324d0a44c563ce38a6e220b9ea1431a6d1122894f593bc125ff61b71",1]
 ["src/gateway/mcp-app-extension-runtime.test.ts","../agents/thinking-runtime.js","ed882eb1295a3fbbb84be50bd0da260c1b129cdacf9aff8936677c3d3ccc6174",1]
 ["src/gateway/mcp-app-extension-runtime.test.ts","../plugins/current-plugin-metadata-state.js","257ac96fee5dedc4ead190dfaf17d28693c7fcbcb2f74090032775ae0d496d43",1]
