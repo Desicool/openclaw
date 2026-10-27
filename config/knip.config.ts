@@ -407,6 +407,7 @@ const repositoryScriptEntries = [
   "scripts/perf/cron-history-plan-measure.ts!",
   "scripts/perf/cron-list-projection-measure.mjs!",
   "scripts/perf/cron-list-revision-measure.ts!",
+  "scripts/perf/cron-refresh-measure.ts!",
   "scripts/perf/cron-session-bindings-measure.ts!",
   "scripts/perf/embedded-runner-array-copies.ts!",
   "scripts/perf/gateway-clone-measure.ts!",
@@ -504,6 +505,7 @@ const repositoryScriptEntries = [
   "scripts/perf/transcript-payload-prepare-measure.ts!",
   "scripts/perf/transcript-resident-hydration-measure.ts!",
   "scripts/perf/transcript-selected-payload-measure.ts!",
+  "scripts/perf/transcript-active-read-measure.ts!",
   "scripts/perf/worker-task-input-measure.mjs!",
   "scripts/perf/worktree-provisioning-gateway-measure.ts!",
   "scripts/perf/worktree-provisioning-measure.ts!",
@@ -705,6 +707,7 @@ const repositoryScriptEntries = [
   "scripts/perf/crabbox-state-polling.mts!",
   "scripts/perf/local-workspace-manifest-equivalence.ts!",
   "scripts/perf/local-workspace-manifest-measure.ts!",
+  "scripts/perf/local-workspace-lookup-measure.ts!",
   "scripts/perf/operator-model-policy-list-probe.mjs!",
   "scripts/perf/operator-model-policy-load.mjs!",
   "scripts/perf/operator-model-policy-measure.ts!",
@@ -723,6 +726,7 @@ const repositoryScriptEntries = [
   // The transcript broadcast benchmark loads the stall recorder through --gateway-preload.
   "scripts/bench-filesystem-preconditions.mts!",
   "scripts/perf/github-tool-selection-measure.ts!",
+  "scripts/perf/github-preview-authority-measure.ts!",
   "scripts/perf/github-conditional-json-measure.ts!",
   "scripts/perf/session-transcript-code-measure.mjs!",
   "scripts/perf/stall-recorder-cost-preload.mjs!",
@@ -742,6 +746,8 @@ const repositoryScriptEntries = [
   "scripts/perf/plugin-iterator-membrane-measure.ts!",
   "scripts/perf/plugin-generation-retention.ts!",
   "scripts/perf/placement-startup-wake-measure.ts!",
+  "scripts/perf/startup-agent-preparation-measure.ts!",
+  "scripts/perf/startup-recovery-admission-measure.ts!",
   "scripts/perf/response-decode-measure.mts!",
   "scripts/perf/text-projection-append-measure.ts!",
   "scripts/perf/text-projection-rope-measure.mjs!",
@@ -756,6 +762,7 @@ const repositoryScriptEntries = [
   // Maintainers invoke this isolated transcript-rewrite benchmark by path.
   "scripts/bench-session-manager-rewrite.ts",
   // The team-shaped fixture README invokes these measurement CLIs by path.
+  "scripts/perf/team-shape-stress.ts",
   "scripts/perf/team-shape-measure.ts",
   "scripts/perf/transcript-broadcast-measure.ts",
   "scripts/perf/post-restart-burst-measure.ts",
