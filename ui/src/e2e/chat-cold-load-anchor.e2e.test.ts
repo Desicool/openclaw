@@ -393,6 +393,7 @@ suite.define(() => {
         expect(titleWrites?.[0]?.title).toBe("expected-title");
         expect(titleWrites?.some((event) => event.title === "New session")).toBe(false);
         expectFrames(samples, session.label);
+        expect(await gateway.getRequests("sessions.messages.unsubscribe")).toHaveLength(0);
         await gateway.waitForRequest("connect");
         await page.evaluate(() => {
           window.coldLoadReconcileStart = window.coldLoadSamples?.length ?? 0;
