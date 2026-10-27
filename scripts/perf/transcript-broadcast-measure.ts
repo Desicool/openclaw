@@ -140,6 +140,7 @@ import { createGatewayWsClient } from "../lib/gateway-ws-client.ts";
 import { parseStrictIntegerOption } from "../lib/strict-integer-option.ts";
 import { TEAM_STRESS_PLUGIN_IDS } from "./team-shape-stress-fixture.ts";
 import { createTeamStressFanoutReceipts } from "./team-shape-stress-receipts.ts";
+import { observeTurnStartReceipt, type TurnStartSample } from "./turn-start-report.ts";
 
 const { values } = parseArgs({
   options: {
@@ -683,8 +684,12 @@ const providerDelayMs = integer(values["provider-delay-ms"], "--provider-delay-m
 if (values["turn-start-phases"] && scenario !== "chat.send") {
   throw new Error("--turn-start-phases requires --scenario chat.send");
 }
+if (values["turn-start-phases"] && (!values["stress-tools"] || exactClients < 2)) {
+  throw new Error("--turn-start-phases requires --stress-tools and --exact-clients >= 2");
+}
 let measuredPhaseRound: number | undefined;
 const turnStartPhases: Array<Record<string, unknown>> = [];
+const turnStartSamples: TurnStartSample[] = [];
 const listIntervalMs = integer(values["list-interval-ms"], "--list-interval-ms", 0);
 if (soakScenario && values["list-filter-churn"] && !listIntervalMs) {
   throw new Error("memory-soak --list-filter-churn requires --list-interval-ms");
@@ -1951,17 +1956,17 @@ const configPath = values["default-state-dir"]
   : path.join(output, "openclaw.json");
 writeFileSync(configPath, JSON.stringify(cfg));
 const chunk = values["answer-chunk"];
-function responseEvents(chunks: string[]) {
+function createTextResponse(chunks: string[], phase?: "commentary") {
   const text = chunks.join("");
   const item = {
     type: "message",
     id: "msg_broadcast",
     role: "assistant",
     status: "completed",
-    ...(values["final-answer-phase"] ? { phase: "final_answer" } : {}),
+    ...(phase ? { phase } : values["final-answer-phase"] ? { phase: "final_answer" } : {}),
     content: [{ type: "output_text", text, annotations: [] }],
   };
-  return [
+  const events = [
     {
       type: "response.output_item.added",
       output_index: 0,
@@ -1992,6 +1997,7 @@ function responseEvents(chunks: string[]) {
       },
     },
   ];
+  return { item, events };
 }
 function functionCallEvents(name: string, args: unknown, callId: string) {
   const item = {
@@ -2073,7 +2079,7 @@ async function stressSubagentEvents(body: unknown, input: unknown, purpose: stri
     if (state.cancelled) {
       throw new Error("stress subagent cohort was cancelled");
     }
-    return responseEvents([state.childResult]);
+    return createTextResponse([state.childResult]).events;
   }
   if (!isParent) {
     return undefined;
@@ -2147,10 +2153,10 @@ async function stressSubagentEvents(body: unknown, input: unknown, purpose: stri
     );
   }
   state.phase = "ack-issued";
-  return responseEvents([state.parentAck]);
+  return createTextResponse([state.parentAck]).events;
 }
-const events = responseEvents(Array.from({ length: chunkCount }, () => chunk));
-const utilityEvents = responseEvents(["Synthetic acknowledgement."]);
+const events = createTextResponse(Array.from({ length: chunkCount }, () => chunk)).events;
+const utilityEvents = createTextResponse(["Synthetic acknowledgement."]).events;
 let activeStreams = 0;
 let peakStreams = 0;
 let streamRequests = 0;
@@ -2204,7 +2210,14 @@ type StreamStartPhases = {
 };
 type TurnTiming = {
   runId: string;
+  sessionKey: string;
   startedAt: number;
+  acknowledgedMs?: number;
+  firstAssistantDeltaMs?: number;
+  firstToolStartMs?: number;
+  receivedRunId?: string;
+  awaitingCreatedRunId?: boolean;
+  completedMs?: number;
   providerRequestMs?: number;
   providerBarrierMs?: number;
   firstTextMs?: number;
@@ -2348,7 +2361,9 @@ const mock = createServer((req, res) => {
           throw new Error(`Cron operator setup failed: ${contentText(setupOutput.output)}`);
         }
         cronOperatorSetupCompleted = true;
-        setupEvents = responseEvents(["Synthetic scheduled operator continuations created."]);
+        setupEvents = createTextResponse([
+          "Synthetic scheduled operator continuations created.",
+        ]).events;
       } else {
         const jobs = cronOperatorJobs.map(({ cohortId }) => ({
           name: `Synthetic operator continuation ${cohortId}`,
@@ -2594,7 +2609,10 @@ const mock = createServer((req, res) => {
           cohort.phases.streamsReleasedAtEpochMs = epochNow();
           cohort.release();
         }
-        await cohort.ready;
+        // User-perceived latency must not include waiting for slower peers in the burst.
+        if (!values["turn-start-phases"]) {
+          await cohort.ready;
+        }
         timing.providerBarrierMs = performance.now() - timing.startedAt - timing.providerRequestMs;
       }
       const subagentAnswer = await stressSubagentEvents(body, input, facts.purpose);
@@ -2656,23 +2674,35 @@ const mock = createServer((req, res) => {
         });
         toolCalls += items.length;
         reasoningReplayKey = items.at(-1)?.call_id;
+        const preamble = values["turn-start-phases"]
+          ? createTextResponse(["I will inspect the synthetic workspace. "], "commentary")
+          : undefined;
+        const preambleItem = preamble?.item;
         toolAnswer = [
-          ...items.flatMap((item, output_index) => [
-            { type: "response.output_item.added", output_index, item: { ...item, arguments: "" } },
-            {
-              type: "response.function_call_arguments.delta",
-              item_id: item.id,
-              output_index,
-              delta: item.arguments,
-            },
-            { type: "response.output_item.done", output_index, item },
-          ]),
+          ...(preamble?.events.slice(0, -1) ?? []),
+          ...items.flatMap((item, toolIndex) => {
+            const output_index = toolIndex + (preambleItem ? 1 : 0);
+            return [
+              {
+                type: "response.output_item.added",
+                output_index,
+                item: { ...item, arguments: "" },
+              },
+              {
+                type: "response.function_call_arguments.delta",
+                item_id: item.id,
+                output_index,
+                delta: item.arguments,
+              },
+              { type: "response.output_item.done", output_index, item },
+            ];
+          }),
           {
             type: "response.completed",
             response: {
               id: `resp_${cohort.id}`,
               status: "completed",
-              output: items,
+              output: [...(preambleItem ? [preambleItem] : []), ...items],
               usage: { input_tokens: 11, output_tokens: 10, total_tokens: 21 },
             },
           },
@@ -2682,7 +2712,7 @@ const mock = createServer((req, res) => {
         subagentAnswer ??
         toolAnswer ??
         (facts.purpose === "activity-recap"
-          ? responseEvents([`Synthetic recap for cohort ${cohort?.id}.`])
+          ? createTextResponse([`Synthetic recap for cohort ${cohort?.id}.`]).events
           : primary || continuation
             ? events
             : utilityEvents);
@@ -4350,7 +4380,16 @@ async function runRound(
       roundKeys.map(async (sessionKey, index) => {
         const turnStarted = performance.now();
         let runId: string = randomUUID();
-        current.turns.set(index + 1, { runId, startedAt: turnStarted });
+        const timing: TurnTiming = {
+          runId,
+          sessionKey,
+          startedAt: turnStarted,
+          awaitingCreatedRunId:
+            values["turn-start-phases"] &&
+            measuredRound !== undefined &&
+            measuredRound < coldSessionRounds,
+        };
+        current.turns.set(index + 1, timing);
         const image = retentionScenario
           ? promptContent.update(Buffer.alloc(256 * 128 * 4))
           : undefined;
@@ -4466,6 +4505,11 @@ async function runRound(
               : {}),
           });
         }
+        timing.acknowledgedMs = performance.now() - turnStarted;
+        if (timing.receivedRunId && timing.receivedRunId !== runId) {
+          throw new Error("Turn-start subscriber received a different run before acknowledgement");
+        }
+        timing.awaitingCreatedRunId = false;
         const result = await rpc(client, "agent.wait", { runId, timeoutMs: 170_000 });
         if (
           !result ||
@@ -4475,7 +4519,8 @@ async function runRound(
         ) {
           throw new Error(`agent.wait: ${JSON.stringify(result)}`);
         }
-        turnLatencies.push(performance.now() - turnStarted);
+        timing.completedMs = performance.now() - turnStarted;
+        turnLatencies.push(timing.completedMs);
       }),
     ).then(() => {
       current.phases.completedAtEpochMs = epochNow();
@@ -4484,6 +4529,39 @@ async function runRound(
       ? finishStressSubagent(client, subagentWork)
       : undefined;
     await Promise.all([cohortReady, captureWork, turns, subagentCompletion]);
+    if (values["turn-start-phases"] && measuredRound !== undefined) {
+      // The separate subscriber socket may drain after agent.wait on the sender.
+      const deadline = performance.now() + 10_000;
+      while (
+        [...current.turns.values()].some(
+          (turn) => turn.firstAssistantDeltaMs === undefined || turn.firstToolStartMs === undefined,
+        )
+      ) {
+        if (performance.now() >= deadline) {
+          throw new Error(
+            "Turn-start subscriber did not receive assistant text and tool start for every run",
+          );
+        }
+        await delay(10);
+      }
+      for (const turn of current.turns.values()) {
+        if (turn.firstAssistantDeltaMs! > turn.firstToolStartMs!) {
+          throw new Error("The mock preamble was not delivered before its tool start");
+        }
+        turnStartSamples.push({
+          round: measuredRound,
+          sessionKey: turn.sessionKey,
+          runId: turn.runId,
+          startedAtEpochMs: performance.timeOrigin + turn.startedAt,
+          admissionMethod: measuredRound < coldSessionRounds ? "sessions.create" : "chat.send",
+          acknowledgedMs: turn.acknowledgedMs!,
+          providerRequestMs: turn.providerRequestMs!,
+          firstAssistantDeltaMs: turn.firstAssistantDeltaMs!,
+          firstToolStartMs: turn.firstToolStartMs!,
+          completedMs: turn.completedMs!,
+        });
+      }
+    }
     if (chatActiveHoldMs) {
       if (values["chat-active-after-tool"] && activeInputs.length !== roundKeys.length * 3) {
         throw new Error(
@@ -4842,6 +4920,15 @@ async function connectClient(index: number) {
         previousSeq = event.seq;
       }
       const payload = isRecord(event.payload) ? event.payload : undefined;
+      // Client 1 is an exact session subscriber, distinct from the RPC sender.
+      if (values["turn-start-phases"] && index === 1 && payload) {
+        const turn = [...(cohort?.turns.values() ?? [])].find(
+          (candidate) => candidate.sessionKey === payload.sessionKey,
+        );
+        if (turn) {
+          observeTurnStartReceipt(turn, event, performance.now() - turn.startedAt);
+        }
+      }
       teamStressFanout?.observe(index, event.event, payload);
       if (
         index === 0 &&
@@ -5912,7 +5999,7 @@ try {
     const started = performance.now();
     await runScenario(undefined, warmupOperations);
     // Stress background publications need not stop after the warmup turns settle.
-    await drainEvents(!values["team-stress"]);
+    await drainEvents(!values["team-stress"] && !values["turn-start-phases"]);
     if (!soakScenario) {
       break;
     }
@@ -6700,7 +6787,7 @@ try {
       }
       try {
         if (turnScenario) {
-          await drainEvents(!values["team-stress"]);
+          await drainEvents(!values["team-stress"] && !values["turn-start-phases"]);
         }
         measuring = true;
         await workload();
@@ -6709,7 +6796,8 @@ try {
         if (turnScenario || !values["dashboard-rpc"]) {
           const beforeDrain = perClientCounters.map((counts) => Object.fromEntries(counts));
           const drainStarted = performance.now();
-          await drainEvents();
+          // Turn-start proof owns exact receipts; busy fixture metadata need not become quiet.
+          await drainEvents(!values["turn-start-phases"]);
           console.log(
             `FANOUT_BOUNDARY ${JSON.stringify({
               round,
@@ -6803,7 +6891,7 @@ try {
     }
     if (
       turnScenario &&
-      (peakPrimaryStreams !== Math.min(runCount, sessionCount) ||
+      ((!values["turn-start-phases"] && peakPrimaryStreams !== Math.min(runCount, sessionCount)) ||
         primaryStreamRequests !== sessionCount)
     ) {
       throw new Error(
@@ -6850,7 +6938,8 @@ try {
       );
     }
     teamStressFanout?.assertComplete();
-    for (const event of turnScenario && !teamStressFanout
+    // Exact turn-start receipts replace window-wide fanout equality under background churn.
+    for (const event of turnScenario && !teamStressFanout && !values["turn-start-phases"]
       ? ["session.message", "sessions.changed"]
       : []) {
       const expected = perClientCounters[0]?.get(event) ?? 0;
@@ -7923,7 +8012,11 @@ try {
   if (values["turn-start-phases"]) {
     writeFileSync(
       path.join(output, "turn-start-phases.json"),
-      JSON.stringify({ providerDelayMs, coldSessionRounds, phases: turnStartPhases }, null, 2),
+      JSON.stringify(
+        { providerDelayMs, coldSessionRounds, phases: turnStartPhases, turns: turnStartSamples },
+        null,
+        2,
+      ),
     );
   }
   writeFileSync(path.join(output, "result.json"), JSON.stringify(result, null, 2));
