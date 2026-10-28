@@ -281,25 +281,21 @@ test.each([
 
 test("sessions.patch keeps explicit unread markers strictly advancing", async () => {
   const { read, patch } = await seedSession("agent:main:conditional-unread-revision");
-  const now = vi.spyOn(Date, "now").mockReturnValue(100);
+  using _ = vi.spyOn(Date, "now").mockReturnValue(100);
 
-  try {
-    await patch({ unread: true });
-    const firstMarker = read()?.markedUnreadAt;
-    await patch({ unread: true });
-    const secondMarker = read()?.markedUnreadAt;
+  await patch({ unread: true });
+  const firstMarker = read()?.markedUnreadAt;
+  await patch({ unread: true });
+  const secondMarker = read()?.markedUnreadAt;
 
-    expect(firstMarker).toBe(100);
-    expect(secondMarker).toBe(101);
-    const staleRead = await patch({
-      unread: false,
-      expectedMarkedUnreadAt: firstMarker,
-    });
-    expect(staleRead).toMatchObject({ ok: true });
-    expect(read()?.markedUnreadAt).toBe(secondMarker);
-  } finally {
-    now.mockRestore();
-  }
+  expect(firstMarker).toBe(100);
+  expect(secondMarker).toBe(101);
+  const staleRead = await patch({
+    unread: false,
+    expectedMarkedUnreadAt: firstMarker,
+  });
+  expect(staleRead).toMatchObject({ ok: true });
+  expect(read()?.markedUnreadAt).toBe(secondMarker);
 });
 
 test("sessions.patchMany preserves a manual unread marker set after the acknowledgement snapshot", async () => {
