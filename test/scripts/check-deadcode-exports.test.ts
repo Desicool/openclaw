@@ -87,14 +87,8 @@ describe("check-deadcode-exports", () => {
       "scripts/generate-runtime-script-assets.mjs!",
       "scripts/generate-static-validators.mts!",
       "scripts/perf/cron-delivery-gateway-entry.ts!",
-      "scripts/perf/doctor-retirement-measure.mts!",
-      "scripts/perf/github-readiness-state-bench.ts!",
-      "scripts/perf/plugin-policy-read-measure.mjs!",
-      "scripts/perf/prompt-cache-observation-measure.ts!",
-      "scripts/perf/reconnect-read-wave-measure.ts!",
-      "scripts/perf/session-actor-retention-measure.ts!",
-      "scripts/perf/session-row-churn-probe.ts!",
       "tsdown.config.ts!",
+      "scripts/perf/**/*.{js,mjs,cjs,ts,mts,cts}!",
     ]);
     expect(knipConfig.workspaces["."].project).toContain("config/**/*.{ts,mts,cts}!");
     expectEntries(fullRootWorkspace.entry, [
@@ -109,6 +103,9 @@ describe("check-deadcode-exports", () => {
       "test/scripts/service-relay-artifact.test-support.mjs!",
     );
     for (const extension of ["js", "mjs", "cjs", "ts", "tsx", "mts", "cts"]) {
+      expect(isEntry(knipConfig.workspaces["."].entry, `scripts/perf/x.${extension}`)).toBe(
+        extension !== "tsx",
+      );
       for (const directory of ["src", "scripts", "test"]) {
         expect(isEntry(fullRootWorkspace.entry, `${directory}/x.test.${extension}`)).toBe(true);
       }
@@ -336,21 +333,7 @@ const catalog = module.loadControlUiSourceCatalog();`;
     );
   });
 
-  it("roots benchmark parents and follows only their live computed child launches", () => {
-    const entries = knipConfig.workspaces["."].entry;
-    for (const parent of [
-      "scripts/perf/archive-worker-churn-measure.ts!",
-      "scripts/perf/session-create-measure.ts!",
-      "scripts/perf/session-create-repository-measure.ts!",
-    ]) {
-      expect(
-        entries.filter((entry) => entry === parent),
-        parent,
-      ).toHaveLength(1);
-    }
-    expect(entries).not.toContain("scripts/perf/archive-worker-churn-preload.mjs!");
-    expect(entries).not.toContain("scripts/perf/session-create-measure-loader.mjs!");
-
+  it("follows only live computed benchmark child launches", () => {
     const archivePath = path.resolve("scripts/perf/archive-worker-churn-measure.ts");
     const sessionCreatePath = path.resolve("scripts/perf/session-create-measure.ts");
     const archiveSource = fs.readFileSync(archivePath, "utf8");
@@ -605,6 +588,20 @@ const unrelatedArgs = [
       expect(project(replaceFixture(source, from, to))).toBe("");
     }
     expect(compiled).not.toContain("prepareTtsRequest as");
+  });
+
+  it("models telemetry only through live source imports", () => {
+    const compile = createDynamicConsumerCompiler();
+    for (const [relative, name] of [
+      ["scripts/perf/transcript-broadcast-measure.ts", "installTeamStressTelemetryIpc"],
+      ["test/scripts/team-shape-stress.test.ts", "startTeamStressTelemetry"],
+    ] as const) {
+      const file = path.resolve(relative);
+      const source = fs.readFileSync(file, "utf8");
+      expect(compile()).toContain(`${name} as __dynamic`);
+      const removed = replaceFixture(source, name, "");
+      expect(compile(new Map([[file, removed]]))).not.toContain(`${name} as __dynamic`);
+    }
   });
 
   it("models optional anchor imports only through their bound runtime calls", () => {
