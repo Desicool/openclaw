@@ -5805,7 +5805,6 @@
 ["src/plugins/install-channel-specs.test.ts","../infra/install-source-utils.js","03ca48fc36fd2d469e008fa5e47c40b3b42e27166edfc683fd5a6f2868d991ae",1]
 ["src/plugins/install-record-commit.test.ts","../config/config.js","3b8d05f324da22c7f2cb19f1d3a41352a666085ff2c8cfd6c43d993a1918525e",1]
 ["src/plugins/install-security-scan.runtime.test.ts","./hook-runner-global.js","01724df1934f97e7ffa1209953836a5ef262ed3ab1dafa7166eb0c3f137bdf7f",1]
-["src/plugins/install-transaction.test.ts","./update-config.js","145e9fb4838bbf6096e1b77d7eea84f496e9acaab851b3ca4bd4e34c929d7ab8",1]
 ["src/plugins/install.npm-spec.test.ts","../infra/openclaw-root.js","82745f7c53c5de643ea7bd92d25ac8b916ede0428b6c4839ec63a9e8a10570d8",1]
 ["src/plugins/management-service-featured.test.ts","./plugin-metadata-snapshot.js","ef06aa6ba68b9bd67d31aff5de6af39244046c550afeab1c2726dd2fc6aeb4d4",1]
 ["src/plugins/management-service.capability-consent.test.ts","../config/config.js","eb3afca4d059f3dd98958e09865acadea99f4efe631901c4d861e9c16b0e6f66",1]
