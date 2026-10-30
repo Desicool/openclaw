@@ -541,22 +541,19 @@ function renderCatalogGroup(
         sectionId={sectionId()}
         sectionHeaders={params.host.sessionOrganizer.sectionHeaders}
         status={
-          hasError() || (collapsed() && rows().length > 0)
+          hasError()
             ? {
-                label: hasError() ? `${readCatalog().label}: ${errorHelp()}` : readCatalog().label,
+                label: `${readCatalog().label}: ${errorHelp()}`,
                 expanded: !collapsed(),
-                title: hasError() ? errorHelp() : undefined,
+                title: errorHelp(),
                 onToggle: () => params.host.toggleSection(sectionId()),
                 content: (
                   <span
-                    class={[
-                      "sidebar-session-group-count",
-                      { "sidebar-session-group-count--error": hasError() },
-                    ]}
-                    data-session-catalog-error={hasError() ? readCatalog().id : undefined}
+                    class="sidebar-session-group-count sidebar-session-group-count--error"
+                    data-session-catalog-error={readCatalog().id}
                     aria-hidden="true"
                   >
-                    {hasError() ? <Icon name="alertTriangle" /> : rows().length}
+                    <Icon name="alertTriangle" />
                   </span>
                 ),
               }
