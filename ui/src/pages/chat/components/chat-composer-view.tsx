@@ -302,7 +302,7 @@ export function renderChatComposerView(
     >
       {lifecycle}
       <div class="agent-chat__composer-float" ref={[elementRef(props.onComposerFloatRef)]}>
-        <div class="chat-footer__context">
+        <div class="chat-footer__context" ref={(element) => (state.composerContext = element)}>
           {props.footerContent}
           <div class="agent-chat__composer-notices">
             {props.notices} {composerStatus()} {composerAlerts()} {fallbackStatus()}
