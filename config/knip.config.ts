@@ -37,6 +37,7 @@ const repositoryScriptEntries = [
   "scripts/bench-android-release-history.mts!",
   "scripts/bench-duplicate-paragraphs.mts!",
   "scripts/perf/agent-exec-cgroup-proof.ts!",
+  "scripts/perf/agent-startup-inspection.ts!",
   "scripts/perf/anthropic-request-construction.ts!",
   "scripts/perf/auth-file-watch-events-measure.ts!",
   "scripts/perf/backup-verify-fixture.mjs!",
