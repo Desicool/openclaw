@@ -1,0 +1,32 @@
+name: Clean Binary History
+
+on:
+  workflow_dispatch:
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install git-filter-repo
+        run: pip install git-filter-repo
+
+      - name: Remove committed binary artifacts
+        run: |
+          git filter-repo \
+            --path .serena/ \
+            --path apps/shared/ClawdisKit/.build/ \
+            --path apps/ios/screenshots/session-2026-03-07/ \
+            --invert-paths \
+            --force
+
+      - name: Push cleaned main
+        run: |
+          git remote add cleaned https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git push cleaned --force refs/heads/main:refs/heads/main
