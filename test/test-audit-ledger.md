@@ -69,5 +69,46 @@ Final candidate checks and landing: [PR #189143](https://github.com/openclaw/ope
 The full CI planning suite and its manifest/workflow/Git-owner support were read.
 Other routing, admission, frozen-target, and gate layers retain distinct contracts.
 
+Completed core source review (runtime proof only where a landing row says so):
+
+| Owner scope                                   | Suites read                        | Decision                                                                                                                                        |
+| --------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Routing / pairing                             | 19                                 | Retain independent routing, identity, authorization, and compatibility contracts.                                                               |
+| Utilities / test utilities / test helpers     | 35                                 | Retain active suites; private channel-target support retirement needs SDK consumer qualification.                                               |
+| Boards / projects / decisions                 | 23                                 | Retain durable ownership, ordering, and public projections.                                                                                     |
+| Logging                                       | 64                                 | Retain 465 declarations, including content-absence and privacy guards.                                                                          |
+| Shared                                        | 111                                | Retain 490 declarations; streaming, borrowed identity, work counts, and native process contracts differ.                                        |
+| Transcripts / snapshot                        | 28                                 | Retain actual storage, archive, retention, native permissions, and constrained-heap proof.                                                      |
+| Channels root / direct plugin directory       | 103                                | Retain independent dispatch, registry, Doctor, and compatibility proof; nested directories remain open.                                         |
+| Hooks                                         | 41                                 | Two export-helper replays are absorbed by actual module import and dispatch; fallback selection remains distinct.                               |
+| Templates                                     | 31                                 | Retain 230 declarations and all live support/golden fixtures.                                                                                   |
+| Worker                                        | 36 entry files + 7 imported suites | Retain 259 declarations; native bundle execution remains an explicit runtime gap.                                                               |
+| Meeting bot                                   | 30                                 | Retain 179 direct and four inherited cleanup declarations.                                                                                      |
+| TTS                                           | 23                                 | Move mocked capability assertions to the existing real-registry SDK fixture; retain public helper exports.                                      |
+| LLM                                           | 22                                 | Retain 126 declarations; strengthen one SSRF negative control in a later qualified batch.                                                       |
+| Audit                                         | 16                                 | Retain 118 declarations; repair one discarded privacy result and three stale SQL-count titles later.                                            |
+| Media understanding                           | 43                                 | Retain 241 declarations; two obsolete outbound mocks have a live canonical message-runtime replacement.                                         |
+| Context engine / chat / Canvas                | 19                                 | Retain 139 declarations; one unused mock engine class and one overclaimed title remain candidates.                                              |
+| Process                                       | 118                                | Retain 577 declarations; repair one observer-timing proof that marks settlement too late.                                                       |
+| MCP / proxy capture                           | 26                                 | Retain 130 declarations; strengthen the real CA-lock waiting assertion later.                                                                   |
+| Image / music / video / media generation      | 19                                 | Retain 103 declarations and all live support.                                                                                                   |
+| Web / fetch / search / link understanding     | 8                                  | Retain 69 declarations; preparation, cancellation, decoding, and transport contracts differ.                                                    |
+| Status / trajectory / session cards / storage | 25                                 | Retain 207 declarations; preparation, worker settlement, retention, export, and filesystem identity differ.                                     |
+| Root src suites                               | 25                                 | Retain independent entrypoint, package-export, and adapter contracts; strengthen logger absence proof later. Deep framework closure is partial. |
+| Realtime transcription                        | 1                                  | Retain 13 actual WebSocket, retry, buffer, cancellation, and admission declarations; external provider caller closure is bounded.               |
+
+Bootstrap / provider runtime / interactive / plugin state: all 21 suites read;
+retain 179 declarations. One PostgreSQL worker declaration lacks registration in
+the default conformance CI targets; repair its route rather than delete its proof.
+
+Core batch starting at `be86cd32eba`: remove two hook helper replays covered by
+actual module import/dispatch, two obsolete echo mocks, and the mocked TTS capability
+case plus its unused channel inventory. The existing real-registry delivery rows
+now exercise the public SDK helper. A wrong audio-file capability result passed the
+old mocked declaration and failed the new assertion; the fault was restored exactly.
+Untouched baseline: 76 tests across seven suites; retained candidate: 73 passed.
+Focused lint and changed test-graph type checks passed. Complete removal-check
+results and landing: [PR #189180](https://github.com/openclaw/openclaw/pull/189180).
+
 Remaining: declaration-level review across remaining core, plugins, UI, native apps,
 root/script suites and shared fixtures; close owner-reading gaps and land subsequent batches.
