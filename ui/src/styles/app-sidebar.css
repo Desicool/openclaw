@@ -128,5 +128,5 @@
 }
 
 .shell--mobile-nav .sidebar-recent-sessions__head {
-  padding-inline: calc(var(--sidebar-inset) + var(--sidebar-session-row-inset)) 1.5px;
+  padding-inline: calc(var(--sidebar-inset) + var(--sidebar-session-row-inset)) 0.75px;
 }
