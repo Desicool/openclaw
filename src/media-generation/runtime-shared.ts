@@ -1,6 +1,7 @@
 import { clampTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
+  buildCapabilityProviderDefaultRefs,
   resolveCapabilityModelRefForProviders,
   type CapabilityModelRef as ParsedProviderModelRef,
   type CapabilityModelProviderCandidate,
@@ -181,35 +182,9 @@ function buildAutoCapabilityFallbackRefs(
   params: CapabilityFallbackParams,
   configuredProviders: CapabilityProviderCandidate[],
 ): string[] {
-  const providerDefaults = new Map<string, { ref: string; aliases: string[] }>();
-  for (const provider of configuredProviders) {
-    const providerId = normalizeOptionalString(provider.id);
-    const modelId = normalizeOptionalString(provider.defaultModel);
-    if (!providerId || !modelId || providerDefaults.has(providerId)) {
-      continue;
-    }
-    const aliases = (provider.aliases ?? []).flatMap((alias) => {
-      const normalized = normalizeOptionalString(alias);
-      return normalized ? [normalized] : [];
-    });
-    providerDefaults.set(providerId, { ref: `${providerId}/${modelId}`, aliases });
-  }
-
-  const defaultProvider = resolveCurrentDefaultProviderId(params.cfg);
-  const providerIds = [...providerDefaults.keys()].toSorted();
-  const matchesDefaultProvider = (providerId: string): boolean => {
-    const entry = providerDefaults.get(providerId);
-    return providerId === defaultProvider || (entry?.aliases ?? []).includes(defaultProvider);
-  };
-  const orderedProviders = [
-    ...providerIds.filter(matchesDefaultProvider),
-    ...providerIds.filter((providerId) => !matchesDefaultProvider(providerId)),
-  ];
-  // Keep the user's default text provider first when it also has media support;
-  // then add the remaining configured media providers deterministically.
-  return orderedProviders.flatMap((providerId) => {
-    const entry = providerDefaults.get(providerId);
-    return entry ? [entry.ref] : [];
+  return buildCapabilityProviderDefaultRefs({
+    providers: configuredProviders,
+    preferredProvider: resolveCurrentDefaultProviderId(params.cfg),
   });
 }
 
