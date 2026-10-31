@@ -12,6 +12,7 @@ import { withEngineStoreAdmission } from "./database-engine/admission-scope.js";
 import { formatErrorMessage } from "./errors.js";
 import {
   clearNodeSqliteKyselyCacheForDatabase,
+  enableNodeSqliteKyselyStatementCache,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "./kysely-sync.js";
@@ -74,6 +75,7 @@ export async function migrateSessionColdNavigation(
             );
           }
           using anchor = openNodeSqliteDatabase(target.path);
+          enableNodeSqliteKyselyStatementCache(anchor);
           const native = withEngineStoreAdmission(() => {
             if (agentEngineInput()) {
               return openAgentEngineStore(anchor, target.agentId, target.path, true);
