@@ -332,6 +332,7 @@ suite.define(() => {
 
         proof.stage = "mobile child Stop through history-owned exact run";
         await page.setViewportSize({ width: 390, height: 844 });
+        await openChatSidePanelType(page, "Subagents");
         await switchTab("Subagents");
         const mobileChildStop = detail.getByRole("button", {
           name: `Stop ${fixture.childLabel}`,

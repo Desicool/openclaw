@@ -564,6 +564,9 @@ suite.define(() => {
           ).toBe(false);
           await page.reload();
           await ready(page);
+          if (width === 390) {
+            await openChatSidePanelType(page, "Browser");
+          }
           await pane(page).locator("openclaw-browser-panel[embedded] .bp").waitFor();
           await pane(page).locator("openclaw-browser-panel .bp-shot").waitFor();
           expect(await panel.count()).toBe(1);

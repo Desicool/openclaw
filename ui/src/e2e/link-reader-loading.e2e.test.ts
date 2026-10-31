@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import type { ControlUiLinkReaderDocument } from "../../../src/shared/control-ui-link-reader.js";
+import { openChatPanels } from "../test-helpers/chat-layout-menu.ts";
 import { TEST_LINK_READER } from "../test-helpers/link-reader.ts";
 import {
   readerUrl as url,
@@ -44,6 +45,7 @@ it("makes the overview readable before extras and retains visible content throug
       expect((await gateway.getRequests("forge.detail", { section: "files" })).length).toBe(0);
       expect(await panel.getByText("Loading Checks…", { exact: true }).count()).toBe(1);
       await page.setViewportSize({ width: 390, height: 844 });
+      await openChatPanels(page, "mobile");
       expect(await content.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
       await page.setViewportSize({ width: 1280, height: 900 });
       await gateway.rejectDeferred(
