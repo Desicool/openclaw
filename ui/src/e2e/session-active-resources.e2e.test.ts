@@ -136,7 +136,10 @@ suite.define(() => {
         const explicitEnvironmentId = "manual-desktop";
         const gateway = await openResources(page, {
           sessions: [row, notes],
-          deferredMethods: ["desktop.observe"],
+          deferredMethods: [
+            "desktop.observe",
+            ...(scenario === "mobile" ? ["environments.status"] : []),
+          ],
           historyMessages: [{ role: "assistant", content: "Your existing desktop is ready." }],
           methodResponses: {
             "sessions.list": list(!staleRoster, staleRoster ? 1000 : undefined),
@@ -157,6 +160,12 @@ suite.define(() => {
             "desktop.observe": desktop,
           },
         });
+        if (scenario === "mobile") {
+          await gateway.waitForRequest("environments.status");
+          await openChatSidePanelType(page, "Subagents");
+          await selectChatLayoutAction(pane(page), "Minimize side panel");
+          await gateway.resolveDeferred("environments.status", environment);
+        }
         await desktopTab(page).waitFor();
         const observe = await gateway.waitForRequest("desktop.observe");
         expect(observe.params).toEqual({

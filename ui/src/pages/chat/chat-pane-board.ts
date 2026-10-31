@@ -205,7 +205,7 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
       const mobile = this.mobileHost(state.sidebarLayout);
       if (options.automaticResource && mobile && !mobile.open) {
         // Fresh discovery reveals the resource; restoring a saved layout does not.
-        this.setChatSidePanelOpen(true);
+        mobile.navigate({ area: "panels", slot: options.automaticResource });
       } else if (
         options.retireAutomaticResource &&
         mobile?.destination.area === "panels" &&
