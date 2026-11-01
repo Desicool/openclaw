@@ -1,5 +1,6 @@
 import type { ApplicationContext } from "../../app/context.ts";
 import { gatewayPresentationScope } from "../../app/gateway-presentation-scope.ts";
+import type { CommandPaletteOpenInput } from "../../components/command-palette-contract.ts";
 import { closeMenusWithin } from "../../components/solid/menu.tsx";
 import { t } from "../../i18n/index.ts";
 import { registerCommandPaletteEnglish } from "../../i18n/locales/en-command-palette.ts";
@@ -87,6 +88,7 @@ export class PaletteSessionDraft {
       changed: () => void;
       updateComplete: () => Promise<unknown>;
       onClose: () => void;
+      onOpen: (input: CommandPaletteOpenInput) => void;
       onMessageChange?: (message: string) => void;
       onAttachmentModeChange?: () => void;
     },
@@ -328,10 +330,53 @@ export class PaletteSessionDraft {
 
   private async submitOwnedDraft(): Promise<void> {
     this.synchronizePresentationScope();
-    if (!this.read().open || this.coldSubmit || !this.hasPrompt || !this.draft) {
+    if (!this.read().open || this.coldSubmit || this.submitting || !this.hasPrompt || !this.draft) {
       return;
     }
-    await this.draft.submission.submit(undefined, true);
+    const submission = this.draft.submission.submit(undefined, true);
+    // Local admission is synchronous. Once past it, release the launcher: the draft
+    // keeps custody, and acceptance or failure arrives as a notice.
+    if (this.submitting) {
+      this.closeIfOpen();
+    }
+    await submission;
+    this.reportClosedFailure();
+  }
+
+  private closeIfOpen() {
+    if (this.read().open) {
+      this.callbacks.onClose();
+    }
+  }
+
+  /** Failures the released launcher can no longer show inline reopen its retained prompt. */
+  private reportClosedFailure() {
+    const submission = this.draft?.submission;
+    const error =
+      submission?.error ??
+      (submission?.submissionOutcomeUnknown ? submission.submitDisabledReason() : undefined);
+    // Rejected first turns already have a session notice and destination recovery.
+    if (!error || this.read().open || this.rejectedOpen) {
+      return;
+    }
+    // The notice action retires before the palette closes; return to the work it interrupted.
+    const { activeElement } = this.element.ownerDocument;
+    const returnFocus = activeElement instanceof HTMLElement ? activeElement : null;
+    showToast({
+      fifo: true,
+      message: t("palette.startFailed", { error }),
+      actionLabel: t("palette.editPrompt"),
+      onAction: () => {
+        const value = this.message;
+        this.callbacks.onOpen({
+          value,
+          selectionStart: value.length,
+          selectionEnd: value.length,
+          selectionDirection: "none",
+          returnFocus: returnFocus?.isConnected ? returnFocus : undefined,
+        });
+      },
+    });
   }
 
   submitCold(
@@ -521,7 +566,7 @@ export class PaletteSessionDraft {
       this.rejectedOpen = openSession;
       this.callbacks.changed();
     } else {
-      this.callbacks.onClose();
+      this.closeIfOpen();
     }
   }
 }
