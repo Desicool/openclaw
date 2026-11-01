@@ -17,6 +17,11 @@ export type CronProps = Omit<CronViewProps, OptionalViewProp | "gateway"> &
   Partial<Pick<CronViewProps, OptionalViewProp>> & {
     gateway: CronViewProps["gateway"] | null;
     toggleSavingJobId?: string | null;
+    focus?: {
+      readonly target: string | undefined;
+      remember: (id: string, order: string[]) => void;
+      ref: (id: string) => (element: HTMLElement) => void;
+    };
   };
 
 export type CronPanelMode = "overview" | "create" | "job";
